@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mi cuenta – NERIN</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="logo"><a href="/index.html">NERIN</a></div>
+      <nav>
+        <ul>
+          <li><a href="/index.html">Inicio</a></li>
+          <li><a href="/shop.html">Productos</a></li>
+          <li><a href="/cart.html">Carrito</a></li>
+          <li><a href="/account.html" class="active">Mi cuenta</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main class="container">
+      <h2>Mi cuenta</h2>
+      <div id="accountInfo"></div>
+      <h3>Mis pedidos</h3>
+      <table class="admin-table" id="userOrdersTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Fecha</th>
+            <th>Productos</th>
+            <th>Estado</th>
+            <th>Seguimiento</th>
+            <th>Transportista</th>
+            <th>Total</th>
+            <th>Factura</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <h3>Mis devoluciones</h3>
+      <table class="admin-table" id="userReturnsTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Pedido</th>
+            <th>Fecha</th>
+            <th>Motivo</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </main>
+    <script type="module" src="/js/account.js"></script>
+    <!-- Configuración y analíticas globales -->
+    <script type="module" src="/js/config.js"></script>
+  </body>
+</html>

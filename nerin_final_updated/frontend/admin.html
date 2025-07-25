@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panel de Administración – NERIN</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="logo"><a href="/index.html">NERIN</a></div>
+      <nav>
+        <ul>
+          <li><a href="/index.html">Inicio</a></li>
+          <li><a href="/shop.html">Productos</a></li>
+          <li><a href="/cart.html">Carrito</a></li>
+          <li><a href="/admin.html" class="active">Admin</a></li>
+        </ul>
+        <!-- Selector de idioma -->
+        <select id="langSelect" style="margin-left:1rem; padding:0.2rem; border:1px solid var(--color-border); border-radius: var(--radius);">
+          <option value="es">ES</option>
+          <option value="en">EN</option>
+        </select>
+      </nav>
+    </header>
+    <main class="container admin-container">
+      <h2 data-i18n="admin.title">Panel de administración</h2>
+      <p data-i18n="admin.subtitle">Gestiona productos, pedidos, clientes y métricas desde aquí.</p>
+      <div class="admin-nav">
+        <button data-target="productsSection" class="active" data-i18n="nav.products">Productos</button>
+        <button data-target="ordersSection" data-i18n="nav.orders">Pedidos</button>
+        <button data-target="clientsSection" data-i18n="nav.clients">Clientes</button>
+        <button data-target="metricsSection" data-i18n="nav.metrics">Métricas</button>
+        <button data-target="returnsSection" data-i18n="nav.returns">Devoluciones</button>
+        <button data-target="configSection" data-i18n="nav.config">Configuración</button>
+        <button data-target="suppliersSection" data-i18n="nav.suppliers">Proveedores</button>
+        <button data-target="purchaseOrdersSection" data-i18n="nav.purchase">Órdenes de compra</button>
+        <button data-target="analyticsSection" data-i18n="nav.analytics">Analíticas</button>
+      </div>
+      <section id="productsSection" class="admin-section">
+        <h3>Gestión de productos</h3>
+        <table class="admin-table" id="productsTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>SKU</th>
+              <th>Nombre</th>
+              <th>Marca</th>
+              <th>Modelo</th>
+              <th>Stock</th>
+              <th>Mín. Stock</th>
+              <th>Precio (Min.)</th>
+              <th>Precio (May.)</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h4>Agregar producto</h4>
+        <form id="addProductForm" class="admin-form">
+          <input type="text" id="newSku" placeholder="SKU" required />
+          <input type="text" id="newName" placeholder="Nombre" required />
+          <input type="text" id="newBrand" placeholder="Marca" required />
+          <input type="text" id="newModel" placeholder="Modelo" required />
+          <input type="number" id="newStock" placeholder="Stock" min="0" required />
+          <input type="number" id="newMinStock" placeholder="Mín. stock" min="0" value="5" required />
+          <input type="number" id="newPriceMinor" placeholder="Precio minorista" min="0" required />
+          <input type="number" id="newPriceMajor" placeholder="Precio mayorista" min="0" required />
+          <!-- Campos adicionales para descripción y atributos -->
+          <textarea id="newDescription" placeholder="Descripción" style="width:100%; min-height:60px; padding:0.4rem; border:1px solid var(--color-border); border-radius: var(--radius);" required></textarea>
+          <input type="text" id="newCategory" placeholder="Categoría" />
+          <input type="number" id="newWeight" placeholder="Peso (g)" min="0" step="0.1" />
+          <input type="text" id="newDimensions" placeholder="Dimensiones (L×A×A cm)" />
+          <input type="text" id="newColor" placeholder="Color" />
+          <label style="display:flex; align-items:center; gap:0.5rem; margin:0.25rem 0;">
+            <input type="checkbox" id="newVipOnly" /> Solo VIP
+          </label>
+          <input type="text" id="newImage" placeholder="Ruta de imagen (e.g., /assets/miimagen.png)" required />
+          <button type="submit" class="button primary">Agregar</button>
+        </form>
+      </section>
+      <section id="ordersSection" class="admin-section" style="display: none;">
+        <h3>Gestión de pedidos</h3>
+        <table class="admin-table" id="ordersTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Fecha</th>
+              <th>Productos</th>
+              <th>Estado</th>
+              <th>Seguimiento</th>
+              <th>Transportista</th>
+              <th>Factura</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <section id="clientsSection" class="admin-section" style="display: none;">
+        <h3>Clientes</h3>
+        <p>Listado de clientes con su saldo y límite de crédito. Puedes registrar pagos para reducir su deuda.</p>
+        <table class="admin-table" id="clientsTable">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Nombre</th>
+              <th>Saldo</th>
+              <th>Límite</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+      <section id="metricsSection" class="admin-section" style="display: none;">
+        <h3>Métricas</h3>
+        <div id="metricsContent"></div>
+      </section>
+
+      <!-- Sección de devoluciones -->
+      <section id="returnsSection" class="admin-section" style="display: none;">
+        <h3>Devoluciones</h3>
+        <p>Gestiona las solicitudes de devolución enviadas por los clientes. Puedes aprobar o rechazar cada solicitud.</p>
+        <table class="admin-table" id="returnsTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Pedido</th>
+              <th>Cliente</th>
+              <th>Fecha</th>
+              <th>Motivo</th>
+              <th>Estado</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <!-- Sección de configuración general -->
+      <section id="configSection" class="admin-section" style="display: none;">
+        <h3>Configuración</h3>
+        <p>Actualiza parámetros globales como identificadores de Google Analytics, Meta Pixel, número de WhatsApp y la lista de transportistas disponibles para los envíos.</p>
+        <form id="configForm" class="admin-form">
+          <input type="text" id="configGAId" placeholder="Google Analytics ID (p.ej. G-XXXXXXX)" />
+          <input type="text" id="configMetaId" placeholder="Meta Pixel ID" />
+          <input type="text" id="configWhatsApp" placeholder="Número de WhatsApp (sin signos)" />
+          <textarea id="configCarriers" placeholder="Transportistas por defecto (uno por línea)" style="width:100%; min-height:80px; padding:0.4rem; border:1px solid var(--color-border); border-radius: var(--radius);"></textarea>
+          <button type="submit" class="button primary">Guardar configuración</button>
+        </form>
+      </section>
+
+      <!-- Sección de proveedores -->
+      <section id="suppliersSection" class="admin-section" style="display: none;">
+        <h3>Gestión de proveedores</h3>
+        <p>Registra y administra los socios comerciales que suministran los productos. Aquí puedes crear, editar o eliminar proveedores.</p>
+        <table class="admin-table" id="suppliersTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Contacto</th>
+              <th>Email</th>
+              <th>Teléfono</th>
+              <th>Dirección</th>
+              <th>Términos</th>
+              <th>Valoración</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h4>Agregar proveedor</h4>
+        <form id="addSupplierForm" class="admin-form">
+          <input type="text" id="supName" placeholder="Nombre" required />
+          <input type="text" id="supContact" placeholder="Contacto" required />
+          <input type="email" id="supEmail" placeholder="Correo electrónico" />
+          <input type="text" id="supPhone" placeholder="Teléfono" />
+          <input type="text" id="supAddress" placeholder="Dirección" />
+          <input type="text" id="supTerms" placeholder="Condiciones de pago" />
+          <input type="number" id="supRating" placeholder="Valoración (0–5)" step="0.1" min="0" max="5" />
+          <button type="submit" class="button primary">Agregar proveedor</button>
+        </form>
+      </section>
+
+      <!-- Sección de órdenes de compra -->
+      <section id="purchaseOrdersSection" class="admin-section" style="display: none;">
+        <h3>Órdenes de compra</h3>
+        <p>Genera solicitudes de compra a tus proveedores cuando necesites reponer stock. Cambia el estado a <em>recibido</em> para actualizar automáticamente el inventario.</p>
+        <table class="admin-table" id="purchaseOrdersTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Fecha</th>
+              <th>Proveedor</th>
+              <th>Ítems</th>
+              <th>Estado</th>
+              <th>Fecha estimada</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <h4>Crear orden de compra</h4>
+        <form id="addPurchaseOrderForm" class="admin-form">
+          <select id="poSupplierSelect" required>
+            <option value="">Seleccionar proveedor</option>
+          </select>
+          <div id="poItemsContainer" class="po-items-container">
+            <!-- Se agregarán inputs dinámicamente -->
+          </div>
+          <button type="button" id="addPoItemBtn" class="button">Añadir ítem</button>
+          <input type="date" id="poEta" placeholder="Fecha estimada de recepción" />
+          <button type="submit" class="button primary">Crear orden</button>
+        </form>
+      </section>
+
+      <!-- Sección de analíticas avanzadas -->
+      <section id="analyticsSection" class="admin-section" style="display: none;">
+        <h3>Analíticas detalladas</h3>
+        <p>Consulta estadísticas avanzadas sobre tus ventas, categorías, devoluciones y clientes. Estas métricas te ayudan a tomar decisiones informadas.</p>
+        <div id="analyticsContent"></div>
+      </section>
+    </main>
+    <script type="module" src="/js/admin.js"></script>
+    <!-- Configuración y analíticas globales -->
+    <script type="module" src="/js/config.js"></script>
+    <!-- Traducciones -->
+    <script type="module" src="/js/lang.js"></script>
+  </body>
+</html>

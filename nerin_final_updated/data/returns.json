@@ -1,0 +1,20 @@
+{
+  "returns": [
+    {
+      "id": "RET-mdhdupdt-952",
+      "orderId": "ORD-mdhdukaj-508",
+      "customerEmail": "test@example.com",
+      "items": [
+        {
+          "id": "1",
+          "name": "Pantalla",
+          "price": 100,
+          "quantity": 1
+        }
+      ],
+      "reason": "Prueba",
+      "status": "pendiente",
+      "date": "2025-07-24T12:42:53.057Z"
+    }
+  ]
+}

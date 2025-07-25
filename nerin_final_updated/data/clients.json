@@ -1,0 +1,36 @@
+{
+  "clients": [
+    {
+      "email": "mayorista@nerin.com",
+      "name": "Cliente Mayorista",
+      "cuit": "30-00000000-0",
+      "condicion_iva": "Responsable Inscripto",
+      "balance": 0,
+      "limit": 100000,
+      "phone": "+54 11 4444-1111",
+      "address": "Av. Santa Fe 1234",
+      "city": "Buenos Aires",
+      "country": "Argentina",
+      "returnCount": 0,
+      "blockedReturns": false,
+      "blocked": false,
+      "notes": "Cliente principal del canal mayorista"
+    },
+    {
+      "email": "test@example.com",
+      "name": "Tester",
+      "cuit": "",
+      "condicion_iva": "",
+      "balance": 100,
+      "limit": 100000,
+      "phone": "+54 11 5555-5555",
+      "address": "Calle de Prueba 456",
+      "city": "Rosario",
+      "country": "Argentina",
+      "returnCount": 0,
+      "blockedReturns": false,
+      "blocked": false,
+      "notes": ""
+    }
+  ]
+}
