@@ -290,6 +290,11 @@ en datos y conocer mejor el comportamiento de los clientes【325860026011719†L
 Puedes visualizar estas métricas en la nueva página *Analíticas* del
 panel de administración, que incluye gráficos y tablas dinámicas.
 
+A partir de esta versión se incorporan métricas adicionales como la evolución
+de ventas mensuales, el valor promedio por pedido, la tasa de devoluciones y el
+producto con más devoluciones. Estas estadísticas amplían la visibilidad sobre
+el negocio y facilitan la detección de tendencias.
+
 ### Traducciones e internacionalización
 
 El frontend incorpora un sistema básico de internacionalización que permite
