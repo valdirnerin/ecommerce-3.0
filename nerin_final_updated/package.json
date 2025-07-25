@@ -9,5 +9,8 @@
   "dependencies": {
     "afip.ts": "^3.2.2",
     "mercadopago": "^2.8.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
   }
 }

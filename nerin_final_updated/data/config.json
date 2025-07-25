@@ -2,11 +2,7 @@
   "googleAnalyticsId": "",
   "metaPixelId": "",
   "whatsappNumber": "541112345678",
-  "defaultCarriers": [
-    "Andreani",
-    "Correo Argentino",
-    "OCA"
-  ],
+  "defaultCarriers": ["Andreani", "Correo Argentino", "OCA"],
   "mercadoPagoToken": "",
   "afipCUIT": "",
   "afipCert": "",
