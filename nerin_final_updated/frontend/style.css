@@ -22,8 +22,14 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue',
-    Helvetica, Arial, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    Helvetica,
+    Arial,
+    sans-serif;
   background-color: var(--color-bg);
   color: var(--color-secondary);
   line-height: 1.6;
@@ -81,7 +87,7 @@ nav a:hover {
   text-align: center;
   padding: 3rem 1rem;
   color: var(--color-secondary);
-  background-image: url('../assets/hero.png');
+  background-image: url("../assets/hero.png");
   background-size: cover;
   background-position: center;
   overflow: hidden;
@@ -89,7 +95,7 @@ nav a:hover {
 
 /* Capa de transparencia para suavizar la imagen de fondo */
 .hero::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: rgba(255, 255, 255, 0.7);
@@ -126,7 +132,9 @@ nav a:hover {
   border-radius: var(--radius);
   font-weight: 500;
   text-decoration: none;
-  transition: background-color var(--transition), color var(--transition);
+  transition:
+    background-color var(--transition),
+    color var(--transition);
 }
 
 .button.primary {
@@ -212,7 +220,9 @@ nav a:hover {
   flex-direction: column;
   justify-content: space-between;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  transition: transform var(--transition), box-shadow var(--transition);
+  transition:
+    transform var(--transition),
+    box-shadow var(--transition);
 }
 
 .product-card:hover {
@@ -296,7 +306,7 @@ nav a:hover {
   gap: 0.5rem;
 }
 
-.add-to-cart input[type='number'] {
+.add-to-cart input[type="number"] {
   width: 60px;
   padding: 0.4rem;
   border: 1px solid var(--color-border);
@@ -626,7 +636,9 @@ nav a:hover {
   font-size: 1rem;
   cursor: pointer;
   border-bottom: 3px solid transparent;
-  transition: border-color var(--transition), color var(--transition);
+  transition:
+    border-color var(--transition),
+    color var(--transition);
 }
 
 .admin-nav button:hover {
