@@ -7,6 +7,7 @@ Introducción
 Este proyecto es un punto de partida para el sistema ERP con tienda en línea
 solicitado por NERIN Repuestos. Incluye un backend sencillo implementado con
 Node.js (sin frameworks externos), un frontend estático pensado para móviles
+El diseño está optimizado para pantallas desde iPhone X hasta iPhone 16 Pro Max.
 y un archivo de datos editable con productos de ejemplo. El objetivo es que
 puedas probar la aplicación sin necesidad de saber programar y que cuentes con
 las bases necesarias para ampliar las funcionalidades (facturación, cuentas
