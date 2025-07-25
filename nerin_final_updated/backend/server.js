@@ -13,6 +13,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const mercadopago = require('mercadopago');
+const { Afip } = require('afip.ts');
+const CONFIG = getConfig();
+if (CONFIG.mercadoPagoToken) {
+  mercadopago.configure({ access_token: CONFIG.mercadoPagoToken });
+}
 
 // Usuarios de ejemplo para login
 const USERS = [
@@ -1192,6 +1198,66 @@ const server = http.createServer((req, res) => {
       console.error(err);
       return sendJson(res, 500, { error: 'No se pudieron obtener las alertas de stock' });
     }
+  }
+
+  // === Integración con Mercado Pago ===
+  if (pathname === '/api/mercadopago/preference' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', async () => {
+      try {
+        const preference = JSON.parse(body || '{}');
+        const result = await mercadopago.preferences.create(preference);
+        return sendJson(res, 200, { preference: result.body });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 500, { error: 'Error al crear preferencia de pago' });
+      }
+    });
+    return;
+  }
+
+  // === Integración con AFIP (facturación electrónica) ===
+  if (pathname === '/api/afip/invoice' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body || '{}');
+        const afip = new Afip({ CUIT: CONFIG.afipCUIT, cert: CONFIG.afipCert, key: CONFIG.afipKey });
+        const response = await afip.ElectronicBilling.createVoucher(data);
+        return sendJson(res, 200, { afip: response });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 500, { error: 'Error al generar factura con AFIP' });
+      }
+    });
+    return;
+  }
+
+  // === Integración con Andreani (envíos) ===
+  if (pathname === '/api/shipping/andreani' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      try {
+        const shipment = JSON.parse(body || '{}');
+        // Aquí se integraría con el servicio real de Andreani
+        // Actualmente se devuelve una respuesta simulada
+        const tracking = 'AND-' + Date.now();
+        return sendJson(res, 200, { tracking });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 500, { error: 'Error al generar envío' });
+      }
+    });
+    return;
   }
   
 
