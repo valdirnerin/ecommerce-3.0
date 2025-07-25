@@ -199,19 +199,25 @@ nav a:hover {
 
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 1.5rem;
 }
 
 .product-card {
-  background-color: var(--color-muted);
+  background-color: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 1rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: box-shadow var(--transition);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 /* Fila dinámica para ítems de órdenes de compra */
@@ -727,6 +733,54 @@ footer .legal {
   font-size: 0.8rem;
   color: #555;
   margin-top: 1rem;
+}
+
+/* ====== Estilos para la página de detalle de producto ====== */
+.product-detail-container {
+  display: flex;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.product-detail {
+  max-width: 600px;
+  width: 100%;
+}
+
+.product-detail-image {
+  width: 100%;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.product-detail-desc {
+  margin: 0.5rem 0 1rem;
+}
+
+.product-detail-attrs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+}
+
+.product-detail-buy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.product-detail-unit-price {
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .product-detail-buy {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 /* Ajustes para iPhone X y dispositivos con notch */
 @media (max-width: 430px) {

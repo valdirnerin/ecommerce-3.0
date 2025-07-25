@@ -6,5 +6,9 @@
     "Andreani",
     "Correo Argentino",
     "OCA"
-  ]
+  ],
+  "mercadoPagoToken": "",
+  "afipCUIT": "",
+  "afipCert": "",
+  "afipKey": ""
 }

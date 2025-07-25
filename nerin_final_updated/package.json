@@ -6,5 +6,8 @@
   "scripts": {
     "start": "node backend/server.js"
   },
-  "dependencies": {}
+  "dependencies": {
+    "afip.ts": "^3.2.2",
+    "mercadopago": "^2.8.0"
+  }
 }
