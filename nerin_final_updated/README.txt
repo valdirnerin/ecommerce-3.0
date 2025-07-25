@@ -149,26 +149,28 @@ Las imágenes se guardan en la carpeta `assets/`. Para sustituir la imagen
 principal de la portada (hero), reemplaza `hero.png` por otra imagen con
 el mismo nombre. Las imágenes de productos se definen en `data/products.json`.
 
-Cómo activar o desactivar Mercado Pago
---------------------------------------
+Integración con Mercado Pago y AFIP
+----------------------------------------
 
-Este prototipo no incluye integración con pasarelas de pago. Para añadir
-Mercado Pago u otra plataforma deberás crear un botón en el proceso de
-checkout (no implementado en esta versión) que redirija al usuario a la
-pasarela con el monto correspondiente. Las credenciales de Mercado Pago
-deben obtenerse desde tu cuenta y configurarse en el backend. Consulta la
-documentación oficial de Mercado Pago para detalles de integración.
+Esta versión ya incorpora rutas básicas para **Mercado Pago** y **AFIP**.
+Sigue estos pasos para ponerlas en funcionamiento:
+
+1. Crea una cuenta de Mercado Pago e ingresa a las [credenciales de producción](https://www.mercadopago.com.ar/developers/panel/credentials) para obtener tu token de acceso.
+2. En el servicio de AFIP genera el certificado digital (archivo `.crt`) y la clave privada (`.key`) correspondiente al CUIT de tu empresa.
+3. Abre el archivo `data/config.json` y completa los campos `mercadoPagoToken`, `afipCUIT`, `afipCert` y `afipKey` con la información obtenida.
+4. Reinicia el servidor con `npm start` para que los cambios surtan efecto.
+
+Una vez configurado, desde el frontend puedes crear una preferencia de pago enviando el carrito a `/api/mercadopago/preference` y redirigir al usuario a la URL devuelta. Para generar una factura electrónica debes hacer un `POST` a `/api/afip/invoice` con los datos del comprobante, que se procesará mediante la biblioteca `afip.ts`.
 
 El archivo `frontend/cart.html` incluye dos botones: **Enviar por
 WhatsApp** y **Confirmar pedido**. El primero genera un enlace a la API
 de WhatsApp con el resumen de la compra. Por defecto envía el mensaje al
 número `541112345678`. Puedes cambiar este teléfono editando el valor
 `phone` en `frontend/js/cart.js` (variable dentro del método
-`whatsappBtn.onclick`). El botón **Confirmar pedido** realiza una
-petición POST a `/api/checkout` que actualmente sólo registra la orden en
-la consola del servidor. Si deseas implementar Mercado Pago, este sería
-el lugar para generar la preferencia de pago y devolver el enlace de
-pago al cliente.
+`whatsappBtn.onclick`). El botón **Confirmar pedido** envía una petición
+POST a `/api/checkout`. A partir de allí puedes invocar el endpoint de
+Mercado Pago para generar la preferencia y redirigir al cliente con la
+URL devuelta por la API.
 
 Despliegue en Vercel, Netlify o Render
 --------------------------------------
