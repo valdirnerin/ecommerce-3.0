@@ -39,7 +39,7 @@
       </div>
       <section id="productsSection" class="admin-section">
         <h3>Gestión de productos</h3>
-        <table class="admin-table" id="productsTable">
+        <div class="table-wrapper"><table class="admin-table" id="productsTable">
           <thead>
             <tr>
               <th>ID</th>
@@ -55,7 +55,7 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+        </table></div>
         <h4>Agregar producto</h4>
         <form id="addProductForm" class="admin-form">
           <input type="text" id="newSku" placeholder="SKU" required />
@@ -81,7 +81,7 @@
       </section>
       <section id="ordersSection" class="admin-section" style="display: none;">
         <h3>Gestión de pedidos</h3>
-        <table class="admin-table" id="ordersTable">
+        <div class="table-wrapper"><table class="admin-table" id="ordersTable">
           <thead>
             <tr>
               <th>ID</th>
@@ -95,12 +95,12 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+        </table></div>
       </section>
       <section id="clientsSection" class="admin-section" style="display: none;">
         <h3>Clientes</h3>
         <p>Listado de clientes con su saldo y límite de crédito. Puedes registrar pagos para reducir su deuda.</p>
-        <table class="admin-table" id="clientsTable">
+        <div class="table-wrapper"><table class="admin-table" id="clientsTable">
           <thead>
             <tr>
               <th>Email</th>
@@ -111,7 +111,7 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+        </table></div>
       </section>
       <section id="metricsSection" class="admin-section" style="display: none;">
         <h3>Métricas</h3>
@@ -122,7 +122,7 @@
       <section id="returnsSection" class="admin-section" style="display: none;">
         <h3>Devoluciones</h3>
         <p>Gestiona las solicitudes de devolución enviadas por los clientes. Puedes aprobar o rechazar cada solicitud.</p>
-        <table class="admin-table" id="returnsTable">
+        <div class="table-wrapper"><table class="admin-table" id="returnsTable">
           <thead>
             <tr>
               <th>ID</th>
@@ -135,7 +135,7 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+        </table></div>
       </section>
 
       <!-- Sección de configuración general -->
@@ -155,7 +155,7 @@
       <section id="suppliersSection" class="admin-section" style="display: none;">
         <h3>Gestión de proveedores</h3>
         <p>Registra y administra los socios comerciales que suministran los productos. Aquí puedes crear, editar o eliminar proveedores.</p>
-        <table class="admin-table" id="suppliersTable">
+        <div class="table-wrapper"><table class="admin-table" id="suppliersTable">
           <thead>
             <tr>
               <th>ID</th>
@@ -170,7 +170,7 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+        </table></div>
         <h4>Agregar proveedor</h4>
         <form id="addSupplierForm" class="admin-form">
           <input type="text" id="supName" placeholder="Nombre" required />
@@ -188,7 +188,7 @@
       <section id="purchaseOrdersSection" class="admin-section" style="display: none;">
         <h3>Órdenes de compra</h3>
         <p>Genera solicitudes de compra a tus proveedores cuando necesites reponer stock. Cambia el estado a <em>recibido</em> para actualizar automáticamente el inventario.</p>
-        <table class="admin-table" id="purchaseOrdersTable">
+        <div class="table-wrapper"><table class="admin-table" id="purchaseOrdersTable">
           <thead>
             <tr>
               <th>ID</th>
@@ -201,7 +201,7 @@
             </tr>
           </thead>
           <tbody></tbody>
-        </table>
+        </table></div>
         <h4>Crear orden de compra</h4>
         <form id="addPurchaseOrderForm" class="admin-form">
           <select id="poSupplierSelect" required>
