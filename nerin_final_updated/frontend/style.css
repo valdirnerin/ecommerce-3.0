@@ -693,3 +693,15 @@ nav a:hover {
 .admin-form button:hover {
   background-color: #0057c2;
 }
+/* Ajustes para iPhone X y dispositivos con notch */
+@media (max-width: 430px) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    padding-top: calc(1rem + env(safe-area-inset-top));
+  }
+  #whatsapp-button {
+    bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+}
