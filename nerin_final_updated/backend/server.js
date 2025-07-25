@@ -376,39 +376,47 @@ const server = http.createServer((req, res) => {
     });
     req.on('end', () => {
       try {
-        const { email, password, name } = JSON.parse(body || '{}');
+        const { email, password, name, role } = JSON.parse(body || '{}');
         if (!email || !password) {
           return sendJson(res, 400, { error: 'Correo y contraseña son obligatorios' });
         }
-        // Verificar si ya existe el usuario (en usuarios predefinidos, registrados o clientes)
+        // Verificar si ya existe el usuario (solo en usuarios predefinidos o registrados)
         const inPredefined = USERS.some((u) => u.email === email);
         const regUsers = getUsers();
         const inRegistered = regUsers.some((u) => u.email === email);
-        const clients = getClients();
-        const inClients = clients.some((c) => c.email === email);
-        if (inPredefined || inRegistered || inClients) {
+        if (inPredefined || inRegistered) {
           return sendJson(res, 409, { error: 'Ya existe una cuenta con ese correo' });
         }
+        const clients = getClients();
+
+        const userRole = role === 'minorista' ? 'minorista' : 'mayorista';
+
         // Agregar a usuarios registrados
-        const newUser = { email, password, role: 'mayorista', name: name || '' };
+        const newUser = { email, password, role: userRole, name: name || '' };
         regUsers.push(newUser);
         saveUsers(regUsers);
-        // Crear cliente con saldo inicial 0
-        clients.push({
-          email,
-          name: name || 'Cliente',
-          cuit: '',
-          condicion_iva: '',
-          balance: 0,
-          limit: 100000
-        });
+
+        // Actualizar cliente existente o crearlo si no existe
+        const clientIdx = clients.findIndex((c) => c.email === email);
+        if (clientIdx === -1) {
+          clients.push({
+            email,
+            name: name || 'Cliente',
+            cuit: '',
+            condicion_iva: '',
+            balance: 0,
+            limit: 100000
+          });
+        } else {
+          clients[clientIdx].name = name || clients[clientIdx].name || 'Cliente';
+        }
         saveClients(clients);
         // Generar token
         const token = Buffer.from(`${email}:${Date.now()}`).toString('base64');
         return sendJson(res, 201, {
           success: true,
           token,
-          role: 'mayorista',
+          role: userRole,
           name: name || 'Cliente'
         });
       } catch (err) {

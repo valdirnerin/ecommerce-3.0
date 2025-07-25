@@ -170,6 +170,10 @@ nav a:hover {
   text-decoration: none;
   font-size: 0.8rem;
 }
+#whatsapp-button img {
+  width: 28px;
+  height: 28px;
+}
 
 /* Estilos tienda */
 .container {
@@ -305,6 +309,17 @@ nav a:hover {
   transition: background-color var(--transition);
 }
 
+.product-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.product-actions .info-btn {
+  flex: 1;
+  padding: 0.5rem;
+}
+
 /* Lista de atributos en la tarjeta de producto */
 .product-card .attributes {
   list-style: none;
@@ -427,6 +442,19 @@ nav a:hover {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   box-sizing: border-box;
+}
+.forgot-wrapper {
+  text-align: right;
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+}
+.forgot-wrapper a {
+  font-size: 0.9rem;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+.forgot-wrapper a:hover {
+  text-decoration: underline;
 }
 
 .login-container button {

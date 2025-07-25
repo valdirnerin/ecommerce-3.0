@@ -196,9 +196,22 @@ function createProductCard(product) {
     });
     cartDiv.appendChild(addBtn);
   }
+  // Contenedor de acciones (agregar y más info)
+  const actionsDiv = document.createElement('div');
+  actionsDiv.className = 'product-actions';
   if (cartDiv.childNodes.length > 0) {
-    card.appendChild(cartDiv);
+    actionsDiv.appendChild(cartDiv);
   }
+  const infoBtn = document.createElement('button');
+  infoBtn.className = 'button secondary info-btn';
+  infoBtn.textContent = 'Más info';
+  infoBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    window.location.href = `/product.html?id=${product.id}`;
+  });
+  actionsDiv.appendChild(infoBtn);
+  card.appendChild(actionsDiv);
+
   // Hacer clic en la tarjeta para ver el detalle, excepto cuando se hace clic en el área de agregar al carrito
   card.addEventListener('click', (evt) => {
     // Evitar navegar si se hace clic en el botón o input de cantidad

@@ -28,6 +28,11 @@
         <input type="email" id="regEmail" placeholder="Correo electrónico" required />
         <input type="password" id="regPassword" placeholder="Contraseña" required />
         <input type="password" id="regConfirm" placeholder="Confirmar contraseña" required />
+        <label for="regRole">Tipo de cuenta</label>
+        <select id="regRole">
+          <option value="mayorista">Mayorista</option>
+          <option value="minorista">Minorista</option>
+        </select>
         <button type="submit" class="button primary">Registrarse</button>
         <p id="regError" style="color:var(--color-danger); display:none; margin-top:0.5rem;"></p>
       </form>
