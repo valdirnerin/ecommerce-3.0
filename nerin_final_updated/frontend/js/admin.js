@@ -794,6 +794,7 @@ async function loadClients() {
 
 // ------------ Métricas ------------
 const metricsContent = document.getElementById("metricsContent");
+let salesChartInstance;
 
 async function loadMetrics() {
   try {
@@ -809,16 +810,8 @@ async function loadMetrics() {
     const iva = Math.round(totalAnnual * 0.21);
     html += `<p>Total de ventas (neto): $${totalAnnual.toLocaleString("es-AR")}</p>`;
     html += `<p>IVA (21%): $${iva.toLocaleString("es-AR")}</p>`;
-    // Ventas por mes (gráfico de barras)
     html += "<h4>Ventas por mes</h4>";
-    html += '<div class="bar-chart">';
-    const monthVals = Object.values(m.salesByMonth);
-    const maxMonth = monthVals.length ? Math.max(...monthVals) : 0;
-    Object.entries(m.salesByMonth).forEach(([month, total]) => {
-      const width = maxMonth > 0 ? ((total / maxMonth) * 100).toFixed(2) : 0;
-      html += `<div class="bar-row"><span class="bar-label">${month}</span><div class="bar" style="width:${width}%"></div><span class="bar-value">$${total.toLocaleString("es-AR")}</span></div>`;
-    });
-    html += "</div>";
+    html += '<canvas id="salesChartCanvas" height="180"></canvas>';
     // Productos más vendidos (gráfico de barras)
     html += "<h4>Productos más vendidos</h4>";
     html += '<div class="bar-chart">';
@@ -830,6 +823,39 @@ async function loadMetrics() {
     });
     html += "</div>";
     metricsContent.innerHTML = html;
+    const labels = Object.keys(m.salesByMonth);
+    const values = Object.values(m.salesByMonth);
+    const ctx = document.getElementById("salesChartCanvas").getContext("2d");
+    if (salesChartInstance) {
+      salesChartInstance.destroy();
+    }
+    salesChartInstance = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          {
+            label: "Ventas",
+            data: values,
+            backgroundColor: "#3b82f6",
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `$${ctx.parsed.y.toLocaleString("es-AR")}`,
+            },
+          },
+        },
+        scales: {
+          y: { beginAtZero: true },
+        },
+      },
+    });
   } catch (err) {
     console.error(err);
     metricsContent.textContent = "No se pudieron cargar las métricas.";
