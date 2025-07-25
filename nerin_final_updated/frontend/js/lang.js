@@ -28,6 +28,10 @@ const translations = {
     "suppliers.title": "Gestión de proveedores",
     "purchase.title": "Órdenes de compra",
     "analytics.title": "Analíticas detalladas",
+    "analytics.monthlySales": "Ventas por mes",
+    "analytics.avgOrder": "Valor medio de pedido",
+    "analytics.returnRate": "Tasa de devoluciones",
+    "analytics.mostReturned": "Producto más devuelto",
   },
   en: {
     "admin.title": "Administration Panel",
@@ -50,6 +54,10 @@ const translations = {
     "suppliers.title": "Supplier Management",
     "purchase.title": "Purchase Orders",
     "analytics.title": "Detailed Analytics",
+    "analytics.monthlySales": "Sales by month",
+    "analytics.avgOrder": "Average order value",
+    "analytics.returnRate": "Return rate",
+    "analytics.mostReturned": "Most returned product",
   },
 };
 

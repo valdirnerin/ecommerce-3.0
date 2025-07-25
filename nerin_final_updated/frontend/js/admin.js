@@ -539,8 +539,16 @@ async function loadAnalytics() {
     const data = await res.json();
     const container = document.getElementById("analyticsContent");
     container.innerHTML = "";
-    const { salesByCategory, salesByProduct, returnsByProduct, topCustomers } =
-      data.analytics;
+    const {
+      salesByCategory,
+      salesByProduct,
+      returnsByProduct,
+      topCustomers,
+      monthlySales,
+      averageOrderValue,
+      returnRate,
+      mostReturnedProduct,
+    } = data.analytics;
 
     /**
      * Helper para construir un gráfico de barras horizontal.
@@ -603,6 +611,25 @@ async function loadAnalytics() {
     container.appendChild(
       buildBarChart("Clientes con mayor facturación", clientTotals, ""),
     );
+
+    // Ventas por mes (valores monetarios)
+    container.appendChild(
+      buildBarChart("Ventas por mes", monthlySales, ""),
+    );
+
+    // Estadísticas adicionales
+    const stats = document.createElement("div");
+    stats.className = "analytics-stats";
+    const pAvg = document.createElement("p");
+    pAvg.textContent = `Valor medio de pedido: $${averageOrderValue.toFixed(2)}`;
+    const pRate = document.createElement("p");
+    pRate.textContent = `Tasa de devoluciones: ${(returnRate * 100).toFixed(2)}%`;
+    const pMost = document.createElement("p");
+    pMost.textContent = `Producto más devuelto: ${mostReturnedProduct || "N/A"}`;
+    stats.appendChild(pAvg);
+    stats.appendChild(pRate);
+    stats.appendChild(pMost);
+    container.appendChild(stats);
   } catch (err) {
     console.error(err);
     const container = document.getElementById("analyticsContent");

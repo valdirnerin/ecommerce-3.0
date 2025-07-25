@@ -142,7 +142,17 @@ function calculateDetailedAnalytics() {
   const salesByProduct = {};
   const returnsByProduct = {};
   const customerTotals = {};
+  const monthlySales = {};
+  let totalSales = 0;
+  let totalUnitsSold = 0;
+  let totalReturns = 0;
   orders.forEach((order) => {
+    totalSales += order.total || 0;
+    // Agrupar ventas por mes
+    if (order.date) {
+      const month = order.date.slice(0, 7); // YYYY-MM
+      monthlySales[month] = (monthlySales[month] || 0) + (order.total || 0);
+    }
     order.items.forEach((item) => {
       const prod = products.find((p) => p.id === item.id);
       if (prod) {
@@ -155,6 +165,7 @@ function calculateDetailedAnalytics() {
         salesByProduct[prod.name] =
           (salesByProduct[prod.name] || 0) + item.quantity;
       }
+      totalUnitsSold += item.quantity;
     });
     // Total por cliente
     if (order.customer && order.customer.email) {
@@ -170,6 +181,7 @@ function calculateDetailedAnalytics() {
         returnsByProduct[prod.name] =
           (returnsByProduct[prod.name] || 0) + item.quantity;
       }
+      totalReturns += item.quantity;
     });
   });
   // Top clientes
@@ -177,11 +189,21 @@ function calculateDetailedAnalytics() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
     .map(([email, total]) => ({ email, total }));
+  const averageOrderValue = orders.length ? totalSales / orders.length : 0;
+  const returnRate = totalUnitsSold > 0 ? totalReturns / totalUnitsSold : 0;
+  const mostReturnedEntry = Object.entries(returnsByProduct).sort(
+    (a, b) => b[1] - a[1],
+  )[0];
+  const mostReturnedProduct = mostReturnedEntry ? mostReturnedEntry[0] : null;
   return {
     salesByCategory,
     salesByProduct,
     returnsByProduct,
     topCustomers,
+    monthlySales,
+    averageOrderValue,
+    returnRate,
+    mostReturnedProduct,
   };
 }
 
