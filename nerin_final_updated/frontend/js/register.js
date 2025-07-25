@@ -16,6 +16,7 @@ form.addEventListener('submit', async (e) => {
   const email = document.getElementById('regEmail').value.trim();
   const pass = document.getElementById('regPassword').value;
   const confirm = document.getElementById('regConfirm').value;
+  const role = document.getElementById('regRole').value;
   if (pass !== confirm) {
     errorEl.textContent = 'Las contraseñas no coinciden';
     errorEl.style.display = 'block';
@@ -25,7 +26,7 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/api/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: pass, name })
+      body: JSON.stringify({ email, password: pass, name, role })
     });
     if (res.ok) {
       const data = await res.json();
