@@ -7,6 +7,7 @@
  */
 
 import { getUserRole, logout } from "./api.js";
+import { renderAnalyticsDashboard } from "./analytics.js";
 
 // Verificar rol de administrador o vendedor
 const currentRole = getUserRole();
@@ -534,107 +535,7 @@ if (addPoForm) {
 
 // ------------ Analíticas detalladas ------------
 async function loadAnalytics() {
-  try {
-    const res = await fetch("/api/analytics/detailed");
-    const data = await res.json();
-    const container = document.getElementById("analyticsContent");
-    container.innerHTML = "";
-    const {
-      salesByCategory,
-      salesByProduct,
-      returnsByProduct,
-      topCustomers,
-      monthlySales,
-      averageOrderValue,
-      returnRate,
-      mostReturnedProduct,
-    } = data.analytics;
-
-    /**
-     * Helper para construir un gráfico de barras horizontal.
-     * Recibe un objeto donde las claves son etiquetas y los valores números.
-     * Genera un fragmento HTML con barras proporcionales al valor máximo.
-     */
-    function buildBarChart(title, dataObj, valueSuffix = "") {
-      const wrapper = document.createElement("div");
-      const h4 = document.createElement("h4");
-      h4.textContent = title;
-      wrapper.appendChild(h4);
-      const barChart = document.createElement("div");
-      barChart.className = "bar-chart";
-      const values = Object.values(dataObj);
-      const maxVal = values.length ? Math.max(...values) : 0;
-      Object.entries(dataObj).forEach(([label, val]) => {
-        const width = maxVal > 0 ? ((val / maxVal) * 100).toFixed(2) : 0;
-        const row = document.createElement("div");
-        row.className = "bar-row";
-        const spanLabel = document.createElement("span");
-        spanLabel.className = "bar-label";
-        spanLabel.textContent = label;
-        const bar = document.createElement("div");
-        bar.className = "bar";
-        bar.style.width = `${width}%`;
-        const spanVal = document.createElement("span");
-        spanVal.className = "bar-value";
-        // Formatear valores numéricos
-        spanVal.textContent =
-          valueSuffix === "u."
-            ? `${val} ${valueSuffix}`
-            : `$${val.toLocaleString("es-AR")}${valueSuffix}`;
-        row.appendChild(spanLabel);
-        row.appendChild(bar);
-        row.appendChild(spanVal);
-        barChart.appendChild(row);
-      });
-      wrapper.appendChild(barChart);
-      return wrapper;
-    }
-    // Construir y agregar gráficos
-    // Ventas por categoría (valores monetarios)
-    container.appendChild(
-      buildBarChart("Ventas por categoría", salesByCategory, ""),
-    );
-    // Unidades vendidas por producto (cantidades)
-    container.appendChild(
-      buildBarChart("Unidades vendidas por producto", salesByProduct, " u."),
-    );
-    // Devoluciones por producto (cantidades)
-    container.appendChild(
-      buildBarChart("Devoluciones por producto", returnsByProduct, " u."),
-    );
-    // Clientes con mayor facturación (valores monetarios)
-    // Convertir topCustomers en un objeto { email: total }
-    const clientTotals = {};
-    topCustomers.forEach((c) => {
-      clientTotals[c.email] = c.total;
-    });
-    container.appendChild(
-      buildBarChart("Clientes con mayor facturación", clientTotals, ""),
-    );
-
-    // Ventas por mes (valores monetarios)
-    container.appendChild(
-      buildBarChart("Ventas por mes", monthlySales, ""),
-    );
-
-    // Estadísticas adicionales
-    const stats = document.createElement("div");
-    stats.className = "analytics-stats";
-    const pAvg = document.createElement("p");
-    pAvg.textContent = `Valor medio de pedido: $${averageOrderValue.toFixed(2)}`;
-    const pRate = document.createElement("p");
-    pRate.textContent = `Tasa de devoluciones: ${(returnRate * 100).toFixed(2)}%`;
-    const pMost = document.createElement("p");
-    pMost.textContent = `Producto más devuelto: ${mostReturnedProduct || "N/A"}`;
-    stats.appendChild(pAvg);
-    stats.appendChild(pRate);
-    stats.appendChild(pMost);
-    container.appendChild(stats);
-  } catch (err) {
-    console.error(err);
-    const container = document.getElementById("analyticsContent");
-    container.innerHTML = "<p>No se pudieron cargar las analíticas</p>";
-  }
+  await renderAnalyticsDashboard("analytics-dashboard");
 }
 
 // ------------ Pedidos ------------

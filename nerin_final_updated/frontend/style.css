@@ -429,32 +429,6 @@ nav a:hover {
   transform: translateY(-4px);
 }
 
-/* === Estilos para gráficos de barras simples === */
-.bar-chart {
-  max-width: 600px;
-  margin: 1rem 0;
-}
-.bar-row {
-  display: flex;
-  align-items: center;
-  margin: 0.25rem 0;
-  font-size: 0.85rem;
-}
-.bar-label {
-  width: 120px;
-  white-space: nowrap;
-}
-.bar {
-  flex: 1;
-  height: 10px;
-  background-color: var(--color-primary);
-  margin: 0 0.5rem;
-  border-radius: 4px;
-}
-.bar-value {
-  width: 80px;
-  text-align: right;
-}
 
 .add-to-cart button:hover {
   background-color: #0057c2;
@@ -532,6 +506,25 @@ nav a:hover {
 
 .analytics-stats p {
   margin: 0.25rem 0;
+}
+
+/* Contenedor para gráficos con Chart.js */
+.chart-wrapper {
+  max-width: 600px;
+  margin: 2rem 0;
+}
+
+.chart-wrapper canvas {
+  width: 100%;
+  max-height: 320px;
+}
+
+.chart-buttons {
+  margin-top: 0.5rem;
+}
+
+.chart-buttons button {
+  margin-right: 0.5rem;
 }
 
 /* Responsivo */
