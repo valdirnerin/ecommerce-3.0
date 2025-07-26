@@ -19,8 +19,10 @@ const { Resend } = require("resend");
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
-if (CONFIG.mercadoPagoToken) {
-  mercadopago.configure({ access_token: CONFIG.mercadoPagoToken });
+const MP_TOKEN =
+  process.env.ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN || CONFIG.mercadoPagoToken;
+if (MP_TOKEN) {
+  mercadopago.configure({ access_token: MP_TOKEN });
 }
 
 // Usuarios de ejemplo para login
@@ -1427,6 +1429,46 @@ const server = http.createServer((req, res) => {
         return sendJson(res, 500, {
           error: "Error al crear preferencia de pago",
         });
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/payments/create-preference" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const itemsSrc = data.cart || data.items || [];
+        if (!Array.isArray(itemsSrc) || itemsSrc.length === 0) {
+          return sendJson(res, 400, { error: "Carrito vacío" });
+        }
+        const items = itemsSrc.map((it) => ({
+          title: it.title || it.name,
+          quantity: Number(it.quantity) || 1,
+          unit_price: Number(it.price || it.unit_price) || 0,
+        }));
+        const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+        const preference = {
+          items,
+          back_urls: {
+            success: `${urlBase}/checkout.html?status=success`,
+            pending: `${urlBase}/checkout.html?status=pending`,
+            failure: `${urlBase}/checkout.html?status=failure`,
+          },
+          auto_return: "approved",
+        };
+        if (CONFIG.publicUrl) {
+          preference.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
+        }
+        const result = await mercadopago.preferences.create(preference);
+        return sendJson(res, 200, { preferenceId: result.body.id });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 500, { error: "Error al crear preferencia" });
       }
     });
     return;
