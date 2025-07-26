@@ -178,7 +178,11 @@ function renderCart() {
         alert("Error al preparar el pago");
         return;
       }
-      const pref = await prefRes.json();
+      const pref = await prefRes.json().catch(() => ({}));
+      if (!pref.preferenceId) {
+        alert("Error al preparar el pago");
+        return;
+      }
       showPaymentSummary(orderId, cart, pref.preferenceId);
       localStorage.removeItem("nerinCart");
       if (window.updateNav) {
@@ -198,6 +202,10 @@ function renderCart() {
 document.addEventListener("DOMContentLoaded", renderCart);
 
 function showPaymentSummary(orderId, cart, preferenceId) {
+  if (!preferenceId) {
+    alert("Error al preparar el pago");
+    return;
+  }
   const orderEl = document.getElementById("orderSummary");
   if (!orderEl) return;
   const total = cart.reduce((acc, item) => {
@@ -220,12 +228,8 @@ function showPaymentSummary(orderId, cart, preferenceId) {
     <p class="cart-total-amount">Total: $${total.toLocaleString('es-AR')}</p>
     <div id="mpButton"></div>
   `;
-  const script = document.createElement("script");
-  script.src =
-    "https://www.mercadopago.com.ar/integrations/v1/web-payment-checkout.js";
-  script.dataset.preferenceId = preferenceId;
-  script.dataset.source = "button";
-  orderEl.querySelector("#mpButton").appendChild(script);
+  orderEl.querySelector("#mpButton").innerHTML =
+    `<script src="https://www.mercadopago.com.ar/integrations/v1/web-payment-checkout.js" data-preference-id="${preferenceId}" data-source="button"></script>`;
   document.getElementById("cartActions").style.display = "none";
   document.getElementById("cartItems").style.display = "none";
   document.getElementById("cartSummary").style.display = "none";

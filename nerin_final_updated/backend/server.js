@@ -13,16 +13,18 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
-const mercadopago = require("mercadopago");
+const { MercadoPagoConfig, Preference } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
+require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
-const MP_TOKEN =
-  process.env.ACCESS_TOKEN || process.env.MP_ACCESS_TOKEN || CONFIG.mercadoPagoToken;
+const MP_TOKEN = process.env.MP_ACCESS_TOKEN || CONFIG.mercadoPagoToken;
+let mpPreference = null;
 if (MP_TOKEN) {
-  mercadopago.configure({ access_token: MP_TOKEN });
+  const mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
+  mpPreference = new Preference(mpClient);
 }
 
 // Usuarios de ejemplo para login
@@ -1422,8 +1424,11 @@ const server = http.createServer((req, res) => {
     req.on("end", async () => {
       try {
         const preference = JSON.parse(body || "{}");
-        const result = await mercadopago.preferences.create(preference);
-        return sendJson(res, 200, { preference: result.body });
+        if (!mpPreference) {
+          throw new Error("Mercado Pago no está configurado");
+        }
+        const result = await mpPreference.create(preference);
+        return sendJson(res, 200, { preference: result.id });
       } catch (err) {
         console.error(err);
         return sendJson(res, 500, {
@@ -1443,6 +1448,7 @@ const server = http.createServer((req, res) => {
       try {
         const data = JSON.parse(body || "{}");
         const itemsSrc = data.cart || data.items || [];
+        console.log("Productos recibidos:", itemsSrc);
         if (!Array.isArray(itemsSrc) || itemsSrc.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });
         }
@@ -1464,8 +1470,11 @@ const server = http.createServer((req, res) => {
         if (CONFIG.publicUrl) {
           preference.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
         }
-        const result = await mercadopago.preferences.create(preference);
-        return sendJson(res, 200, { preferenceId: result.body.id });
+        if (!mpPreference) {
+          throw new Error("Mercado Pago no está configurado");
+        }
+        const result = await mpPreference.create(preference);
+        return sendJson(res, 200, { preferenceId: result.id });
       } catch (err) {
         console.error(err);
         return sendJson(res, 500, { error: "Error al crear preferencia" });
