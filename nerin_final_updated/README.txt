@@ -345,3 +345,11 @@ pero la estructura de carpetas `/frontend`, `/backend`, `/data` y `/admin`
 ha sido diseñada para permitir su incorporación de manera modular y
 gradual. Revise los archivos y siga las pautas para agregar nuevas
 carpetas y scripts según crezcan las necesidades de NERIN.
+## Nuevas variables de entorno
+Crea un archivo `.env.example` con:
+```
+MERCADOPAGO_TOKEN=
+RESEND_API_KEY=
+PUBLIC_URL=http://localhost:3000
+```
+
