@@ -156,33 +156,33 @@ function renderCart() {
         },
         body: JSON.stringify(payload),
       });
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(
-          "Pedido enviado correctamente.\nTu número de pedido es: " +
-            (data.orderId || "N/A"),
-        );
-        // Limpiar carrito y actualizar navegación
-        localStorage.removeItem("nerinCart");
-        renderCart();
-        if (window.updateNav) {
-          window.updateNav();
-        }
-        // Redirigir a la factura si se generó una
-        if (data.orderId) {
-          // Intentar generar factura automáticamente
-          try {
-            await fetch(`/api/invoices/${encodeURIComponent(data.orderId)}`, {
-              method: "POST",
-            });
-            window.location.href = `/invoice.html?orderId=${encodeURIComponent(data.orderId)}`;
-          } catch (err) {
-            console.warn("No se pudo crear la factura automáticamente");
-          }
-        }
-      } else {
+      if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         alert(errData.error || "Error al enviar el pedido");
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      const orderId = data.orderId || "N/A";
+      const prefRes = await fetch("/api/payments/create-preference", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cart: cart.map((i) => ({
+            title: i.name,
+            quantity: i.quantity,
+            price: i.price,
+          })),
+        }),
+      });
+      if (!prefRes.ok) {
+        alert("Error al preparar el pago");
+        return;
+      }
+      const pref = await prefRes.json();
+      showPaymentSummary(orderId, cart, pref.preferenceId);
+      localStorage.removeItem("nerinCart");
+      if (window.updateNav) {
+        window.updateNav();
       }
     } catch (err) {
       alert("Error al conectar con el servidor");
@@ -196,3 +196,38 @@ function renderCart() {
 
 // Ejecutar al cargar el documento
 document.addEventListener("DOMContentLoaded", renderCart);
+
+function showPaymentSummary(orderId, cart, preferenceId) {
+  const orderEl = document.getElementById("orderSummary");
+  if (!orderEl) return;
+  const total = cart.reduce((acc, item) => {
+    const price = isWholesale()
+      ? calculateDiscountedPrice(item.price, item.quantity)
+      : item.price;
+    return acc + price * item.quantity;
+  }, 0);
+  orderEl.innerHTML = `
+    <h3>Pedido creado correctamente</h3>
+    <p>Número de pedido: ${orderId}</p>
+    <ul>
+      ${cart
+        .map(
+          (i) =>
+            `<li>${i.name} x${i.quantity} - $${i.price.toLocaleString('es-AR')}</li>`,
+        )
+        .join("")}
+    </ul>
+    <p class="cart-total-amount">Total: $${total.toLocaleString('es-AR')}</p>
+    <div id="mpButton"></div>
+  `;
+  const script = document.createElement("script");
+  script.src =
+    "https://www.mercadopago.com.ar/integrations/v1/web-payment-checkout.js";
+  script.dataset.preferenceId = preferenceId;
+  script.dataset.source = "button";
+  orderEl.querySelector("#mpButton").appendChild(script);
+  document.getElementById("cartActions").style.display = "none";
+  document.getElementById("cartItems").style.display = "none";
+  document.getElementById("cartSummary").style.display = "none";
+  orderEl.style.display = "block";
+}
