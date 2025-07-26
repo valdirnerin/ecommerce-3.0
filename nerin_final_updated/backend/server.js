@@ -15,7 +15,10 @@ const path = require("path");
 const url = require("url");
 const mercadopago = require("mercadopago");
 const { Afip } = require("afip.ts");
+const { Resend } = require("resend");
 const CONFIG = getConfig();
+const APP_PORT = process.env.PORT || 3000;
+const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
 if (CONFIG.mercadoPagoToken) {
   mercadopago.configure({ access_token: CONFIG.mercadoPagoToken });
 }
@@ -315,6 +318,28 @@ function sendJson(res, statusCode, data) {
     "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(json);
+}
+
+// Enviar email de confirmación cuando un pedido se marca como pagado
+function sendOrderPaidEmail(order) {
+  if (!resend || !order.customer || !order.customer.email) return;
+  try {
+    const tplPath = path.join(__dirname, "../emails/orderPaid.html");
+    let html = fs.readFileSync(tplPath, "utf8");
+    const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+    const orderUrl = `${urlBase}/account.html?orderId=${encodeURIComponent(order.id)}`;
+    html = html.replace("{{ORDER_URL}}", orderUrl);
+    resend.emails
+      .send({
+        from: "no-reply@nerin.com",
+        to: order.customer.email,
+        subject: "Confirmación de compra",
+        html,
+      })
+      .catch((e) => console.error("Email error", e));
+  } catch (e) {
+    console.error("send email failed", e);
+  }
 }
 
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
@@ -623,6 +648,45 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API: crear nueva orden pendiente
+  if (pathname === "/api/orders" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+    });
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const cart = data.items;
+        if (!Array.isArray(cart) || cart.length === 0) {
+          return sendJson(res, 400, { error: "Carrito vacío" });
+        }
+        const orderId =
+          "ORD-" +
+          Date.now().toString(36) +
+          "-" +
+          Math.floor(Math.random() * 1000);
+        const orders = getOrders();
+        const total = cart.reduce((t, it) => t + it.price * it.quantity, 0);
+        const order = {
+          id: orderId,
+          date: new Date().toISOString(),
+          items: cart,
+          status: "pending",
+          total,
+          customer: data.customer || {},
+        };
+        orders.push(order);
+        saveOrders(orders);
+        return sendJson(res, 201, { orderId });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
+  }
+
   // API: obtener lista de pedidos
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
@@ -636,9 +700,26 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // API: obtener una orden por ID
+  if (pathname.startsWith("/api/orders/") && req.method === "GET") {
+    const id = pathname.split("/").pop();
+    try {
+      const orders = getOrders();
+      const order = orders.find((o) => o.id === id);
+      if (!order) return sendJson(res, 404, { error: "Pedido no encontrado" });
+      return sendJson(res, 200, { order });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al obtener pedido" });
+    }
+  }
+
   // API: actualizar pedido por ID (cambiar estado o agregar seguimiento)
   // Ruta esperada: /api/orders/{id}
-  if (pathname.startsWith("/api/orders/") && req.method === "PUT") {
+  if (
+    pathname.startsWith("/api/orders/") &&
+    (req.method === "PUT" || req.method === "PATCH")
+  ) {
     const id = pathname.split("/").pop();
     let body = "";
     req.on("data", (chunk) => {
@@ -1351,6 +1432,33 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (pathname === "/api/webhooks/mp" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+    });
+    req.on("end", () => {
+      try {
+        const event = JSON.parse(body || "{}");
+        const payment = event.data && event.data.id ? event.data : null;
+        if (!payment) return sendJson(res, 200, { received: true });
+        const orders = getOrders();
+        const order = orders.find((o) => o.id === payment.external_reference);
+        if (order && payment.status === "approved") {
+          order.status = "paid";
+          order.paymentId = payment.id;
+          saveOrders(orders);
+          sendOrderPaidEmail(order);
+        }
+        return sendJson(res, 200, { success: true });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 400, { error: "Webhook inválido" });
+      }
+    });
+    return;
+  }
+
   // === Integración con AFIP (facturación electrónica) ===
   if (pathname === "/api/afip/invoice" && req.method === "POST") {
     let body = "";
@@ -1415,7 +1523,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Servidor de NERIN corriendo en http://localhost:${PORT}`);
+server.listen(APP_PORT, () => {
+  console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
 });

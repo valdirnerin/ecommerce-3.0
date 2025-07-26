@@ -816,3 +816,27 @@ footer .legal {
     bottom: calc(20px + env(safe-area-inset-bottom));
   }
 }
+
+/* ===== Checkout ===== */
+.checkout-container {
+  margin-top: 1rem;
+}
+.stepper {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+.step {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--color-muted);
+}
+.step.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.checkout-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}

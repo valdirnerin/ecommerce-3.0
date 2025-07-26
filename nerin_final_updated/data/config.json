@@ -6,5 +6,7 @@
   "mercadoPagoToken": "",
   "afipCUIT": "",
   "afipCert": "",
-  "afipKey": ""
+  "afipKey": "",
+  "resendApiKey": "",
+  "publicUrl": ""
 }
