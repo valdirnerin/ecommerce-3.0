@@ -348,7 +348,7 @@ carpetas y scripts según crezcan las necesidades de NERIN.
 ## Nuevas variables de entorno
 Crea un archivo `.env.example` con:
 ```
-MERCADOPAGO_TOKEN=
+MP_ACCESS_TOKEN=
 RESEND_API_KEY=
 PUBLIC_URL=http://localhost:3000
 ```

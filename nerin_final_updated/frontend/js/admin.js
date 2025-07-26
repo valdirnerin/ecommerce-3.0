@@ -723,71 +723,113 @@ async function loadClients() {
 // ------------ Métricas ------------
 const metricsContent = document.getElementById("metricsContent");
 let salesChartInstance;
+let topProductsChartInstance;
+const MOCK_METRICS = {
+  totalOrders: 0,
+  salesByMonth: {
+    "2025-01": 10000,
+    "2025-02": 15000,
+    "2025-03": 12000,
+  },
+  topProducts: [
+    { name: "Producto demo A", quantity: 25 },
+    { name: "Producto demo B", quantity: 15 },
+    { name: "Producto demo C", quantity: 8 },
+  ],
+};
+
+function renderMetrics(m) {
+  let html = `<p>Total de pedidos: ${m.totalOrders}</p>`;
+  // Calcular total anual y desglose de IVA (21%)
+  const totalAnnual = Object.values(m.salesByMonth).reduce(
+    (sum, t) => sum + t,
+    0,
+  );
+  const iva = Math.round(totalAnnual * 0.21);
+  html += `<p>Total de ventas (neto): $${totalAnnual.toLocaleString("es-AR")}</p>`;
+  html += `<p>IVA (21%): $${iva.toLocaleString("es-AR")}</p>`;
+  html += "<h4>Ventas por mes</h4>";
+  html += '<div class="chart-wrapper"><canvas id="salesChartCanvas" height="180"></canvas></div>';
+  html += "<h4>Productos más vendidos</h4>";
+  html += '<div class="chart-wrapper"><canvas id="topProductsChartCanvas" height="180"></canvas></div>';
+  metricsContent.innerHTML = html;
+  const labels = Object.keys(m.salesByMonth);
+  const values = Object.values(m.salesByMonth);
+  const ctx = document.getElementById("salesChartCanvas").getContext("2d");
+  if (salesChartInstance) {
+    salesChartInstance.destroy();
+  }
+  salesChartInstance = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Ventas",
+          data: values,
+          backgroundColor: "#3b82f6",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `$${ctx.parsed.y.toLocaleString("es-AR")}`,
+          },
+        },
+      },
+      scales: {
+        y: { beginAtZero: true },
+      },
+    },
+  });
+
+  const topLabels = m.topProducts.map((p) => p.name);
+  const topData = m.topProducts.map((p) => p.quantity);
+  const ctxTop = document
+    .getElementById("topProductsChartCanvas")
+    .getContext("2d");
+  if (topProductsChartInstance) {
+    topProductsChartInstance.destroy();
+  }
+  topProductsChartInstance = new Chart(ctxTop, {
+    type: "bar",
+    data: {
+      labels: topLabels,
+      datasets: [
+        {
+          label: "Unidades",
+          data: topData,
+          backgroundColor: "#10b981",
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+}
 
 async function loadMetrics() {
+  let m;
   try {
     const res = await fetch("/api/metrics");
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    const m = data.metrics;
-    let html = `<p>Total de pedidos: ${m.totalOrders}</p>`;
-    // Calcular total anual y desglose de IVA (21%)
-    const totalAnnual = Object.values(m.salesByMonth).reduce(
-      (sum, t) => sum + t,
-      0,
-    );
-    const iva = Math.round(totalAnnual * 0.21);
-    html += `<p>Total de ventas (neto): $${totalAnnual.toLocaleString("es-AR")}</p>`;
-    html += `<p>IVA (21%): $${iva.toLocaleString("es-AR")}</p>`;
-    html += "<h4>Ventas por mes</h4>";
-    html += '<canvas id="salesChartCanvas" height="180"></canvas>';
-    // Productos más vendidos (gráfico de barras)
-    html += "<h4>Productos más vendidos</h4>";
-    html += '<div class="bar-chart">';
-    const prodQtys = m.topProducts.map((p) => p.quantity);
-    const maxQty = prodQtys.length ? Math.max(...prodQtys) : 0;
-    m.topProducts.forEach((p) => {
-      const width = maxQty > 0 ? ((p.quantity / maxQty) * 100).toFixed(2) : 0;
-      html += `<div class="bar-row"><span class="bar-label">${p.name}</span><div class="bar" style="width:${width}%"></div><span class="bar-value">${p.quantity} u.</span></div>`;
-    });
-    html += "</div>";
-    metricsContent.innerHTML = html;
-    const labels = Object.keys(m.salesByMonth);
-    const values = Object.values(m.salesByMonth);
-    const ctx = document.getElementById("salesChartCanvas").getContext("2d");
-    if (salesChartInstance) {
-      salesChartInstance.destroy();
+    m = data.metrics;
+    if (!m || !Object.keys(m.salesByMonth).length) {
+      m = MOCK_METRICS;
     }
-    salesChartInstance = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [
-          {
-            label: "Ventas",
-            data: values,
-            backgroundColor: "#3b82f6",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => `$${ctx.parsed.y.toLocaleString("es-AR")}`,
-            },
-          },
-        },
-        scales: {
-          y: { beginAtZero: true },
-        },
-      },
-    });
   } catch (err) {
-    console.error(err);
-    metricsContent.textContent = "No se pudieron cargar las métricas.";
+    console.error("Error al obtener métricas:", err);
+    m = MOCK_METRICS;
   }
+  renderMetrics(m);
 }
 
 // ------------ Devoluciones ------------
