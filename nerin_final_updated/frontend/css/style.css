@@ -1,0 +1,38 @@
+@import url("../style.css");
+
+.contenedor {
+  max-width: 600px;
+  margin: 4rem auto;
+  padding: 2rem;
+  background: var(--color-muted);
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .contenedor {
+    margin: 2rem 1rem;
+    padding: 1.5rem;
+  }
+}
+
+button,
+.btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+button:hover,
+.btn:hover {
+  background: #0059c1;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
