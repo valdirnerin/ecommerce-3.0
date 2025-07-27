@@ -1483,6 +1483,58 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (pathname === "/create_preference" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const { title, price, quantity } = JSON.parse(body || "{}");
+        if (!mpPreference) {
+          throw new Error("Mercado Pago no est\xE1 configurado");
+        }
+        if (
+          !title ||
+          typeof title !== "string" ||
+          isNaN(Number(price)) ||
+          Number(price) <= 0 ||
+          isNaN(Number(quantity)) ||
+          Number(quantity) <= 0
+        ) {
+          return sendJson(res, 400, { error: "Datos de pago inv\xE1lidos" });
+        }
+        const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+        const preference = {
+          items: [
+            {
+              title,
+              unit_price: Number(price),
+              quantity: Number(quantity),
+            },
+          ],
+          back_urls: {
+            success: `${urlBase}/checkout.html?status=success`,
+            failure: `${urlBase}/checkout.html?status=failure`,
+            pending: `${urlBase}/checkout.html?status=pending`,
+          },
+          auto_return: "approved",
+        };
+        const result = await mpPreference.create(preference);
+        return sendJson(res, 200, {
+          preferenceId: result.id,
+          init_point: result.init_point,
+        });
+      } catch (error) {
+        console.error(error);
+        res.writeHead(302, { Location: "/checkout.html?status=failure" });
+        res.end();
+        return;
+      }
+    });
+    return;
+  }
+
   if (pathname === "/api/webhooks/mp" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => {

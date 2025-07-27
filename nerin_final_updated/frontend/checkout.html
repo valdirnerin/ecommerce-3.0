@@ -1,38 +1,28 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Checkout</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <header>
-      <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html">Carrito</a></li>
-          <li><a href="/login.html">Acceder</a></li>
-        </ul>
-      </nav>
-    </header>
-    <main class="container checkout-container">
-      <h2>Checkout</h2>
-      <div id="stepper" class="stepper"></div>
-      <div id="stepContent"></div>
-      <div class="checkout-actions">
-        <button id="prevStep" disabled>Anterior</button>
-        <button id="nextStep">Siguiente</button>
-      </div>
-    </main>
-    <div id="whatsapp-button">
-      <a href="https://wa.me/541112345678" target="_blank">
-        <img src="/assets/whatsapp.svg" alt="WhatsApp" />
-      </a>
-    </div>
-    <script type="module" src="/js/checkout.js"></script>
-    <script type="module" src="/js/config.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <title>Estado del pago</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="contenedor">
+    <p id="message"></p>
+    <a class="btn" href="/index.html">Volver a la tienda</a>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status");
+
+    const messageBox = document.getElementById("message");
+
+    if (status === "success") {
+      messageBox.innerText = "✅ ¡Pago aprobado! Gracias por confiar en NERIN.";
+    } else if (status === "pending") {
+      messageBox.innerText = "⏳ Tu pago está pendiente. Te avisaremos por email.";
+    } else {
+      messageBox.innerText = "❌ El pago no fue completado. Podés intentarlo nuevamente.";
+    }
+  </script>
+</body>
 </html>
