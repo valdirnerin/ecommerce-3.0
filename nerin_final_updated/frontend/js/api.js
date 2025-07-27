@@ -37,6 +37,8 @@ export async function login(email, password) {
     // También guardamos el nombre y correo del usuario para futuras operaciones
     localStorage.setItem("nerinUserName", data.name);
     localStorage.setItem("nerinUserEmail", email);
+    // Registrar la fecha y hora del último inicio de sesión
+    localStorage.setItem("nerinLastLogin", new Date().toISOString());
     return data;
   } else {
     const errData = await res.json().catch(() => ({}));
