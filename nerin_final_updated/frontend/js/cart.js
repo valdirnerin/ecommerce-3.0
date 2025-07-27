@@ -163,6 +163,10 @@ function renderCart() {
       }
       const data = await res.json().catch(() => ({}));
       const orderId = data.orderId || "N/A";
+      if (data.init_point) {
+        window.location.href = data.init_point;
+        return;
+      }
       const prefRes = await fetch("/api/payments/create-preference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -641,10 +641,37 @@ const server = http.createServer((req, res) => {
           client.balance += total;
           saveClients(clients);
         }
+        let mpInit = null;
+        if (mpPreference) {
+          try {
+            const mpPref = {
+              items: cart.map((it) => ({
+                title: it.name,
+                quantity: Number(it.quantity),
+                unit_price: Number(it.price),
+              })),
+              back_urls: {
+                success: `${DOMAIN}/success`,
+                failure: `${DOMAIN}/failure`,
+                pending: `${DOMAIN}/pending`,
+              },
+              auto_return: "approved",
+              external_reference: orderId,
+            };
+            if (CONFIG.publicUrl) {
+              mpPref.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
+            }
+            const prefRes = await mpPreference.create({ body: mpPref });
+            mpInit = prefRes.init_point;
+          } catch (prefErr) {
+            console.error("Error al crear preferencia de Mercado Pago:", prefErr);
+          }
+        }
         return sendJson(res, 200, {
           success: true,
           message: "Pedido registrado",
           orderId,
+          init_point: mpInit,
         });
       } catch (err) {
         console.error(err);
