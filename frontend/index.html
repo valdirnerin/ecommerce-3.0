@@ -39,18 +39,10 @@
         },
         body: JSON.stringify(producto),
       });
-
-      const { id } = await response.json();
-
-      // Mostramos el botón de Checkout Pro
-      mp.checkout({
-        preference: { id },
-        autoOpen: true,
-        render: {
-          container: '#wallet_container',
-          label: 'Pagar con Mercado Pago',
-        },
-      });
+      const { init_point } = await response.json();
+      if (init_point) {
+        window.location.href = init_point;
+      }
     });
   </script>
 </body>
