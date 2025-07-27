@@ -157,7 +157,7 @@ Sigue estos pasos para ponerlas en funcionamiento:
 
 1. Crea una cuenta de Mercado Pago e ingresa a las [credenciales de producción](https://www.mercadopago.com.ar/developers/panel/credentials) para obtener tu token de acceso.
 2. En el servicio de AFIP genera el certificado digital (archivo `.crt`) y la clave privada (`.key`) correspondiente al CUIT de tu empresa.
-3. Abre el archivo `data/config.json` y completa los campos `mercadoPagoToken`, `afipCUIT`, `afipCert` y `afipKey` con la información obtenida.
+3. Define la variable de entorno `MP_ACCESS_TOKEN` con el token de acceso y completa en `data/config.json` los campos `afipCUIT`, `afipCert` y `afipKey`.
 4. Reinicia el servidor con `npm start` para que los cambios surtan efecto.
 
 Una vez configurado, desde el frontend puedes crear una preferencia de pago enviando el carrito a `/api/mercadopago/preference` y redirigir al usuario a la URL devuelta. Para generar una factura electrónica debes hacer un `POST` a `/api/afip/invoice` con los datos del comprobante, que se procesará mediante la biblioteca `afip.ts`.

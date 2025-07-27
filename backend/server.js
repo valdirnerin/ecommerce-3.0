@@ -3,9 +3,16 @@ const express = require('express');
 const cors = require('cors');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 
-// Configuramos la SDK con las credenciales reales
+require('dotenv').config();
+
+// Configuramos la SDK con la credencial del entorno
+const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+if (!ACCESS_TOKEN) {
+  throw new Error('MP_ACCESS_TOKEN no configurado');
+}
+
 const client = new MercadoPagoConfig({
-  accessToken: 'APP_USR-5675865330226860-072710-05605f8b5a52891c1de581e371307e87-462376008',
+  accessToken: ACCESS_TOKEN,
 });
 const preferenceClient = new Preference(client);
 

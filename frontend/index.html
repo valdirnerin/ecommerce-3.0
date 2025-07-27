@@ -11,10 +11,14 @@
 
   <div id="wallet_container"></div>
 
+  <script src="config.js"></script>
   <script src="https://sdk.mercadopago.com/js/v2"></script>
   <script>
-    // Inicializamos Mercado Pago con la public key real
-    const mp = new MercadoPago('APP_USR-d45dd347-3839-4dac-bcd3-4bc670cb9465', {
+    // Inicializamos Mercado Pago con la public key configurada en config.js
+    if (!window.MP_PUBLIC_KEY) {
+      throw new Error('Defina MP_PUBLIC_KEY en config.js');
+    }
+    const mp = new MercadoPago(window.MP_PUBLIC_KEY, {
       locale: 'es-AR',
     });
 

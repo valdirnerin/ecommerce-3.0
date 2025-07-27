@@ -20,7 +20,7 @@ require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
-const MP_TOKEN = process.env.MP_ACCESS_TOKEN || CONFIG.mercadoPagoToken;
+const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
 let mpPreference = null;
 if (MP_TOKEN) {
   const mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
