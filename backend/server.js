@@ -1,0 +1,53 @@
+// Backend sencillo para generar preferencias de Mercado Pago
+const express = require('express');
+const cors = require('cors');
+const { MercadoPagoConfig, Preference } = require('mercadopago');
+
+// Configuramos la SDK con las credenciales reales
+const client = new MercadoPagoConfig({
+  accessToken: 'APP_USR-5675865330226860-072710-05605f8b5a52891c1de581e371307e87-462376008',
+});
+const preferenceClient = new Preference(client);
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// POST /crear-preferencia
+// Recibe titulo, precio y cantidad y genera una preferencia
+app.post('/crear-preferencia', async (req, res) => {
+  const { titulo, precio, cantidad } = req.body;
+
+  const body = {
+    items: [
+      {
+        title: titulo,
+        unit_price: Number(precio),
+        quantity: Number(cantidad),
+      },
+    ],
+    back_urls: {
+      success: 'https://example.com/success',
+      failure: 'https://example.com/failure',
+      pending: 'https://example.com/pending',
+    },
+    auto_return: 'approved',
+  };
+
+  try {
+    const result = await preferenceClient.create({ body });
+    // Mostramos el link en consola para pruebas manuales
+    console.log('Preferencia creada:', result.init_point);
+    res.json({ id: result.id });
+  } catch (error) {
+    console.error('Error al crear preferencia:', error);
+    res.status(500).json({ error: 'No se pudo crear la preferencia' });
+  }
+});
+
+// Usamos el puerto 3000 por defecto
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+});
+
