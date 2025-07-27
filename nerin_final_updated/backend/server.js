@@ -407,7 +407,7 @@ const server = http.createServer((req, res) => {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const { email, password } = JSON.parse(body || "{}");
         // Buscar en usuarios de ejemplo y usuarios registrados
@@ -515,7 +515,7 @@ const server = http.createServer((req, res) => {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const parsed = JSON.parse(body || "{}");
         const cart = parsed.cart;
