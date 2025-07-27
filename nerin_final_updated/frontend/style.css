@@ -341,8 +341,15 @@ nav a:hover {
 
 .product-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .product-actions {
+    justify-content: center;
+  }
 }
 
 .product-actions .info-btn {
