@@ -436,7 +436,6 @@ nav a:hover {
   transform: translateY(-4px);
 }
 
-
 .add-to-cart button:hover {
   background-color: #0057c2;
 }
@@ -864,4 +863,58 @@ footer .legal {
   display: flex;
   gap: 1rem;
   margin-top: 1rem;
+}
+
+/* ====== Estilos para Mi cuenta renovada ====== */
+.account-section {
+  margin-bottom: 2rem;
+}
+.account-section h3 {
+  margin-top: 1.5rem;
+}
+.status-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+.status-pendiente {
+  background: #fefcbf;
+  color: #92400e;
+}
+.status-enviado,
+.status-entregado {
+  background: #d1fae5;
+  color: #065f46;
+}
+.status-cancelado {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--color-muted);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.progress {
+  height: 100%;
+  background: var(--color-primary);
+  width: 0;
+}
+.benefits {
+  background: var(--color-muted);
+  padding: 1rem;
+  border-radius: var(--radius);
+}
+.reason-fallado {
+  color: var(--color-danger);
+}
+.reason-error {
+  color: #d97706;
+}
+.contact-prefs {
+  display: flex;
+  gap: 1rem;
+  margin: 0.5rem 0;
 }
