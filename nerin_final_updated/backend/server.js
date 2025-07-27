@@ -19,6 +19,8 @@ const { Resend } = require("resend");
 require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
+// Dominio público para redirecciones de Mercado Pago
+const DOMAIN = "https://ecommerce-3-0.onrender.com";
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
 const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
 let mpPreference = null;
@@ -1457,13 +1459,13 @@ const server = http.createServer((req, res) => {
           quantity: Number(it.quantity) || 1,
           unit_price: Number(it.price || it.unit_price) || 0,
         }));
-        const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+        const urlBase = DOMAIN;
         const preference = {
           items,
           back_urls: {
-            success: `${urlBase}/checkout.html?status=success`,
-            pending: `${urlBase}/checkout.html?status=pending`,
-            failure: `${urlBase}/checkout.html?status=failure`,
+            success: `${DOMAIN}/success`,
+            pending: `${DOMAIN}/pending`,
+            failure: `${DOMAIN}/failure`,
           },
           auto_return: "approved",
         };
@@ -1504,7 +1506,7 @@ const server = http.createServer((req, res) => {
         ) {
           return sendJson(res, 400, { error: "Datos de pago inv\xE1lidos" });
         }
-        const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+        const urlBase = DOMAIN;
         const preference = {
           items: [
             {
@@ -1514,9 +1516,9 @@ const server = http.createServer((req, res) => {
             },
           ],
           back_urls: {
-            success: `${urlBase}/checkout.html?status=success`,
-            failure: `${urlBase}/checkout.html?status=failure`,
-            pending: `${urlBase}/checkout.html?status=pending`,
+            success: `${DOMAIN}/success`,
+            failure: `${DOMAIN}/failure`,
+            pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
         };
@@ -1527,7 +1529,7 @@ const server = http.createServer((req, res) => {
         });
       } catch (error) {
         console.error(error);
-        res.writeHead(302, { Location: "/checkout.html?status=failure" });
+        res.writeHead(302, { Location: "/failure" });
         res.end();
         return;
       }
@@ -1607,6 +1609,17 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // Páginas de resultado de pago de Mercado Pago
+  if (pathname === "/success") {
+    return serveStatic(path.join(__dirname, "../frontend/success.html"), res);
+  }
+  if (pathname === "/failure") {
+    return serveStatic(path.join(__dirname, "../frontend/failure.html"), res);
+  }
+  if (pathname === "/pending") {
+    return serveStatic(path.join(__dirname, "../frontend/pending.html"), res);
   }
 
   // Servir archivos estáticos del frontend y assets
