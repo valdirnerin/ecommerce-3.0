@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pago con Mercado Pago</title>
+</head>
+<body>
+  <h1>Integración Mercado Pago - Checkout Pro</h1>
+  <button id="boton-pago">Pagar con Mercado Pago</button>
+
+  <div id="wallet_container"></div>
+
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
+  <script>
+    // Inicializamos Mercado Pago con la public key real
+    const mp = new MercadoPago('APP_USR-d45dd347-3839-4dac-bcd3-4bc670cb9465', {
+      locale: 'es-AR',
+    });
+
+    const payButton = document.getElementById('boton-pago');
+
+    // Datos del producto (modificables)
+    const producto = {
+      titulo: 'Producto de ejemplo',
+      precio: 100,
+      cantidad: 1,
+    };
+
+    payButton.addEventListener('click', async () => {
+      const response = await fetch('http://localhost:3000/crear-preferencia', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(producto),
+      });
+
+      const { id } = await response.json();
+
+      // Mostramos el botón de Checkout Pro
+      mp.checkout({
+        preference: { id },
+        autoOpen: true,
+        render: {
+          container: '#wallet_container',
+          label: 'Pagar con Mercado Pago',
+        },
+      });
+    });
+  </script>
+</body>
+</html>
+
