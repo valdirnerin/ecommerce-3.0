@@ -7,6 +7,7 @@ require('dotenv').config();
 
 // Configuramos la SDK con la credencial del entorno
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+console.log('Access Token:', ACCESS_TOKEN);
 if (!ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN no configurado');
 }
