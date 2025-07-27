@@ -1427,7 +1427,7 @@ const server = http.createServer((req, res) => {
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
         }
-        const result = await mpPreference.create(preference);
+        const result = await mpPreference.create({ body: preference });
         return sendJson(res, 200, { preference: result.id });
       } catch (err) {
         console.error(err);
@@ -1473,7 +1473,7 @@ const server = http.createServer((req, res) => {
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
         }
-        const result = await mpPreference.create(preference);
+        const result = await mpPreference.create({ body: preference });
         return sendJson(res, 200, { preferenceId: result.id });
       } catch (err) {
         console.error(err);
@@ -1520,7 +1520,7 @@ const server = http.createServer((req, res) => {
           },
           auto_return: "approved",
         };
-        const result = await mpPreference.create(preference);
+        const result = await mpPreference.create({ body: preference });
         return sendJson(res, 200, {
           preferenceId: result.id,
           init_point: result.init_point,
