@@ -299,6 +299,23 @@ function saveInvoices(invoices) {
   fs.writeFileSync(dataPath, JSON.stringify({ invoices }, null, 2), "utf8");
 }
 
+// Leer registros de archivos de factura
+function getInvoiceUploads() {
+  const dataPath = path.join(__dirname, "../data/invoice_uploads.json");
+  try {
+    const file = fs.readFileSync(dataPath, "utf8");
+    return JSON.parse(file).uploads || [];
+  } catch {
+    return [];
+  }
+}
+
+// Guardar registros de archivos de factura
+function saveInvoiceUploads(uploads) {
+  const dataPath = path.join(__dirname, "../data/invoice_uploads.json");
+  fs.writeFileSync(dataPath, JSON.stringify({ uploads }, null, 2), "utf8");
+}
+
 // Obtener el siguiente número de factura (persistente)
 function getNextInvoiceNumber() {
   const filePath = path.join(__dirname, "../data/invoice_counter.txt");
@@ -1055,6 +1072,61 @@ const server = http.createServer((req, res) => {
         return sendJson(res, 404, { error: "Factura no encontrada" });
       }
       return sendJson(res, 200, { invoice });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "No se pudo obtener la factura" });
+    }
+  }
+
+  // API: subir archivo de factura para un pedido
+  // Ruta: /api/invoice-files/{orderId} (POST)
+  if (pathname.startsWith("/api/invoice-files/") && req.method === "POST") {
+    const orderId = decodeURIComponent(pathname.split("/").pop());
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      try {
+        const { fileName, data } = JSON.parse(body || "{}");
+        if (!fileName || !data) {
+          return sendJson(res, 400, { error: "Falta archivo" });
+        }
+        const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const dir = path.join(__dirname, "../assets/invoices");
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const filePath = path.join(dir, `${orderId}-${Date.now()}-${safeName}`);
+        fs.writeFileSync(filePath, Buffer.from(data, "base64"));
+        const uploads = getInvoiceUploads();
+        const existingIdx = uploads.findIndex((u) => u.orderId === orderId);
+        const record = {
+          orderId,
+          fileName: path.basename(filePath),
+        };
+        if (existingIdx !== -1) uploads[existingIdx] = record;
+        else uploads.push(record);
+        saveInvoiceUploads(uploads);
+        return sendJson(res, 201, { success: true, file: record.fileName });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 500, { error: "No se pudo guardar la factura" });
+      }
+    });
+    return;
+  }
+
+  // API: obtener archivo de factura de un pedido
+  // Ruta: /api/invoice-files/{orderId} (GET)
+  if (pathname.startsWith("/api/invoice-files/") && req.method === "GET") {
+    const orderId = decodeURIComponent(pathname.split("/").pop());
+    try {
+      const uploads = getInvoiceUploads();
+      const record = uploads.find((u) => u.orderId === orderId);
+      if (!record) {
+        return sendJson(res, 404, { error: "Factura no encontrada" });
+      }
+      const urlBase = `/assets/invoices/${encodeURIComponent(record.fileName)}`;
+      return sendJson(res, 200, { fileName: record.fileName, url: urlBase });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "No se pudo obtener la factura" });
