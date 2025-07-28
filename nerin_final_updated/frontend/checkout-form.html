@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link
@@ -47,7 +47,14 @@
         scroll-behavior: smooth;
       }
       body {
-        font-family: "Poppins", sans-serif;
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Helvetica Neue",
+          Helvetica,
+          Arial,
+          sans-serif;
         background: var(--color-page);
         color: var(--color-text);
         margin: 0;
@@ -73,24 +80,22 @@
       }
       .shipping-form {
         display: grid;
-        grid-template-columns: 1fr 1fr;
-        column-gap: 2rem;
-        row-gap: 0;
-        padding: 2rem 1.5rem;
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+        padding: 1.5rem;
         background: var(--color-bg);
         border-radius: var(--radius);
-        box-shadow: 0 10px 40px var(--shadow-sm);
+        box-shadow: 0 4px 20px var(--shadow-sm);
       }
       .form-field {
         position: relative;
-        margin-bottom: 0.75rem;
+        margin: 0;
       }
       .form-field input,
       .form-field select,
       .form-field textarea {
         width: 100%;
-        padding: 1.25rem 1rem;
-        padding-left: 3rem;
+        padding: 1rem 1rem 1rem 3rem;
         font-size: 1rem;
         border: 1px solid var(--color-border);
         border-radius: var(--radius);
@@ -157,8 +162,8 @@
       }
 
       .error-message {
-        display: none;
-        font-size: 0.8rem;
+        display: block;
+        font-size: 0.85rem;
         color: var(--color-danger);
         margin-top: 0.25rem;
         opacity: 0;
@@ -166,7 +171,6 @@
       }
 
       .error-message.show {
-        display: block;
         opacity: 1;
       }
 
@@ -211,12 +215,12 @@
         transition: opacity var(--transition);
       }
       .shipping-form button {
-        grid-column: span 2;
-        margin-top: 0.75rem;
+        width: 100%;
+        margin-top: 1rem;
         padding: 1rem;
         border: none;
         border-radius: var(--radius);
-        background: var(--color-primary);
+        background: linear-gradient(135deg, #007bff, #0056d2);
         color: #fff;
         font-size: 1rem;
         font-weight: 600;
@@ -229,7 +233,7 @@
           transform var(--transition);
       }
       .shipping-form button:hover {
-        background: #0069d9;
+        background: linear-gradient(135deg, #238bfe, #0050c6);
         box-shadow: 0 6px 16px var(--shadow-lg);
         transform: translateY(-1px);
       }
@@ -255,13 +259,13 @@
           transform: rotate(360deg);
         }
       }
-      @media (max-width: 768px) {
+      @media (min-width: 600px) {
         .shipping-form {
-          grid-template-columns: 1fr;
-          column-gap: 0;
+          grid-template-columns: 1fr 1fr;
+          column-gap: 2rem;
         }
         .shipping-form button {
-          grid-column: 1;
+          grid-column: span 2;
         }
       }
     </style>
