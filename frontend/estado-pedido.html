@@ -13,7 +13,7 @@
 
     async function checkStatus() {
       try {
-        const res = await axios.get(`http://localhost:3000/api/orders/${orderId}/status`);
+        const res = await axios.get(`/api/orders/${orderId}/status`);
         const status = res.data.status;
         if (status === 'approved' || status === 'aprobado') {
           messageEl.textContent = 'Gracias por tu compra';

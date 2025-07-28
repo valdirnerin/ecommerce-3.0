@@ -54,6 +54,7 @@ app.post('/crear-preferencia', async (req, res) => {
         quantity: Number(cantidad),
       },
     ],
+    notification_url: `${PUBLIC_URL}/api/mercado-pago/webhook`,
     back_urls: {
       success: `${PUBLIC_URL}/success`,
       failure: `${PUBLIC_URL}/failure`,
