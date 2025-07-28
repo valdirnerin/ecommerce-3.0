@@ -1,47 +1,359 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Checkout</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <header>
-      <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html">Carrito</a></li>
-        </ul>
-      </nav>
-    </header>
-    <main class="container checkout-container">
-      <h2>Completar datos de envío</h2>
-      <form id="checkoutForm">
-        <label
-          >Nombre completo <input type="text" id="nombre" required
-        /></label>
-        <label>Email <input type="email" id="email" required /></label>
-        <label>Teléfono <input type="tel" id="telefono" required /></label>
-        <label>Calle <input type="text" id="calle" required /></label>
-        <label>Número <input type="text" id="numero" required /></label>
-        <label>Piso <input type="text" id="piso" /></label>
-        <label>Localidad <input type="text" id="localidad" required /></label>
-        <label>Provincia <input type="text" id="provincia" required /></label>
-        <label>CP <input type="text" id="cp" required /></label>
-        <label
-          >Método de envío
-          <select id="metodo_envio">
-            <option value="retiro">Retiro</option>
-            <option value="correo">Correo Argentino</option>
-          </select>
-        </label>
-        <label>Comentarios <textarea id="comentarios"></textarea></label>
-        <button type="submit" class="button primary">Continuar con pago</button>
-      </form>
-    </main>
-    <script type="module" src="/js/checkout-form.js"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --color-primary: #007BFF;
+      --color-border: #d1d5db;
+      --color-danger: #ef4444;
+      --radius: 1rem;
+      --transition: .3s ease;
+      --color-page: #f5f6f8;
+      --color-bg: #ffffff;
+      --color-text: #111111;
+      --color-muted: #6b7280;
+      --shadow-sm: rgba(0,0,0,0.04);
+      --shadow-lg: rgba(0,0,0,0.08);
+    }
+    /*
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-page: #121212;
+        --color-bg: #1a1a1a;
+        --color-text: #f3f3f3;
+        --color-border: #333;
+        --shadow-sm: rgba(0,0,0,0.5);
+        --shadow-lg: rgba(0,0,0,0.8);
+      }
+    }
+    */
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: var(--color-page);
+      color: var(--color-text);
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -webkit-tap-highlight-color: transparent;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      max-width: 850px;
+      width: 100%;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      animation: fadeIn .6s ease-out both;
+    }
+    h2 {
+      margin-bottom: 1.5rem;
+      font-weight: 600;
+      text-align: center;
+    }
+    .shipping-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem 2rem;
+      padding: 2rem 1.5rem;
+      background: var(--color-bg);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 40px var(--shadow-sm);
+    }
+    .form-field { position: relative; }
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+      width: 100%;
+      padding: 1.25rem 1rem;
+      padding-left: 3rem;
+      font-size: 1rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: var(--color-bg);
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition), background-color var(--transition);
+    }
+    .form-field textarea {
+      resize: vertical;
+      min-height: 120px;
+    }
+    .form-field label {
+      position: absolute;
+      left: 3rem;
+      top: 50%;
+      transform: translateY(-50%);
+      padding: 0 .25rem;
+      color: var(--color-muted);
+      pointer-events: none;
+      background: var(--color-bg);
+      transition: transform var(--transition), color var(--transition), font-size var(--transition);
+    }
+    .form-field i {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--color-muted);
+      pointer-events: none;
+    }
+    .form-field:focus-within i {
+      color: var(--color-primary);
+    }
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(10,132,255,0.15);
+    }
+    .form-field input:focus ~ label,
+    .form-field input:not(:placeholder-shown) ~ label,
+    .form-field select:focus ~ label,
+    .form-field select:not([value=""]) ~ label,
+    .form-field textarea:focus ~ label,
+    .form-field textarea:not(:placeholder-shown) ~ label {
+      top: 0.4rem;
+      transform: translateY(-120%);
+      font-size: 0.75rem;
+      color: var(--color-primary);
+    }
+    .form-field input:required:invalid,
+    .form-field select:required:invalid,
+    .form-field textarea:required:invalid {
+      border-color: var(--color-danger);
+    }
+    .form-field .invalid {
+      border-color: var(--color-danger);
+    }
+
+    .error-message {
+      display: none;
+      font-size: 0.8rem;
+      color: var(--color-danger);
+      margin-top: 0.25rem;
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+
+    .error-message.show {
+      display: block;
+      opacity: 1;
+    }
+
+    .progress {
+      text-align: center;
+      background: #e5e7eb;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius);
+      font-weight: 500;
+      margin-bottom: 1rem;
+    }
+
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255,255,255,0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity var(--transition);
+      z-index: 1000;
+    }
+
+    .loading-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .spinner {
+      width: 2rem;
+      height: 2rem;
+      border: 3px solid var(--color-primary);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    .fade-out {
+      opacity: 0;
+      transition: opacity var(--transition);
+    }
+    .shipping-form button {
+      grid-column: span 2;
+      padding: 1rem;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--color-primary);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 12px var(--shadow-lg);
+      outline: none;
+      transition: background-color var(--transition), box-shadow var(--transition), transform var(--transition);
+    }
+    .shipping-form button:hover {
+      background: #0069d9;
+      box-shadow: 0 6px 16px var(--shadow-lg);
+      transform: translateY(-1px);
+    }
+    .shipping-form button:focus {
+      box-shadow: 0 0 0 3px rgba(0,123,255,0.4);
+    }
+    .shipping-form button:active {
+      transform: translateY(1px) scale(0.98);
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (max-width: 768px) {
+      .shipping-form { grid-template-columns: 1fr; }
+      .shipping-form button { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h2>Completar datos de envío</h2>
+    <div class="progress">Paso 1 de 3: Datos de envío</div>
+    <form class="shipping-form" novalidate>
+      <div class="form-field">
+        <i class="fa fa-user"></i>
+        <input type="text" id="nombre" name="nombre" placeholder=" " required>
+        <label for="nombre">Nombre completo</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-envelope"></i>
+        <input type="email" id="email" name="email" placeholder=" " required>
+        <label for="email">Email</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-phone"></i>
+        <input type="tel" id="telefono" name="telefono" placeholder=" " required>
+        <label for="telefono">Teléfono</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-road"></i>
+        <input type="text" id="calle" name="calle" placeholder=" " required>
+        <label for="calle">Calle</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-hashtag"></i>
+        <input type="text" id="numero" name="numero" placeholder=" " required>
+        <label for="numero">Número</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-building"></i>
+        <input type="text" id="piso" name="piso" placeholder=" ">
+        <label for="piso">Piso</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-map-marker-alt"></i>
+        <input type="text" id="localidad" name="localidad" placeholder=" " required>
+        <label for="localidad">Localidad</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-map-marker-alt"></i>
+        <input type="text" id="provincia" name="provincia" placeholder=" " required>
+        <label for="provincia">Provincia</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-tag"></i>
+        <input type="text" id="cp" name="cp" placeholder=" " required>
+        <label for="cp">Código Postal</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field">
+        <i class="fa fa-truck"></i>
+        <select id="metodo_envio" name="metodo_envio" required>
+          <option value="" disabled selected hidden></option>
+          <option value="retiro">Retiro</option>
+          <option value="domicilio">Envío a domicilio</option>
+        </select>
+        <label for="metodo_envio">Método de envío</label>
+        <small class="error-message"></small>
+      </div>
+      <div class="form-field" style="grid-column: span 2;">
+        <i class="fa fa-comment"></i>
+        <textarea id="comentarios" name="comentarios" placeholder=" "></textarea>
+        <label for="comentarios">Comentarios</label>
+        <small class="error-message"></small>
+      </div>
+      <button type="submit">Continuar con pago</button>
+    </form>
+  </main>
+  <div class="loading-overlay" id="loading"><div class="spinner"></div></div>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.querySelector('.shipping-form');
+      const loading = document.getElementById('loading');
+      const main = document.querySelector('main');
+      const fields = form.querySelectorAll('input, select, textarea');
+
+      const showError = (input, message) => {
+        const error = input.parentElement.querySelector('.error-message');
+        if (error) {
+          error.textContent = message;
+          error.classList.add('show');
+        }
+        input.classList.add('invalid');
+      };
+
+      const clearError = input => {
+        const error = input.parentElement.querySelector('.error-message');
+        if (error) error.classList.remove('show');
+        input.classList.remove('invalid');
+      };
+
+      fields.forEach(el => {
+        el.addEventListener('input', () => {
+          if (el.checkValidity()) clearError(el);
+        });
+      });
+
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        let valid = true;
+        fields.forEach(el => {
+          if (!el.checkValidity()) {
+            valid = false;
+            const msg = el.validity.valueMissing ? 'Este campo es obligatorio' : 'Formato inválido';
+            showError(el, msg);
+          }
+        });
+        if (!valid) return;
+        main.classList.add('fade-out');
+        loading.classList.add('active');
+        setTimeout(() => {
+          window.location.href = '/pago.html';
+        }, 1500);
+      });
+    });
+  </script>
+</body>
 </html>
