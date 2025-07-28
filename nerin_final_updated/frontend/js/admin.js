@@ -621,10 +621,20 @@ async function loadOrders() {
         );
         envioTd.appendChild(envioSelect);
         const invoiceTd = document.createElement("td");
+        const invoiceStatus = document.createElement("span");
+        invoiceStatus.className = "invoice-status";
+        invoiceTd.appendChild(invoiceStatus);
         const invoiceBtn = document.createElement("button");
         invoiceBtn.className = "invoice-btn";
-        invoiceBtn.textContent = "Factura";
         invoiceTd.appendChild(invoiceBtn);
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.accept = ".pdf,.xml";
+        fileInput.style.display = "none";
+        invoiceTd.appendChild(fileInput);
+        const fileNameSpan = document.createElement("div");
+        fileNameSpan.className = "invoice-name";
+        invoiceTd.appendChild(fileNameSpan);
         const actionTd = document.createElement("td");
         const saveBtn = document.createElement("button");
         saveBtn.className = "save-order-btn";
@@ -666,33 +676,54 @@ async function loadOrders() {
             alert("Error al actualizar el pedido");
           }
         });
-        // Listener para factura (crea o abre)
-        invoiceBtn.addEventListener("click", async () => {
+        async function updateInvoiceUI() {
           try {
-            const resp = await fetch(`/api/invoices/${order.id}`, {
+            const invRes = await fetch(`/api/invoice-files/${order.id}`);
+            if (invRes.ok) {
+              const data = await invRes.json();
+              invoiceBtn.textContent = "Ver factura";
+              invoiceStatus.textContent = "Factura cargada";
+              invoiceStatus.className = "invoice-status loaded";
+              fileNameSpan.textContent = data.fileName;
+              invoiceBtn.onclick = () => {
+                window.open(data.url, "_blank");
+              };
+            } else {
+              invoiceBtn.textContent = "Cargar factura";
+              fileNameSpan.textContent = "";
+              const pending = order.estado_pago === "pagado";
+              invoiceStatus.textContent = pending ? "Pendiente" : "No emitida";
+              invoiceStatus.className =
+                "invoice-status " + (pending ? "pending" : "none");
+              invoiceBtn.onclick = () => fileInput.click();
+            }
+          } catch (_) {
+            invoiceBtn.textContent = "Cargar factura";
+            invoiceStatus.textContent = "Pendiente";
+            invoiceStatus.className = "invoice-status pending";
+            invoiceBtn.onclick = () => fileInput.click();
+          }
+        }
+        fileInput.addEventListener("change", () => {
+          const file = fileInput.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const base64 = reader.result.split(",")[1];
+            const resp = await fetch(`/api/invoice-files/${order.id}`, {
               method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileName: file.name, data: base64 }),
             });
             if (resp.ok) {
-              window.open(`/invoice.html?orderId=${order.id}`, "_blank");
+              await updateInvoiceUI();
             } else {
-              const dataErr = await resp.json().catch(() => ({}));
-              alert(dataErr.error || "Error generando factura");
+              alert("Error al subir factura");
             }
-          } catch (err) {
-            alert("Error al generar factura");
-          }
+          };
+          reader.readAsDataURL(file);
         });
-        // Establecer texto de botón según existencia de factura
-        try {
-          const invRes = await fetch(`/api/invoices/${order.id}`);
-          if (invRes.ok) {
-            invoiceBtn.textContent = "Ver factura";
-          } else {
-            invoiceBtn.textContent = "Generar factura";
-          }
-        } catch (e) {
-          invoiceBtn.textContent = "Factura";
-        }
+        updateInvoiceUI();
         ordersTableBody.appendChild(tr);
       });
   } catch (err) {
