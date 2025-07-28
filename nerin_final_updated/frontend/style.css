@@ -798,6 +798,20 @@ nav a:hover {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
 }
+.admin-form input[type="file"] {
+  padding: 0.2rem;
+}
+
+.admin-form .image-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.admin-form .image-preview img {
+  max-width: 80px;
+  border-radius: var(--radius);
+}
 
 .admin-form button {
   padding: 0.5rem 1rem;

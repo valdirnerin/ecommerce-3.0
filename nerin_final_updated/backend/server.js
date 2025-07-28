@@ -16,6 +16,7 @@ const url = require("url");
 const { MercadoPagoConfig, Preference } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
+const multer = require("multer");
 require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
@@ -384,6 +385,28 @@ function sendOrderShippedEmail(order) {
   }
 }
 
+// Configuración de subida de imágenes de productos
+const productImagesDir = path.join(__dirname, "../assets/uploads/products");
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(productImagesDir, { recursive: true });
+      cb(null, productImagesDir);
+    },
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      const sku = decodeURIComponent((req.params && req.params.sku) || "img");
+      cb(null, `${sku}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if ([".jpg", ".jpeg", ".png"].includes(ext)) cb(null, true);
+    else cb(new Error("Formato no permitido"));
+  },
+});
+
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
 function serveStatic(filePath, res) {
   const ext = path.extname(filePath).toLowerCase();
@@ -477,6 +500,26 @@ const server = http.createServer((req, res) => {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
       }
+    });
+    return;
+  }
+
+  // API: subir imagen de producto
+  // Ruta: /api/product-image/{sku} (POST)
+  if (pathname.startsWith("/api/product-image/") && req.method === "POST") {
+    const sku = decodeURIComponent(pathname.split("/").pop());
+    req.params = { sku };
+    upload.single("image")(req, res, (err) => {
+      if (err) {
+        console.error(err);
+        return sendJson(res, 400, { error: err.message });
+      }
+      if (!req.file) {
+        return sendJson(res, 400, { error: "No se recibió archivo" });
+      }
+      const fileName = req.file.filename;
+      const urlBase = `/assets/uploads/products/${encodeURIComponent(fileName)}`;
+      return sendJson(res, 201, { success: true, file: fileName, path: urlBase });
     });
     return;
   }

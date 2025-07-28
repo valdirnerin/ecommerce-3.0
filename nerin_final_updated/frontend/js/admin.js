@@ -81,6 +81,56 @@ navButtons.forEach((btn) => {
 // ------------ Productos ------------
 const productsTableBody = document.querySelector("#productsTable tbody");
 const addProductForm = document.getElementById("addProductForm");
+const newImageInput = document.getElementById("newImage");
+const imagePreview = document.getElementById("imagePreview");
+let uploadedImagePath = "";
+
+newImageInput.addEventListener("change", async () => {
+  const file = newImageInput.files[0];
+  imagePreview.innerHTML = "";
+  uploadedImagePath = "";
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert("La imagen supera 5MB");
+    newImageInput.value = "";
+    return;
+  }
+  if (!["image/jpeg", "image/png"].includes(file.type)) {
+    alert("Formato no permitido. Usa JPG o PNG");
+    newImageInput.value = "";
+    return;
+  }
+  const sku = document.getElementById("newSku").value.trim();
+  if (!sku) {
+    alert("Completá el SKU antes de subir la imagen");
+    newImageInput.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    imagePreview.innerHTML = `<img src="${e.target.result}" alt="img" />`;
+  };
+  reader.readAsDataURL(file);
+  const fd = new FormData();
+  fd.append("image", file);
+  try {
+    const resp = await fetch(`/api/product-image/${encodeURIComponent(sku)}`, {
+      method: "POST",
+      body: fd,
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      uploadedImagePath = data.path;
+    } else {
+      alert("Error al subir imagen");
+      newImageInput.value = "";
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Error al subir imagen");
+    newImageInput.value = "";
+  }
+});
 
 async function loadProducts() {
   try {
@@ -223,8 +273,8 @@ addProductForm.addEventListener("submit", async (e) => {
     dimensions:
       document.getElementById("newDimensions").value.trim() || undefined,
     color: document.getElementById("newColor").value.trim() || undefined,
-    vip_only: document.getElementById("newVipOnly").checked,
-    image: document.getElementById("newImage").value.trim(),
+    vip_only: false,
+    image: uploadedImagePath,
   };
   try {
     const resp = await fetch("/api/products", {
@@ -235,6 +285,8 @@ addProductForm.addEventListener("submit", async (e) => {
     if (resp.ok) {
       alert("Producto agregado");
       addProductForm.reset();
+      imagePreview.innerHTML = "";
+      uploadedImagePath = "";
       loadProducts();
     } else {
       alert("Error al agregar producto");

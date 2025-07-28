@@ -155,22 +155,13 @@
             placeholder="Dimensiones (L×A×A cm)"
           />
           <input type="text" id="newColor" placeholder="Color" />
-          <label
-            style="
-              display: flex;
-              align-items: center;
-              gap: 0.5rem;
-              margin: 0.25rem 0;
-            "
-          >
-            <input type="checkbox" id="newVipOnly" /> Solo VIP
-          </label>
           <input
-            type="text"
+            type="file"
             id="newImage"
-            placeholder="Ruta de imagen (e.g., /assets/miimagen.png)"
+            accept=".jpg,.jpeg,.png"
             required
           />
+          <div id="imagePreview" class="image-preview"></div>
           <button type="submit" class="button primary">Agregar</button>
         </form>
       </section>
