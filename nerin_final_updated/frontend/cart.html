@@ -10,31 +10,30 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <header>
+    <header class="simple-header">
       <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html" class="active">Carrito</a></li>
-          <!-- Enlace de acceso que se transformará dinámicamente en Mi cuenta/Admin y que añadirá la opción de registro -->
-          <li><a href="/login.html">Acceder</a></li>
-        </ul>
-      </nav>
     </header>
     <main class="container cart-container">
-      <h2>Carrito de compras</h2>
+      <h2>Resumen de tu compra</h2>
       <div id="cartItems"></div>
       <div id="cartSummary" class="cart-summary"></div>
       <div id="cartActions" class="cart-actions" style="display: none">
-        <button id="whatsappBtn" class="button primary">
+        <button id="whatsappBtn" class="button secondary">
           Enviar por WhatsApp
         </button>
-        <button id="confirmBtn" class="button secondary">
-          Confirmar pedido
+        <button id="payBtn" class="button mp-button">
+          <img
+            src="https://http2.mlstatic.com/frontend-assets/landing-mptools/panel/mp_logo.svg"
+            alt="Mercado Pago"
+          />
+          Pagar con Mercado Pago
         </button>
       </div>
-      <div id="orderSummary" class="payment-summary" style="display: none"></div>
+      <div
+        id="orderSummary"
+        class="payment-summary"
+        style="display: none"
+      ></div>
     </main>
     <div id="whatsapp-button">
       <a href="https://wa.me/541112345678" target="_blank">

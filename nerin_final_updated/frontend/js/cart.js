@@ -16,7 +16,7 @@ const itemsContainer = document.getElementById("cartItems");
 const summaryContainer = document.getElementById("cartSummary");
 const actionsContainer = document.getElementById("cartActions");
 const whatsappBtn = document.getElementById("whatsappBtn");
-const confirmBtn = document.getElementById("confirmBtn");
+const payBtn = document.getElementById("payBtn");
 
 // Calcular el precio con descuento según cantidad para mayoristas
 function calculateDiscountedPrice(basePrice, quantity) {
@@ -47,6 +47,15 @@ function renderCart() {
     // Contenedor del ítem
     const itemEl = document.createElement("div");
     itemEl.className = "cart-item";
+
+    // Imagen del producto si está disponible
+    if (item.image) {
+      const imgEl = document.createElement("img");
+      imgEl.src = item.image;
+      imgEl.alt = item.name;
+      imgEl.className = "cart-img";
+      itemEl.appendChild(imgEl);
+    }
 
     // Nombre del producto
     const nameEl = document.createElement("div");
@@ -122,7 +131,7 @@ function renderCart() {
     );
   };
 
-  confirmBtn.onclick = () => {
+  payBtn.onclick = () => {
     window.location.href = "/checkout-form.html";
   };
   // Después de renderizar el carrito actualiza la navegación para reflejar el contador del carrito

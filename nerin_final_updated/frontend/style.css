@@ -54,6 +54,11 @@ header {
   z-index: 100;
 }
 
+/* Versión simple del header con sólo el logo */
+.simple-header {
+  justify-content: center;
+}
+
 header .logo {
   font-weight: 700;
   font-size: 1.4rem;
@@ -556,13 +561,25 @@ nav a:hover {
   margin-bottom: 1rem;
 }
 
+.cart-container {
+  max-width: 700px;
+}
+
 .cart-item {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr auto;
+  grid-template-columns: 80px 2fr 1fr 1fr 1fr auto;
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--color-border);
+}
+
+.cart-img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border-radius: var(--radius);
+  background-color: var(--color-muted);
 }
 
 .cart-name {
@@ -627,6 +644,20 @@ nav a:hover {
   text-align: center;
 }
 
+.mp-button {
+  background-color: #009ee3;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.mp-button img {
+  width: 24px;
+  height: 24px;
+}
+
 .payment-summary {
   margin-top: 1.5rem;
   padding: 1rem;
@@ -640,7 +671,7 @@ nav a:hover {
 
 @media (max-width: 600px) {
   .cart-item {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 60px 1fr;
     grid-template-rows: auto auto auto;
     gap: 0.5rem;
   }

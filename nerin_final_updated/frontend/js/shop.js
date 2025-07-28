@@ -166,6 +166,7 @@ function createProductCard(product) {
           name: product.name,
           price: product.price_mayorista,
           quantity: qty,
+          image: product.image,
         });
       }
       localStorage.setItem("nerinCart", JSON.stringify(cart));
@@ -205,6 +206,7 @@ function createProductCard(product) {
           name: product.name,
           price: product.price_minorista,
           quantity: 1,
+          image: product.image,
         });
       }
       localStorage.setItem("nerinCart", JSON.stringify(cart));

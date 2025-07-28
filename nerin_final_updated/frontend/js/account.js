@@ -162,6 +162,7 @@ function addItemsToCart(items) {
         name: it.name,
         price: it.price,
         quantity: it.quantity,
+        image: it.image,
       });
   });
   localStorage.setItem("nerinCart", JSON.stringify(cart));
