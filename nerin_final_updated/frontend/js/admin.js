@@ -540,117 +540,161 @@ async function loadAnalytics() {
 
 // ------------ Pedidos ------------
 const ordersTableBody = document.querySelector("#ordersTable tbody");
+const orderStatusFilter = document.getElementById("orderStatusFilter");
+if (orderStatusFilter) {
+  orderStatusFilter.addEventListener("change", () => {
+    loadOrders();
+  });
+}
 
 async function loadOrders() {
   try {
     const res = await fetch("/api/orders");
     const data = await res.json();
     ordersTableBody.innerHTML = "";
-    data.orders.forEach(async (order) => {
-      const tr = document.createElement("tr");
-      // Resumen de items
-      const itemsText = order.items
-        .map((it) => `${it.name} x${it.quantity}`)
-        .join(", ");
-      // Crear celdas manualmente para añadir listeners
-      const idTd = document.createElement("td");
-      idTd.textContent = order.id;
-      const dateTd = document.createElement("td");
-      dateTd.textContent = new Date(order.date).toLocaleString("es-AR");
-      const itemsTd = document.createElement("td");
-      itemsTd.textContent = itemsText;
-      const statusTd = document.createElement("td");
-      const statusSelect = document.createElement("select");
-      ["pendiente", "pagado", "en preparación", "enviado", "entregado"].forEach(
-        (st) => {
+    const filter = document.getElementById("orderStatusFilter");
+    const statusFilter = filter ? filter.value : "todos";
+    data.orders
+      .filter((o) =>
+        statusFilter === "todos" ? true : o.estado_pago === statusFilter,
+      )
+      .forEach(async (order) => {
+        const tr = document.createElement("tr");
+        // Resumen de items
+        const itemsText = (order.productos || [])
+          .map((it) => `${it.name} x${it.quantity}`)
+          .join(", ");
+        const cliente = order.cliente || {};
+        const direccion = cliente.direccion || {};
+        const dirText = direccion.calle
+          ? `${direccion.calle} ${direccion.numero || ""}, ${direccion.localidad || ""}, ${
+              direccion.provincia || ""
+            } ${direccion.cp || ""}`
+          : "";
+        // Crear celdas manualmente para añadir listeners
+        const idTd = document.createElement("td");
+        idTd.textContent = order.id;
+        const dateTd = document.createElement("td");
+        dateTd.textContent = new Date(order.fecha).toLocaleString("es-AR");
+        const nameTd = document.createElement("td");
+        nameTd.textContent = cliente.nombre || "";
+        const phoneTd = document.createElement("td");
+        phoneTd.textContent = cliente.telefono || "";
+        const addressTd = document.createElement("td");
+        addressTd.textContent = dirText;
+        const itemsTd = document.createElement("td");
+        itemsTd.textContent = itemsText;
+        const totalTd = document.createElement("td");
+        totalTd.textContent = `$${order.total.toLocaleString("es-AR")}`;
+        const statusTd = document.createElement("td");
+        const statusSelect = document.createElement("select");
+        ["pendiente", "en proceso", "pagado", "rechazado"].forEach((st) => {
           const opt = document.createElement("option");
           opt.value = st;
           opt.textContent = st;
-          if (order.status === st) opt.selected = true;
+          if (order.estado_pago === st) opt.selected = true;
           statusSelect.appendChild(opt);
-        },
-      );
-      statusTd.appendChild(statusSelect);
-      const trackingTd = document.createElement("td");
-      const trackingInput = document.createElement("input");
-      trackingInput.type = "text";
-      trackingInput.value = order.tracking || "";
-      trackingInput.placeholder = "Nº";
-      trackingTd.appendChild(trackingInput);
-      const carrierTd = document.createElement("td");
-      const carrierInput = document.createElement("input");
-      carrierInput.type = "text";
-      carrierInput.value = order.carrier || "";
-      carrierInput.placeholder = "Empresa";
-      carrierTd.appendChild(carrierInput);
-      const invoiceTd = document.createElement("td");
-      const invoiceBtn = document.createElement("button");
-      invoiceBtn.className = "invoice-btn";
-      invoiceBtn.textContent = "Factura";
-      invoiceTd.appendChild(invoiceBtn);
-      const actionTd = document.createElement("td");
-      const saveBtn = document.createElement("button");
-      saveBtn.className = "save-order-btn";
-      saveBtn.textContent = "Guardar";
-      actionTd.appendChild(saveBtn);
-      tr.appendChild(idTd);
-      tr.appendChild(dateTd);
-      tr.appendChild(itemsTd);
-      tr.appendChild(statusTd);
-      tr.appendChild(trackingTd);
-      tr.appendChild(carrierTd);
-      tr.appendChild(invoiceTd);
-      tr.appendChild(actionTd);
-      // Listener para guardar cambios de estado y envío
-      saveBtn.addEventListener("click", async () => {
-        const newStatus = statusSelect.value;
-        const trackingVal = trackingInput.value.trim();
-        const carrierVal = carrierInput.value.trim();
-        const resp = await fetch(`/api/orders/${order.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            status: newStatus,
-            tracking: trackingVal,
-            carrier: carrierVal,
-          }),
         });
-        if (resp.ok) {
-          alert("Pedido actualizado");
-          loadOrders();
-        } else {
-          alert("Error al actualizar el pedido");
-        }
-      });
-      // Listener para factura (crea o abre)
-      invoiceBtn.addEventListener("click", async () => {
-        try {
-          const resp = await fetch(`/api/invoices/${order.id}`, {
-            method: "POST",
+        statusTd.appendChild(statusSelect);
+        const trackingTd = document.createElement("td");
+        const trackingInput = document.createElement("input");
+        trackingInput.type = "text";
+        trackingInput.value = order.seguimiento || "";
+        trackingInput.placeholder = "Nº";
+        trackingTd.appendChild(trackingInput);
+        const carrierTd = document.createElement("td");
+        const carrierInput = document.createElement("input");
+        carrierInput.type = "text";
+        carrierInput.value = order.transportista || "";
+        carrierInput.placeholder = "Empresa";
+        carrierTd.appendChild(carrierInput);
+        const envioTd = document.createElement("td");
+        const envioSelect = document.createElement("select");
+        ["pendiente", "en preparación", "enviado", "entregado"].forEach(
+          (st) => {
+            const opt = document.createElement("option");
+            opt.value = st;
+            opt.textContent = st;
+            if (order.estado_envio === st) opt.selected = true;
+            envioSelect.appendChild(opt);
+          },
+        );
+        envioTd.appendChild(envioSelect);
+        const invoiceTd = document.createElement("td");
+        const invoiceBtn = document.createElement("button");
+        invoiceBtn.className = "invoice-btn";
+        invoiceBtn.textContent = "Factura";
+        invoiceTd.appendChild(invoiceBtn);
+        const actionTd = document.createElement("td");
+        const saveBtn = document.createElement("button");
+        saveBtn.className = "save-order-btn";
+        saveBtn.textContent = "Guardar";
+        actionTd.appendChild(saveBtn);
+        tr.appendChild(idTd);
+        tr.appendChild(dateTd);
+        tr.appendChild(nameTd);
+        tr.appendChild(phoneTd);
+        tr.appendChild(addressTd);
+        tr.appendChild(itemsTd);
+        tr.appendChild(totalTd);
+        tr.appendChild(statusTd);
+        tr.appendChild(envioTd);
+        tr.appendChild(trackingTd);
+        tr.appendChild(carrierTd);
+        tr.appendChild(invoiceTd);
+        tr.appendChild(actionTd);
+        // Listener para guardar cambios de estado y envío
+        saveBtn.addEventListener("click", async () => {
+          const newPago = statusSelect.value;
+          const newEnvio = envioSelect.value;
+          const trackingVal = trackingInput.value.trim();
+          const carrierVal = carrierInput.value.trim();
+          const resp = await fetch(`/api/orders/${order.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              estado_pago: newPago,
+              estado_envio: newEnvio,
+              seguimiento: trackingVal,
+              transportista: carrierVal,
+            }),
           });
           if (resp.ok) {
-            window.open(`/invoice.html?orderId=${order.id}`, "_blank");
+            alert("Pedido actualizado");
+            loadOrders();
           } else {
-            const dataErr = await resp.json().catch(() => ({}));
-            alert(dataErr.error || "Error generando factura");
+            alert("Error al actualizar el pedido");
           }
-        } catch (err) {
-          alert("Error al generar factura");
+        });
+        // Listener para factura (crea o abre)
+        invoiceBtn.addEventListener("click", async () => {
+          try {
+            const resp = await fetch(`/api/invoices/${order.id}`, {
+              method: "POST",
+            });
+            if (resp.ok) {
+              window.open(`/invoice.html?orderId=${order.id}`, "_blank");
+            } else {
+              const dataErr = await resp.json().catch(() => ({}));
+              alert(dataErr.error || "Error generando factura");
+            }
+          } catch (err) {
+            alert("Error al generar factura");
+          }
+        });
+        // Establecer texto de botón según existencia de factura
+        try {
+          const invRes = await fetch(`/api/invoices/${order.id}`);
+          if (invRes.ok) {
+            invoiceBtn.textContent = "Ver factura";
+          } else {
+            invoiceBtn.textContent = "Generar factura";
+          }
+        } catch (e) {
+          invoiceBtn.textContent = "Factura";
         }
+        ordersTableBody.appendChild(tr);
       });
-      // Establecer texto de botón según existencia de factura
-      try {
-        const invRes = await fetch(`/api/invoices/${order.id}`);
-        if (invRes.ok) {
-          invoiceBtn.textContent = "Ver factura";
-        } else {
-          invoiceBtn.textContent = "Generar factura";
-        }
-      } catch (e) {
-        invoiceBtn.textContent = "Factura";
-      }
-      ordersTableBody.appendChild(tr);
-    });
   } catch (err) {
     console.error(err);
     ordersTableBody.innerHTML =
@@ -749,9 +793,11 @@ function renderMetrics(m) {
   html += `<p>Total de ventas (neto): $${totalAnnual.toLocaleString("es-AR")}</p>`;
   html += `<p>IVA (21%): $${iva.toLocaleString("es-AR")}</p>`;
   html += "<h4>Ventas por mes</h4>";
-  html += '<div class="chart-wrapper"><canvas id="salesChartCanvas" height="180"></canvas></div>';
+  html +=
+    '<div class="chart-wrapper"><canvas id="salesChartCanvas" height="180"></canvas></div>';
   html += "<h4>Productos más vendidos</h4>";
-  html += '<div class="chart-wrapper"><canvas id="topProductsChartCanvas" height="180"></canvas></div>';
+  html +=
+    '<div class="chart-wrapper"><canvas id="topProductsChartCanvas" height="180"></canvas></div>';
   metricsContent.innerHTML = html;
   const labels = Object.keys(m.salesByMonth);
   const values = Object.values(m.salesByMonth);

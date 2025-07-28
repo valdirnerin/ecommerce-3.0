@@ -162,7 +162,7 @@ function calculateDetailedAnalytics() {
       const month = order.date.slice(0, 7); // YYYY-MM
       monthlySales[month] = (monthlySales[month] || 0) + (order.total || 0);
     }
-    order.items.forEach((item) => {
+    (order.productos || []).forEach((item) => {
       const prod = products.find((p) => p.id === item.id);
       if (prod) {
         // Categoría
@@ -177,8 +177,8 @@ function calculateDetailedAnalytics() {
       totalUnitsSold += item.quantity;
     });
     // Total por cliente
-    if (order.customer && order.customer.email) {
-      const email = order.customer.email;
+    if (order.cliente && order.cliente.email) {
+      const email = order.cliente.email;
       customerTotals[email] = (customerTotals[email] || 0) + order.total;
     }
   });
@@ -328,7 +328,7 @@ function sendJson(res, statusCode, data) {
 
 // Enviar email de confirmación cuando un pedido se marca como pagado
 function sendOrderPaidEmail(order) {
-  if (!resend || !order.customer || !order.customer.email) return;
+  if (!resend || !order.cliente || !order.cliente.email) return;
   try {
     const tplPath = path.join(__dirname, "../emails/orderPaid.html");
     let html = fs.readFileSync(tplPath, "utf8");
@@ -338,9 +338,28 @@ function sendOrderPaidEmail(order) {
     resend.emails
       .send({
         from: "no-reply@nerin.com",
-        to: order.customer.email,
+        to: order.cliente.email,
         subject: "Confirmación de compra",
         html,
+      })
+      .catch((e) => console.error("Email error", e));
+  } catch (e) {
+    console.error("send email failed", e);
+  }
+}
+
+// Enviar email cuando el pedido se despacha
+function sendOrderShippedEmail(order) {
+  if (!resend || !order.cliente || !order.cliente.email) return;
+  try {
+    const subject = "Tu pedido fue enviado";
+    const body = `Seguimiento: ${order.seguimiento || ""}`;
+    resend.emails
+      .send({
+        from: "no-reply@nerin.com",
+        to: order.cliente.email,
+        subject,
+        html: `<p>${body}</p>`,
       })
       .catch((e) => console.error("Email error", e));
   } catch (e) {
@@ -664,7 +683,10 @@ const server = http.createServer((req, res) => {
             const prefRes = await mpPreference.create({ body: mpPref });
             mpInit = prefRes.init_point;
           } catch (prefErr) {
-            console.error("Error al crear preferencia de Mercado Pago:", prefErr);
+            console.error(
+              "Error al crear preferencia de Mercado Pago:",
+              prefErr,
+            );
           }
         }
         return sendJson(res, 200, {
@@ -681,17 +703,17 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // API: crear nueva orden pendiente
+  // API: crear nueva orden pendiente con datos de cliente y envío
   if (pathname === "/api/orders" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => {
       body += c;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const data = JSON.parse(body || "{}");
-        const cart = data.items;
-        if (!Array.isArray(cart) || cart.length === 0) {
+        const items = data.productos || data.items || [];
+        if (!Array.isArray(items) || items.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });
         }
         const orderId =
@@ -700,18 +722,55 @@ const server = http.createServer((req, res) => {
           "-" +
           Math.floor(Math.random() * 1000);
         const orders = getOrders();
-        const total = cart.reduce((t, it) => t + it.price * it.quantity, 0);
+        const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
+        const impuestosCalc = Math.round(total * 0.21);
         const order = {
           id: orderId,
-          date: new Date().toISOString(),
-          items: cart,
-          status: "pending",
+          cliente: data.cliente || {},
+          productos: items,
+          estado_pago: "pendiente",
+          estado_envio: "pendiente",
+          metodo_envio: data.metodo_envio || "Correo Argentino",
+          comentarios: data.comentarios || "",
           total,
-          customer: data.customer || {},
+          impuestos: {
+            iva: 21,
+            percepciones: 0,
+            totalImpuestos: impuestosCalc,
+          },
+          fecha: new Date().toISOString(),
+          seguimiento: "",
+          transportista: "",
         };
         orders.push(order);
         saveOrders(orders);
-        return sendJson(res, 201, { orderId });
+        let initPoint = null;
+        if (mpPreference) {
+          try {
+            const pref = {
+              items: items.map((it) => ({
+                title: it.name,
+                quantity: Number(it.quantity),
+                unit_price: Number(it.price),
+              })),
+              back_urls: {
+                success: `${DOMAIN}/success`,
+                failure: `${DOMAIN}/failure`,
+                pending: `${DOMAIN}/pending`,
+              },
+              auto_return: "approved",
+              external_reference: orderId,
+            };
+            if (CONFIG.publicUrl) {
+              pref.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
+            }
+            const prefRes = await mpPreference.create({ body: pref });
+            initPoint = prefRes.init_point;
+          } catch (e) {
+            console.error("Error MP preference", e);
+          }
+        }
+        return sendJson(res, 201, { orderId, init_point: initPoint });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
@@ -766,8 +825,16 @@ const server = http.createServer((req, res) => {
         if (index === -1) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
         }
+        const prev = { ...orders[index] };
         orders[index] = { ...orders[index], ...update };
         saveOrders(orders);
+        if (
+          update.estado_envio &&
+          update.estado_envio === "enviado" &&
+          prev.estado_envio !== "enviado"
+        ) {
+          sendOrderShippedEmail(orders[index]);
+        }
         return sendJson(res, 200, { success: true, order: orders[index] });
       } catch (err) {
         console.error(err);
@@ -858,7 +925,7 @@ const server = http.createServer((req, res) => {
       orders.forEach((order) => {
         const date = new Date(order.date);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-        order.items.forEach((item) => {
+        (order.productos || []).forEach((item) => {
           const qty = item.quantity;
           // total por mes (suma de cantidad * precio unitario); para simplificar usamos price sin descuento aplicado
           salesByMonth[monthKey] =
@@ -945,9 +1012,9 @@ const server = http.createServer((req, res) => {
       // Determinar tipo de factura según condición fiscal del cliente
       let type = "B";
       let clientInfo = null;
-      if (order.customer && order.customer.email) {
+      if (order.cliente && order.cliente.email) {
         const clients = getClients();
-        const client = clients.find((c) => c.email === order.customer.email);
+        const client = clients.find((c) => c.email === order.cliente.email);
         if (client) {
           clientInfo = { ...client };
           if (
@@ -965,7 +1032,7 @@ const server = http.createServer((req, res) => {
         date: new Date().toISOString(),
         type,
         client: clientInfo,
-        items: order.items,
+        items: order.productos,
         total: order.total,
       };
       invoices.push(invoice);
@@ -1020,21 +1087,21 @@ const server = http.createServer((req, res) => {
         // Verificar que el pedido pertenece al cliente (si se suministra) y que fue entregado
         if (
           customerEmail &&
-          order.customer &&
-          order.customer.email !== customerEmail
+          order.cliente &&
+          order.cliente.email !== customerEmail
         ) {
           return sendJson(res, 403, {
             error: "No puedes devolver un pedido que no es tuyo",
           });
         }
-        if (order.status !== "entregado") {
+        if (order.estado_envio !== "entregado") {
           return sendJson(res, 400, {
             error: "Sólo se pueden devolver pedidos entregados",
           });
         }
         // Verificar si el cliente está bloqueado para devoluciones
         let email = customerEmail;
-        if (!email && order.customer) email = order.customer.email;
+        if (!email && order.cliente) email = order.cliente.email;
         let clientBlocked = false;
         if (email) {
           const clients = getClients();
@@ -1074,7 +1141,7 @@ const server = http.createServer((req, res) => {
           id: returnId,
           orderId,
           customerEmail: email || "",
-          items: items || order.items,
+          items: items || order.productos,
           reason,
           status: "pendiente",
           date: new Date().toISOString(),
@@ -1576,11 +1643,19 @@ const server = http.createServer((req, res) => {
         if (!payment) return sendJson(res, 200, { received: true });
         const orders = getOrders();
         const order = orders.find((o) => o.id === payment.external_reference);
-        if (order && payment.status === "approved") {
-          order.status = "paid";
-          order.paymentId = payment.id;
-          saveOrders(orders);
-          sendOrderPaidEmail(order);
+        if (order) {
+          if (payment.status === "approved") {
+            order.estado_pago = "pagado";
+            order.paymentId = payment.id;
+            saveOrders(orders);
+            sendOrderPaidEmail(order);
+          } else if (payment.status === "in_process") {
+            order.estado_pago = "en proceso";
+            saveOrders(orders);
+          } else if (payment.status === "rejected") {
+            order.estado_pago = "rechazado";
+            saveOrders(orders);
+          }
         }
         return sendJson(res, 200, { success: true });
       } catch (err) {
