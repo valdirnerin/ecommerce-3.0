@@ -2,40 +2,65 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <title>Pago exitoso</title>
     <link rel="stylesheet" href="/css/style.css" />
   </head>
   <body>
     <div class="contenedor">
-      <p>✅ ¡Pago aprobado! Gracias por tu compra.</p>
-      <div id="orderSummary"></div>
-      <a class="btn" href="/index.html">Volver a la tienda</a>
+      <p id="statusMsg">Cargando información del pedido…</p>
+      <div id="orderSummary" class="payment-summary"></div>
+      <div class="buttons">
+        <a class="btn" href="/index.html">Inicio</a>
+        <a class="btn" href="/shop.html">Seguir comprando</a>
+      </div>
     </div>
     <script>
       document.addEventListener("DOMContentLoaded", async () => {
         const params = new URLSearchParams(window.location.search);
-        const id = params.get("external_reference") || params.get("orderId");
-        if (!id) return;
+        const id =
+          params.get("external_reference") || params.get("orderId");
+        const msgEl = document.getElementById("statusMsg");
+        const sumEl = document.getElementById("orderSummary");
+        if (!id) {
+          msgEl.textContent = "No se encontró el pedido.";
+          return;
+        }
         try {
-          const resp = await fetch(`/api/orders/${id}`);
-          if (!resp.ok) return;
+          const resp = await fetch(
+            `/api/orders/${encodeURIComponent(id)}`,
+          );
+          if (!resp.ok) throw new Error("not found");
           const data = await resp.json();
           const order = data.order;
-          const cont = document.getElementById("orderSummary");
-          if (order && cont) {
-            cont.innerHTML = `
+          if (!order) {
+            msgEl.textContent =
+              "No pudimos obtener los datos de tu pedido.";
+            return;
+          }
+          if (order.estado_pago === "pagado") {
+            msgEl.textContent = "✅ ¡Pago aprobado! Gracias por tu compra.";
+            const itemsHtml = (order.productos || [])
+              .map((p) => `<li>${p.name} x${p.quantity}</li>`) 
+              .join("");
+            sumEl.innerHTML = `
               <h3>Pedido ${order.id}</h3>
-              <ul>${order.productos
-                .map((p) => `<li>${p.name} x${p.quantity}</li>`)
-                .join("")}</ul>
-              <p>Total: $${order.total.toLocaleString("es-AR")}</p>
+              <ul>${itemsHtml}</ul>
+              <p class="cart-total-amount">Total: $${order.total.toLocaleString(
+                "es-AR",
+              )}</p>
             `;
-            if (order.estado_pago === "pagado") {
-              localStorage.removeItem("nerinCart");
-            }
+            localStorage.removeItem("nerinCart");
+          } else {
+            msgEl.textContent =
+              "Tu pago está pendiente o fue rechazado. Estamos esperando confirmación.";
           }
         } catch (e) {
           console.error(e);
+          msgEl.textContent = "Error al cargar el pedido.";
         }
       });
     </script>
