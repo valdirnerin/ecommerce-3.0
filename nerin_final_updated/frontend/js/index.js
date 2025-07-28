@@ -11,7 +11,13 @@ function addToCart(product) {
     const price = isWholesale()
       ? product.price_mayorista
       : product.price_minorista;
-    cart.push({ id: product.id, name: product.name, price, quantity: 1 });
+    cart.push({
+      id: product.id,
+      name: product.name,
+      price,
+      quantity: 1,
+      image: product.image,
+    });
   }
   localStorage.setItem("nerinCart", JSON.stringify(cart));
   if (window.updateNav) window.updateNav();
