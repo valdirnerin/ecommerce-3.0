@@ -122,79 +122,8 @@ function renderCart() {
     );
   };
 
-  confirmBtn.onclick = async () => {
-    try {
-      // Enviar también información del cliente si está logueado
-      const email = localStorage.getItem("nerinUserEmail");
-      const name = localStorage.getItem("nerinUserName");
-      const payload = { cart };
-      if (email) {
-        // Cliente logueado: utilizar sus datos almacenados
-        payload.customer = { email, name };
-      } else {
-        // Invitado: solicitar nombre y correo para poder generar seguimiento
-        const guestEmail = prompt(
-          "Ingresa tu correo electrónico para recibir el seguimiento de tu pedido:",
-        );
-        if (!guestEmail) {
-          alert(
-            "Debes ingresar un correo válido para continuar con la compra.",
-          );
-          return;
-        }
-        const guestName = prompt("Ingresa tu nombre completo:");
-        if (!guestName) {
-          alert("Debes ingresar tu nombre para continuar con la compra.");
-          return;
-        }
-        payload.customer = { email: guestEmail.trim(), name: guestName.trim() };
-      }
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        alert(errData.error || "Error al enviar el pedido");
-        return;
-      }
-      const data = await res.json().catch(() => ({}));
-      const orderId = data.orderId || "N/A";
-      if (data.init_point) {
-        window.location.href = data.init_point;
-        return;
-      }
-      const prefRes = await fetch("/api/payments/create-preference", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cart: cart.map((i) => ({
-            title: i.name,
-            quantity: i.quantity,
-            price: i.price,
-          })),
-        }),
-      });
-      if (!prefRes.ok) {
-        alert("Error al preparar el pago");
-        return;
-      }
-      const pref = await prefRes.json().catch(() => ({}));
-      if (!pref.preferenceId) {
-        alert("Error al preparar el pago");
-        return;
-      }
-      showPaymentSummary(orderId, cart, pref.preferenceId);
-      localStorage.removeItem("nerinCart");
-      if (window.updateNav) {
-        window.updateNav();
-      }
-    } catch (err) {
-      alert("Error al conectar con el servidor");
-    }
+  confirmBtn.onclick = () => {
+    window.location.href = "/checkout-form.html";
   };
   // Después de renderizar el carrito actualiza la navegación para reflejar el contador del carrito
   if (window.updateNav) {
@@ -225,11 +154,11 @@ function showPaymentSummary(orderId, cart, preferenceId) {
       ${cart
         .map(
           (i) =>
-            `<li>${i.name} x${i.quantity} - $${i.price.toLocaleString('es-AR')}</li>`,
+            `<li>${i.name} x${i.quantity} - $${i.price.toLocaleString("es-AR")}</li>`,
         )
         .join("")}
     </ul>
-    <p class="cart-total-amount">Total: $${total.toLocaleString('es-AR')}</p>
+    <p class="cart-total-amount">Total: $${total.toLocaleString("es-AR")}</p>
     <div id="mpButton"></div>
   `;
   orderEl.querySelector("#mpButton").innerHTML =

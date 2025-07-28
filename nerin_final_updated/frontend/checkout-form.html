@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Checkout</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="logo"><a href="/index.html">NERIN</a></div>
+      <nav>
+        <ul>
+          <li><a href="/index.html">Inicio</a></li>
+          <li><a href="/shop.html">Productos</a></li>
+          <li><a href="/cart.html">Carrito</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main class="container checkout-container">
+      <h2>Completar datos de envío</h2>
+      <form id="checkoutForm">
+        <label
+          >Nombre completo <input type="text" id="nombre" required
+        /></label>
+        <label>Email <input type="email" id="email" required /></label>
+        <label>Teléfono <input type="tel" id="telefono" required /></label>
+        <label>Calle <input type="text" id="calle" required /></label>
+        <label>Número <input type="text" id="numero" required /></label>
+        <label>Piso <input type="text" id="piso" /></label>
+        <label>Localidad <input type="text" id="localidad" required /></label>
+        <label>Provincia <input type="text" id="provincia" required /></label>
+        <label>CP <input type="text" id="cp" required /></label>
+        <label
+          >Método de envío
+          <select id="metodo_envio">
+            <option value="retiro">Retiro</option>
+            <option value="correo">Correo Argentino</option>
+          </select>
+        </label>
+        <label>Comentarios <textarea id="comentarios"></textarea></label>
+        <button type="submit" class="button primary">Continuar con pago</button>
+      </form>
+    </main>
+    <script type="module" src="/js/checkout-form.js"></script>
+  </body>
+</html>

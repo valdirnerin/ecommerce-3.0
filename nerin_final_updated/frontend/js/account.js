@@ -181,10 +181,14 @@ async function renderOrders(orders, email, invoiceList) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${order.id}</td>
-      <td>${new Date(order.date).toLocaleString("es-AR")}</td>
-      <td>${order.items.map((it) => `${it.name} x${it.quantity}`).join(", ")}</td>
-      <td><span class="status-badge status-${order.status}">${order.status}</span></td>
-      <td>${order.carrier || ""}</td>
+      <td>${new Date(order.fecha).toLocaleString("es-AR")}</td>
+      <td>${(order.productos || [])
+        .map((it) => `${it.name} x${it.quantity}`)
+        .join(", ")}</td>
+      <td><span class="status-badge status-${order.estado_envio}">${
+        order.estado_envio
+      }</span></td>
+      <td>${order.transportista || ""}</td>
       <td>$${order.total.toLocaleString("es-AR")}</td>
       <td><button class="invoice-btn">Factura</button></td>
       <td></td>`;
