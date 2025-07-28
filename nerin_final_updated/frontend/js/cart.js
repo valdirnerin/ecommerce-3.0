@@ -69,6 +69,7 @@ function renderCart() {
     qtyInput.min = 1;
     qtyInput.value = item.quantity;
     qtyInput.className = "cart-qty-input";
+    qtyInput.setAttribute("inputmode", "numeric");
     qtyInput.addEventListener("change", () => {
       const qty = parseInt(qtyInput.value, 10) || 1;
       cart[index].quantity = qty;

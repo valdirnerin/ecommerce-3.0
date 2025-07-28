@@ -558,11 +558,14 @@ nav a:hover {
 
 .cart-container h2 {
   margin-top: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
 }
 
 .cart-container {
   max-width: 700px;
+  margin: 2rem auto;
+  padding: 0 1rem;
 }
 
 .cart-item {
@@ -570,7 +573,7 @@ nav a:hover {
   grid-template-columns: 80px 2fr 1fr 1fr 1fr auto;
   align-items: center;
   gap: 1rem;
-  padding: 0.75rem 0;
+  padding: 1rem 0;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -591,6 +594,7 @@ nav a:hover {
   padding: 0.4rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+  text-align: center;
 }
 
 .cart-price,
@@ -614,7 +618,9 @@ nav a:hover {
 }
 
 .cart-summary {
-  margin-top: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
   font-size: 1.2rem;
   display: flex;
   justify-content: space-between;
@@ -651,6 +657,9 @@ nav a:hover {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
 }
 
 .mp-button img {
@@ -681,6 +690,9 @@ nav a:hover {
   }
   .cart-actions {
     flex-direction: column;
+  }
+  .mp-button {
+    max-width: none;
   }
 }
 
