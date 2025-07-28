@@ -12,4 +12,17 @@ router.get('/', async (_req, res) => {
   }
 });
 
+router.get('/:id/status', async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT payment_status FROM orders WHERE preference_id = $1', [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+    res.json({ status: rows[0].payment_status });
+  } catch (error) {
+    console.error('Error al obtener estado del pedido:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;
