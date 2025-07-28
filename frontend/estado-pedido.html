@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Estado del Pedido</title>
+</head>
+<body>
+  <h1 id="message">Procesando pago...</h1>
+  <h2 id="paso">Paso 2 de 3: Esperando confirmación...</h2>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script>
+    const orderId = window.location.pathname.split('/').pop();
+    const messageEl = document.getElementById('message');
+
+    async function checkStatus() {
+      try {
+        const res = await axios.get(`/api/orders/${orderId}/status`);
+        const status = res.data.status;
+        if (status === 'approved' || status === 'aprobado') {
+          messageEl.textContent = 'Gracias por tu compra';
+          document.getElementById('paso').textContent = 'Paso 3 de 3: Pago aprobado';
+          clearInterval(interval);
+        } else if (status === 'rejected' || status === 'rechazado') {
+          messageEl.textContent = 'El pago fue rechazado';
+          document.getElementById('paso').textContent = 'Paso 3 de 3: Pago rechazado';
+          clearInterval(interval);
+        } else {
+          messageEl.textContent = `Pago ${status}`;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    const interval = setInterval(checkStatus, 5000);
+    checkStatus();
+  </script>
+</body>
+</html>

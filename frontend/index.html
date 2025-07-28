@@ -7,6 +7,7 @@
 </head>
 <body>
   <h1>Integración Mercado Pago - Checkout Pro</h1>
+  <h2 id="paso">Paso 1 de 3: Completa el pago</h2>
   <button id="boton-pago">Pagar con Mercado Pago</button>
 
   <div id="wallet_container"></div>
@@ -32,7 +33,7 @@
     };
 
     payButton.addEventListener('click', async () => {
-      const response = await fetch('http://localhost:3000/crear-preferencia', {
+      const response = await fetch('/crear-preferencia', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
