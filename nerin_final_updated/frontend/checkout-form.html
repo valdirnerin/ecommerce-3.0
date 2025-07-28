@@ -74,7 +74,8 @@
       .shipping-form {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 1.25rem 2rem;
+        column-gap: 2rem;
+        row-gap: 0;
         padding: 2rem 1.5rem;
         background: var(--color-bg);
         border-radius: var(--radius);
@@ -82,6 +83,7 @@
       }
       .form-field {
         position: relative;
+        margin-bottom: 0.75rem;
       }
       .form-field input,
       .form-field select,
@@ -210,6 +212,7 @@
       }
       .shipping-form button {
         grid-column: span 2;
+        margin-top: 0.75rem;
         padding: 1rem;
         border: none;
         border-radius: var(--radius);
@@ -255,6 +258,7 @@
       @media (max-width: 768px) {
         .shipping-form {
           grid-template-columns: 1fr;
+          column-gap: 0;
         }
         .shipping-form button {
           grid-column: 1;
