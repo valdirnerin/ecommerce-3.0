@@ -8,7 +8,36 @@
   <body>
     <div class="contenedor">
       <p>✅ ¡Pago aprobado! Gracias por tu compra.</p>
+      <div id="orderSummary"></div>
       <a class="btn" href="/index.html">Volver a la tienda</a>
     </div>
+    <script>
+      document.addEventListener("DOMContentLoaded", async () => {
+        const params = new URLSearchParams(window.location.search);
+        const id = params.get("external_reference") || params.get("orderId");
+        if (!id) return;
+        try {
+          const resp = await fetch(`/api/orders/${id}`);
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const order = data.order;
+          const cont = document.getElementById("orderSummary");
+          if (order && cont) {
+            cont.innerHTML = `
+              <h3>Pedido ${order.id}</h3>
+              <ul>${order.productos
+                .map((p) => `<li>${p.name} x${p.quantity}</li>`)
+                .join("")}</ul>
+              <p>Total: $${order.total.toLocaleString("es-AR")}</p>
+            `;
+            if (order.estado_pago === "pagado") {
+              localStorage.removeItem("nerinCart");
+            }
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    </script>
   </body>
 </html>
