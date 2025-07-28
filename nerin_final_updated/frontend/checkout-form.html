@@ -95,7 +95,7 @@
       .form-field select,
       .form-field textarea {
         width: 100%;
-        padding: 1rem 1rem 1rem 3rem;
+        padding: 1rem 1rem 1rem 2.5rem;
         font-size: 1rem;
         border: 1px solid var(--color-border);
         border-radius: var(--radius);
@@ -112,13 +112,17 @@
       }
       .form-field label {
         position: absolute;
-        left: 3rem;
+        left: 2.5rem;
         top: 50%;
         transform: translateY(-50%);
         padding: 0 0.25rem;
         color: var(--color-muted);
         pointer-events: none;
         background: var(--color-bg);
+        max-width: calc(100% - 3rem);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         transition:
           transform var(--transition),
           color var(--transition),
@@ -131,6 +135,7 @@
         transform: translateY(-50%);
         color: var(--color-muted);
         pointer-events: none;
+        line-height: 1;
       }
       .form-field:focus-within i {
         color: var(--color-primary);
