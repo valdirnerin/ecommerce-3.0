@@ -652,7 +652,7 @@ const server = http.createServer((req, res) => {
           date: new Date().toISOString(),
           // Clonar items para no mutar las cantidades al actualizar inventario
           items: cart.map((it) => ({ ...it })),
-          status: "pendiente",
+          estado_pago: "pendiente",
           total,
         };
         // Si existe información de cliente, agregarla
@@ -661,49 +661,12 @@ const server = http.createServer((req, res) => {
         }
         orders.push(orderEntry);
         saveOrders(orders);
-        // Actualizar inventario: deducir cantidad comprada de cada producto
-        try {
-          const products = getProducts();
-          let modified = false;
-          cart.forEach((item) => {
-            const index = products.findIndex((p) => p.id === item.id);
-            if (index !== -1) {
-              // Restar stock global
-              if (typeof products[index].stock === "number") {
-                products[index].stock = Math.max(
-                  0,
-                  products[index].stock - item.quantity,
-                );
-              }
-              // Restar de almacenes si existen (no modificar el item original)
-              if (products[index].warehouseStock) {
-                const whs = products[index].warehouseStock;
-                let remaining = item.quantity;
-                // Restar primero del almacén principal "central"
-                if (whs.central && whs.central > 0) {
-                  const toDeduct = Math.min(remaining, whs.central);
-                  whs.central -= toDeduct;
-                  remaining -= toDeduct;
-                }
-                // Si aún queda por descontar, recorrer otros almacenes
-                for (const w in whs) {
-                  if (remaining <= 0) break;
-                  if (w === "central") continue;
-                  const avail = whs[w];
-                  const deduct = Math.min(remaining, avail);
-                  whs[w] -= deduct;
-                  remaining -= deduct;
-                }
-              }
-              modified = true;
-            }
-          });
-          if (modified) {
-            saveProducts(products);
-          }
-        } catch (e) {
-          console.error("Error al actualizar inventario:", e);
-        }
+        /*
+         * Lógica de descuento de stock trasladada al webhook de pago.
+         * Se mantiene comentada aquí para referencia histórica.
+         * Al confirmar el pago se actualizará el inventario desde
+         * /api/webhooks/mp.
+         */
         // Si el pedido proviene de un cliente identificado, actualizar saldo
         if (customer && customer.email) {
           const clients = getClients();
@@ -746,6 +709,8 @@ const server = http.createServer((req, res) => {
             }
             const prefRes = await mpPreference.create({ body: mpPref });
             mpInit = prefRes.init_point;
+            orderEntry.preference_id = prefRes.id;
+            saveOrders(orders);
           } catch (prefErr) {
             console.error(
               "Error al crear preferencia de Mercado Pago:",
@@ -831,6 +796,8 @@ const server = http.createServer((req, res) => {
             }
             const prefRes = await mpPreference.create({ body: pref });
             initPoint = prefRes.init_point;
+            order.preference_id = prefRes.id;
+            saveOrders(orders);
           } catch (e) {
             console.error("Error MP preference", e);
           }
@@ -1776,6 +1743,7 @@ const server = http.createServer((req, res) => {
 
         const payment = await paymentClient.get({ id: paymentId });
         const orders = getOrders();
+
         let order = null;
         if (payment.external_reference) {
           order = orders.find((o) => o.id === payment.external_reference);
@@ -1836,8 +1804,8 @@ const server = http.createServer((req, res) => {
             order.estado_pago = "rechazado";
             order.paymentId = payment.id;
             saveOrders(orders);
+            }
           }
-        }
         return sendJson(res, 200, { success: true });
       } catch (err) {
         console.error(err);

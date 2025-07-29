@@ -172,30 +172,71 @@ app.get("/api/orders/:id", (req, res) => {
 });
 
 // Webhook de Mercado Pago para actualizar estado de pedido
-app.post("/api/webhooks/mp", (req, res) => {
-  try {
-    const event = req.body || {};
-    const payment = event.data && event.data.id ? event.data : null;
-    if (!payment) return res.json({ received: true });
-    const orders = getOrders();
-    const order = orders.find((o) => o.id === payment.external_reference);
-    if (order) {
-      if (payment.status === "approved") {
-        order.estado_pago = "pagado";
-        order.paymentId = payment.id;
-        saveOrders(orders);
-        sendOrderPaidEmail(order);
-      } else if (payment.status === "rejected") {
-        order.estado_pago = "rechazado";
-        saveOrders(orders);
+  app.post("/api/webhooks/mp", (req, res) => {
+    try {
+      const event = req.body || {};
+      const payment = event.data && event.data.id ? event.data : null;
+      if (!payment) return res.json({ received: true });
+      const orders = getOrders();
+      const order = orders.find((o) => o.id === payment.external_reference);
+      if (order) {
+        if (payment.status === "approved") {
+          order.estado_pago = "pagado";
+          order.paymentId = payment.id;
+          saveOrders(orders);
+          try {
+            const products = getProducts();
+            let modified = false;
+            (order.productos || []).forEach((item) => {
+              const idx = products.findIndex((p) => p.id === item.id);
+              if (idx !== -1) {
+                if (typeof products[idx].stock === "number") {
+                  products[idx].stock = Math.max(
+                    0,
+                    products[idx].stock - item.quantity,
+                  );
+                }
+                if (products[idx].warehouseStock) {
+                  const whs = products[idx].warehouseStock;
+                  let remaining = item.quantity;
+                  if (whs.central && whs.central > 0) {
+                    const deduct = Math.min(remaining, whs.central);
+                    whs.central -= deduct;
+                    remaining -= deduct;
+                  }
+                  for (const w in whs) {
+                    if (remaining <= 0) break;
+                    if (w === "central") continue;
+                    const avail = whs[w];
+                    const toDeduct = Math.min(remaining, avail);
+                    whs[w] -= toDeduct;
+                    remaining -= toDeduct;
+                  }
+                }
+                modified = true;
+              }
+            });
+            if (modified) {
+              saveProducts(products);
+            }
+          } catch (invErr) {
+            console.error(
+              "Error al descontar inventario desde webhook:",
+              invErr,
+            );
+          }
+          sendOrderPaidEmail(order);
+        } else if (payment.status === "rejected") {
+          order.estado_pago = "rechazado";
+          saveOrders(orders);
+        }
       }
+      return res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(400).json({ error: "Webhook inválido" });
     }
-    return res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    return res.status(400).json({ error: "Webhook inválido" });
-  }
-});
+  });
 
 // API: checkout / confirmar pedido
 // Este endpoint recibe el contenido del carrito y devuelve un mensaje de éxito.
