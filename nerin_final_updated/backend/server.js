@@ -13,7 +13,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
-const { MercadoPagoConfig, Preference } = require("mercadopago");
+const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
 const multer = require("multer");
@@ -25,9 +25,12 @@ const DOMAIN = "https://ecommerce-3-0.onrender.com";
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
 const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
 let mpPreference = null;
+let paymentClient = null;
+let mpClient = null;
 if (MP_TOKEN) {
-  const mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
+  mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
   mpPreference = new Preference(mpClient);
+  paymentClient = new Payment(mpClient);
 }
 
 // Usuarios de ejemplo para login
@@ -1760,24 +1763,78 @@ const server = http.createServer((req, res) => {
     req.on("data", (c) => {
       body += c;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const event = JSON.parse(body || "{}");
-        const payment = event.data && event.data.id ? event.data : null;
-        if (!payment) return sendJson(res, 200, { received: true });
+        const paymentId =
+          event.payment_id ||
+          (event.data && event.data.id) ||
+          event.id;
+        if (!paymentId || !paymentClient) {
+          return sendJson(res, 200, { received: true });
+        }
+
+        const payment = await paymentClient.get({ id: paymentId });
         const orders = getOrders();
-        const order = orders.find((o) => o.id === payment.external_reference);
+        let order = null;
+        if (payment.external_reference) {
+          order = orders.find((o) => o.id === payment.external_reference);
+        }
+        if (!order && payment.preference_id) {
+          order = orders.find((o) => o.preferenceId === payment.preference_id);
+        }
         if (order) {
           if (payment.status === "approved") {
             order.estado_pago = "pagado";
             order.paymentId = payment.id;
+            try {
+              const products = getProducts();
+              let modified = false;
+              const items = order.productos || order.items || [];
+              items.forEach((item) => {
+                const idx = products.findIndex((p) => p.id === item.id);
+                if (idx !== -1) {
+                  if (typeof products[idx].stock === "number") {
+                    products[idx].stock = Math.max(
+                      0,
+                      products[idx].stock - item.quantity,
+                    );
+                  }
+                  if (products[idx].warehouseStock) {
+                    const whs = products[idx].warehouseStock;
+                    let remaining = item.quantity;
+                    if (whs.central && whs.central > 0) {
+                      const toDeduct = Math.min(remaining, whs.central);
+                      whs.central -= toDeduct;
+                      remaining -= toDeduct;
+                    }
+                    for (const w in whs) {
+                      if (remaining <= 0) break;
+                      if (w === "central") continue;
+                      const avail = whs[w];
+                      const deduct = Math.min(remaining, avail);
+                      whs[w] -= deduct;
+                      remaining -= deduct;
+                    }
+                  }
+                  modified = true;
+                }
+              });
+              if (modified) {
+                saveProducts(products);
+              }
+            } catch (e) {
+              console.error("Error al descontar stock:", e);
+            }
             saveOrders(orders);
             sendOrderPaidEmail(order);
           } else if (payment.status === "in_process") {
             order.estado_pago = "en proceso";
+            order.paymentId = payment.id;
             saveOrders(orders);
           } else if (payment.status === "rejected") {
             order.estado_pago = "rechazado";
+            order.paymentId = payment.id;
             saveOrders(orders);
           }
         }
