@@ -743,6 +743,8 @@ const server = http.createServer((req, res) => {
             }
             const prefRes = await mpPreference.create({ body: mpPref });
             mpInit = prefRes.init_point;
+            orderEntry.preference_id = prefRes.id;
+            saveOrders(orders);
           } catch (prefErr) {
             console.error(
               "Error al crear preferencia de Mercado Pago:",
@@ -828,6 +830,8 @@ const server = http.createServer((req, res) => {
             }
             const prefRes = await mpPreference.create({ body: pref });
             initPoint = prefRes.init_point;
+            order.preference_id = prefRes.id;
+            saveOrders(orders);
           } catch (e) {
             console.error("Error MP preference", e);
           }
