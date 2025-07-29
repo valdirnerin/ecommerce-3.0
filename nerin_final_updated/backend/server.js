@@ -665,7 +665,7 @@ const server = http.createServer((req, res) => {
          * Lógica de descuento de stock trasladada al webhook de pago.
          * Se mantiene comentada aquí para referencia histórica.
          * Al confirmar el pago se actualizará el inventario desde
-         * /api/webhooks/mp.
+         * /api/mercado-pago/webhook.
          */
         // Si el pedido proviene de un cliente identificado, actualizar saldo
         if (customer && customer.email) {
@@ -1725,7 +1725,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === "/api/webhooks/mp" && req.method === "POST") {
+  if (pathname === "/api/mercado-pago/webhook" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => {
       body += c;
@@ -1733,15 +1733,20 @@ const server = http.createServer((req, res) => {
     req.on("end", async () => {
       try {
         const event = JSON.parse(body || "{}");
-        const paymentId =
-          event.payment_id ||
-          (event.data && event.data.id) ||
-          event.id;
-        if (!paymentId || !paymentClient) {
+        const paymentId = event && event.data && event.data.id;
+        if (!paymentId) {
           return sendJson(res, 200, { received: true });
         }
 
-        const payment = await paymentClient.get({ id: paymentId });
+        const resp = await fetch(
+          `https://api.mercadopago.com/v1/payments/${paymentId}`,
+          {
+            headers: { Authorization: `Bearer ${MP_TOKEN}` },
+          },
+        );
+        const payment = await resp.json();
+        console.log(payment);
+
         const orders = getOrders();
 
         let order = null;
