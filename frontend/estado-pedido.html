@@ -16,11 +16,12 @@
       try {
         const res = await axios.get(`/api/orders/${orderId}/status`);
         const status = res.data.status;
-        if (status === 'aprobado') {
+        const normalized = status && status.toLowerCase();
+        if (normalized === 'approved' || normalized === 'aprobado') {
           messageEl.textContent = 'Gracias por tu compra';
           document.getElementById('paso').textContent = 'Paso 3 de 3: Pago aprobado';
           clearInterval(interval);
-        } else if (status === 'rechazado') {
+        } else if (normalized === 'rejected' || normalized === 'rechazado') {
           messageEl.textContent = 'El pago fue rechazado';
           document.getElementById('paso').textContent = 'Paso 3 de 3: Pago rechazado';
           clearInterval(interval);
