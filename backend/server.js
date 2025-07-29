@@ -69,7 +69,7 @@ app.post('/crear-preferencia', async (req, res) => {
 
     await db.query(
       'INSERT INTO orders (preference_id, payment_status, product_title, unit_price, quantity) VALUES ($1, $2, $3, $4, $5)',
-      [result.id, 'pending', titulo, precio, cantidad]
+      [result.id, 'pendiente', titulo, precio, cantidad]
     );
     console.log('Pedido guardado con ID de preferencia', result.id);
 

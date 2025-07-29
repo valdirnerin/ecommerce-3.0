@@ -22,6 +22,13 @@ router.post('/webhook', verifySignature, async (req, res) => {
     const payment = await paymentClient.get({ id: paymentId });
     console.log('Datos de pago:', payment);
     const status = payment.status;
+    const statusMap = {
+      approved: 'aprobado',
+      rejected: 'rechazado',
+      pending: 'pendiente',
+      in_process: 'pendiente',
+    };
+    const mappedStatus = statusMap[status] || status;
 
     let preferenceId = payment.external_reference;
     if (!preferenceId && payment.order && payment.order.id) {
@@ -34,10 +41,10 @@ router.post('/webhook', verifySignature, async (req, res) => {
       return res.status(400).json({ error: 'preference_id no encontrado' });
     }
 
-    console.log('Actualizando pedido', preferenceId, 'con estado', status);
+    console.log('Actualizando pedido', preferenceId, 'con estado', mappedStatus);
     await db.query(
       'UPDATE orders SET payment_status = $1, payment_id = $2 WHERE preference_id = $3',
-      [status, String(paymentId), preferenceId]
+      [mappedStatus, String(paymentId), preferenceId]
     );
 
     res.json({ success: true });
