@@ -8,18 +8,26 @@
     />
     <title>Panel de Administración – NERIN</title>
     <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
   </head>
   <body>
     <header>
-      <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html">Carrito</a></li>
-          <li><a href="/admin.html" class="active">Admin</a></li>
-        </ul>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/admin.html" class="active">Admin</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
         <!-- Selector de idioma -->
         <select
           id="langSelect"
@@ -33,7 +41,7 @@
           <option value="es">ES</option>
           <option value="en">EN</option>
         </select>
-      </nav>
+      </div>
     </header>
     <main class="container admin-container">
       <h2 data-i18n="admin.title">Panel de administración</h2>
@@ -156,12 +164,7 @@
             placeholder="Dimensiones (L×A×A cm)"
           />
           <input type="text" id="newColor" placeholder="Color" />
-          <input
-            type="file"
-            id="newImage"
-            accept=".jpg,.jpeg,.png"
-            required
-          />
+          <input type="file" id="newImage" accept=".jpg,.jpeg,.png" required />
           <div id="imagePreview" class="image-preview"></div>
           <button type="submit" class="button primary">Agregar</button>
         </form>
@@ -404,7 +407,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="/js/admin.js"></script>
     <!-- Configuración y analíticas globales -->
-  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
     <!-- Traducciones -->
     <script type="module" src="/js/lang.js"></script>

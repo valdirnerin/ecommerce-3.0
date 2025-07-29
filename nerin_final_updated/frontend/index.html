@@ -8,21 +8,27 @@
     />
     <title>NERIN Repuestos – Pantallas originales</title>
     <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
   </head>
   <body>
     <header>
-      <!-- Hacer que el logo sea clickeable para volver a la página principal -->
-      <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html">Carrito</a></li>
-          <li><a href="/login.html">Acceder</a></li>
-          <li><a href="#contacto">Contacto</a></li>
-        </ul>
-      </nav>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/admin.html">Admin</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
     </header>
     <section class="hero">
       <div class="content">
@@ -91,7 +97,7 @@
       <p>
         <a href="https://instagram.com" target="_blank">Instagram</a> |
         <a href="/index.html">Inicio</a> | <a href="/shop.html">Catálogo</a> |
-        <a href="#contacto">Contacto</a> |
+        <a href="/contact.html">Contacto</a> |
         <a href="/terms.html">Términos y condiciones</a>
       </p>
       <p class="legal">
@@ -107,7 +113,7 @@
     </div>
     <!-- Configuración y analíticas -->
     <script type="module" src="/js/index.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>
 </html>
