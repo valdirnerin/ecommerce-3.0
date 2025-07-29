@@ -211,4 +211,21 @@ window.addEventListener("storage", () => {
   updateNav();
 });
 
-document.addEventListener("DOMContentLoaded", loadConfig);
+function setupMobileMenu() {
+  const toggle = document.getElementById("navToggle");
+  const nav = document.querySelector("header nav");
+  if (!toggle || !nav) return;
+  toggle.addEventListener("click", () => {
+    nav.classList.toggle("open");
+  });
+  nav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => nav.classList.remove("open"));
+  });
+}
+
+function init() {
+  loadConfig();
+  setupMobileMenu();
+}
+
+document.addEventListener("DOMContentLoaded", init);

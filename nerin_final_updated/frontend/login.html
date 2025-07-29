@@ -8,20 +8,28 @@
     />
     <title>NERIN – Acceder</title>
     <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
   </head>
   <body>
     <header>
-      <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html">Carrito</a></li>
-          <!-- Mantener el enlace de acceso para permitir que updateNav lo reemplace o conserve -->
-          <li><a href="/login.html" class="active">Acceder</a></li>
-        </ul>
-      </nav>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/admin.html">Admin</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <!-- Mantener el enlace de acceso para permitir que updateNav lo reemplace o conserve -->
+            <li><a href="/login.html" class="active">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
     </header>
     <main class="login-container">
       <h2>Acceder</h2>
@@ -50,7 +58,7 @@
     <!-- Importamos el código como módulo -->
     <script type="module" src="/js/login.js"></script>
     <!-- Configuración y analíticas globales -->
-  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>
 </html>

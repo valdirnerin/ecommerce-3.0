@@ -56,7 +56,7 @@ function createFeaturedCard(product) {
   });
   actions.appendChild(addBtn);
   const quote = document.createElement("a");
-  quote.href = "#contacto";
+  quote.href = "/contact.html";
   quote.className = "button secondary";
   quote.textContent = "Pedir cotización";
   actions.appendChild(quote);

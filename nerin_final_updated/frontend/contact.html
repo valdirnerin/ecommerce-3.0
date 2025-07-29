@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>Detalle de producto – NERIN</title>
+    <title>Contacto – NERIN</title>
     <link rel="stylesheet" href="style.css" />
     <link
       rel="stylesheet"
@@ -22,7 +22,7 @@
           <ul>
             <li><a href="/index.html">Inicio</a></li>
             <li><a href="/shop.html">Productos</a></li>
-            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/contact.html" class="active">Contacto</a></li>
             <li><a href="/admin.html">Admin</a></li>
             <li><a href="/cart.html">Carrito</a></li>
             <li><a href="/login.html">Acceder</a></li>
@@ -30,19 +30,24 @@
         </nav>
       </div>
     </header>
-    <main class="container product-detail-container">
-      <div id="productDetail">
-        <!-- El contenido del producto se insertará aquí dinámicamente -->
-      </div>
+    <main class="container">
+      <h2>Contactanos</h2>
+      <form id="contactForm" class="login-container">
+        <input type="text" id="contactName" placeholder="Nombre y apellido" />
+        <input type="tel" id="contactPhone" placeholder="WhatsApp" />
+        <input type="text" id="contactModel" placeholder="Modelo buscado" />
+        <select id="contactType">
+          <option value="tecnico">Técnico</option>
+          <option value="revendedor">Revendedor</option>
+          <option value="particular">Particular</option>
+        </select>
+        <button type="submit" class="button primary">
+          Solicitar cotización
+        </button>
+      </form>
     </main>
-    <div id="whatsapp-button">
-      <a href="https://wa.me/541112345678" target="_blank">
-        <img src="/assets/whatsapp.svg" alt="WhatsApp" />
-      </a>
-    </div>
-    <script type="module" src="/js/product.js"></script>
-    <!-- Configuración y analíticas globales -->
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/index.js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>
 </html>

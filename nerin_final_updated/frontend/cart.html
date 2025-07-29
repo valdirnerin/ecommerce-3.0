@@ -8,11 +8,27 @@
     />
     <title>NERIN – Carrito</title>
     <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
   </head>
   <body>
-    <header class="simple-header">
-      <div class="logo"><a href="/index.html">NERIN</a></div>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/admin.html">Admin</a></li>
+            <li><a href="/cart.html" class="active">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
     </header>
     <main class="container cart-container">
       <h2>Resumen de tu compra</h2>
@@ -43,7 +59,7 @@
     </div>
     <script type="module" src="/js/cart.js"></script>
     <!-- Configuración y analíticas globales -->
-  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>
 </html>

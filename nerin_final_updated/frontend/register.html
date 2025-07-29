@@ -8,24 +8,32 @@
     />
     <title>Registrarse – NERIN</title>
     <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
   </head>
   <body>
     <header>
-      <div class="logo"><a href="/index.html">NERIN</a></div>
-      <nav>
-        <ul>
-          <li><a href="/index.html">Inicio</a></li>
-          <li><a href="/shop.html">Productos</a></li>
-          <li><a href="/cart.html">Carrito</a></li>
-          <!-- Enlace de acceso; updateNav lo cambia según rol -->
-          <li><a href="/login.html">Acceder</a></li>
-          <!-- Enlace de registro marcado con clase especial para que updateNav no lo duplique -->
-          <li class="signup-item">
-            <a href="/register.html" class="active">Registrarse</a>
-          </li>
-        </ul>
-      </nav>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/admin.html">Admin</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <!-- Enlace de acceso; updateNav lo cambia según rol -->
+            <li><a href="/login.html">Acceder</a></li>
+            <!-- Enlace de registro marcado con clase especial para que updateNav no lo duplique -->
+            <li class="signup-item">
+              <a href="/register.html" class="active">Registrarse</a>
+            </li>
+          </ul>
+        </nav>
+      </div>
     </header>
     <main class="container auth-container">
       <h2>Crear cuenta</h2>
@@ -63,7 +71,7 @@
     </main>
     <script type="module" src="/js/register.js"></script>
     <!-- Configuración global -->
-  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>
 </html>
