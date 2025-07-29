@@ -21,3 +21,12 @@ INSTRUCCIONES RÁPIDAS
 El backend quedará disponible en `http://localhost:3000` y podés cambiar los
 datos del producto directamente en `frontend/index.html`.
 
+PRUEBAS AUTOMÁTICAS
+-------------------
+
+Para ejecutar las pruebas básicas del webhook ejecutá:
+
+```bash
+npm test
+```
+

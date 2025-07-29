@@ -1,8 +1,10 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const path = require('path');
 const db = require('./db');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
+const logger = require('./logger');
 require('dotenv').config();
 
 const webhookRoutes = require('./routes/mercadoPago');
@@ -18,12 +20,15 @@ const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
 const preferenceClient = new Preference(client);
 
 const app = express();
+app.disable('x-powered-by');
+app.use(helmet());
 app.use(cors());
 app.use(
   express.json({
     verify: (req, res, buf) => {
       req.rawBody = buf;
     },
+    limit: '100kb',
   })
 );
 
@@ -64,9 +69,9 @@ app.post('/crear-preferencia', async (req, res) => {
 
   try {
     const result = await preferenceClient.create({ body });
-    console.log('Preferencia creada:', result.init_point);
+    logger.info('Preferencia creada');
 
-    console.log('Guardando pedido en DB');
+    logger.info('Guardando pedido en DB');
     await db.query(
       'INSERT INTO orders (preference_id, payment_status, product_title, unit_price, quantity, user_email, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
       [
@@ -82,7 +87,7 @@ app.post('/crear-preferencia', async (req, res) => {
 
     res.json({ id: result.id, init_point: result.init_point });
   } catch (error) {
-    console.error('Error al crear preferencia:', error);
+    logger.error(`Error al crear preferencia: ${error.message}`);
     res.status(500).json({ error: 'No se pudo crear la preferencia' });
   }
 });
@@ -92,5 +97,5 @@ app.use('/api/orders', orderRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  logger.info(`Servidor corriendo en http://localhost:${PORT}`);
 });
