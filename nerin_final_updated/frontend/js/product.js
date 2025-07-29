@@ -165,6 +165,8 @@ function renderProduct(product) {
         }
         localStorage.setItem("nerinCart", JSON.stringify(cart));
         if (window.updateNav) window.updateNav();
+        if (window.showToast)
+          window.showToast("✅ Producto agregado al carrito");
         addBtn.textContent = "Añadido";
         setTimeout(() => {
           addBtn.textContent = "Agregar al carrito";
@@ -201,6 +203,8 @@ function renderProduct(product) {
         }
         localStorage.setItem("nerinCart", JSON.stringify(cart));
         if (window.updateNav) window.updateNav();
+        if (window.showToast)
+          window.showToast("✅ Producto agregado al carrito");
         addBtn.textContent = "Añadido";
         setTimeout(() => {
           addBtn.textContent = "Agregar al carrito";

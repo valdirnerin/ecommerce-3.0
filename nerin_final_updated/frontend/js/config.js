@@ -46,6 +46,49 @@ gtag('config', '${cfg.googleAnalyticsId}');`;
   updateNav();
 }
 
+function showToast(message) {
+  if (typeof Toastify !== "undefined") {
+    Toastify({
+      text: message,
+      duration: 3000,
+      gravity: "top",
+      position: "center",
+      style: { background: "var(--color-success)" },
+    }).showToast();
+  } else {
+    alert(message);
+  }
+}
+
+function renderCartPreview(container) {
+  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  if (cart.length === 0) {
+    container.innerHTML = "<p>Carrito vacío</p>";
+    return;
+  }
+  const items = cart
+    .slice(0, 3)
+    .map((i) => `<div class="prev-item">${i.name} x${i.quantity}</div>`)
+    .join("");
+  const total = cart.reduce(
+    (sum, i) => sum + (i.price || 0) * (i.quantity || 0),
+    0,
+  );
+  container.innerHTML =
+    items +
+    `<div class="prev-total">Total: $${total.toLocaleString("es-AR")}</div>`;
+}
+
+function attachCartPreview(a) {
+  if (a.dataset.previewAttached) return;
+  const preview = document.createElement("div");
+  preview.className = "cart-preview";
+  a.appendChild(preview);
+  a.addEventListener("mouseenter", () => renderCartPreview(preview));
+  a.addEventListener("focus", () => renderCartPreview(preview));
+  a.dataset.previewAttached = "true";
+}
+
 /**
  * Actualiza el menú de navegación según el estado de autenticación y el carrito.
  * Muestra enlaces a "Mi cuenta" o "Admin" en lugar de "Acceder" si el usuario
@@ -73,14 +116,26 @@ function updateNav() {
     const href = a.getAttribute("href");
     // Actualizar carrito
     if (href && href.includes("/cart.html")) {
-      // Mostrar contador de carrito
-      let countSpan = a.querySelector(".cart-count");
+      a.classList.add("cart-link");
+      let icon = a.querySelector(".cart-icon");
+      if (!icon) {
+        icon = document.createElement("span");
+        icon.className = "cart-icon";
+        icon.textContent = "🛒";
+        a.prepend(icon);
+      }
+      let countSpan = a.querySelector(".cart-count-badge");
       if (!countSpan) {
         countSpan = document.createElement("span");
-        countSpan.className = "cart-count";
+        countSpan.className = "cart-count-badge";
         a.appendChild(countSpan);
       }
-      countSpan.textContent = cartCount > 0 ? ` (${cartCount})` : "";
+      countSpan.textContent = cartCount;
+      countSpan.style.display = cartCount > 0 ? "inline-block" : "none";
+      a.classList.remove("shake");
+      void a.offsetWidth;
+      if (cartCount > 0) a.classList.add("shake");
+      attachCartPreview(a);
     }
     // Actualizar enlace de acceso
     if (href && href.includes("/login.html")) {
@@ -148,6 +203,7 @@ function updateNav() {
 
 // Exponer función globalmente para que otros módulos puedan actualizar la navegación
 window.updateNav = updateNav;
+window.showToast = showToast;
 
 // Escuchar cambios en almacenamiento para actualizar la navegación (p.ej. cuando
 // se actualiza el carrito en otra pestaña)

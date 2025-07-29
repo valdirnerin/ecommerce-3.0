@@ -21,6 +21,7 @@ function addToCart(product) {
   }
   localStorage.setItem("nerinCart", JSON.stringify(cart));
   if (window.updateNav) window.updateNav();
+  if (window.showToast) window.showToast("✅ Producto agregado al carrito");
 }
 
 function createFeaturedCard(product) {
