@@ -98,8 +98,19 @@ function updateNav() {
   const navUl = document.querySelector("header nav ul");
   if (!navUl) return;
   const role = localStorage.getItem("nerinUserRole");
+  const token = localStorage.getItem("nerinToken");
+  const loggedIn = Boolean(role && token);
   const name = localStorage.getItem("nerinUserName");
   const email = localStorage.getItem("nerinUserEmail");
+  // Eliminar botones duplicados de Admin si existieran
+  const adminLinks = navUl.querySelectorAll('a[href="/admin.html"]');
+  if (adminLinks.length > 1) {
+    adminLinks.forEach((link, idx) => {
+      if (idx > 0 && link.parentElement) {
+        link.parentElement.remove();
+      }
+    });
+  }
   // Calcular cantidad total en el carrito
   let cartCount = 0;
   try {
@@ -139,7 +150,7 @@ function updateNav() {
     }
     // Actualizar enlace de acceso
     if (href && href.includes("/login.html")) {
-      if (role) {
+      if (loggedIn) {
         // Usuario autenticado: cambiar enlace a Admin o Mi cuenta
         if (role === "admin" || role === "vendedor") {
           a.textContent = "Admin";
@@ -155,7 +166,7 @@ function updateNav() {
     }
   });
   // Añadir enlace de cierre de sesión si no existe y el usuario está autenticado
-  if (role) {
+  if (loggedIn) {
     let logoutLi = navUl.querySelector("li.logout-item");
     if (!logoutLi) {
       logoutLi = document.createElement("li");
