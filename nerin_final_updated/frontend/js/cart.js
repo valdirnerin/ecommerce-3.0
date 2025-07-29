@@ -44,11 +44,9 @@ function renderCart() {
   }
   actionsContainer.style.display = "flex";
   cart.forEach((item, index) => {
-    // Contenedor del ítem
     const itemEl = document.createElement("div");
     itemEl.className = "cart-item";
 
-    // Imagen del producto si está disponible
     if (item.image) {
       const imgEl = document.createElement("img");
       imgEl.src = item.image;
@@ -57,13 +55,43 @@ function renderCart() {
       itemEl.appendChild(imgEl);
     }
 
-    // Nombre del producto
+    const details = document.createElement("div");
+    details.className = "cart-details";
     const nameEl = document.createElement("div");
     nameEl.className = "cart-name";
     nameEl.textContent = item.name;
-    itemEl.appendChild(nameEl);
+    details.appendChild(nameEl);
 
-    // Campo de cantidad editable
+    const basePrice = item.price;
+    let unitPrice = basePrice;
+    if (isWholesale()) {
+      unitPrice = calculateDiscountedPrice(basePrice, item.quantity);
+    }
+    const priceEl = document.createElement("div");
+    priceEl.className = "cart-price";
+    priceEl.textContent = `$${unitPrice.toLocaleString("es-AR")} c/u`;
+    details.appendChild(priceEl);
+
+    const itemTotal = unitPrice * item.quantity;
+    const totalEl = document.createElement("div");
+    totalEl.className = "cart-item-total";
+    totalEl.textContent = `$${itemTotal.toLocaleString("es-AR")}`;
+    details.appendChild(totalEl);
+
+    itemEl.appendChild(details);
+
+    const stepper = document.createElement("div");
+    stepper.className = "qty-stepper";
+    const minus = document.createElement("button");
+    minus.className = "stepper-btn";
+    minus.textContent = "-";
+    minus.addEventListener("click", () => {
+      if (cart[index].quantity > 1) {
+        cart[index].quantity -= 1;
+        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        renderCart();
+      }
+    });
     const qtyInput = document.createElement("input");
     qtyInput.type = "number";
     qtyInput.min = 1;
@@ -76,27 +104,19 @@ function renderCart() {
       localStorage.setItem("nerinCart", JSON.stringify(cart));
       renderCart();
     });
-    itemEl.appendChild(qtyInput);
+    const plus = document.createElement("button");
+    plus.className = "stepper-btn";
+    plus.textContent = "+";
+    plus.addEventListener("click", () => {
+      cart[index].quantity += 1;
+      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      renderCart();
+    });
+    stepper.appendChild(minus);
+    stepper.appendChild(qtyInput);
+    stepper.appendChild(plus);
+    itemEl.appendChild(stepper);
 
-    // Precio unitario mostrando descuento si corresponde
-    const priceEl = document.createElement("div");
-    priceEl.className = "cart-price";
-    const basePrice = item.price;
-    let unitPrice = basePrice;
-    if (isWholesale()) {
-      unitPrice = calculateDiscountedPrice(basePrice, item.quantity);
-    }
-    priceEl.textContent = `$${unitPrice.toLocaleString("es-AR")} c/u`;
-    itemEl.appendChild(priceEl);
-
-    // Precio total por producto
-    const totalEl = document.createElement("div");
-    totalEl.className = "cart-item-total";
-    const itemTotal = unitPrice * item.quantity;
-    totalEl.textContent = `$${itemTotal.toLocaleString("es-AR")}`;
-    itemEl.appendChild(totalEl);
-
-    // Botón para eliminar
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove-item-btn";
     removeBtn.textContent = "Eliminar";
