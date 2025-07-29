@@ -9,6 +9,7 @@ const paymentClient = new Payment(mpClient);
 const merchantClient = new MerchantOrder(mpClient);
 
 router.post('/webhook', verifySignature, async (req, res) => {
+  console.log('Webhook recibido:', req.body);
   const paymentId =
     req.body.payment_id ||
     (req.body.data && req.body.data.id) ||
@@ -35,6 +36,9 @@ router.post('/webhook', verifySignature, async (req, res) => {
     await db.query(
       'UPDATE orders SET payment_status = $1, payment_id = $2 WHERE preference_id = $3',
       [status, String(paymentId), preferenceId]
+    );
+    console.log(
+      `Pedido ${preferenceId} actualizado con estado ${status} y payment_id ${paymentId}`
     );
 
     res.json({ success: true });

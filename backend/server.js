@@ -45,7 +45,7 @@ app.get('/estado-pedido/:id', (_req, res) => {
 });
 
 app.post('/crear-preferencia', async (req, res) => {
-  const { titulo, precio, cantidad } = req.body;
+  const { titulo, precio, cantidad, usuario } = req.body;
   const body = {
     items: [
       {
@@ -66,9 +66,18 @@ app.post('/crear-preferencia', async (req, res) => {
     const result = await preferenceClient.create({ body });
     console.log('Preferencia creada:', result.init_point);
 
+    console.log('Guardando pedido en DB');
     await db.query(
-      'INSERT INTO orders (preference_id, payment_status, product_title, unit_price, quantity) VALUES ($1, $2, $3, $4, $5)',
-      [result.id, 'pending', titulo, precio, cantidad]
+      'INSERT INTO orders (preference_id, payment_status, product_title, unit_price, quantity, user_email, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [
+        result.id,
+        'pending',
+        titulo,
+        precio,
+        cantidad,
+        usuario || null,
+        Number(precio) * Number(cantidad),
+      ]
     );
 
     res.json({ id: result.id, init_point: result.init_point });
