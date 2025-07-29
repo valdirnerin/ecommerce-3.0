@@ -84,6 +84,7 @@ const addProductForm = document.getElementById("addProductForm");
 const newImageInput = document.getElementById("newImage");
 const imagePreview = document.getElementById("imagePreview");
 let uploadedImagePath = "";
+let editingRow = null;
 
 newImageInput.addEventListener("change", async () => {
   const file = newImageInput.files[0];
@@ -162,67 +163,51 @@ async function loadProducts() {
         </td>
       `;
       // Editar
-      tr.querySelector(".edit-btn").addEventListener("click", async () => {
-        const name = prompt("Nombre", product.name);
-        if (name === null) return;
-        const brand = prompt("Marca", product.brand);
-        if (brand === null) return;
-        const model = prompt("Modelo", product.model);
-        if (model === null) return;
-        const stock = prompt("Stock", product.stock);
-        if (stock === null) return;
-        const minStock = prompt("Mín. stock", product.min_stock ?? 5);
-        if (minStock === null) return;
-        const priceMinor = prompt("Precio minorista", product.price_minorista);
-        if (priceMinor === null) return;
-        const priceMajor = prompt("Precio mayorista", product.price_mayorista);
-        if (priceMajor === null) return;
-        // Campos adicionales
-        const description = prompt("Descripción", product.description || "");
-        if (description === null) return;
-        const category = prompt("Categoría", product.category || "");
-        if (category === null) return;
-        const weight = prompt(
-          "Peso (g)",
-          product.weight != null ? product.weight : "",
-        );
-        if (weight === null) return;
-        const dimensions = prompt("Dimensiones", product.dimensions || "");
-        if (dimensions === null) return;
-        const color = prompt("Color", product.color || "");
-        if (color === null) return;
-        const vipChoice = confirm(
-          "¿Marcar como exclusivo VIP?\nAceptar = Sí, Cancelar = No",
-        );
-        const image = prompt("Ruta de imagen", product.image);
-        if (image === null) return;
-        const update = {
-          name,
-          brand,
-          model,
-          stock: parseInt(stock, 10),
-          min_stock: parseInt(minStock, 10),
-          price_minorista: parseInt(priceMinor, 10),
-          price_mayorista: parseInt(priceMajor, 10),
-          description: description.trim(),
-          category: category.trim() || undefined,
-          weight: weight !== "" ? parseFloat(weight) : undefined,
-          dimensions: dimensions.trim() || undefined,
-          color: color.trim() || undefined,
-          vip_only: vipChoice,
-          image,
-        };
-        const resp = await fetch(`/api/products/${product.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(update),
-        });
-        if (resp.ok) {
-          alert("Producto actualizado");
-          loadProducts();
-        } else {
-          alert("Error al actualizar");
-        }
+      tr.querySelector(".edit-btn").addEventListener("click", () => {
+        if (editingRow) return;
+        editingRow = tr;
+        tr.classList.add("editing");
+        const cells = tr.querySelectorAll("td");
+        cells[2].innerHTML = `<input type="text" value="${product.name}" />`;
+        cells[3].innerHTML = `<input type="text" value="${product.brand}" />`;
+        cells[4].innerHTML = `<input type="text" value="${product.model}" />`;
+        cells[5].innerHTML = `<input type="number" min="0" value="${product.stock}" />`;
+        cells[7].innerHTML = `<input type="number" min="0" value="${product.price_minorista}" />`;
+        cells[8].innerHTML = `<input type="number" min="0" value="${product.price_mayorista}" />`;
+        cells[9].innerHTML = `
+          <button class="save-btn">Guardar</button>
+          <button class="cancel-btn">Cancelar</button>
+        `;
+        cells[9]
+          .querySelector(".save-btn")
+          .addEventListener("click", async () => {
+            const inputs = tr.querySelectorAll("input");
+            const update = {
+              name: inputs[0].value.trim(),
+              brand: inputs[1].value.trim(),
+              model: inputs[2].value.trim(),
+              stock: parseInt(inputs[3].value, 10),
+              price_minorista: parseFloat(inputs[4].value),
+              price_mayorista: parseFloat(inputs[5].value),
+            };
+            const resp = await fetch(`/api/products/${product.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(update),
+            });
+            if (resp.ok) {
+              editingRow = null;
+              loadProducts();
+            } else {
+              alert("Error al actualizar");
+            }
+          });
+        cells[9]
+          .querySelector(".cancel-btn")
+          .addEventListener("click", () => {
+            editingRow = null;
+            loadProducts();
+          });
       });
       // Eliminar
       tr.querySelector(".delete-btn").addEventListener("click", async () => {

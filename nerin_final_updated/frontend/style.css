@@ -933,9 +933,25 @@ nav a:hover {
   margin-left: 0.25rem;
 }
 
+.admin-table button.save-btn {
+  background-color: var(--color-success);
+  color: #fff;
+}
+
+.admin-table button.cancel-btn {
+  background-color: var(--color-danger);
+  color: #fff;
+  margin-left: 0.25rem;
+}
+
 .admin-table button.save-status-btn {
   background-color: var(--color-primary);
   color: #fff;
+}
+
+/* Resaltar fila en modo edición */
+.admin-table tr.editing {
+  background-color: #f3f3f3;
 }
 
 /* Resaltar filas con bajo stock en la tabla de productos */
