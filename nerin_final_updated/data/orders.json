@@ -11,7 +11,7 @@
           "quantity": 1
         }
       ],
-      "status": "entregado",
+      "estado_pago": "entregado",
       "total": 100,
       "customer": {
         "email": "test@example.com",

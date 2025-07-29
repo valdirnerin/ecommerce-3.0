@@ -649,7 +649,7 @@ const server = http.createServer((req, res) => {
           date: new Date().toISOString(),
           // Clonar items para no mutar las cantidades al actualizar inventario
           items: cart.map((it) => ({ ...it })),
-          status: "pendiente",
+          estado_pago: "pendiente",
           total,
         };
         // Si existe información de cliente, agregarla
