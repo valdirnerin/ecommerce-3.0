@@ -658,49 +658,12 @@ const server = http.createServer((req, res) => {
         }
         orders.push(orderEntry);
         saveOrders(orders);
-        // Actualizar inventario: deducir cantidad comprada de cada producto
-        try {
-          const products = getProducts();
-          let modified = false;
-          cart.forEach((item) => {
-            const index = products.findIndex((p) => p.id === item.id);
-            if (index !== -1) {
-              // Restar stock global
-              if (typeof products[index].stock === "number") {
-                products[index].stock = Math.max(
-                  0,
-                  products[index].stock - item.quantity,
-                );
-              }
-              // Restar de almacenes si existen (no modificar el item original)
-              if (products[index].warehouseStock) {
-                const whs = products[index].warehouseStock;
-                let remaining = item.quantity;
-                // Restar primero del almacén principal "central"
-                if (whs.central && whs.central > 0) {
-                  const toDeduct = Math.min(remaining, whs.central);
-                  whs.central -= toDeduct;
-                  remaining -= toDeduct;
-                }
-                // Si aún queda por descontar, recorrer otros almacenes
-                for (const w in whs) {
-                  if (remaining <= 0) break;
-                  if (w === "central") continue;
-                  const avail = whs[w];
-                  const deduct = Math.min(remaining, avail);
-                  whs[w] -= deduct;
-                  remaining -= deduct;
-                }
-              }
-              modified = true;
-            }
-          });
-          if (modified) {
-            saveProducts(products);
-          }
-        } catch (e) {
-          console.error("Error al actualizar inventario:", e);
-        }
+        /*
+         * Lógica de descuento de stock trasladada al webhook de pago.
+         * Se mantiene comentada aquí para referencia histórica.
+         * Al confirmar el pago se actualizará el inventario desde
+         * /api/webhooks/mp.
+         */
         // Si el pedido proviene de un cliente identificado, actualizar saldo
         if (customer && customer.email) {
           const clients = getClients();
@@ -1771,20 +1734,58 @@ const server = http.createServer((req, res) => {
         if (!payment) return sendJson(res, 200, { received: true });
         const orders = getOrders();
         const order = orders.find((o) => o.id === payment.external_reference);
-        if (order) {
-          if (payment.status === "approved") {
-            order.estado_pago = "pagado";
-            order.paymentId = payment.id;
-            saveOrders(orders);
-            sendOrderPaidEmail(order);
-          } else if (payment.status === "in_process") {
-            order.estado_pago = "en proceso";
-            saveOrders(orders);
-          } else if (payment.status === "rejected") {
-            order.estado_pago = "rechazado";
-            saveOrders(orders);
+          if (order) {
+            if (payment.status === "approved") {
+              order.estado_pago = "pagado";
+              order.paymentId = payment.id;
+              saveOrders(orders);
+              try {
+                const products = getProducts();
+                let modified = false;
+                (order.productos || []).forEach((item) => {
+                  const idx = products.findIndex((p) => p.id === item.id);
+                  if (idx !== -1) {
+                    if (typeof products[idx].stock === "number") {
+                      products[idx].stock = Math.max(
+                        0,
+                        products[idx].stock - item.quantity,
+                      );
+                    }
+                    if (products[idx].warehouseStock) {
+                      const whs = products[idx].warehouseStock;
+                      let remaining = item.quantity;
+                      if (whs.central && whs.central > 0) {
+                        const deduct = Math.min(remaining, whs.central);
+                        whs.central -= deduct;
+                        remaining -= deduct;
+                      }
+                      for (const w in whs) {
+                        if (remaining <= 0) break;
+                        if (w === "central") continue;
+                        const avail = whs[w];
+                        const toDeduct = Math.min(remaining, avail);
+                        whs[w] -= toDeduct;
+                        remaining -= toDeduct;
+                      }
+                    }
+                    modified = true;
+                  }
+                });
+                if (modified) {
+                  saveProducts(products);
+                }
+              } catch (invErr) {
+                console.error("Error al descontar inventario desde webhook:", invErr);
+              }
+              sendOrderPaidEmail(order);
+            } else if (payment.status === "in_process") {
+              order.estado_pago = "en proceso";
+              saveOrders(orders);
+            } else if (payment.status === "rejected") {
+              order.estado_pago = "rechazado";
+              saveOrders(orders);
+            }
           }
-        }
         return sendJson(res, 200, { success: true });
       } catch (err) {
         console.error(err);
