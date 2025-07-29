@@ -90,6 +90,73 @@ nav a:hover {
   color: var(--color-primary);
 }
 
+.cart-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cart-icon {
+  margin-right: 0.25rem;
+}
+
+.cart-count-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  background: var(--color-danger);
+  color: #fff;
+  border-radius: 50%;
+  padding: 0 6px;
+  font-size: 0.75rem;
+  display: none;
+}
+
+.cart-link.shake {
+  animation: cart-shake 0.3s;
+}
+
+@keyframes cart-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+.cart-preview {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 150%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  padding: 0.5rem;
+  min-width: 180px;
+  z-index: 200;
+}
+
+.cart-link:hover .cart-preview,
+.cart-link:focus .cart-preview {
+  display: block;
+}
+
+.cart-preview .prev-item {
+  font-size: 0.85rem;
+}
+
+.cart-preview .prev-total {
+  margin-top: 0.25rem;
+  font-weight: 600;
+  text-align: right;
+}
+
 .hero {
   position: relative;
   display: flex;
