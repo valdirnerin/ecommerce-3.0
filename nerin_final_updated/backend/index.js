@@ -51,6 +51,9 @@ app.get("/failure", (_req, res) => {
 app.get("/pending", (_req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/pending.html"));
 });
+app.get("/seguimiento-pedido", (_req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/seguimiento-pedido.html"));
+});
 
 // Leer productos desde el archivo JSON
 function getProducts() {
@@ -77,10 +80,10 @@ function saveOrders(orders) {
 function sendOrderPaidEmail(order) {
   if (!resend || !order.cliente || !order.cliente.email) return;
   try {
-    const tpl = path.join(__dirname, "../emails/orderPaid.html");
-    let html = fs.readFileSync(tpl, "utf8");
-    const url = `${PUBLIC_URL}/account.html?orderId=${encodeURIComponent(order.id)}`;
-    html = html.replace("{{ORDER_URL}}", url);
+  const tpl = path.join(__dirname, "../emails/orderPaid.html");
+  let html = fs.readFileSync(tpl, "utf8");
+  const url = `${PUBLIC_URL}/seguimiento-pedido?orderId=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
+  html = html.replace("{{ORDER_URL}}", url).replace("{{ORDER_ID}}", order.id);
     const to = [order.cliente.email];
     if (ADMIN_EMAIL) to.push(ADMIN_EMAIL);
     resend.emails
@@ -167,6 +170,16 @@ app.post("/api/orders", async (req, res) => {
 app.get("/api/orders/:id", (req, res) => {
   const orders = getOrders();
   const order = orders.find((o) => o.id === req.params.id);
+  if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
+  res.json({ order });
+});
+
+app.post("/api/track-order", (req, res) => {
+  const { email, id } = req.body || {};
+  const orders = getOrders();
+  const order = orders.find(
+    (o) => o.id === id && (!o.cliente || o.cliente.email === email),
+  );
   if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
   res.json({ order });
 });

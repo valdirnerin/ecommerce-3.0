@@ -2,66 +2,52 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Pago exitoso</title>
     <link rel="stylesheet" href="/css/style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
   </head>
   <body>
     <div class="contenedor">
-      <p id="statusMsg">Cargando información del pedido…</p>
+      <h1 id="thanksTitle">Gracias por tu compra</h1>
+      <p id="orderIdText"></p>
       <div id="orderSummary" class="payment-summary"></div>
       <div class="buttons">
+        <a class="btn" id="trackBtn">Seguir mi pedido</a>
         <a class="btn" href="/index.html">Inicio</a>
         <a class="btn" href="/shop.html">Seguir comprando</a>
       </div>
+      <p style="margin-top:1rem">Si no recibís el mail, escribinos a WhatsApp con tu número de orden</p>
     </div>
     <script>
-      document.addEventListener("DOMContentLoaded", async () => {
+      document.addEventListener('DOMContentLoaded', async () => {
         const params = new URLSearchParams(window.location.search);
-        const id =
-          params.get("external_reference") || params.get("orderId");
-        const msgEl = document.getElementById("statusMsg");
-        const sumEl = document.getElementById("orderSummary");
+        const id = params.get('external_reference') || params.get('orderId');
+        const msgEl = document.getElementById('thanksTitle');
+        const idEl = document.getElementById('orderIdText');
+        const sumEl = document.getElementById('orderSummary');
+        const trackBtn = document.getElementById('trackBtn');
         if (!id) {
-          msgEl.textContent = "No se encontró el pedido.";
+          msgEl.textContent = 'Pedido no encontrado';
           return;
         }
         try {
-          const resp = await fetch(
-            `/api/orders/${encodeURIComponent(id)}`,
-          );
-          if (!resp.ok) throw new Error("not found");
+          const resp = await fetch(`/api/orders/${encodeURIComponent(id)}`);
+          if (!resp.ok) throw new Error('not found');
           const data = await resp.json();
           const order = data.order;
           if (!order) {
-            msgEl.textContent =
-              "No pudimos obtener los datos de tu pedido.";
+            msgEl.textContent = 'No pudimos obtener los datos de tu pedido.';
             return;
           }
-          if (order.estado_pago === "pagado") {
-            msgEl.textContent = "✅ ¡Pago aprobado! Gracias por tu compra.";
-            const itemsHtml = (order.productos || [])
-              .map((p) => `<li>${p.name} x${p.quantity}</li>`) 
-              .join("");
-            sumEl.innerHTML = `
-              <h3>Pedido ${order.id}</h3>
-              <ul>${itemsHtml}</ul>
-              <p class="cart-total-amount">Total: $${order.total.toLocaleString(
-                "es-AR",
-              )}</p>
-            `;
-            localStorage.removeItem("nerinCart");
-          } else {
-            msgEl.textContent =
-              "Tu pago está pendiente o fue rechazado. Estamos esperando confirmación.";
-          }
+          msgEl.textContent = `Gracias por tu compra${order.cliente && order.cliente.nombre ? ', ' + order.cliente.nombre : ''}`;
+          idEl.textContent = `Orden: ${order.id}`;
+          const itemsHtml = (order.productos || []).map(p => `<li>${p.name} x${p.quantity}</li>`).join('');
+          sumEl.innerHTML = `<ul>${itemsHtml}</ul><p class="cart-total-amount">Total: $${order.total.toLocaleString('es-AR')}</p>`;
+          trackBtn.href = `/seguimiento-pedido?orderId=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente && order.cliente.email ? order.cliente.email : '')}`;
+          localStorage.removeItem('nerinCart');
         } catch (e) {
           console.error(e);
-          msgEl.textContent = "Error al cargar el pedido.";
+          msgEl.textContent = 'Error al cargar el pedido.';
         }
       });
     </script>

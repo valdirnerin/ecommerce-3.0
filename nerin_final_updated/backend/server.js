@@ -351,11 +351,11 @@ function sendJson(res, statusCode, data) {
 function sendOrderPaidEmail(order) {
   if (!resend || !order.cliente || !order.cliente.email) return;
   try {
-    const tplPath = path.join(__dirname, "../emails/orderPaid.html");
-    let html = fs.readFileSync(tplPath, "utf8");
-    const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
-    const orderUrl = `${urlBase}/account.html?orderId=${encodeURIComponent(order.id)}`;
-    html = html.replace("{{ORDER_URL}}", orderUrl);
+  const tplPath = path.join(__dirname, "../emails/orderPaid.html");
+  let html = fs.readFileSync(tplPath, "utf8");
+  const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+  const orderUrl = `${urlBase}/seguimiento-pedido?orderId=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
+  html = html.replace("{{ORDER_URL}}", orderUrl).replace("{{ORDER_ID}}", order.id);
     resend.emails
       .send({
         from: "no-reply@nerin.com",
@@ -836,6 +836,31 @@ const server = http.createServer((req, res) => {
       console.error(err);
       return sendJson(res, 500, { error: "Error al obtener pedido" });
     }
+  }
+
+  // API: buscar pedido por email y número
+  if (pathname === "/api/track-order" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      try {
+        const { email, id } = JSON.parse(body || "{}");
+        const orders = getOrders();
+        const order = orders.find(
+          (o) => o.id === id && (!o.cliente || o.cliente.email === email),
+        );
+        if (!order) {
+          return sendJson(res, 404, { error: "Pedido no encontrado" });
+        }
+        return sendJson(res, 200, { order });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
   }
 
   // API: actualizar pedido por ID (cambiar estado o agregar seguimiento)
@@ -1876,6 +1901,10 @@ const server = http.createServer((req, res) => {
   }
   if (pathname === "/pending") {
     return serveStatic(path.join(__dirname, "../frontend/pending.html"), res);
+  }
+
+  if (pathname === "/seguimiento-pedido") {
+    return serveStatic(path.join(__dirname, "../frontend/seguimiento-pedido.html"), res);
   }
 
   // Servir archivos estáticos del frontend y assets
