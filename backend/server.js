@@ -65,6 +65,8 @@ app.post('/crear-preferencia', async (req, res) => {
       pending: `${PUBLIC_URL}/pending`,
     },
     auto_return: 'approved',
+    notification_url:
+      'https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook',
   };
 
   try {

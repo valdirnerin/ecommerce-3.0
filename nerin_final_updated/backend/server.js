@@ -738,7 +738,8 @@ const server = http.createServer((req, res) => {
               external_reference: orderId,
             };
             if (CONFIG.publicUrl) {
-              mpPref.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
+              mpPref.notification_url =
+                `https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook`;
             }
             const prefRes = await mpPreference.create({ body: mpPref });
             mpInit = prefRes.init_point;
@@ -822,7 +823,8 @@ const server = http.createServer((req, res) => {
               external_reference: orderId,
             };
             if (CONFIG.publicUrl) {
-              pref.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
+              pref.notification_url =
+                `https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook`;
             }
             const prefRes = await mpPreference.create({ body: pref });
             initPoint = prefRes.init_point;
@@ -1635,6 +1637,10 @@ const server = http.createServer((req, res) => {
     req.on("end", async () => {
       try {
         const preference = JSON.parse(body || "{}");
+        if (CONFIG.publicUrl && !preference.notification_url) {
+          preference.notification_url =
+            "https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook";
+        }
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
         }
@@ -1679,7 +1685,8 @@ const server = http.createServer((req, res) => {
           auto_return: "approved",
         };
         if (CONFIG.publicUrl) {
-          preference.notification_url = `${CONFIG.publicUrl}/api/webhooks/mp`;
+          preference.notification_url =
+            `https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook`;
         }
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
@@ -1730,6 +1737,8 @@ const server = http.createServer((req, res) => {
             pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
+          notification_url:
+            "https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook",
         };
         const result = await mpPreference.create({ body: preference });
         return sendJson(res, 200, {
