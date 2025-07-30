@@ -51,8 +51,8 @@ app.get("/failure", (_req, res) => {
 app.get("/pending", (_req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/pending.html"));
 });
-app.get("/seguimiento-pedido", (_req, res) => {
-  res.sendFile(path.join(__dirname, "../frontend/seguimiento-pedido.html"));
+app.get(["/seguimiento", "/seguimiento-pedido"], (_req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/seguimiento.html"));
 });
 
 // Leer productos desde el archivo JSON
@@ -82,7 +82,7 @@ function sendOrderPaidEmail(order) {
   try {
   const tpl = path.join(__dirname, "../emails/orderPaid.html");
   let html = fs.readFileSync(tpl, "utf8");
-  const url = `${PUBLIC_URL}/seguimiento-pedido?orderId=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
+  const url = `${PUBLIC_URL}/seguimiento?order=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
   html = html.replace("{{ORDER_URL}}", url).replace("{{ORDER_ID}}", order.id);
     const to = [order.cliente.email];
     if (ADMIN_EMAIL) to.push(ADMIN_EMAIL);
