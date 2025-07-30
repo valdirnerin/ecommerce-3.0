@@ -12,6 +12,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const { MercadoPagoConfig, Preference } = require("mercadopago");
+const generarNumeroOrden = require("../../backend/utils/generarNumeroOrden");
 let Resend;
 try {
   ({ Resend } = require("resend"));
@@ -112,8 +113,7 @@ app.post("/api/orders", async (req, res) => {
     if (!Array.isArray(productos) || productos.length === 0) {
       return res.status(400).json({ error: "Carrito vacío" });
     }
-    const id =
-      "ORD-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 1000);
+    const id = generarNumeroOrden();
     const total = productos.reduce(
       (t, it) => t + Number(it.price) * Number(it.quantity),
       0,

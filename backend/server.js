@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
 const db = require('./db');
+const generarNumeroOrden = require('./utils/generarNumeroOrden');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 const logger = require('./logger');
 require('dotenv').config();
@@ -73,10 +74,12 @@ app.post('/crear-preferencia', async (req, res) => {
     const result = await preferenceClient.create({ body });
     logger.info('Preferencia creada');
 
+    const numeroOrden = generarNumeroOrden();
     logger.info('Guardando pedido en DB');
     await db.query(
-      'INSERT INTO orders (preference_id, payment_status, product_title, unit_price, quantity, user_email, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      'INSERT INTO orders (order_number, preference_id, payment_status, product_title, unit_price, quantity, user_email, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
       [
+        numeroOrden,
         result.id,
         'pending',
         titulo,
@@ -87,7 +90,7 @@ app.post('/crear-preferencia', async (req, res) => {
       ]
     );
 
-    res.json({ id: result.id, init_point: result.init_point });
+    res.json({ id: result.id, init_point: result.init_point, numeroOrden });
   } catch (error) {
     logger.error(`Error al crear preferencia: ${error.message}`);
     res.status(500).json({ error: 'No se pudo crear la preferencia' });
