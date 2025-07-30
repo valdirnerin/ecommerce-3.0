@@ -6,6 +6,7 @@ const orderInput = document.getElementById('orderId');
 const summaryEl = document.getElementById('orderSummary');
 const trackerEl = document.getElementById('tracker');
 const contactBtn = document.getElementById('contactWhatsApp');
+let invoiceInfo = null;
 
 function updateWhatsAppLink() {
   const cfg = window.NERIN_CONFIG;
@@ -14,6 +15,19 @@ function updateWhatsAppLink() {
     contactBtn.href = `https://wa.me/${phone}`;
     const navWA = document.getElementById('navWhatsApp');
     if (navWA) navWA.href = `https://wa.me/${phone}`;
+  }
+}
+
+async function fetchInvoice(orderId) {
+  try {
+    const res = await fetch(`/api/invoice-files/${orderId}`);
+    if (res.ok) {
+      invoiceInfo = await res.json();
+    } else {
+      invoiceInfo = null;
+    }
+  } catch (_) {
+    invoiceInfo = null;
   }
 }
 
@@ -33,6 +47,7 @@ async function fetchOrder(email, id) {
       return;
     }
     const data = await res.json();
+    await fetchInvoice(data.order.id);
     renderOrder(data.order);
   } catch (e) {
     console.error(e);
@@ -52,6 +67,8 @@ function renderOrder(o) {
     ${o.metodo_pago ? `<p><strong>Método de pago:</strong> ${o.metodo_pago}</p>` : ''}
     ${o.destino ? `<p><strong>Envío a:</strong> ${o.destino}</p>` : '<p><em>Coordinación de envío por WhatsApp</em></p>'}
     ${o.cliente && o.cliente.email ? `<p><strong>Email:</strong> ${o.cliente.email}</p>` : ''}
+    ${o.seguimiento ? `<p><strong>Nº de seguimiento:</strong> ${o.seguimiento}${o.transportista ? ' (' + o.transportista + ')' : ''}</p>` : ''}
+    ${invoiceInfo && invoiceInfo.url ? `<p><a href="${invoiceInfo.url}" target="_blank">Ver/Descargar factura</a></p>` : '<p><em>Factura pendiente</em></p>'}
   `;
   summaryEl.style.display = 'block';
   renderTracker(o);

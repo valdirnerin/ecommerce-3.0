@@ -18,6 +18,7 @@ const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
 const multer = require("multer");
 const generarNumeroOrden = require("../../backend/utils/generarNumeroOrden");
+const verifyEmail = require("./emailValidator");
 require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
@@ -636,6 +637,15 @@ const server = http.createServer((req, res) => {
           return sendJson(res, 500, { error: "Error al validar stock" });
         }
         // Generar un número de orden legible
+        if (data.cliente && data.cliente.email) {
+          const valid = await verifyEmail(String(data.cliente.email).trim());
+          if (!valid) {
+            return sendJson(res, 400, {
+              error:
+                "El email ingresado no es válido. Por favor, ingresá uno real para recibir tu pedido.",
+            });
+          }
+        }
         const orderId = generarNumeroOrden();
         const orders = getOrders();
         // Calcular total del pedido (utilizando precio base del producto)
@@ -842,7 +852,11 @@ const server = http.createServer((req, res) => {
         const { email, id } = JSON.parse(body || "{}");
         const orders = getOrders();
         const order = orders.find(
-          (o) => o.id === id && (!o.cliente || o.cliente.email === email),
+          (o) =>
+            o.id === id &&
+            o.cliente &&
+            o.cliente.email &&
+            o.cliente.email.toLowerCase() === String(email).toLowerCase(),
         );
         if (!order) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
@@ -1917,6 +1931,10 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(APP_PORT, () => {
-  console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
-});
+if (require.main === module) {
+  server.listen(APP_PORT, () => {
+    console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
+  });
+} else {
+  module.exports = server;
+}
