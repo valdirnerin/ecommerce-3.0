@@ -10,13 +10,21 @@
     <div class="contenedor">
       <h1 id="thanksTitle">Gracias por tu compra</h1>
       <p id="orderIdText"></p>
+      <p id="emailText"></p>
       <div id="orderSummary" class="payment-summary"></div>
       <div class="buttons">
         <a class="btn" id="trackBtn">Seguir mi pedido</a>
         <a class="btn" href="/index.html">Inicio</a>
         <a class="btn" href="/shop.html">Seguir comprando</a>
       </div>
-      <p style="margin-top:1rem">Si no recibís el mail, escribinos a WhatsApp con tu número de orden</p>
+      <p style="margin-top:1rem" class="help-text">
+        Podés seguir tu pedido usando tu email y el número de orden. Si necesitás ayuda, contactanos por WhatsApp.
+      </p>
+      <div id="whatsapp-button">
+        <a href="https://wa.me/541112345678" target="_blank">
+          <img src="/assets/whatsapp.svg" alt="WhatsApp" />
+        </a>
+      </div>
     </div>
     <script>
       document.addEventListener('DOMContentLoaded', async () => {
@@ -26,6 +34,7 @@
         const idEl = document.getElementById('orderIdText');
         const sumEl = document.getElementById('orderSummary');
         const trackBtn = document.getElementById('trackBtn');
+        const emailEl = document.getElementById('emailText');
         if (!id) {
           msgEl.textContent = 'Pedido no encontrado';
           return;
@@ -41,9 +50,13 @@
           }
           msgEl.textContent = `Gracias por tu compra${order.cliente && order.cliente.nombre ? ', ' + order.cliente.nombre : ''}`;
           idEl.textContent = `Orden: ${order.id}`;
+          if (emailEl) {
+            emailEl.textContent = order.cliente && order.cliente.email ? `Email: ${order.cliente.email}` : '';
+          }
           const itemsHtml = (order.productos || []).map(p => `<li>${p.name} x${p.quantity}</li>`).join('');
           sumEl.innerHTML = `<ul>${itemsHtml}</ul><p class="cart-total-amount">Total: $${order.total.toLocaleString('es-AR')}</p>`;
-          trackBtn.href = `/seguimiento-pedido?orderId=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente && order.cliente.email ? order.cliente.email : '')}`;
+          const emailParam = order.cliente && order.cliente.email ? order.cliente.email : '';
+          trackBtn.href = `/seguimiento?order=${encodeURIComponent(order.id)}&email=${encodeURIComponent(emailParam)}`;
           localStorage.removeItem('nerinCart');
         } catch (e) {
           console.error(e);

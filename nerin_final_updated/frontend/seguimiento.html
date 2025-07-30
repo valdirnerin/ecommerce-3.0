@@ -22,7 +22,7 @@
       const resultEl = document.getElementById('result');
       const params = new URLSearchParams(window.location.search);
       if (params.get('email')) emailEl.value = params.get('email');
-      if (params.get('orderId')) orderEl.value = params.get('orderId');
+      if (params.get('order')) orderEl.value = params.get('order');
       form.addEventListener('submit', async (ev) => {
         ev.preventDefault();
         resultEl.textContent = 'Buscando...';

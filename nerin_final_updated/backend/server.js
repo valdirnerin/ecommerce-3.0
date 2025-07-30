@@ -354,7 +354,7 @@ function sendOrderPaidEmail(order) {
   const tplPath = path.join(__dirname, "../emails/orderPaid.html");
   let html = fs.readFileSync(tplPath, "utf8");
   const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
-  const orderUrl = `${urlBase}/seguimiento-pedido?orderId=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
+  const orderUrl = `${urlBase}/seguimiento?order=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
   html = html.replace("{{ORDER_URL}}", orderUrl).replace("{{ORDER_ID}}", order.id);
     resend.emails
       .send({
@@ -1903,8 +1903,8 @@ const server = http.createServer((req, res) => {
     return serveStatic(path.join(__dirname, "../frontend/pending.html"), res);
   }
 
-  if (pathname === "/seguimiento-pedido") {
-    return serveStatic(path.join(__dirname, "../frontend/seguimiento-pedido.html"), res);
+  if (pathname === "/seguimiento" || pathname === "/seguimiento-pedido") {
+    return serveStatic(path.join(__dirname, "../frontend/seguimiento.html"), res);
   }
 
   // Servir archivos estáticos del frontend y assets
