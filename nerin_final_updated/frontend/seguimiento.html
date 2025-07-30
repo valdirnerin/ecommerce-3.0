@@ -2,54 +2,55 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <title>Seguimiento de pedido</title>
-    <link rel="stylesheet" href="/css/style.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seguimiento de tu pedido – NERIN</title>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <div class="contenedor">
-      <h1>Seguimiento de pedido</h1>
-      <form id="trackForm">
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/seguimiento.html">Seguir otro pedido</a></li>
+            <li><a href="#" id="navWhatsApp">WhatsApp</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container tracking-container">
+      <h1>Seguimiento de tu pedido</h1>
+      <p>
+        Acá podés ver en qué estado está tu compra. Ante cualquier duda,
+        escribinos por WhatsApp.
+      </p>
+
+      <form id="trackForm" class="login-container">
         <input type="email" id="email" placeholder="Tu email" required />
         <input type="text" id="orderId" placeholder="Número de pedido" required />
         <button type="submit">Ver estado</button>
       </form>
-      <div id="result" style="margin-top: 1rem"></div>
-    </div>
-    <script>
-      const form = document.getElementById('trackForm');
-      const emailEl = document.getElementById('email');
-      const orderEl = document.getElementById('orderId');
-      const resultEl = document.getElementById('result');
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('email')) emailEl.value = params.get('email');
-      if (params.get('order')) orderEl.value = params.get('order');
-      form.addEventListener('submit', async (ev) => {
-        ev.preventDefault();
-        resultEl.textContent = 'Buscando...';
-        try {
-          const res = await fetch('/api/track-order', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: emailEl.value.trim(), id: orderEl.value.trim() })
-          });
-          if (!res.ok) {
-            resultEl.textContent = 'No encontramos un pedido con esos datos.';
-            return;
-          }
-          const data = await res.json();
-          const o = data.order;
-          const items = (o.productos || []).map(p => `<li>${p.name} x${p.quantity}</li>`).join('');
-          resultEl.innerHTML = `
-            <p><strong>Estado pago:</strong> ${o.estado_pago}</p>
-            <p><strong>Estado envío:</strong> ${o.estado_envio}</p>
-            <ul>${items}</ul>
-            <p><strong>Total:</strong> $${o.total.toLocaleString('es-AR')}</p>
-            <p><strong>Fecha:</strong> ${new Date(o.fecha).toLocaleDateString('es-AR')}</p>`;
-        } catch (e) {
-          console.error(e);
-          resultEl.textContent = 'Error al buscar el pedido.';
-        }
-      });
-    </script>
+
+      <div id="orderSummary" class="order-card" style="display:none"></div>
+
+      <ul id="tracker" class="progress-tracker" style="display:none"></ul>
+
+      <div class="contact-section">
+        <p>Si tenés alguna duda, escribinos con tu número de pedido.</p>
+        <a id="contactWhatsApp" class="button primary" target="_blank">
+          <img src="/assets/whatsapp.svg" alt="WhatsApp" /> WhatsApp
+        </a>
+      </div>
+
+      <div style="margin-top:2rem;text-align:center">
+        <a href="/index.html" class="button secondary">Volver al inicio</a>
+      </div>
+    </main>
+
+    <script type="module" src="/js/seguimiento.js"></script>
+    <script type="module" src="/js/config.js"></script>
   </body>
 </html>
