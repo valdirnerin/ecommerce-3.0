@@ -17,6 +17,7 @@ const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
 const multer = require("multer");
+const generarNumeroOrden = require("../../backend/utils/generarNumeroOrden");
 require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
@@ -634,12 +635,8 @@ const server = http.createServer((req, res) => {
           console.error("Error al validar stock:", e);
           return sendJson(res, 500, { error: "Error al validar stock" });
         }
-        // Generar un ID simple basado en timestamp y contador aleatorio
-        const orderId =
-          "ORD-" +
-          Date.now().toString(36) +
-          "-" +
-          Math.floor(Math.random() * 1000);
+        // Generar un número de orden legible
+        const orderId = generarNumeroOrden();
         const orders = getOrders();
         // Calcular total del pedido (utilizando precio base del producto)
         let total = 0;
@@ -745,11 +742,7 @@ const server = http.createServer((req, res) => {
         if (!Array.isArray(items) || items.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });
         }
-        const orderId =
-          "ORD-" +
-          Date.now().toString(36) +
-          "-" +
-          Math.floor(Math.random() * 1000);
+        const orderId = generarNumeroOrden();
         const orders = getOrders();
         const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const impuestosCalc = Math.round(total * 0.21);
