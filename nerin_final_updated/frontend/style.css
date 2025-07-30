@@ -1168,3 +1168,55 @@ footer .legal {
   gap: 1rem;
   margin: 0.5rem 0;
 }
+
+/* ==== Seguimiento de pedidos ==== */
+.order-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-muted);
+}
+
+.progress-tracker {
+  list-style: none;
+  padding: 0;
+  margin: 1.5rem 0;
+}
+
+.progress-tracker .step {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  color: var(--color-secondary);
+}
+
+.progress-tracker .done {
+  color: var(--color-success);
+}
+
+.progress-tracker .current {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.progress-tracker .todo {
+  opacity: 0.6;
+}
+
+.contact-section {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.contact-section .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.contact-section .button img {
+  width: 24px;
+  height: 24px;
+}
