@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Checkout</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+      </div>
+    </header>
+    <main class="container">
+      <div id="step1" class="checkout-step">
+        <h2>Paso 1 de 3: Datos</h2>
+        <form id="formDatos" class="login-container">
+          <input type="text" id="nombre" placeholder="Nombre" required />
+          <input type="text" id="apellido" placeholder="Apellido" required />
+          <input type="email" id="email" placeholder="Email" required />
+          <input type="tel" id="telefono" placeholder="Teléfono" required />
+          <button type="submit">Continuar</button>
+        </form>
+      </div>
+      <div id="step2" class="checkout-step" style="display:none">
+        <h2>Paso 2 de 3: Envío</h2>
+        <form id="formEnvio" class="login-container">
+          <input type="text" id="provincia" placeholder="Provincia" required />
+          <input type="text" id="localidad" placeholder="Localidad" required />
+          <input type="text" id="direccion" placeholder="Dirección" required />
+          <input type="text" id="cp" placeholder="Código Postal" required />
+          <select id="metodo" required>
+            <option value="">Método</option>
+            <option value="retiro">Retiro en local</option>
+            <option value="envio">Envío a domicilio</option>
+          </select>
+          <p id="costoEnvio"></p>
+          <button type="submit">Continuar</button>
+        </form>
+      </div>
+      <div id="step3" class="checkout-step" style="display:none">
+        <h2>Paso 3 de 3: Pago</h2>
+        <div id="resumen"></div>
+        <button id="confirmar">Confirmar compra</button>
+      </div>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/checkout-steps.js"></script>
+    <script type="module" src="/js/config.js"></script>
+  </body>
+</html>

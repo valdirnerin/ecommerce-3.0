@@ -371,6 +371,28 @@ function sendOrderPaidEmail(order) {
   }
 }
 
+// Leer tabla de costos de envío por provincia
+function getShippingTable() {
+  const dataPath = path.join(__dirname, "../data/shipping.json");
+  try {
+    const file = fs.readFileSync(dataPath, "utf8");
+    return JSON.parse(file);
+  } catch (e) {
+    return { costos: [] };
+  }
+}
+
+// Obtener costo de envío para una provincia (retorna 0 si no se encuentra)
+function getShippingCost(provincia) {
+  const table = getShippingTable();
+  const match = table.costos.find(
+    (c) => c.provincia.toLowerCase() === String(provincia || "").toLowerCase(),
+  );
+  if (match) return match.costo;
+  const other = table.costos.find((c) => c.provincia === "Otras");
+  return other ? other.costo : 0;
+}
+
 // Enviar email cuando el pedido se despacha
 function sendOrderShippedEmail(order) {
   if (!resend || !order.cliente || !order.cliente.email) return;
@@ -737,6 +759,13 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // API: obtener costo de envío por provincia
+  if (pathname === "/api/shipping-cost" && req.method === "GET") {
+    const prov = parsedUrl.query.provincia || "";
+    const costo = getShippingCost(prov);
+    return sendJson(res, 200, { costo });
   }
 
   // API: crear nueva orden pendiente con datos de cliente y envío
