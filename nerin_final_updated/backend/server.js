@@ -815,6 +815,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API: verificar si un email ya tiene cuenta registrada
+  if (pathname === "/api/user-exists" && req.method === "GET") {
+    const email = String(parsedUrl.query.email || "").toLowerCase();
+    const allUsers = [...USERS, ...getUsers()];
+    const exists = allUsers.some(
+      (u) => String(u.email).toLowerCase() === email,
+    );
+    return sendJson(res, 200, { exists });
+  }
+
   // API: crear nueva orden pendiente con datos de cliente y envío
   if (pathname === "/api/orders" && req.method === "POST") {
     let body = "";
