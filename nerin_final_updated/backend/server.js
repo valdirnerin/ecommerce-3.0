@@ -343,7 +343,7 @@ function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   });
   res.end(json);
@@ -380,24 +380,6 @@ function getShippingTable() {
   } catch (e) {
     return { costos: [] };
   }
-}
-
-function saveShippingTable(table) {
-  const dataPath = path.join(__dirname, "../data/shipping.json");
-  fs.writeFileSync(dataPath, JSON.stringify(table, null, 2), "utf8");
-}
-
-function validateShippingTable(table) {
-  return (
-    table &&
-    Array.isArray(table.costos) &&
-    table.costos.every(
-      (c) =>
-        typeof c.provincia === "string" &&
-        typeof c.costo === "number" &&
-        !Number.isNaN(c.costo)
-    )
-  );
 }
 
 // Obtener costo de envío para una provincia (retorna 0 si no se encuentra)
@@ -786,35 +768,6 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { costo });
   }
 
-  if (pathname === "/api/shipping-table" && req.method === "GET") {
-    const table = getShippingTable();
-    if (!validateShippingTable(table)) {
-      return sendJson(res, 500, { error: "Tabla de env\u00edos inv\u00e1lida" });
-    }
-    return sendJson(res, 200, table);
-  }
-
-  if (pathname === "/api/shipping-table" && req.method === "PUT") {
-    let body = "";
-    req.on("data", (c) => {
-      body += c;
-    });
-    req.on("end", () => {
-      try {
-        const data = JSON.parse(body || "{}");
-        if (!validateShippingTable(data)) {
-          return sendJson(res, 400, { error: "Datos de env\u00edos inv\u00e1lidos" });
-        }
-        saveShippingTable(data);
-        return sendJson(res, 200, { success: true });
-      } catch (e) {
-        console.error(e);
-        return sendJson(res, 400, { error: "Solicitud inv\u00e1lida" });
-      }
-    });
-    return;
-  }
-
   // API: crear nueva orden pendiente con datos de cliente y envío
   if (pathname === "/api/orders" && req.method === "POST") {
     let body = "";
@@ -830,19 +783,12 @@ const server = http.createServer((req, res) => {
         }
         const orderId = generarNumeroOrden();
         const orders = getOrders();
-        const provincia =
-          (data.cliente &&
-            data.cliente.direccion &&
-            data.cliente.direccion.provincia) || "";
-        const shippingCost = getShippingCost(provincia);
         const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const impuestosCalc = Math.round(total * 0.21);
         const order = {
           id: orderId,
           cliente: data.cliente || {},
           productos: items,
-          provincia_envio: provincia,
-          costo_envio: shippingCost,
           estado_pago: "pendiente",
           estado_envio: "pendiente",
           metodo_envio: data.metodo_envio || "Correo Argentino",

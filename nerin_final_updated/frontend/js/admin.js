@@ -26,7 +26,6 @@ if (currentRole === "vendedor") {
     "configSection",
     "suppliersSection",
     "purchaseOrdersSection",
-    "shippingSection",
     "analyticsSection",
   ];
   buttonsToHide.forEach((sectionId) => {
@@ -75,8 +74,6 @@ navButtons.forEach((btn) => {
       loadPurchaseOrders();
     } else if (target === "analyticsSection") {
       loadAnalytics();
-    } else if (target === "shippingSection") {
-      loadShippingTable();
     }
   });
 });
@@ -622,10 +619,6 @@ async function loadOrders() {
         phoneTd.textContent = cliente.telefono || "";
         const addressTd = document.createElement("td");
         addressTd.textContent = dirText;
-        const provTd = document.createElement("td");
-        provTd.textContent = order.provincia_envio || "";
-        const costoTd = document.createElement("td");
-        costoTd.textContent = `$${(order.costo_envio || 0).toLocaleString("es-AR")}`;
         const itemsTd = document.createElement("td");
         itemsTd.textContent = itemsText;
         const totalTd = document.createElement("td");
@@ -689,8 +682,6 @@ async function loadOrders() {
         tr.appendChild(nameTd);
         tr.appendChild(phoneTd);
         tr.appendChild(addressTd);
-        tr.appendChild(provTd);
-        tr.appendChild(costoTd);
         tr.appendChild(itemsTd);
         tr.appendChild(totalTd);
         tr.appendChild(statusTd);
@@ -1043,9 +1034,6 @@ const gaInput = document.getElementById("configGAId");
 const metaInput = document.getElementById("configMetaId");
 const whatsappInput = document.getElementById("configWhatsApp");
 const carriersTextarea = document.getElementById("configCarriers");
-const shippingTableBody = document.querySelector("#shippingTable tbody");
-const saveShippingBtn = document.getElementById("saveShippingBtn");
-const shippingAlert = document.getElementById("shippingAlert");
 
 /**
  * Carga los valores de configuración actuales y los muestra en el formulario.
@@ -1062,36 +1050,6 @@ async function loadConfigForm() {
   } catch (err) {
     console.error(err);
     alert("Error al cargar la configuración");
-  }
-}
-
-async function loadShippingTable() {
-  try {
-    const res = await fetch("/api/shipping-table");
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "error");
-    shippingTableBody.innerHTML = "";
-    (data.costos || []).forEach((row) => {
-      const tr = document.createElement("tr");
-      const provTd = document.createElement("td");
-      provTd.textContent = row.provincia;
-      const costTd = document.createElement("td");
-      const input = document.createElement("input");
-      input.type = "number";
-      input.min = "0";
-      input.value = row.costo;
-      costTd.appendChild(input);
-      tr.appendChild(provTd);
-      tr.appendChild(costTd);
-      shippingTableBody.appendChild(tr);
-    });
-    if (shippingAlert) shippingAlert.style.display = "none";
-  } catch (err) {
-    console.error(err);
-    if (shippingAlert) {
-      shippingAlert.textContent = "Error al cargar la tabla de env\u00edos";
-      shippingAlert.style.display = "block";
-    }
   }
 }
 
@@ -1127,53 +1085,6 @@ if (configForm) {
     }
   });
 }
-
-if (saveShippingBtn) {
-  saveShippingBtn.addEventListener("click", async () => {
-    const rows = shippingTableBody.querySelectorAll("tr");
-    const costos = [];
-    let valid = true;
-    rows.forEach((tr) => {
-      const provincia = tr.children[0].textContent.trim();
-      const input = tr.querySelector("input");
-      const val = parseFloat(input.value);
-      if (Number.isNaN(val)) {
-        valid = false;
-        input.classList.add("invalid");
-      } else {
-        input.classList.remove("invalid");
-      }
-      costos.push({ provincia, costo: val });
-    });
-    if (!valid) {
-      shippingAlert.textContent = "Ingresa valores v\u00e1lidos";
-      shippingAlert.style.display = "block";
-      return;
-    }
-    try {
-      const resp = await fetch("/api/shipping-table", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ costos }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (resp.ok) {
-        shippingAlert.textContent = "Cambios guardados";
-        shippingAlert.style.color = "green";
-        shippingAlert.style.display = "block";
-      } else {
-        shippingAlert.textContent = data.error || "Error al guardar";
-        shippingAlert.style.color = "";
-        shippingAlert.style.display = "block";
-      }
-    } catch (err) {
-      console.error(err);
-      shippingAlert.textContent = "Error de red";
-      shippingAlert.style.display = "block";
-    }
-  });
-}
-
 
 // Cargar productos inicialmente
 loadProducts();
