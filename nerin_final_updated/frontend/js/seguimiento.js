@@ -66,6 +66,8 @@ function renderOrder(o) {
     <p><strong>Total:</strong> $${o.total.toLocaleString('es-AR')}</p>
     ${o.metodo_pago ? `<p><strong>Método de pago:</strong> ${o.metodo_pago}</p>` : ''}
     ${o.destino ? `<p><strong>Envío a:</strong> ${o.destino}</p>` : '<p><em>Coordinación de envío por WhatsApp</em></p>'}
+    ${o.provincia_envio ? `<p><strong>Provincia de envío:</strong> ${o.provincia_envio}</p>` : ''}
+    ${typeof o.costo_envio === 'number' ? `<p><strong>Costo de envío:</strong> $${o.costo_envio.toLocaleString('es-AR')}</p>` : ''}
     ${o.cliente && o.cliente.email ? `<p><strong>Email:</strong> ${o.cliente.email}</p>` : ''}
     ${o.seguimiento ? `<p><strong>Nº de seguimiento:</strong> ${o.seguimiento}${o.transportista ? ' (' + o.transportista + ')' : ''}</p>` : ''}
     ${invoiceInfo && invoiceInfo.url ? `<p><a href="${invoiceInfo.url}" target="_blank">Ver/Descargar factura</a></p>` : '<p><em>Factura pendiente</em></p>'}

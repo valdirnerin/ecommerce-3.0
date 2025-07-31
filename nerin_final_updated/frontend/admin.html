@@ -71,6 +71,9 @@
         <button data-target="configSection" data-i18n="nav.config">
           Configuración
         </button>
+        <button data-target="shippingSection" data-i18n="nav.shipping">
+          Envíos
+        </button>
         <button data-target="suppliersSection" data-i18n="nav.suppliers">
           Proveedores
         </button>
@@ -187,6 +190,8 @@
                 <th>Cliente</th>
                 <th>Teléfono</th>
                 <th>Dirección</th>
+                <th>Provincia de envío</th>
+                <th>Costo de envío</th>
                 <th>Productos</th>
                 <th>Total</th>
                 <th>Pago</th>
@@ -288,6 +293,21 @@
             Guardar configuración
           </button>
         </form>
+      </section>
+
+      <!-- Gestión de costos de envío -->
+      <section id="shippingSection" class="admin-section" style="display:none">
+        <h3>Costos de envío</h3>
+        <div id="shippingAlert" class="alert" style="display:none"></div>
+        <div class="table-wrapper">
+          <table class="admin-table" id="shippingTable">
+            <thead>
+              <tr><th>Provincia</th><th>Costo ($)</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button id="saveShippingBtn" class="button primary">Guardar cambios</button>
       </section>
 
       <!-- Sección de proveedores -->

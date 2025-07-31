@@ -1220,3 +1220,16 @@ footer .legal {
   width: 24px;
   height: 24px;
 }
+
+.alert {
+  padding: 0.5rem 1rem;
+  background-color: #ffeaea;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius);
+  color: var(--color-danger);
+  margin-bottom: 1rem;
+}
+
+.invalid {
+  border-color: var(--color-danger);
+}
