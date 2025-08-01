@@ -786,6 +786,19 @@ const server = http.createServer((req, res) => {
     return sendJson(res, 200, { costo });
   }
 
+  // API: validar email en tiempo real
+  if (pathname === "/api/validate-email" && req.method === "GET") {
+    const email = parsedUrl.query.email || "";
+    return verifyEmail(String(email).trim())
+      .then((valid) => {
+        return sendJson(res, 200, { valid: !!valid });
+      })
+      .catch((e) => {
+        console.error("Error validating email", e);
+        return sendJson(res, 500, { error: "Error al validar" });
+      });
+  }
+
   if (pathname === "/api/shipping-table" && req.method === "GET") {
     const table = getShippingTable();
     if (!validateShippingTable(table)) {

@@ -59,6 +59,17 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
+app.get('/api/validate-email', async (req, res) => {
+  const email = req.query.email || '';
+  try {
+    const valid = await verifyEmail(String(email).trim());
+    res.json({ valid: !!valid });
+  } catch (e) {
+    logger.error(`Error validar email: ${e.message}`);
+    res.status(500).json({ error: 'Error al validar' });
+  }
+});
+
 app.post('/crear-preferencia', async (req, res) => {
   const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
 

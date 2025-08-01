@@ -12,7 +12,7 @@ export function setupMpBuyButtons(selector = '.mp-buy') {
       localStorage.setItem('mp_price', price);
       localStorage.setItem('mp_quantity', quantity);
       // Redirige al nuevo formulario de checkout con pasos
-      window.location.href = '/checkout-form.html';
+      window.location.href = '/checkout-steps.html';
     });
   });
 }
