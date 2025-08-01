@@ -107,6 +107,7 @@ app.post('/crear-preferencia', async (req, res) => {
 
   try {
     const result = await preferenceClient.create({ body });
+    console.log('Preferencia creada:', JSON.stringify(result, null, 2));
     logger.info('Preferencia creada');
 
     const numeroOrden = generarNumeroOrden();
