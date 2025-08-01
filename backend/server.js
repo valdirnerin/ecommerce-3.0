@@ -75,7 +75,7 @@ app.get('/api/validate-email', async (req, res) => {
 
 app.post('/crear-preferencia', async (req, res) => {
   logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
-  console.log('crear-preferencia req.body', req.body);
+  logger.debug(`crear-preferencia req.body ${JSON.stringify(req.body)}`);
   const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
 
   if (datos && datos.email) {
@@ -110,7 +110,7 @@ app.post('/crear-preferencia', async (req, res) => {
 
   try {
     const result = await preferenceClient.create({ body });
-    console.log('Preferencia creada:', JSON.stringify(result, null, 2));
+    logger.debug(`Preferencia creada: ${JSON.stringify(result, null, 2)}`);
     logger.info('Preferencia creada');
 
     const numeroOrden = generarNumeroOrden();
@@ -155,7 +155,7 @@ app.post('/crear-preferencia', async (req, res) => {
 
 app.post('/orden-manual', async (req, res) => {
   logger.info(`Orden manual body: ${JSON.stringify(req.body)}`);
-  console.log('orden-manual req.body', req.body);
+  logger.debug(`orden-manual req.body ${JSON.stringify(req.body)}`);
   const { titulo, precio, cantidad, datos, envio, metodo } = req.body;
   if (datos && datos.email) {
     try {
