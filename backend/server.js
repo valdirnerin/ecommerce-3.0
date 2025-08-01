@@ -71,6 +71,7 @@ app.get('/api/validate-email', async (req, res) => {
 });
 
 app.post('/crear-preferencia', async (req, res) => {
+  logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
   const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
 
   if (datos && datos.email) {
@@ -136,11 +137,12 @@ app.post('/crear-preferencia', async (req, res) => {
     res.json({ id: result.id, init_point: result.init_point, numeroOrden });
   } catch (error) {
     logger.error(`Error al crear preferencia: ${error.message}`);
-    res.status(500).json({ error: 'No se pudo crear la preferencia' });
+    res.status(500).json({ error: error.message });
   }
 });
 
 app.post('/orden-manual', async (req, res) => {
+  logger.info(`Orden manual body: ${JSON.stringify(req.body)}`);
   const { titulo, precio, cantidad, datos, envio, metodo } = req.body;
   if (datos && datos.email) {
     try {
@@ -187,7 +189,7 @@ app.post('/orden-manual', async (req, res) => {
     res.json({ numeroOrden });
   } catch (error) {
     logger.error(`Error al crear orden manual: ${error.message}`);
-    res.status(500).json({ error: 'No se pudo crear la orden' });
+    res.status(500).json({ error: error.message });
   }
 });
 

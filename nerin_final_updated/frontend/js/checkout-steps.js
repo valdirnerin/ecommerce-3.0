@@ -138,10 +138,12 @@ confirmarBtn.addEventListener('click', async () => {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.init_point) {
+      if (res.ok && data.init_point) {
         localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
         localStorage.removeItem('nerinCart');
         window.location.href = data.init_point;
+      } else if (!res.ok) {
+        throw new Error(data.error || 'Error al crear preferencia');
       }
     } else {
       body.metodo = metodo;
@@ -151,10 +153,12 @@ confirmarBtn.addEventListener('click', async () => {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.numeroOrden) {
+      if (res.ok && data.numeroOrden) {
         localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
         localStorage.removeItem('nerinCart');
         window.location.href = `/confirmacion/${data.numeroOrden}`;
+      } else if (!res.ok) {
+        throw new Error(data.error || 'Error al crear orden');
       }
     }
   } catch (e) {
