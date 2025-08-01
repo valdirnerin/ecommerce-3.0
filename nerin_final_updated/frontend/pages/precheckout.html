@@ -1,31 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <title>Confirmar pedido</title>
-  <link rel="stylesheet" href="/css/style.css" />
-</head>
-<body>
-  <div class="contenedor">
-    <h1>🛒 Confirmar pedido</h1>
-    <p><strong>Producto:</strong> <span id="product-title"></span></p>
-    <p><strong>Precio unitario:</strong> $<span id="product-price"></span></p>
-    <p><strong>Cantidad:</strong> <span id="product-quantity"></span></p>
-    <p><strong>Total:</strong> $<span id="product-total"></span></p>
-
-    <button class="mp-buy">Pagar con Mercado Pago</button>
-  </div>
-
-  <script>
-    const title = localStorage.getItem("mp_title") || "Producto";
-    const price = localStorage.getItem("mp_price") || "0";
-    const quantity = localStorage.getItem("mp_quantity") || "1";
-    document.getElementById("product-title").innerText = title;
-    document.getElementById("product-price").innerText = price;
-    document.getElementById("product-quantity").innerText = quantity;
-    const total = Number(price) * Number(quantity);
-    document.getElementById("product-total").innerText = total;
-  </script>
-  <script src="/js/checkout.js"></script>
-</body>
+  <head>
+    <meta http-equiv="refresh" content="0; url=/checkout-steps.html" />
+    <title>Redirigiendo…</title>
+    <script>window.location.replace('/checkout-steps.html');</script>
+  </head>
+  <body>
+    <p>Redirigiendo al nuevo checkout...</p>
+  </body>
 </html>
