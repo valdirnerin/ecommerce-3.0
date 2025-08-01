@@ -58,7 +58,9 @@ provincia.addEventListener('change',async()=>{
   const prov = provincia.value;
   if(!prov) return;
   try{
-    const res = await fetch(`/api/shipping-cost?provincia=${encodeURIComponent(prov)}`);
+    const res = await fetch(`${API_BASE_URL}/api/shipping-cost?provincia=${encodeURIComponent(prov)}`, {
+      mode: 'cors'
+    });
     const data = await res.json();
     costoEnvio = data.costo||0;
     costoEnvioEl.textContent = `Costo envío: $${costoEnvio}`;
@@ -123,7 +125,7 @@ confirmar.addEventListener('click',async()=>{
   envio.costo = costoEnvio;
   const metodo = Array.from(pagoRadios).find(r=>r.checked).value;
   try{
-    let url = '/crear-preferencia';
+    let url = `${API_BASE_URL}/crear-preferencia`;
     const body = {
       titulo: producto.titulo,
       precio: producto.precio,
@@ -132,7 +134,7 @@ confirmar.addEventListener('click',async()=>{
       envio
     };
     if(metodo === 'mp'){
-      const res = await fetch(url,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+      const res = await fetch(url,{ mode:'cors', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
       if(res.ok && data.init_point){
         const stored = Object.assign({}, datos, envio);
@@ -142,9 +144,9 @@ confirmar.addEventListener('click',async()=>{
         throw new Error(data.error || 'Error al crear preferencia');
       }
     }else{
-      url = '/orden-manual';
+      url = `${API_BASE_URL}/orden-manual`;
       body.metodo = metodo === 'transferencia' ? 'transferencia' : 'efectivo';
-      const res = await fetch(url,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+      const res = await fetch(url,{ mode:'cors', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
       if(res.ok && data.numeroOrden){
         const stored = Object.assign({}, datos, envio);
