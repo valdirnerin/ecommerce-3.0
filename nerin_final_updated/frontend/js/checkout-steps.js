@@ -163,6 +163,6 @@ confirmarBtn.addEventListener('click', async () => {
     }
   } catch (e) {
     console.error(e);
-    Toastify({ text: 'Error al procesar el pedido', duration: 3000, backgroundColor: '#ef4444' }).showToast();
+    Toastify({ text: e.message || 'Error al procesar el pedido', duration: 3000, backgroundColor: '#ef4444' }).showToast();
   }
 });
