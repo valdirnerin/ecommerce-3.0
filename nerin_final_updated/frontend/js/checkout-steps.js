@@ -41,13 +41,16 @@ async function validateEmail() {
     return false;
   }
   try {
+    console.log('Validando email', email);
     const res = await fetch(`/api/validate-email?email=${encodeURIComponent(email)}`);
     const data = await res.json();
+    console.log('Respuesta validar email', { status: res.status, data });
     if (!data.valid) {
       emailError.textContent = 'Email no válido';
       return false;
     }
-  } catch {
+  } catch (err) {
+    console.log('Error validar email', err);
     emailError.textContent = 'Error al validar';
     return false;
   }
@@ -74,13 +77,19 @@ async function updateCosto() {
   const provincia = document.getElementById('provincia').value.trim();
   if (!provincia) return;
   try {
+    console.log('Calculando costo de envío', provincia);
     const res = await fetch(`/api/shipping-cost?provincia=${encodeURIComponent(provincia)}`);
     if (res.ok) {
       const data = await res.json();
+      console.log('Respuesta costo envío', { status: res.status, data });
       costoEl.textContent = `Costo de envío: $${data.costo}`;
       envio.costo = data.costo;
+    } else {
+      console.log('Error costo envío', res.status);
     }
-  } catch {}
+  } catch (err) {
+    console.log('Error costo envío', err);
+  }
 }
 
 document.getElementById('provincia').addEventListener('change', updateCosto);
@@ -145,18 +154,21 @@ confirmarBtn.addEventListener('click', async () => {
   };
   try {
     if (metodo === 'mp') {
+      const mpBody = {
+        items: productos.map((p) => ({
+          title: p.name,
+          quantity: Number(p.quantity),
+          unit_price: Number(p.price),
+        })),
+      };
+      console.log('Enviando preferencia MP', { metodoPago: metodo, body: mpBody });
       const res = await fetch('/api/mercadopago/preference', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: productos.map((p) => ({
-            title: p.name,
-            quantity: Number(p.quantity),
-            unit_price: Number(p.price),
-          })),
-        }),
+        body: JSON.stringify(mpBody),
       });
       const data = await res.json();
+      console.log('Respuesta preferencia MP', { status: res.status, data });
       const initPoint = data.init_point ||
         (data.preferenceId
           ? `https://www.mercadopago.com/checkout/v1/redirect?pref_id=${data.preferenceId}`
@@ -178,12 +190,14 @@ confirmarBtn.addEventListener('click', async () => {
         comentarios: '',
         metodo_pago: metodo,
       };
+      console.log('Creando orden', { metodoPago: metodo, body: orderBody });
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(orderBody),
       });
       const data = await res.json();
+      console.log('Respuesta crear orden', { status: res.status, data });
       const orderId = data.orderId || data.numeroOrden;
       if (res.ok && orderId) {
         localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
@@ -194,7 +208,7 @@ confirmarBtn.addEventListener('click', async () => {
       }
     }
   } catch (e) {
-    console.error(e);
+    console.error('Error procesando pedido', e);
     Toastify({ text: e.message || 'Error al procesar el pedido', duration: 3000, backgroundColor: '#ef4444' }).showToast();
   }
 });
