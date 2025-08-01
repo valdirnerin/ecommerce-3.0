@@ -1984,17 +1984,17 @@ const server = http.createServer((req, res) => {
 
   // Páginas de resultado de pago de Mercado Pago
   if (pathname === "/success") {
-    return serveStatic(path.join(__dirname, "../../frontend/success.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/success.html"), res);
   }
   if (pathname === "/failure") {
-    return serveStatic(path.join(__dirname, "../../frontend/failure.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/failure.html"), res);
   }
   if (pathname === "/pending") {
-    return serveStatic(path.join(__dirname, "../../frontend/pending.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/pending.html"), res);
   }
 
   if (pathname === "/seguimiento" || pathname === "/seguimiento-pedido") {
-    return serveStatic(path.join(__dirname, "../../frontend/seguimiento.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/seguimiento.html"), res);
   }
 
   // Servir archivos estáticos del frontend y assets
@@ -2003,12 +2003,12 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith("/assets/")) {
     filePath = path.join(__dirname, "..", pathname);
   } else {
-    filePath = path.join(__dirname, "../../frontend", pathname);
+    filePath = path.join(__dirname, "../frontend", pathname);
   }
   // Si la ruta es directorio o no existe, servir index.html (SPA fallback)
   fs.stat(filePath, (err, stats) => {
     if (err || stats.isDirectory()) {
-      filePath = path.join(__dirname, "../../frontend/index.html");
+      filePath = path.join(__dirname, "../frontend/index.html");
     }
     serveStatic(filePath, res);
   });
