@@ -10,6 +10,10 @@ require('dotenv').config();
 
 const webhookRoutes = require('./routes/mercadoPago');
 const orderRoutes = require('./routes/orders');
+const shippingRoutes = require('./routes/shipping');
+const { getShippingCost } = require('./utils/shippingCosts');
+const verifyEmail = require('./emailValidator');
+const sendEmail = require('./utils/sendEmail');
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 if (!ACCESS_TOKEN) {
@@ -17,6 +21,7 @@ if (!ACCESS_TOKEN) {
 }
 
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
+const MP_WEBHOOK_URL = process.env.MP_WEBHOOK_URL || `${PUBLIC_URL}/api/mercado-pago/webhook`;
 const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
 const preferenceClient = new Preference(client);
 
@@ -35,7 +40,7 @@ app.use(
 
 app.get('/success', (req, res) => {
   const { preference_id } = req.query;
-  res.redirect(`/estado-pedido/${preference_id}`);
+  res.redirect(`/confirmacion/${preference_id}`);
 });
 app.get('/failure', (req, res) => {
   const { preference_id } = req.query;
@@ -50,8 +55,26 @@ app.get('/estado-pedido/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/estado-pedido.html'));
 });
 
+app.get('/confirmacion/:id', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
+});
+
 app.post('/crear-preferencia', async (req, res) => {
-  const { titulo, precio, cantidad, usuario } = req.body;
+  const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
+
+  if (datos && datos.email) {
+    try {
+      const valid = await verifyEmail(String(datos.email).trim());
+      if (!valid) {
+        return res
+          .status(400)
+          .json({ error: 'El email ingresado no es válido' });
+      }
+    } catch (e) {
+      logger.error(`Error al verificar email: ${e.message}`);
+      return res.status(500).json({ error: 'Error al verificar email' });
+    }
+  }
   const body = {
     items: [
       {
@@ -66,8 +89,7 @@ app.post('/crear-preferencia', async (req, res) => {
       pending: `${PUBLIC_URL}/pending`,
     },
     auto_return: 'approved',
-    notification_url:
-      'https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook',
+    notification_url: MP_WEBHOOK_URL,
   };
 
   try {
@@ -76,8 +98,9 @@ app.post('/crear-preferencia', async (req, res) => {
 
     const numeroOrden = generarNumeroOrden();
     logger.info('Guardando pedido en DB');
+    const costoEnvio = getShippingCost(envio && envio.provincia);
     await db.query(
-      'INSERT INTO orders (order_number, preference_id, payment_status, product_title, unit_price, quantity, user_email, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      'INSERT INTO orders (order_number, preference_id, payment_status, product_title, unit_price, quantity, user_email, first_name, last_name, phone, shipping_province, shipping_city, shipping_address, shipping_zip, shipping_method, shipping_cost, total_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
       [
         numeroOrden,
         result.id,
@@ -85,8 +108,17 @@ app.post('/crear-preferencia', async (req, res) => {
         titulo,
         precio,
         cantidad,
-        usuario || null,
-        Number(precio) * Number(cantidad),
+        (datos && datos.email) || usuario || null,
+        datos && datos.nombre ? datos.nombre : null,
+        datos && datos.apellido ? datos.apellido : null,
+        datos && datos.telefono ? datos.telefono : null,
+        envio && envio.provincia ? envio.provincia : null,
+        envio && envio.localidad ? envio.localidad : null,
+        envio && envio.direccion ? envio.direccion : null,
+        envio && envio.cp ? envio.cp : null,
+        envio && envio.metodo ? envio.metodo : null,
+        costoEnvio,
+        Number(precio) * Number(cantidad) + costoEnvio,
       ]
     );
 
@@ -97,8 +129,60 @@ app.post('/crear-preferencia', async (req, res) => {
   }
 });
 
+app.post('/orden-manual', async (req, res) => {
+  const { titulo, precio, cantidad, datos, envio, metodo } = req.body;
+  if (datos && datos.email) {
+    try {
+      const valid = await verifyEmail(String(datos.email).trim());
+      if (!valid) {
+        return res.status(400).json({ error: 'El email ingresado no es válido' });
+      }
+    } catch (e) {
+      logger.error(`Error al verificar email: ${e.message}`);
+      return res.status(500).json({ error: 'Error al verificar email' });
+    }
+  }
+  const numeroOrden = generarNumeroOrden();
+  const costoEnvio = getShippingCost(envio && envio.provincia);
+  const status = metodo === 'transferencia' ? 'pendiente_transferencia' : 'pendiente_pago_local';
+  try {
+    await db.query(
+      'INSERT INTO orders (order_number, preference_id, payment_status, product_title, unit_price, quantity, user_email, first_name, last_name, phone, shipping_province, shipping_city, shipping_address, shipping_zip, shipping_method, shipping_cost, total_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
+      [
+        numeroOrden,
+        numeroOrden,
+        status,
+        titulo,
+        precio,
+        cantidad,
+        datos && datos.email ? datos.email : null,
+        datos && datos.nombre ? datos.nombre : null,
+        datos && datos.apellido ? datos.apellido : null,
+        datos && datos.telefono ? datos.telefono : null,
+        envio && envio.provincia ? envio.provincia : null,
+        envio && envio.localidad ? envio.localidad : null,
+        envio && envio.direccion ? envio.direccion : null,
+        envio && envio.cp ? envio.cp : null,
+        envio && envio.metodo ? envio.metodo : null,
+        costoEnvio,
+        Number(precio) * Number(cantidad) + costoEnvio,
+      ]
+    );
+    await sendEmail(
+      datos.email,
+      'Pedido recibido',
+      'Tu pedido fue registrado. Está pendiente de pago. Una vez confirmado, recibirás el aviso de preparación/envío.'
+    );
+    res.json({ numeroOrden });
+  } catch (error) {
+    logger.error(`Error al crear orden manual: ${error.message}`);
+    res.status(500).json({ error: 'No se pudo crear la orden' });
+  }
+});
+
 app.use('/api/mercado-pago', webhookRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api', shippingRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

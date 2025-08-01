@@ -31,18 +31,47 @@
       cantidad: 1,
     };
 
+    const saved = JSON.parse(localStorage.getItem('userInfo') || 'null');
+
     payButton.addEventListener('click', async () => {
-      const response = await fetch('http://localhost:3000/crear-preferencia', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(producto),
-      });
-      const { init_point } = await response.json();
-      if (init_point) {
-        window.location.href = init_point;
+      // Si el usuario ya tiene datos guardados, creamos la preferencia
+      // directamente y lo redirigimos al pago. En caso contrario, iniciamos
+      // el flujo de checkout completo.
+      if (saved && saved.email && saved.direccion) {
+        try {
+          const res = await fetch('/crear-preferencia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              titulo: producto.titulo,
+              precio: producto.precio,
+              cantidad: producto.cantidad,
+              datos: {
+                nombre: saved.nombre,
+                apellido: saved.apellido,
+                email: saved.email,
+                telefono: saved.telefono,
+              },
+              envio: {
+                provincia: saved.provincia,
+                localidad: saved.localidad,
+                direccion: saved.direccion,
+                cp: saved.cp,
+                metodo: saved.metodo,
+                costo: saved.costo,
+              },
+            }),
+          });
+          const data = await res.json();
+          if (data.init_point) {
+            window.location.href = data.init_point;
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+        }
       }
+      window.location.href = 'checkout.html';
     });
   </script>
 </body>
