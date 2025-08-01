@@ -153,7 +153,7 @@ function renderCart() {
   };
 
   payBtn.onclick = () => {
-    window.location.href = "/checkout-form.html";
+    window.location.href = "/checkout-steps.html";
   };
   // Después de renderizar el carrito actualiza la navegación para reflejar el contador del carrito
   if (window.updateNav) {
