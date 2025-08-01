@@ -19,9 +19,10 @@
     </thead>
     <tbody></tbody>
   </table>
+<script src="config.js"></script>
 <script>
 async function cargar(){
-  const res = await fetch('/api/orders/pending');
+  const res = await fetch(`${API_BASE_URL}/api/orders/pending`, { mode: 'cors' });
   const datos = await res.json();
   const tbody = document.querySelector('#tabla tbody');
   tbody.innerHTML = '';
@@ -35,7 +36,7 @@ async function cargar(){
 document.addEventListener('click', async (e)=>{
   if(e.target.dataset && e.target.dataset.id){
     const id = e.target.dataset.id;
-    await fetch('/api/orders/'+id+'/mark-paid',{method:'POST'});
+    await fetch(`${API_BASE_URL}/api/orders/`+id+`/mark-paid`, {mode:'cors', method:'POST'});
     cargar();
   }
 });
