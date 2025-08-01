@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirmación</title>
+</head>
+<body>
+  <h1>¡Gracias por tu compra!</h1>
+  <p>Número de pedido: <span id="num"></span></p>
+  <a id="seguir" href="#">Seguir mi pedido</a>
+
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script>
+const prefId = window.location.pathname.split('/').pop();
+const numEl = document.getElementById('num');
+const seguir = document.getElementById('seguir');
+async function load(){
+  try{
+    const res = await axios.get(`/api/orders/${prefId}/status`);
+    if(res.data.numeroOrden){
+      numEl.textContent = res.data.numeroOrden;
+    }
+  }catch(e){console.error(e);}
+  seguir.href = `/estado-pedido/${prefId}`;
+}
+load();
+</script>
+</body>
+</html>

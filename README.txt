@@ -27,6 +27,7 @@ PRUEBAS AUTOMÁTICAS
 Para ejecutar las pruebas básicas del webhook ejecutá:
 
 ```bash
+npm install
 npm test
 ```
 
