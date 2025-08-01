@@ -543,7 +543,7 @@ const server = http.createServer((req, res) => {
         }
       } catch (err) {
         console.error(err);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
+        return sendJson(res, 400, { error: err.message });
       }
     });
     return;
@@ -773,7 +773,7 @@ const server = http.createServer((req, res) => {
         });
       } catch (err) {
         console.error(err);
-        return sendJson(res, 500, { error: "Error al procesar el pedido" });
+        return sendJson(res, 500, { error: err.message });
       }
     });
     return;
@@ -837,6 +837,7 @@ const server = http.createServer((req, res) => {
     req.on("end", async () => {
       try {
         const data = JSON.parse(body || "{}");
+        console.log("/api/orders body", data);
         const items = data.productos || data.items || [];
         if (!Array.isArray(items) || items.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });

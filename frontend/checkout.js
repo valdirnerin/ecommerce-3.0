@@ -134,20 +134,24 @@ confirmar.addEventListener('click',async()=>{
     if(metodo === 'mp'){
       const res = await fetch(url,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
-      if(data.init_point){
+      if(res.ok && data.init_point){
         const stored = Object.assign({}, datos, envio);
         localStorage.setItem('userInfo', JSON.stringify(stored));
         window.location.href = data.init_point;
+      }else if(!res.ok){
+        throw new Error(data.error || 'Error al crear preferencia');
       }
     }else{
       url = '/orden-manual';
       body.metodo = metodo === 'transferencia' ? 'transferencia' : 'efectivo';
       const res = await fetch(url,{ method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
-      if(data.numeroOrden){
+      if(res.ok && data.numeroOrden){
         const stored = Object.assign({}, datos, envio);
         localStorage.setItem('userInfo', JSON.stringify(stored));
         window.location.href = `/confirmacion/${data.numeroOrden}`;
+      }else if(!res.ok){
+        throw new Error(data.error || 'Error al crear pedido');
       }
     }
   }catch(err){
