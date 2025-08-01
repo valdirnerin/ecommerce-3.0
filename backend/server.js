@@ -28,6 +28,7 @@ const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
 const preferenceClient = new Preference(client);
 
 const app = express();
+app.enable('trust proxy');
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(cors());
