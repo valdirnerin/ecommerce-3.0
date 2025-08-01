@@ -123,40 +123,72 @@ function buildResumen() {
 
 confirmarBtn.addEventListener('click', async () => {
   const metodo = Array.from(pagoRadios).find((r) => r.checked).value;
-  const body = {
-    titulo: 'Carrito NERIN',
-    precio: cart.reduce((t, it) => t + it.price * it.quantity, 0) + (envio.costo || 0),
-    cantidad: 1,
-    datos,
-    envio,
+  const productos = cart.map((it) => ({
+    id: it.id,
+    name: it.name,
+    price: it.price,
+    quantity: it.quantity,
+  }));
+  const cliente = {
+    nombre: datos.nombre,
+    apellido: datos.apellido,
+    email: datos.email,
+    telefono: datos.telefono,
+    direccion: {
+      provincia: envio.provincia,
+      localidad: envio.localidad,
+      calle: envio.calle,
+      numero: envio.numero,
+      piso: envio.piso,
+      cp: envio.cp,
+    },
   };
   try {
     if (metodo === 'mp') {
-      const res = await fetch('/crear-preferencia', {
+      const res = await fetch('/api/mercadopago/preference', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          items: productos.map((p) => ({
+            title: p.name,
+            quantity: Number(p.quantity),
+            unit_price: Number(p.price),
+          })),
+        }),
       });
       const data = await res.json();
-      if (res.ok && data.init_point) {
+      const initPoint = data.init_point ||
+        (data.preferenceId
+          ? `https://www.mercadopago.com/checkout/v1/redirect?pref_id=${data.preferenceId}`
+          : data.preference
+            ? `https://www.mercadopago.com/checkout/v1/redirect?pref_id=${data.preference}`
+            : null);
+      if (res.ok && initPoint) {
         localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
         localStorage.removeItem('nerinCart');
-        window.location.href = data.init_point;
+        window.location.href = initPoint;
       } else if (!res.ok) {
         throw new Error(data.error || 'Error al crear preferencia');
       }
     } else {
-      body.metodo = metodo;
-      const res = await fetch('/orden-manual', {
+      const orderBody = {
+        cliente,
+        productos,
+        metodo_envio: envio.metodo,
+        comentarios: '',
+        metodo_pago: metodo,
+      };
+      const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(orderBody),
       });
       const data = await res.json();
-      if (res.ok && data.numeroOrden) {
+      const orderId = data.orderId || data.numeroOrden;
+      if (res.ok && orderId) {
         localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
         localStorage.removeItem('nerinCart');
-        window.location.href = `/confirmacion/${data.numeroOrden}`;
+        window.location.href = `/confirmacion/${orderId}`;
       } else if (!res.ok) {
         throw new Error(data.error || 'Error al crear orden');
       }
