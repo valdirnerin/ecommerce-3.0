@@ -2,4 +2,4 @@
 // Example:
 // window.MP_PUBLIC_KEY = 'TEST-1234abcd-5678-efgh-9012-ijklmno';
 window.MP_PUBLIC_KEY = '';
-window.API_BASE_URL = 'http://localhost:3000';
+window.API_BASE_URL = 'https://ecommerce-3-0.onrender.com';

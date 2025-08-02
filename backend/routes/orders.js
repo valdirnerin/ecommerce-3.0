@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const logger = require('../logger');
 
 router.get('/', async (_req, res) => {
   try {
     const { rows } = await db.query('SELECT * FROM orders ORDER BY created_at DESC');
     res.json(rows);
   } catch (error) {
-    console.error('Error al obtener pedidos:', error);
+    logger.error(`Error al obtener pedidos: ${error.message}`);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -19,7 +20,7 @@ router.get('/pending', async (_req, res) => {
     );
     res.json(rows);
   } catch (error) {
-    console.error('Error al obtener pedidos pendientes:', error);
+    logger.error(`Error al obtener pedidos pendientes: ${error.message}`);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -43,7 +44,7 @@ router.get('/:id/status', async (req, res) => {
     }
     res.json({ status: rows[0].payment_status, numeroOrden: rows[0].order_number });
   } catch (error) {
-    console.error('Error al obtener estado del pedido:', error);
+    logger.error(`Error al obtener estado del pedido: ${error.message}`);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -63,7 +64,7 @@ router.post('/:orderNumber/mark-paid', async (req, res) => {
     }
     res.json({ success: true });
   } catch (error) {
-    console.error('Error al actualizar pedido:', error);
+    logger.error(`Error al actualizar pedido: ${error.message}`);
     res.status(500).json({ error: 'Error interno' });
   }
 });
