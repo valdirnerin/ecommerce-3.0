@@ -22,8 +22,10 @@ if (!ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN no configurado');
 }
 
-const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
-const MP_WEBHOOK_URL = process.env.MP_WEBHOOK_URL || `${PUBLIC_URL}/api/mercado-pago/webhook`;
+const PUBLIC_URL =
+  process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
+const MP_WEBHOOK_URL =
+  process.env.MP_WEBHOOK_URL || `${PUBLIC_URL}/api/mercado-pago/webhook`;
 const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
 const preferenceClient = new Preference(client);
 
@@ -31,7 +33,13 @@ const app = express();
 app.enable('trust proxy');
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(cors());
+const allowedOrigins = ['https://nerinparts.com.ar'];
+if (PUBLIC_URL) allowedOrigins.push(PUBLIC_URL);
+app.use(
+  cors({
+    origin: allowedOrigins,
+  })
+);
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -147,7 +155,6 @@ app.post('/crear-preferencia', async (req, res) => {
 
     res.json({ id: result.id, init_point: url, numeroOrden });
   } catch (error) {
-    console.error(error);
     logger.error(`Error al crear preferencia: ${error.message}`);
     res.status(400).json({ error: error.message });
   }
@@ -201,7 +208,6 @@ app.post('/orden-manual', async (req, res) => {
     );
     res.json({ numeroOrden });
   } catch (error) {
-    console.error(error);
     logger.error(`Error al crear orden manual: ${error.message}`);
     res.status(400).json({ error: error.message });
   }

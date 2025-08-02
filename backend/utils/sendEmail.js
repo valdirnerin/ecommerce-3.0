@@ -1,8 +1,9 @@
 const nodemailer = require('nodemailer');
+const logger = require('../logger');
 
 async function sendEmail(to, subject, text) {
   if (!process.env.SMTP_HOST) {
-    console.log(`Mock email to ${to}: ${subject} - ${text}`);
+    logger.info(`Mock email to ${to}: ${subject} - ${text}`);
     return;
   }
   const transporter = nodemailer.createTransport({

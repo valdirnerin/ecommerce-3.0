@@ -10,16 +10,17 @@
   <p>Número de pedido: <span id="num"></span></p>
   <a id="seguir" href="#">Seguir mi pedido</a>
 
-<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script src="config.js"></script>
 <script>
 const prefId = window.location.pathname.split('/').pop();
 const numEl = document.getElementById('num');
 const seguir = document.getElementById('seguir');
 async function load(){
   try{
-    const res = await axios.get(`/api/orders/${prefId}/status`);
-    if(res.data.numeroOrden){
-      numEl.textContent = res.data.numeroOrden;
+    const res = await fetch(`${API_BASE_URL}/api/orders/${prefId}/status`, {mode:'cors'});
+    const data = await res.json();
+    if(data.numeroOrden){
+      numEl.textContent = data.numeroOrden;
     }
   }catch(e){console.error(e);}
   seguir.href = `/estado-pedido/${prefId}`;

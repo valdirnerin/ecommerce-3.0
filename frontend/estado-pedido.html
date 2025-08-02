@@ -8,7 +8,7 @@
   <h1 id="message">Procesando pago...</h1>
   <p id="step">Paso 2 de 3</p>
   <p id="orderNumber" style="display:none"></p>
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script src="config.js"></script>
   <script>
     const orderId = window.location.pathname.split('/').pop();
     const messageEl = document.getElementById('message');
@@ -17,11 +17,12 @@
 
     async function checkStatus() {
       try {
-        const res = await axios.get(`/api/orders/${orderId}/status`);
-        const status = res.data.status;
-        if (res.data.numeroOrden) {
+        const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {mode:'cors'});
+        const data = await res.json();
+        const status = data.status;
+        if (data.numeroOrden) {
           orderNumberEl.style.display = 'block';
-          orderNumberEl.textContent = `Número de pedido: ${res.data.numeroOrden}`;
+          orderNumberEl.textContent = `Número de pedido: ${data.numeroOrden}`;
         }
         if (status === 'approved' || status === 'aprobado') {
           messageEl.textContent = 'Pago aprobado';
