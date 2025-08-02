@@ -65,6 +65,7 @@
           });
           const data = await res.json();
           if (data.init_point) {
+            console.log('Mercado Pago init_point:', data.init_point);
             window.location.href = data.init_point;
             return;
           }

@@ -152,6 +152,11 @@ app.post('/crear-preferencia', async (req, res) => {
     if (ACCESS_TOKEN.startsWith('TEST-') && result.sandbox_init_point) {
       url = result.sandbox_init_point;
     }
+    logger.info(`init_point devuelto: ${result.init_point}`);
+    if (result.sandbox_init_point) {
+      logger.info(`sandbox_init_point devuelto: ${result.sandbox_init_point}`);
+    }
+    logger.info(`URL de pago utilizada: ${url}`);
 
     res.json({ id: result.id, init_point: url, numeroOrden });
   } catch (error) {
