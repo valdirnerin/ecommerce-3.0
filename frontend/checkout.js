@@ -15,7 +15,11 @@ const pagoRadios = document.getElementsByName('pago');
 let costoEnvio = 0;
 let datos = {};
 let envio = {};
-const producto = { titulo: 'Producto de ejemplo', precio: 100, cantidad: 1 };
+// Obtenemos el producto seleccionado previamente o usamos uno de ejemplo
+const producto = JSON.parse(
+  localStorage.getItem('producto') ||
+    '{"titulo":"Producto de ejemplo","precio":100,"cantidad":1}'
+);
 
 function showGuest(show){
   guestFields.style.display = show ? 'block' : 'none';

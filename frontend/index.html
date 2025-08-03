@@ -34,6 +34,10 @@
     const saved = JSON.parse(localStorage.getItem('userInfo') || 'null');
 
     payButton.addEventListener('click', async () => {
+      // Guardamos los datos del producto para reutilizarlos en el checkout de
+      // varios pasos en caso de ser necesario.
+      localStorage.setItem('producto', JSON.stringify(producto));
+
       // Si el usuario ya tiene datos guardados, creamos la preferencia
       // directamente y lo redirigimos al pago. En caso contrario, iniciamos
       // el flujo de checkout completo.
