@@ -16,8 +16,6 @@ const verifyEmail = require('./emailValidator');
 const sendEmail = require('./utils/sendEmail');
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
-// Tokens beginning with TEST- correspond to Mercado Pago's sandbox
-// environment and will use sandbox URLs when creating payments.
 if (!ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN no configurado');
 }
@@ -147,16 +145,11 @@ app.post('/crear-preferencia', async (req, res) => {
       ]
     );
 
-    let url = result.init_point;
-    // Use sandbox URL when using a test token to avoid creating live payments
-    if (ACCESS_TOKEN.startsWith('TEST-') && result.sandbox_init_point) {
-      url = result.sandbox_init_point;
+    if (!ACCESS_TOKEN.startsWith('APP_USR-')) {
+      throw new Error('El MP_ACCESS_TOKEN NO es de producción; revise .env');
     }
-    logger.info(`init_point devuelto: ${result.init_point}`);
-    if (result.sandbox_init_point) {
-      logger.info(`sandbox_init_point devuelto: ${result.sandbox_init_point}`);
-    }
-    logger.info(`URL de pago utilizada: ${url}`);
+    const url = result.init_point; // siempre prod
+    console.log('✅ MP init_point:', url);
 
     res.json({ id: result.id, init_point: url, numeroOrden });
   } catch (error) {
