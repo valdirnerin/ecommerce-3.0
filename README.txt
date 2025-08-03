@@ -8,8 +8,9 @@ INSTRUCCIONES RÁPIDAS
    ```
 
 2. Copiá `frontend/config.example.js` a `frontend/config.js` y completa tu
-   clave pública de Mercado Pago. Luego instalá las dependencias y ejecutá el servidor
-   (necesitás definir `MP_ACCESS_TOKEN` en tu entorno):
+   clave pública de Mercado Pago. Luego copiá `backend/.env.example` a
+   `backend/.env` y define tu `MP_ACCESS_TOKEN`. Instalá las dependencias y
+   ejecutá el servidor:
 
    ```bash
    npm install
