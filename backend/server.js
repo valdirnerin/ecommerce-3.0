@@ -26,8 +26,6 @@ const MP_PROD_ACCESS_TOKEN =
 
 const PUBLIC_URL =
   process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
-const MP_WEBHOOK_URL =
-  process.env.MP_WEBHOOK_URL || `${PUBLIC_URL}/api/mercado-pago/webhook`;
 
 const app = express();
 app.enable('trust proxy');
@@ -145,7 +143,6 @@ app.post('/crear-preferencia', async (req, res) => {
       pending: `${PUBLIC_URL}/pending`,
     },
     auto_return: 'approved',
-    notification_url: MP_WEBHOOK_URL,
     external_reference: numeroOrden,
   };
 
@@ -247,7 +244,7 @@ app.post('/orden-manual', async (req, res) => {
   }
 });
 
-app.use('/api/mercado-pago', webhookRoutes);
+app.use('/api/webhooks/mp', webhookRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api', shippingRoutes);
 

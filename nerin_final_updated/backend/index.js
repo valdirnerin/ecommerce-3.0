@@ -148,10 +148,6 @@ app.post("/api/orders", async (req, res) => {
           auto_return: "approved",
           external_reference: id,
         };
-        if (PUBLIC_URL) {
-          pref.notification_url =
-            'https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook';
-        }
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;
       } catch (e) {
