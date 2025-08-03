@@ -97,6 +97,7 @@ app.post('/crear-preferencia', async (req, res) => {
       return res.status(500).json({ error: 'Error al verificar email' });
     }
   }
+  const numeroOrden = generarNumeroOrden();
   const body = {
     items: [
       {
@@ -112,6 +113,7 @@ app.post('/crear-preferencia', async (req, res) => {
     },
     auto_return: 'approved',
     notification_url: MP_WEBHOOK_URL,
+    external_reference: numeroOrden,
   };
 
   try {
@@ -119,7 +121,6 @@ app.post('/crear-preferencia', async (req, res) => {
     logger.debug(`Preferencia creada: ${JSON.stringify(result, null, 2)}`);
     logger.info('Preferencia creada');
 
-    const numeroOrden = generarNumeroOrden();
     logger.info('Guardando pedido en DB');
     const costoEnvio = getShippingCost(envio && envio.provincia);
     await db.query(
