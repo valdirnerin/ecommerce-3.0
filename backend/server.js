@@ -20,6 +20,9 @@ if (!ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN no configurado');
 }
 
+const MP_PROD_ACCESS_TOKEN =
+  'APP_USR-6696027157843761-080316-77b4090779b15dbbbefe44f660e7eae5-462376008';
+
 const PUBLIC_URL =
   process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
 const MP_WEBHOOK_URL =
@@ -64,6 +67,37 @@ app.get('/estado-pedido/:id', (_req, res) => {
 
 app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
+});
+
+app.post('/create_preference', async (_req, res) => {
+  const body = {
+    items: [
+      {
+        title: 'Pantalla Samsung Service Pack',
+        unit_price: 15000,
+        currency_id: 'ARS',
+        quantity: 1,
+      },
+    ],
+    back_urls: {
+      success: 'https://nerinparts.com.ar/success',
+      failure: 'https://nerinparts.com.ar/failure',
+      pending: 'https://nerinparts.com.ar/pending',
+    },
+    auto_return: 'approved',
+  };
+
+  try {
+    const client = new MercadoPagoConfig({ accessToken: MP_PROD_ACCESS_TOKEN });
+    const preference = new Preference(client);
+    const result = await preference.create({ body });
+    return res.json({ init_point: result.init_point });
+  } catch (error) {
+    console.error('Error al crear preferencia', error);
+    return res
+      .status(500)
+      .json({ error: 'No se pudo generar el link de pago' });
+  }
 });
 
 app.get('/api/validate-email', async (req, res) => {

@@ -118,51 +118,18 @@ function updateMetodoInfo(){
 pagoRadios.forEach(r=>r.addEventListener('change', updateMetodoInfo));
 
 confirmar.addEventListener('click',async()=>{
-  if(optInvitado.checked){
-    datos = {
-      nombre: document.getElementById('nombre').value.trim(),
-      apellido: document.getElementById('apellido').value.trim(),
-      email: document.getElementById('email').value.trim(),
-      telefono: document.getElementById('telefono').value.trim(),
-    };
-  }
-  envio.costo = costoEnvio;
-  const metodo = Array.from(pagoRadios).find(r=>r.checked).value;
   try{
-    let url = `${API_BASE_URL}/crear-preferencia`;
-    const body = {
-      titulo: producto.titulo,
-      precio: producto.precio,
-      cantidad: producto.cantidad,
-      datos,
-      envio
-    };
-    if(metodo === 'mp'){
-      const res = await fetch(url,{ mode:'cors', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-      const data = await res.json();
-      if(res.ok && data.init_point){
-        console.log('Mercado Pago init_point:', data.init_point);
-        const stored = Object.assign({}, datos, envio);
-        localStorage.setItem('userInfo', JSON.stringify(stored));
-        window.location.href = data.init_point;
-      }else{
-        throw new Error(data.error || 'No se pudo obtener link de pago');
-      }
+    const res = await fetch(`${API_BASE_URL}/create_preference`,{
+      mode:'cors',
+      method:'POST'
+    });
+    const data = await res.json();
+    if(res.ok && data.init_point){
+      window.location.href = data.init_point;
     }else{
-      url = `${API_BASE_URL}/orden-manual`;
-      body.metodo = metodo === 'transferencia' ? 'transferencia' : 'efectivo';
-      const res = await fetch(url,{ mode:'cors', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-      const data = await res.json();
-      if(res.ok && data.numeroOrden){
-        const stored = Object.assign({}, datos, envio);
-        localStorage.setItem('userInfo', JSON.stringify(stored));
-        window.location.href = `/confirmacion/${data.numeroOrden}`;
-      }else if(!res.ok){
-        throw new Error(data.error || 'Error al crear pedido');
-      }
+      alert('Hubo un error con el pago');
     }
   }catch(err){
-    console.error(err);
-    alert(err.message || 'Error al crear pedido');
+    alert('Hubo un error con el pago');
   }
 });
