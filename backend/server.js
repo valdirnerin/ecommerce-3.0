@@ -144,12 +144,14 @@ app.post('/crear-preferencia', async (req, res) => {
         Number(precio) * Number(cantidad) + costoEnvio,
       ]
     );
-
-    if (!ACCESS_TOKEN.startsWith('APP_USR-')) {
-      throw new Error('El MP_ACCESS_TOKEN NO es de producción; revise .env');
+    let url;
+    if (ACCESS_TOKEN.startsWith('APP_USR-')) {
+      url = result.init_point;
+      console.log('✅ MP init_point:', url);
+    } else {
+      url = result.sandbox_init_point;
+      console.log('⚠️ MP sandbox_init_point:', url);
     }
-    const url = result.init_point; // siempre prod
-    console.log('✅ MP init_point:', url);
 
     res.json({ id: result.id, init_point: url, numeroOrden });
   } catch (error) {
