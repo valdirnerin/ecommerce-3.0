@@ -68,13 +68,16 @@
             }),
           });
           const data = await res.json();
-          if (data.init_point) {
+          if (res.ok && data.init_point) {
             console.log('Mercado Pago init_point:', data.init_point);
             window.location.href = data.init_point;
             return;
           }
+          throw new Error(data.error || 'No se pudo obtener link de pago');
         } catch (e) {
           console.error(e);
+          alert(e.message || 'Error al iniciar pago');
+          return;
         }
       }
       window.location.href = 'checkout.html';

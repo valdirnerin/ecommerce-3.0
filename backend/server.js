@@ -24,8 +24,6 @@ const PUBLIC_URL =
   process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
 const MP_WEBHOOK_URL =
   process.env.MP_WEBHOOK_URL || `${PUBLIC_URL}/api/mercado-pago/webhook`;
-const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-const preferenceClient = new Preference(client);
 
 const app = express();
 app.enable('trust proxy');
@@ -117,6 +115,8 @@ app.post('/crear-preferencia', async (req, res) => {
   };
 
   try {
+    const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
+    const preferenceClient = new Preference(client);
     const result = await preferenceClient.create({ body });
     logger.debug(`Preferencia creada: ${JSON.stringify(result, null, 2)}`);
     logger.info('Preferencia creada');
@@ -145,14 +145,12 @@ app.post('/crear-preferencia', async (req, res) => {
         Number(precio) * Number(cantidad) + costoEnvio,
       ]
     );
-    let url;
-    if (ACCESS_TOKEN.startsWith('APP_USR-')) {
-      url = result.init_point;
-      console.log('✅ MP init_point:', url);
-    } else {
-      url = result.sandbox_init_point;
-      console.log('⚠️ MP sandbox_init_point:', url);
+
+    const url = result.init_point;
+    if (!url) {
+      throw new Error('No se generó init_point');
     }
+    console.log('✅ MP init_point:', url);
 
     res.json({ id: result.id, init_point: url, numeroOrden });
   } catch (error) {
