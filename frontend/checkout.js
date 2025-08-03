@@ -141,12 +141,12 @@ confirmar.addEventListener('click',async()=>{
       const res = await fetch(url,{ mode:'cors', method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
       const data = await res.json();
       if(res.ok && data.init_point){
-          console.log('Mercado Pago init_point:', data.init_point);
+        console.log('Mercado Pago init_point:', data.init_point);
         const stored = Object.assign({}, datos, envio);
         localStorage.setItem('userInfo', JSON.stringify(stored));
         window.location.href = data.init_point;
-      }else if(!res.ok){
-        throw new Error(data.error || 'Error al crear preferencia');
+      }else{
+        throw new Error(data.error || 'No se pudo obtener link de pago');
       }
     }else{
       url = `${API_BASE_URL}/orden-manual`;
@@ -163,6 +163,6 @@ confirmar.addEventListener('click',async()=>{
     }
   }catch(err){
     console.error(err);
-    alert('Error al crear pedido');
+    alert(err.message || 'Error al crear pedido');
   }
 });
