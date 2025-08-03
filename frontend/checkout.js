@@ -117,19 +117,28 @@ function updateMetodoInfo(){
 }
 pagoRadios.forEach(r=>r.addEventListener('change', updateMetodoInfo));
 
-confirmar.addEventListener('click',async()=>{
-  try{
-    const res = await fetch(`${API_BASE_URL}/create_preference`,{
-      mode:'cors',
-      method:'POST'
+confirmar.addEventListener('click', async () => {
+  try {
+    const res = await fetch(`${API_BASE_URL}/crear-preferencia`, {
+      mode: 'cors',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        titulo: producto.titulo,
+        precio: producto.precio,
+        cantidad: producto.cantidad,
+        datos,
+        envio
+      })
     });
     const data = await res.json();
-    if(res.ok && data.init_point){
+    if (res.ok && data.init_point) {
+      localStorage.setItem('userInfo', JSON.stringify({ ...datos, ...envio }));
       window.location.href = data.init_point;
-    }else{
-      alert('Hubo un error con el pago');
+    } else {
+      alert(data.error || 'Hubo un error con el pago');
     }
-  }catch(err){
+  } catch (err) {
     alert('Hubo un error con el pago');
   }
 });
