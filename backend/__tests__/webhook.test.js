@@ -37,7 +37,7 @@ describe('Mercado Pago Webhook', () => {
         },
       })
     );
-    app.use('/api/mercado-pago', router);
+    app.use('/api/webhooks/mp', router);
   });
 
   test('returns 200 for valid webhook', async () => {
@@ -49,7 +49,7 @@ describe('Mercado Pago Webhook', () => {
       .digest('hex');
 
     await request(app)
-      .post('/api/mercado-pago/webhook')
+      .post('/api/webhooks/mp')
       .set('Content-Type', 'application/json')
       .set('x-signature', signature)
       .send(body)

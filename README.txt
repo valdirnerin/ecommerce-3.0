@@ -28,8 +28,7 @@ Se utilizan las siguientes variables para la integración con Mercado Pago:
 
 - `MP_ACCESS_TOKEN`: token privado. Los que empiezan con `TEST-` sirven para el sandbox; para producción se necesita un token que comience con `APP_USR-`.
 - `MP_CLIENT_ID` y `MP_CLIENT_SECRET`: credenciales OAuth asociadas a la cuenta.
-- `PUBLIC_URL`: URL pública del servidor. Se usa para redireccionar y para el webhook. En producción suele ser `https://ecommerce-3-0.onrender.com`.
-- `MP_WEBHOOK_URL`: URL donde Mercado Pago enviará notificaciones. Si no se define, se construye como `${PUBLIC_URL}/api/mercado-pago/webhook`. Un ejemplo en producción es `https://ecommerce-3-0.onrender.com/api/mercado-pago/webhook`.
+- `PUBLIC_URL`: URL pública del servidor utilizada para las redirecciones. El webhook de Mercado Pago debe configurarse en el panel de IPN apuntando a `https://ecommerce-3-0.onrender.com/api/webhooks/mp`.
 
 PRUEBAS AUTOMÁTICAS
 -------------------

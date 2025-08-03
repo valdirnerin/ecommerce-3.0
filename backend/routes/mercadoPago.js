@@ -14,13 +14,14 @@ const paymentClient = new Payment(mpClient);
 const merchantClient = new MerchantOrder(mpClient);
 
 router.post(
-  '/webhook',
+  '/',
   requireHttps,
   webhookRateLimit,
   enforcePostJson,
   verifySignature,
   validateWebhook,
   async (req, res) => {
+    console.log('📥 Webhook recibido:', req.body);
     logger.info('Webhook recibido');
     const paymentId =
       req.body.payment_id ||
@@ -53,7 +54,7 @@ router.post(
       `Pedido ${preferenceId} actualizado con estado ${status} y payment_id ${paymentId}`
     );
 
-    res.json({ success: true });
+    res.sendStatus(200);
   } catch (error) {
     logger.error(`Error al procesar webhook: ${error.message}`);
     res.status(500).json({ error: 'Error interno' });
