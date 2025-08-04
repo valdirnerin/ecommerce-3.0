@@ -40,3 +40,14 @@ npm install
 npm test
 ```
 
+RENDER ROUTING
+--------------
+
+Si desplegás la aplicación en Render, configurá la siguiente regla de routing para redirigir las solicitudes del frontend:
+
+```
+/api/*  https://ecommerce-3-0.onrender.com/api/:splat  200
+```
+
+El frontend realiza los `fetch` utilizando rutas relativas (por ejemplo, `fetch('/api/productos')`), por lo que las peticiones a `/api/...` serán reenviadas al backend mediante la regla anterior.
+
