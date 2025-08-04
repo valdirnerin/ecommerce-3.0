@@ -1,6 +1,7 @@
 const express = require('express');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 const generarNumeroOrden = require('../utils/generarNumeroOrden');
+const logger = require('../logger');
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const PUBLIC_URL = process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com
 
 router.post('/crear-preferencia', async (req, res) => {
   const { carrito, usuario } = req.body || {};
-  console.log('📥 body recibido:', req.body);
+  logger.info(`📥 body recibido: ${JSON.stringify(req.body)}`);
 
   if (!Array.isArray(carrito) || carrito.length === 0) {
     return res
@@ -50,9 +51,9 @@ router.post('/crear-preferencia', async (req, res) => {
   try {
     const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
     const preference = new Preference(client);
-    console.log('📦 preference.body:', body);
+    logger.info(`📦 preference.body: ${JSON.stringify(body)}`);
     const response = await preference.create({ body });
-    console.log('📝 response.body:', response.body);
+    logger.info(`📝 response.body: ${JSON.stringify(response.body)}`);
 
     const init_point = response && response.body && response.body.init_point;
     if (init_point) {
@@ -60,7 +61,7 @@ router.post('/crear-preferencia', async (req, res) => {
     }
     return res.status(500).json({ error: 'init_point no recibido' });
   } catch (error) {
-    console.error('Error al crear preferencia:', error);
+    logger.error(`Error al crear preferencia: ${error.message}`);
     return res.status(500).json({ error: 'Error al crear preferencia' });
   }
 });
