@@ -43,7 +43,7 @@
       // el flujo de checkout completo.
       if (saved && saved.email && saved.direccion) {
         try {
-          const res = await fetch(`${API_BASE_URL}/crear-preferencia`, {
+          const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`, {
             mode: 'cors',
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
