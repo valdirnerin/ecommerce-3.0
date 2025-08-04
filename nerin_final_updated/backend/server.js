@@ -23,7 +23,7 @@ require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
 // Dominio público para redirecciones de Mercado Pago
-const DOMAIN = "https://ecommerce-3-0.onrender.com";
+const DOMAIN = process.env.PUBLIC_URL || "http://localhost:3000";
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
 const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
 let mpPreference = null;
