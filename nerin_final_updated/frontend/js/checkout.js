@@ -7,7 +7,7 @@ document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
   const quantity = Number(localStorage.getItem("mp_quantity")) || 1;
 
   try {
-    const res = await fetch("/crear-preferencia", {
+    const res = await fetch("/api/mercado-pago/crear-preferencia", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

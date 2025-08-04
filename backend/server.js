@@ -26,9 +26,6 @@ if (ACCESS_TOKEN.startsWith('TEST-')) {
   );
 }
 
-const MP_PROD_ACCESS_TOKEN =
-  'APP_USR-6696027157843761-080316-77b4090779b15dbbbefe44f660e7eae5-462376008';
-
 const PUBLIC_URL =
   process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
 
@@ -73,54 +70,6 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
-app.post('/create_preference', async (_req, res) => {
-  const body = {
-    items: [
-      {
-        title: 'Pantalla Samsung Service Pack',
-        unit_price: 15000,
-        currency_id: 'ARS',
-        quantity: 1,
-      },
-    ],
-    back_urls: {
-      success: 'https://nerinparts.com.ar/success',
-      failure: 'https://nerinparts.com.ar/failure',
-      pending: 'https://nerinparts.com.ar/pending',
-    },
-    auto_return: 'approved',
-  };
-
-  try {
-    if (MP_PROD_ACCESS_TOKEN.startsWith('TEST-')) {
-      console.warn(
-        '⚠️ Advertencia: usando access_token de prueba de Mercado Pago'
-      );
-    }
-    const client = new MercadoPagoConfig({ accessToken: MP_PROD_ACCESS_TOKEN });
-    const preference = new Preference(client);
-    console.log('📦 preference.body:', body);
-    const response = await preference.create({ body });
-    console.log('📝 response.body:', response.body);
-    console.log('🔗 response.body.init_point:', response?.body?.init_point);
-    const result = response.body || response;
-    if (!result.init_point || !result.init_point.includes('mercadopago')) {
-      console.error(
-        'Preferencia inválida: init_point no generado correctamente.'
-      );
-      return res.status(500).json({
-        error: 'Preferencia inválida: init_point no generado correctamente.',
-      });
-    }
-    return res.json({ init_point: result.init_point });
-  } catch (error) {
-    console.error('Error al crear preferencia', error);
-    return res
-      .status(500)
-      .json({ error: 'No se pudo generar el link de pago' });
-  }
-});
-
 app.get('/api/validate-email', async (req, res) => {
   const email = req.query.email || '';
   try {
@@ -132,9 +81,11 @@ app.get('/api/validate-email', async (req, res) => {
   }
 });
 
-app.post('/crear-preferencia', async (req, res) => {
+app.post('/api/mercado-pago/crear-preferencia', async (req, res) => {
   logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
-  logger.debug(`crear-preferencia req.body ${JSON.stringify(req.body)}`);
+  logger.debug(
+    `api/mercado-pago/crear-preferencia req.body ${JSON.stringify(req.body)}`
+  );
   const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
 
   if (datos && datos.email) {
