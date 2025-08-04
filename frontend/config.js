@@ -4,4 +4,4 @@ globalThis.MP_PUBLIC_KEY =
   (typeof process !== 'undefined' && process.env.MP_PUBLIC_KEY) || '';
 
 // URL del backend en Render (Web Service) — REEMPLAZAR con el URL real
-globalThis.API_BASE_URL = "https://TU-BACKEND-WEBSERVICE.onrender.com";
+globalThis.API_BASE_URL = "https://ecommerce-3-0.onrender.com";
