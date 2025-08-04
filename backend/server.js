@@ -20,12 +20,10 @@ const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 if (!ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN no configurado');
 }
-if (
-  process.env.NODE_ENV === 'production' &&
-  ACCESS_TOKEN &&
-  ACCESS_TOKEN.includes('TEST')
-) {
-  console.warn('⚠️ Usando credenciales de test de Mercado Pago en producción');
+if (ACCESS_TOKEN.startsWith('TEST-')) {
+  console.warn(
+    '⚠️ Advertencia: usando access_token de prueba de Mercado Pago'
+  );
 }
 
 const MP_PROD_ACCESS_TOKEN =
@@ -94,16 +92,25 @@ app.post('/create_preference', async (_req, res) => {
   };
 
   try {
+    if (MP_PROD_ACCESS_TOKEN.startsWith('TEST-')) {
+      console.warn(
+        '⚠️ Advertencia: usando access_token de prueba de Mercado Pago'
+      );
+    }
     const client = new MercadoPagoConfig({ accessToken: MP_PROD_ACCESS_TOKEN });
     const preference = new Preference(client);
     console.log('📦 preference.body:', body);
-    const result = await preference.create({ body });
-    console.log('🔗 init_point recibido:', result && result.init_point);
-    if (!result || !result.init_point) {
-      console.error('❌ Mercado Pago no devolvió init_point');
-      return res
-        .status(500)
-        .json({ error: 'No se pudo generar el link de pago' });
+    const response = await preference.create({ body });
+    console.log('📝 response.body:', response.body);
+    console.log('🔗 response.body.init_point:', response?.body?.init_point);
+    const result = response.body || response;
+    if (!result.init_point || !result.init_point.includes('mercadopago')) {
+      console.error(
+        'Preferencia inválida: init_point no generado correctamente.'
+      );
+      return res.status(500).json({
+        error: 'Preferencia inválida: init_point no generado correctamente.',
+      });
     }
     return res.json({ init_point: result.init_point });
   } catch (error) {
@@ -165,13 +172,17 @@ app.post('/crear-preferencia', async (req, res) => {
     const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
     const preferenceClient = new Preference(client);
     console.log('📦 preference.body:', body);
-    const result = await preferenceClient.create({ body });
-    console.log('🔗 init_point recibido:', result && result.init_point);
-    if (!result || !result.init_point) {
-      console.error('❌ Mercado Pago no devolvió init_point');
-      return res
-        .status(500)
-        .json({ error: 'No se pudo generar el link de pago' });
+    const response = await preferenceClient.create({ body });
+    console.log('📝 response.body:', response.body);
+    console.log('🔗 response.body.init_point:', response?.body?.init_point);
+    const result = response.body || response;
+    if (!result.init_point || !result.init_point.includes('mercadopago')) {
+      console.error(
+        'Preferencia inválida: init_point no generado correctamente.'
+      );
+      return res.status(500).json({
+        error: 'Preferencia inválida: init_point no generado correctamente.',
+      });
     }
     logger.debug(`Preferencia creada: ${JSON.stringify(result, null, 2)}`);
     logger.info('Preferencia creada');
