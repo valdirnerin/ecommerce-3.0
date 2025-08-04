@@ -132,83 +132,32 @@ function buildResumen() {
 
 confirmarBtn.addEventListener('click', async () => {
   const metodo = Array.from(pagoRadios).find((r) => r.checked).value;
-  const productos = cart.map((it) => ({
-    id: it.id,
-    name: it.name,
-    price: it.price,
-    quantity: it.quantity,
+  if (metodo !== 'mp') return;
+  const carrito = cart.map((it) => ({
+    titulo: it.name,
+    precio: it.price,
+    cantidad: it.quantity,
   }));
-  const cliente = {
-    nombre: datos.nombre,
-    apellido: datos.apellido,
-    email: datos.email,
-    telefono: datos.telefono,
-    direccion: {
-      provincia: envio.provincia,
-      localidad: envio.localidad,
-      calle: envio.calle,
-      numero: envio.numero,
-      piso: envio.piso,
-      cp: envio.cp,
-    },
-  };
+  const usuario = { ...datos, ...envio };
   try {
-    if (metodo === 'mp') {
-      const mpBody = {
-        items: productos.map((p) => ({
-          title: p.name,
-          quantity: Number(p.quantity),
-          unit_price: Number(p.price),
-        })),
-      };
-      console.log('Enviando preferencia MP', { metodoPago: metodo, body: mpBody });
-      const res = await fetch('/api/mercadopago/preference', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mpBody),
-      });
-      const data = await res.json();
-      console.log('Respuesta preferencia MP', { status: res.status, data });
-      const initPoint = data.init_point ||
-        (data.preferenceId
-          ? `https://www.mercadopago.com/checkout/v1/redirect?pref_id=${data.preferenceId}`
-          : data.preference
-            ? `https://www.mercadopago.com/checkout/v1/redirect?pref_id=${data.preference}`
-            : null);
-      if (res.ok && initPoint) {
-        localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
-        localStorage.removeItem('nerinCart');
-        window.location.href = initPoint;
-      } else if (!res.ok) {
-        throw new Error(data.error || 'Error al crear preferencia');
-      }
+    console.log('Creando preferencia MP', { carrito, usuario });
+    const res = await fetch('/api/mercado-pago/crear-preferencia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ carrito, usuario }),
+    });
+    const data = await res.json();
+    console.log('Respuesta preferencia MP', { status: res.status, data });
+    if (res.ok && data.init_point) {
+      localStorage.setItem('nerinUserInfo', JSON.stringify(usuario));
+      localStorage.removeItem('nerinCart');
+      window.location.href = data.init_point;
     } else {
-      const orderBody = {
-        cliente,
-        productos,
-        metodo_envio: envio.metodo,
-        comentarios: '',
-        metodo_pago: metodo,
-      };
-      console.log('Creando orden', { metodoPago: metodo, body: orderBody });
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderBody),
-      });
-      const data = await res.json();
-      console.log('Respuesta crear orden', { status: res.status, data });
-      const orderId = data.orderId || data.numeroOrden;
-      if (res.ok && orderId) {
-        localStorage.setItem('nerinUserInfo', JSON.stringify({ ...datos, ...envio }));
-        localStorage.removeItem('nerinCart');
-        window.location.href = `/confirmacion/${orderId}`;
-      } else if (!res.ok) {
-        throw new Error(data.error || 'Error al crear orden');
-      }
+      alert(data.error || 'Hubo un error con el pago');
+      console.error('init_point no recibido', data);
     }
   } catch (e) {
-    console.error('Error procesando pedido', e);
-    Toastify({ text: e.message || 'Error al procesar el pedido', duration: 3000, backgroundColor: '#ef4444' }).showToast();
+    alert('Hubo un error con el pago');
+    console.error('Error al procesar el pago', e);
   }
 });
