@@ -139,6 +139,7 @@ app.post("/api/orders", async (req, res) => {
             title: p.name,
             quantity: Number(p.quantity),
             unit_price: Number(p.price),
+            currency_id: "ARS",
           })),
           back_urls: {
             success: `${PUBLIC_URL}/success`,
