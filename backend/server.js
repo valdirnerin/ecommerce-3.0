@@ -70,6 +70,10 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, service: 'backend', ts: Date.now() });
+});
+
 app.get('/api/validate-email', async (req, res) => {
   const email = req.query.email || '';
   try {
