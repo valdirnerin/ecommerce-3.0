@@ -27,7 +27,7 @@ if (ACCESS_TOKEN.startsWith('TEST-')) {
 }
 
 const PUBLIC_URL =
-  process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
+  process.env.PUBLIC_URL || 'http://localhost:3000';
 
 const app = express();
 app.enable('trust proxy');
