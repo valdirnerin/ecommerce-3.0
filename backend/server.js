@@ -10,6 +10,7 @@ const logger = require('./logger');
 require('dotenv').config();
 
 const webhookRoutes = require('./routes/mercadoPago');
+const mercadoPagoPreferenceRoutes = require('./routes/mercadoPagoPreference');
 const orderRoutes = require('./routes/orders');
 const shippingRoutes = require('./routes/shipping');
 const { getShippingCost } = require('./utils/shippingCosts');
@@ -281,6 +282,7 @@ app.post('/orden-manual', async (req, res) => {
 app.use('/api/webhooks/mp', webhookRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api', shippingRoutes);
+app.use('/api/mercado-pago', mercadoPagoPreferenceRoutes);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
