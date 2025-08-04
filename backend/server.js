@@ -135,7 +135,16 @@ app.get('/api/validate-email', async (req, res) => {
 app.post('/crear-preferencia', async (req, res) => {
   logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
   logger.debug(`crear-preferencia req.body ${JSON.stringify(req.body)}`);
-  const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
+  const { carrito, usuario } = req.body;
+  if (
+    !Array.isArray(carrito) ||
+    carrito.length === 0 ||
+    !usuario ||
+    !usuario.email
+  ) {
+    return res.status(400).json({ error: 'Faltan datos' });
+  }
+  const { titulo, precio, cantidad, datos, envio } = req.body;
 
   if (datos && datos.email) {
     try {
@@ -198,7 +207,7 @@ app.post('/crear-preferencia', async (req, res) => {
         titulo,
         precio,
         cantidad,
-        (datos && datos.email) || usuario || null,
+        (datos && datos.email) || usuario.email || null,
         datos && datos.nombre ? datos.nombre : null,
         datos && datos.apellido ? datos.apellido : null,
         datos && datos.telefono ? datos.telefono : null,
