@@ -20,6 +20,13 @@ const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 if (!ACCESS_TOKEN) {
   throw new Error('MP_ACCESS_TOKEN no configurado');
 }
+if (
+  process.env.NODE_ENV === 'production' &&
+  ACCESS_TOKEN &&
+  ACCESS_TOKEN.includes('TEST')
+) {
+  console.warn('⚠️ Usando credenciales de test de Mercado Pago en producción');
+}
 
 const MP_PROD_ACCESS_TOKEN =
   'APP_USR-6696027157843761-080316-77b4090779b15dbbbefe44f660e7eae5-462376008';
@@ -89,7 +96,15 @@ app.post('/create_preference', async (_req, res) => {
   try {
     const client = new MercadoPagoConfig({ accessToken: MP_PROD_ACCESS_TOKEN });
     const preference = new Preference(client);
+    console.log('📦 preference.body:', body);
     const result = await preference.create({ body });
+    console.log('🔗 init_point recibido:', result && result.init_point);
+    if (!result || !result.init_point) {
+      console.error('❌ Mercado Pago no devolvió init_point');
+      return res
+        .status(500)
+        .json({ error: 'No se pudo generar el link de pago' });
+    }
     return res.json({ init_point: result.init_point });
   } catch (error) {
     console.error('Error al crear preferencia', error);
@@ -149,7 +164,15 @@ app.post('/crear-preferencia', async (req, res) => {
   try {
     const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
     const preferenceClient = new Preference(client);
+    console.log('📦 preference.body:', body);
     const result = await preferenceClient.create({ body });
+    console.log('🔗 init_point recibido:', result && result.init_point);
+    if (!result || !result.init_point) {
+      console.error('❌ Mercado Pago no devolvió init_point');
+      return res
+        .status(500)
+        .json({ error: 'No se pudo generar el link de pago' });
+    }
     logger.debug(`Preferencia creada: ${JSON.stringify(result, null, 2)}`);
     logger.info('Preferencia creada');
 

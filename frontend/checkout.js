@@ -119,26 +119,28 @@ pagoRadios.forEach(r=>r.addEventListener('change', updateMetodoInfo));
 
 confirmar.addEventListener('click', async () => {
   try {
-    const res = await fetch(`${API_BASE_URL}/crear-preferencia`, {
-      mode: 'cors',
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        titulo: producto.titulo,
-        precio: producto.precio,
-        cantidad: producto.cantidad,
-        datos,
-        envio
-      })
-    });
-    const data = await res.json();
-    if (res.ok && data.init_point) {
-      localStorage.setItem('userInfo', JSON.stringify({ ...datos, ...envio }));
-      window.location.href = data.init_point;
-    } else {
-      alert(data.error || 'Hubo un error con el pago');
+      const res = await fetch(`${API_BASE_URL}/crear-preferencia`, {
+        mode: 'cors',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titulo: producto.titulo,
+          precio: producto.precio,
+          cantidad: producto.cantidad,
+          datos,
+          envio
+        })
+      });
+      const data = await res.json();
+      console.log('Respuesta crear preferencia:', data);
+      if (res.ok && data && data.init_point) {
+        localStorage.setItem('userInfo', JSON.stringify({ ...datos, ...envio }));
+        window.location.href = data.init_point;
+      } else {
+        console.error('init_point no recibido', data);
+        alert(data.error || 'Hubo un error con el pago');
+      }
+    } catch (err) {
+      alert('Hubo un error con el pago');
     }
-  } catch (err) {
-    alert('Hubo un error con el pago');
-  }
-});
+  });
