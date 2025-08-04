@@ -53,7 +53,12 @@ continue1.addEventListener('click',()=>{
 function validateFields(ids){
   for(const id of ids){
     const el = document.getElementById(id);
-    if(!el.value.trim()){ el.focus(); return false; }
+    const value = el.value.trim();
+    if(!value){ el.focus(); return false; }
+    if(id === 'email'){
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if(!emailRegex.test(value)){ alert('Email inválido'); el.focus(); return false; }
+    }
   }
   return true;
 }
