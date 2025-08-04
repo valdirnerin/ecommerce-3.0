@@ -5,7 +5,8 @@ const helmet = require('helmet');
 const path = require('path');
 const db = require('./db');
 const generarNumeroOrden = require('./utils/generarNumeroOrden');
-const { MercadoPagoConfig, Preference } = require('mercadopago');
+const mercadopago = require('mercadopago');
+const { MercadoPagoConfig, Preference } = mercadopago;
 const logger = require('./logger');
 require('dotenv').config();
 
@@ -29,6 +30,8 @@ if (ACCESS_TOKEN.startsWith('TEST-')) {
 
 const MP_PROD_ACCESS_TOKEN =
   'APP_USR-6696027157843761-080316-77b4090779b15dbbbefe44f660e7eae5-462376008';
+
+mercadopago.configure({ access_token: MP_PROD_ACCESS_TOKEN });
 
 const PUBLIC_URL =
   process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
@@ -171,96 +174,56 @@ app.post('/api/mercado-pago/crear-preferencia', async (req, res) => {
 });
 
 app.post('/crear-preferencia', async (req, res) => {
-  logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
-  logger.debug(`crear-preferencia req.body ${JSON.stringify(req.body)}`);
-  console.log('Datos recibidos:', req.body);
-  const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
+  logger.info('Crear preferencia body:', JSON.stringify(req.body));
+  logger.debug(`crear-preferencia req.body: ${JSON.stringify(req.body)}`);
 
-  if (datos && datos.email) {
-    try {
-      const valid = await verifyEmail(String(datos.email).trim());
-      if (!valid) {
-        return res
-          .status(400)
-          .json({ error: 'El email ingresado no es válido' });
-      }
-    } catch (e) {
-      logger.error(`Error al verificar email: ${e.message}`);
-      return res.status(500).json({ error: 'Error al verificar email' });
-    }
+  const { carrito, usuario } = req.body;
+
+  if (
+    !Array.isArray(carrito) ||
+    carrito.length === 0 ||
+    !usuario ||
+    !usuario.email
+  ) {
+    return res
+      .status(400)
+      .json({ error: 'Faltan datos para procesar el pago' });
   }
-  const numeroOrden = generarNumeroOrden();
-  const body = {
-    items: [
-      {
-        title: titulo,
-        unit_price: Number(precio),
-        quantity: Number(cantidad),
-      },
-    ],
-    back_urls: {
-      success: `${PUBLIC_URL}/success`,
-      failure: `${PUBLIC_URL}/failure`,
-      pending: `${PUBLIC_URL}/pending`,
-    },
-    auto_return: 'approved',
-    external_reference: numeroOrden,
-  };
 
   try {
-    const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-    const preferenceClient = new Preference(client);
-    console.log('📦 preference.body:', body);
-    const response = await preferenceClient.create({ body });
-    console.log('Preferencia Mercado Pago:', response.body);
-    console.log('🔗 response.body.init_point:', response?.body?.init_point);
-    const result = response.body || response;
-    if (!result.init_point || !result.init_point.includes('mercadopago')) {
-      console.error(
-        'Preferencia inválida: init_point no generado correctamente.'
-      );
-      return res.status(500).json({
-        error: 'Preferencia inválida: init_point no generado correctamente.',
-      });
+    const items = carrito.map((item) => ({
+      title: item.titulo,
+      quantity: Number(item.cantidad),
+      unit_price: Number(item.precio),
+      currency_id: 'ARS',
+    }));
+
+    const preference = {
+      items,
+      payer: {
+        email: usuario.email,
+      },
+      back_urls: {
+        success: 'https://nerinparts.com.ar/success',
+        failure: 'https://nerinparts.com.ar/failure',
+        pending: 'https://nerinparts.com.ar/pending',
+      },
+      auto_return: 'approved',
+    };
+
+    const mpRes = await mercadopago.preferences.create(preference);
+    const initPoint = mpRes.body.init_point;
+
+    if (initPoint) {
+      return res.json({ init_point: initPoint });
+    } else {
+      return res
+        .status(500)
+        .json({ error: 'No se pudo generar el enlace de pago' });
     }
-    logger.debug(`Preferencia creada: ${JSON.stringify(result, null, 2)}`);
-    logger.info('Preferencia creada');
-
-    logger.info('Guardando pedido en DB');
-    const costoEnvio = getShippingCost(envio && envio.provincia);
-    await db.query(
-      'INSERT INTO orders (order_number, preference_id, payment_status, product_title, unit_price, quantity, user_email, first_name, last_name, phone, shipping_province, shipping_city, shipping_address, shipping_zip, shipping_method, shipping_cost, total_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)',
-      [
-        numeroOrden,
-        result.id,
-        'pending',
-        titulo,
-        precio,
-        cantidad,
-        (datos && datos.email) || usuario || null,
-        datos && datos.nombre ? datos.nombre : null,
-        datos && datos.apellido ? datos.apellido : null,
-        datos && datos.telefono ? datos.telefono : null,
-        envio && envio.provincia ? envio.provincia : null,
-        envio && envio.localidad ? envio.localidad : null,
-        envio && envio.direccion ? envio.direccion : null,
-        envio && envio.cp ? envio.cp : null,
-        envio && envio.metodo ? envio.metodo : null,
-        costoEnvio,
-        Number(precio) * Number(cantidad) + costoEnvio,
-      ]
-    );
-
-    const url = result.init_point;
-    if (!url) {
-      throw new Error('No se generó init_point');
-    }
-    console.log('✅ MP init_point:', url);
-
-    res.json({ id: result.id, init_point: url, numeroOrden });
   } catch (error) {
-    logger.error(`Error al crear preferencia: ${error.message}`);
-    res.status(400).json({ error: error.message });
+    logger.error(`Error al crear preferencia MP: ${error.message}`);
+    return res.status(500).json({ error: 'Error al generar preferencia' });
   }
 });
 
