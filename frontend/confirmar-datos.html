@@ -74,10 +74,12 @@
         })
       });
       const data = await res.json();
+      console.log('Respuesta crear preferencia:', data);
       if(res.ok && data.init_point){
         console.log('Mercado Pago init_point:', data.init_point);
         window.location.href = data.init_point;
       }else{
+        console.error('init_point no recibido', data);
         throw new Error(data.error || 'No se pudo obtener link de pago');
       }
     }catch(e){
