@@ -66,14 +66,21 @@
           }
         })
       });
-      const data = await res.json();
-      console.log('Respuesta crear preferencia:', data);
-      if(res.ok && data.init_point){
-        console.log('Mercado Pago init_point:', data.init_point);
-        window.location.href = data.init_point;
-      }else{
-        console.error('init_point no recibido', data);
-        throw new Error(data.error || 'No se pudo obtener link de pago');
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        console.log('Respuesta API:', data);
+        if(res.ok && data.init_point){
+          console.log('Mercado Pago init_point:', data.init_point);
+          window.location.href = data.init_point;
+        }else{
+          console.error('init_point no recibido', data);
+          throw new Error(data.error || 'No se pudo obtener link de pago');
+        }
+      } catch (e) {
+        console.error('Respuesta NO JSON:', text.slice(0, 300));
+        alert('Error al procesar el pago (respuesta no válida del servidor)');
+        return;
       }
     }catch(e){
       console.error(e);

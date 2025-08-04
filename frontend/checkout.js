@@ -70,9 +70,16 @@ provincia.addEventListener('change',async()=>{
     const res = await fetch(`${API_BASE_URL}/api/shipping-cost?provincia=${encodeURIComponent(prov)}`, {
       mode: 'cors'
     });
-    const data = await res.json();
-    costoEnvio = data.costo||0;
-    costoEnvioEl.textContent = `Costo envío: $${costoEnvio}`;
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      console.log('Respuesta API:', data);
+      costoEnvio = data.costo||0;
+      costoEnvioEl.textContent = `Costo envío: $${costoEnvio}`;
+    } catch (e) {
+      console.error('Respuesta NO JSON:', text.slice(0, 300));
+      alert('Error al obtener costo de envío (respuesta no válida del servidor)');
+    }
   }catch{}
 });
 
@@ -139,14 +146,20 @@ confirmar.addEventListener('click', async () => {
         usuario: { ...datos, ...envio }
       })
     });
-    const data = await res.json();
-    console.log('Respuesta Mercado Pago:', data);
-    if(res.ok && data.init_point){
-      localStorage.setItem('userInfo', JSON.stringify({ ...datos, ...envio }));
-      window.location.href = data.init_point;
-    }else{
-      console.error('init_point no recibido', data);
-      alert(data.error || 'Hubo un error con el pago');
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      console.log('Respuesta API:', data);
+      if(res.ok && data.init_point){
+        localStorage.setItem('userInfo', JSON.stringify({ ...datos, ...envio }));
+        window.location.href = data.init_point;
+      }else{
+        console.error('init_point no recibido', data);
+        alert(data.error || 'Hubo un error con el pago');
+      }
+    } catch (e) {
+      console.error('Respuesta NO JSON:', text.slice(0, 300));
+      alert('Error al procesar el pago (respuesta no válida del servidor)');
     }
   } catch(err){
     console.error('Error al crear preferencia', err);
