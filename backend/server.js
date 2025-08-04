@@ -133,6 +133,42 @@ app.get('/api/validate-email', async (req, res) => {
   }
 });
 
+app.post('/api/mercado-pago/crear-preferencia', async (req, res) => {
+  logger.info(
+    `api/mercado-pago/crear-preferencia body: ${JSON.stringify(req.body)}`
+  );
+  const { carrito } = req.body;
+  const items = Array.isArray(carrito)
+    ? carrito.map((i) => ({
+        title: i.titulo,
+        unit_price: Number(i.precio),
+        quantity: Number(i.cantidad),
+      }))
+    : [];
+  const body = {
+    items,
+    back_urls: {
+      success: `${PUBLIC_URL}/success`,
+      failure: `${PUBLIC_URL}/failure`,
+      pending: `${PUBLIC_URL}/pending`,
+    },
+    auto_return: 'approved',
+  };
+  try {
+    const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
+    const preference = new Preference(client);
+    const response = await preference.create({ body });
+    const result = response.body || response;
+    if (!result.init_point) {
+      return res.status(400).json({ error: 'init_point no generado' });
+    }
+    return res.json({ init_point: result.init_point });
+  } catch (error) {
+    logger.error(`Error al crear preferencia MP: ${error.message}`);
+    return res.status(400).json({ error: error.message });
+  }
+});
+
 app.post('/crear-preferencia', async (req, res) => {
   logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
   logger.debug(`crear-preferencia req.body ${JSON.stringify(req.body)}`);
