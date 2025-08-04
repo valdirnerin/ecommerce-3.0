@@ -49,27 +49,20 @@
       return;
     }
     try{
-      const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`,{
-        mode:'cors',
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+      const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`, {
+        mode: 'cors',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          titulo: producto.titulo,
-          precio: producto.precio,
-          cantidad: producto.cantidad,
-          datos: {
-            nombre: saved.nombre,
-            apellido: saved.apellido,
-            email: saved.email,
-            telefono: saved.telefono
-          },
-          envio: {
-            provincia: saved.provincia,
-            localidad: saved.localidad,
-            direccion: saved.direccion,
-            cp: saved.cp,
-            metodo: saved.metodo,
-            costo: saved.costo
+          carrito: [
+            {
+              titulo: producto.titulo,
+              precio: producto.precio,
+              cantidad: producto.cantidad
+            }
+          ],
+          usuario: {
+            email: saved.email
           }
         })
       });
