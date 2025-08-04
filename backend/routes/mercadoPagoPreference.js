@@ -1,5 +1,6 @@
 const express = require('express');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
+const generarNumeroOrden = require('../utils/generarNumeroOrden');
 
 const router = express.Router();
 
@@ -10,28 +11,43 @@ router.post('/crear-preferencia', async (req, res) => {
   const { carrito, usuario } = req.body || {};
   console.log('📥 body recibido:', req.body);
 
+  if (!Array.isArray(carrito) || carrito.length === 0) {
+    return res
+      .status(400)
+      .json({ error: 'carrito debe ser un array con al menos un item' });
+  }
+
+  if (!usuario || !usuario.email) {
+    return res.status(400).json({ error: 'email requerido' });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(usuario.email)) {
+    return res.status(400).json({ error: 'email inválido' });
+  }
+
+  const items = carrito.map(({ titulo, precio, cantidad }) => ({
+    title: titulo,
+    unit_price: Number(precio),
+    quantity: Number(cantidad),
+  }));
+
+  const numeroOrden = generarNumeroOrden();
+
+  const body = {
+    items,
+    payer: { email: usuario.email },
+    external_reference: numeroOrden,
+    notification_url: `${PUBLIC_URL}/api/webhooks/mp`,
+    back_urls: {
+      success: `${PUBLIC_URL}/success`,
+      failure: `${PUBLIC_URL}/failure`,
+      pending: `${PUBLIC_URL}/pending`,
+    },
+    auto_return: 'approved',
+  };
+
   try {
-    if (!Array.isArray(carrito)) {
-      return res.status(400).json({ error: 'carrito debe ser un array' });
-    }
-
-    const items = carrito.map(({ titulo, precio, cantidad }) => ({
-      title: titulo,
-      unit_price: Number(precio),
-      quantity: Number(cantidad),
-    }));
-
-    const body = {
-      items,
-      payer: { email: usuario && usuario.email },
-      back_urls: {
-        success: `${PUBLIC_URL}/success`,
-        failure: `${PUBLIC_URL}/failure`,
-        pending: `${PUBLIC_URL}/pending`,
-      },
-      auto_return: 'approved',
-    };
-
     const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
     const preference = new Preference(client);
     console.log('📦 preference.body:', body);
@@ -45,7 +61,7 @@ router.post('/crear-preferencia', async (req, res) => {
     return res.status(500).json({ error: 'init_point no recibido' });
   } catch (error) {
     console.error('Error al crear preferencia:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: 'Error al crear preferencia' });
   }
 });
 

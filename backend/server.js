@@ -5,8 +5,6 @@ const helmet = require('helmet');
 const path = require('path');
 const db = require('./db');
 const generarNumeroOrden = require('./utils/generarNumeroOrden');
-const mercadopago = require('mercadopago');
-const { MercadoPagoConfig, Preference } = mercadopago;
 const logger = require('./logger');
 require('dotenv').config();
 
@@ -27,11 +25,6 @@ if (ACCESS_TOKEN.startsWith('TEST-')) {
     '⚠️ Advertencia: usando access_token de prueba de Mercado Pago'
   );
 }
-
-const MP_PROD_ACCESS_TOKEN =
-  'APP_USR-6696027157843761-080316-77b4090779b15dbbbefe44f660e7eae5-462376008';
-
-mercadopago.configure({ access_token: MP_PROD_ACCESS_TOKEN });
 
 const PUBLIC_URL =
   process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
@@ -77,55 +70,6 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
-app.post('/create_preference', async (req, res) => {
-  console.log('Datos recibidos:', req.body);
-  const body = {
-    items: [
-      {
-        title: 'Pantalla Samsung Service Pack',
-        unit_price: 15000,
-        currency_id: 'ARS',
-        quantity: 1,
-      },
-    ],
-    back_urls: {
-      success: 'https://nerinparts.com.ar/success',
-      failure: 'https://nerinparts.com.ar/failure',
-      pending: 'https://nerinparts.com.ar/pending',
-    },
-    auto_return: 'approved',
-  };
-
-  try {
-    if (MP_PROD_ACCESS_TOKEN.startsWith('TEST-')) {
-      console.warn(
-        '⚠️ Advertencia: usando access_token de prueba de Mercado Pago'
-      );
-    }
-    const client = new MercadoPagoConfig({ accessToken: MP_PROD_ACCESS_TOKEN });
-    const preference = new Preference(client);
-    console.log('📦 preference.body:', body);
-    const response = await preference.create({ body });
-    console.log('Preferencia Mercado Pago:', response.body);
-    console.log('🔗 response.body.init_point:', response?.body?.init_point);
-    const result = response.body || response;
-    if (!result.init_point || !result.init_point.includes('mercadopago')) {
-      console.error(
-        'Preferencia inválida: init_point no generado correctamente.'
-      );
-      return res.status(500).json({
-        error: 'Preferencia inválida: init_point no generado correctamente.',
-      });
-    }
-    return res.json({ init_point: result.init_point });
-  } catch (error) {
-    console.error('Error al crear preferencia', error);
-    return res
-      .status(500)
-      .json({ error: 'No se pudo generar el link de pago' });
-  }
-});
-
 app.get('/api/validate-email', async (req, res) => {
   const email = req.query.email || '';
   try {
@@ -134,96 +78,6 @@ app.get('/api/validate-email', async (req, res) => {
   } catch (e) {
     logger.error(`Error validar email: ${e.message}`);
     res.status(500).json({ error: 'Error al validar' });
-  }
-});
-
-app.post('/api/mercado-pago/crear-preferencia', async (req, res) => {
-  logger.info(
-    `api/mercado-pago/crear-preferencia body: ${JSON.stringify(req.body)}`
-  );
-  const { carrito } = req.body;
-  const items = Array.isArray(carrito)
-    ? carrito.map((i) => ({
-        title: i.titulo,
-        unit_price: Number(i.precio),
-        quantity: Number(i.cantidad),
-      }))
-    : [];
-  const body = {
-    items,
-    back_urls: {
-      success: `${PUBLIC_URL}/success`,
-      failure: `${PUBLIC_URL}/failure`,
-      pending: `${PUBLIC_URL}/pending`,
-    },
-    auto_return: 'approved',
-  };
-  try {
-    const client = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
-    const preference = new Preference(client);
-    const response = await preference.create({ body });
-    const result = response.body || response;
-    if (!result.init_point) {
-      return res.status(400).json({ error: 'init_point no generado' });
-    }
-    return res.json({ init_point: result.init_point });
-  } catch (error) {
-    logger.error(`Error al crear preferencia MP: ${error.message}`);
-    return res.status(400).json({ error: error.message });
-  }
-});
-
-app.post('/crear-preferencia', async (req, res) => {
-  logger.info('Crear preferencia body:', JSON.stringify(req.body));
-  logger.debug(`crear-preferencia req.body: ${JSON.stringify(req.body)}`);
-
-  const { carrito, usuario } = req.body;
-
-  if (
-    !Array.isArray(carrito) ||
-    carrito.length === 0 ||
-    !usuario ||
-    !usuario.email
-  ) {
-    return res
-      .status(400)
-      .json({ error: 'Faltan datos para procesar el pago' });
-  }
-
-  try {
-    const items = carrito.map((item) => ({
-      title: item.titulo,
-      quantity: Number(item.cantidad),
-      unit_price: Number(item.precio),
-      currency_id: 'ARS',
-    }));
-
-    const preference = {
-      items,
-      payer: {
-        email: usuario.email,
-      },
-      back_urls: {
-        success: 'https://nerinparts.com.ar/success',
-        failure: 'https://nerinparts.com.ar/failure',
-        pending: 'https://nerinparts.com.ar/pending',
-      },
-      auto_return: 'approved',
-    };
-
-    const mpRes = await mercadopago.preferences.create(preference);
-    const initPoint = mpRes.body.init_point;
-
-    if (initPoint) {
-      return res.json({ init_point: initPoint });
-    } else {
-      return res
-        .status(500)
-        .json({ error: 'No se pudo generar el enlace de pago' });
-    }
-  } catch (error) {
-    logger.error(`Error al crear preferencia MP: ${error.message}`);
-    return res.status(500).json({ error: 'Error al generar preferencia' });
   }
 });
 
