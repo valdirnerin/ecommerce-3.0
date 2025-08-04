@@ -6,7 +6,14 @@ const logger = require('../logger');
 const router = express.Router();
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
-const PUBLIC_URL = process.env.PUBLIC_URL || 'https://ecommerce-3-0.onrender.com';
+
+// Determina la URL pública a utilizar. Si no está configurada la variable de
+// entorno PUBLIC_URL (por ejemplo en entornos de producción con dominios
+// personalizados), se usa el dominio de la propia petición.
+function getPublicUrl(req) {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
+  return `${req.protocol}://${req.get('host')}`;
+}
 
 router.post('/crear-preferencia', async (req, res) => {
   const { carrito, usuario } = req.body || {};
@@ -31,10 +38,12 @@ router.post('/crear-preferencia', async (req, res) => {
     title: titulo,
     unit_price: Number(precio),
     quantity: Number(cantidad),
+    currency_id: 'ARS',
   }));
 
   const numeroOrden = generarNumeroOrden();
 
+  const PUBLIC_URL = getPublicUrl(req);
   const body = {
     items,
     payer: { email: usuario.email },
