@@ -74,7 +74,8 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
-app.post('/create_preference', async (_req, res) => {
+app.post('/create_preference', async (req, res) => {
+  console.log('Datos recibidos:', req.body);
   const body = {
     items: [
       {
@@ -102,7 +103,7 @@ app.post('/create_preference', async (_req, res) => {
     const preference = new Preference(client);
     console.log('📦 preference.body:', body);
     const response = await preference.create({ body });
-    console.log('📝 response.body:', response.body);
+    console.log('Preferencia Mercado Pago:', response.body);
     console.log('🔗 response.body.init_point:', response?.body?.init_point);
     const result = response.body || response;
     if (!result.init_point || !result.init_point.includes('mercadopago')) {
@@ -172,6 +173,7 @@ app.post('/api/mercado-pago/crear-preferencia', async (req, res) => {
 app.post('/crear-preferencia', async (req, res) => {
   logger.info(`Crear preferencia body: ${JSON.stringify(req.body)}`);
   logger.debug(`crear-preferencia req.body ${JSON.stringify(req.body)}`);
+  console.log('Datos recibidos:', req.body);
   const { titulo, precio, cantidad, usuario, datos, envio } = req.body;
 
   if (datos && datos.email) {
@@ -210,7 +212,7 @@ app.post('/crear-preferencia', async (req, res) => {
     const preferenceClient = new Preference(client);
     console.log('📦 preference.body:', body);
     const response = await preferenceClient.create({ body });
-    console.log('📝 response.body:', response.body);
+    console.log('Preferencia Mercado Pago:', response.body);
     console.log('🔗 response.body.init_point:', response?.body?.init_point);
     const result = response.body || response;
     if (!result.init_point || !result.init_point.includes('mercadopago')) {
