@@ -1,4 +1,3 @@
-const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
 const step2 = document.getElementById('step2');
 const step3 = document.getElementById('step3');
@@ -136,37 +135,21 @@ confirmarBtn.addEventListener('click', async () => {
   if (metodo !== 'mp') return;
   const customer = { ...datos, ...envio };
   try {
-    console.log('Creando preferencia MP', { cart, customer });
     const carritoBackend = cart.map(({ name, price, quantity }) => ({
       titulo: name,
       precio: price,
       cantidad: quantity,
     }));
-    console.log('carritoBackend', carritoBackend);
+    console.log('🔥 Enviando preferencia MP', { carritoBackend, customer });
     const res = await fetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ carrito: carritoBackend, usuario: customer }),
     });
-    const text = await res.text();
-    try {
-      const data = JSON.parse(text);
-      console.log('Respuesta preferencia MP', { status: res.status, data });
-      if (res.ok && data.init_point) {
-        localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
-        localStorage.removeItem('nerinCart');
-        window.location.href = data.init_point;
-      } else {
-        alert(data.error || 'Hubo un error con el pago');
-        console.error('init_point no recibido', data);
-      }
-    } catch (e) {
-      console.error('Respuesta NO JSON:', text.slice(0, 300));
-      alert('Error al procesar el pago (respuesta no válida del servidor)');
-      return;
-    }
-  } catch (e) {
-    alert('Hubo un error con el pago');
-    console.error('Error al procesar el pago', e);
+    const { init_point } = await res.json();
+    window.location.href = init_point;
+  } catch (err) {
+    console.error('❌ Error fetch MP', err);
+    alert(err.message || 'Error al procesar el pago');
   }
 });
