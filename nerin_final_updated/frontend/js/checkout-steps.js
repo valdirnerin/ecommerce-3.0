@@ -1,3 +1,5 @@
+const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
+
 const step1 = document.getElementById('step1');
 const step2 = document.getElementById('step2');
 const step3 = document.getElementById('step3');
@@ -136,10 +138,10 @@ confirmarBtn.addEventListener('click', async () => {
   const customer = { ...datos, ...envio };
   try {
     console.log('Creando preferencia MP', { cart, customer });
-    const res = await fetch(`${API_BASE_URL}/api/mercadopago/preference`, {
+    const res = await fetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cart, customer }),
+      body: JSON.stringify({ carrito: cart, usuario: customer }),
     });
     const text = await res.text();
     try {
