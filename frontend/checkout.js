@@ -140,11 +140,16 @@ confirmar.addEventListener('click', async () => {
       cantidad: producto.cantidad
     }];
     const customer = { ...datos, ...envio };
+    const carritoBackend = cart.map(({ name, price, quantity }) => ({
+      titulo: name,
+      precio: price,
+      cantidad: quantity,
+    }));
+    console.log('→ carritoBackend', carritoBackend);
     const res = await fetch('/api/mercado-pago/crear-preferencia', {
-      mode: 'cors',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carrito: cart, usuario: customer })
+      body: JSON.stringify({ carrito: carritoBackend, usuario: customer })
     });
     const text = await res.text();
     try {
