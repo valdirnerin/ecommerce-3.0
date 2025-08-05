@@ -16,22 +16,29 @@ function getPublicUrl(req) {
 }
 
 router.post('/crear-preferencia', async (req, res) => {
+  logger.info(`➡️ ${req.method} ${req.originalUrl}`);
   const { carrito, usuario } = req.body || {};
   logger.info(`📥 body recibido: ${JSON.stringify(req.body)}`);
 
   if (!Array.isArray(carrito) || carrito.length === 0) {
-    return res
-      .status(400)
-      .json({ error: 'carrito debe ser un array con al menos un item' });
+    const payload = {
+      error: 'carrito debe ser un array con al menos un item',
+    };
+    logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
+    return res.status(400).json(payload);
   }
 
   if (!usuario || !usuario.email) {
-    return res.status(400).json({ error: 'email requerido' });
+    const payload = { error: 'email requerido' };
+    logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
+    return res.status(400).json(payload);
   }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(usuario.email)) {
-    return res.status(400).json({ error: 'email inválido' });
+    const payload = { error: 'email inválido' };
+    logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
+    return res.status(400).json(payload);
   }
 
   const items = carrito.map(({ titulo, precio, cantidad }) => ({
@@ -66,12 +73,18 @@ router.post('/crear-preferencia', async (req, res) => {
 
     const init_point = response && response.body && response.body.init_point;
     if (init_point) {
-      return res.json({ init_point });
+      const payload = { init_point };
+      logger.info(`⬅️ 200 ${JSON.stringify(payload)}`);
+      return res.json(payload);
     }
-    return res.status(500).json({ error: 'init_point no recibido' });
+    const payload = { error: 'init_point no recibido' };
+    logger.info(`⬅️ 500 ${JSON.stringify(payload)}`);
+    return res.status(500).json(payload);
   } catch (error) {
     logger.error(`Error al crear preferencia: ${error.message}`);
-    return res.status(500).json({ error: 'Error al crear preferencia' });
+    const payload = { error: 'Error al crear preferencia' };
+    logger.info(`⬅️ 500 ${JSON.stringify(payload)}`);
+    return res.status(500).json(payload);
   }
 });
 
