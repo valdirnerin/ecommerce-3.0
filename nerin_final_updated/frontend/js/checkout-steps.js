@@ -133,25 +133,20 @@ function buildResumen() {
 confirmarBtn.addEventListener('click', async () => {
   const metodo = Array.from(pagoRadios).find((r) => r.checked).value;
   if (metodo !== 'mp') return;
-  const carrito = cart.map((it) => ({
-    titulo: it.name,
-    precio: it.price,
-    cantidad: it.quantity,
-  }));
-  const usuario = { ...datos, ...envio };
+  const customer = { ...datos, ...envio };
   try {
-    console.log('Creando preferencia MP', { carrito, usuario });
+    console.log('Creando preferencia MP', { cart, customer });
     const res = await fetch(`${API_BASE_URL}/api/mercadopago/preference`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carrito, usuario }),
+      body: JSON.stringify({ cart, customer }),
     });
     const text = await res.text();
     try {
       const data = JSON.parse(text);
       console.log('Respuesta preferencia MP', { status: res.status, data });
       if (res.ok && data.init_point) {
-        localStorage.setItem('nerinUserInfo', JSON.stringify(usuario));
+        localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
         localStorage.removeItem('nerinCart');
         window.location.href = data.init_point;
       } else {
