@@ -70,6 +70,18 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
+// Log all /api/* requests and responses
+app.use('/api', (req, res, next) => {
+  logger.info(`➡️ ${req.method} ${req.originalUrl}`);
+  logger.info(`📥 body: ${JSON.stringify(req.body)}`);
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    logger.info(`⬅️ ${res.statusCode} ${JSON.stringify(body)}`);
+    return originalJson(body);
+  };
+  next();
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'backend', ts: Date.now() });
 });
@@ -140,8 +152,9 @@ app.post('/orden-manual', async (req, res) => {
 
 app.use('/api/webhooks/mp', webhookRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api', shippingRoutes);
+// Specific Mercado Pago routes before generic /api routes
 app.use('/api/mercado-pago', mercadoPagoPreferenceRoutes);
+app.use('/api', shippingRoutes);
 
 app.use(express.static(path.join(__dirname, '../frontend')));
 
