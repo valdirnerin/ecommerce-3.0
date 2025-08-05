@@ -12,6 +12,7 @@ const costoEnvioEl = document.getElementById('costoEnvio');
 const resumenEl = document.getElementById('resumen');
 const metodoInfo = document.getElementById('metodoInfo');
 const pagoRadios = document.getElementsByName('pago');
+const API_BASE_URL = '';
 let costoEnvio = 0;
 let datos = {};
 let envio = {};
@@ -133,25 +134,24 @@ confirmar.addEventListener('click', async () => {
   const metodo = Array.from(pagoRadios).find(r=>r.checked)?.value;
   if(metodo !== 'mp') return;
   try {
-    const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`, {
+    const cart = [{
+      titulo: producto.titulo,
+      precio: producto.precio,
+      cantidad: producto.cantidad
+    }];
+    const customer = { ...datos, ...envio };
+    const res = await fetch('/api/mercado-pago/crear-preferencia', {
       mode: 'cors',
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        carrito: [{
-          titulo: producto.titulo,
-          precio: producto.precio,
-          cantidad: producto.cantidad
-        }],
-        usuario: { ...datos, ...envio }
-      })
+      body: JSON.stringify({ carrito: cart, usuario: customer })
     });
     const text = await res.text();
     try {
       const data = JSON.parse(text);
       console.log('Respuesta API:', data);
       if(res.ok && data.init_point){
-        localStorage.setItem('userInfo', JSON.stringify({ ...datos, ...envio }));
+        localStorage.setItem('userInfo', JSON.stringify(customer));
         window.location.href = data.init_point;
       }else{
         console.error('init_point no recibido', data);
