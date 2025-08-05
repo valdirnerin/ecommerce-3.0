@@ -40,6 +40,7 @@ app.use(
     origin: allowedOrigins,
   })
 );
+app.use(express.urlencoded({ extended: false }));
 app.use(
   express.json({
     verify: (req, res, buf) => {
@@ -70,15 +71,10 @@ app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
 });
 
-// Log all /api/* requests and responses
-app.use('/api', (req, res, next) => {
-  logger.info(`➡️ ${req.method} ${req.originalUrl}`);
-  logger.info(`📥 body: ${JSON.stringify(req.body)}`);
-  const originalJson = res.json.bind(res);
-  res.json = (body) => {
-    logger.info(`⬅️ ${res.statusCode} ${JSON.stringify(body)}`);
-    return originalJson(body);
-  };
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    logger.info(`[API] ${req.method} ${req.path}`);
+  }
   next();
 });
 
@@ -155,6 +151,9 @@ app.use('/api/orders', orderRoutes);
 // Specific Mercado Pago routes before generic /api routes
 app.use('/api/mercado-pago', mercadoPagoPreferenceRoutes);
 app.use('/api', shippingRoutes);
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
 
 app.use(express.static(path.join(__dirname, '../frontend')));
 
