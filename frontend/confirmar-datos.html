@@ -15,13 +15,13 @@
     <h1>Confirmá tus datos</h1>
     <div id="info"></div>
     <button id="editar">Editar datos</button>
-    <button id="pagar">Confirmar y pagar</button>
+    <button id="btnPagar">Confirmar y pagar</button>
   </div>
   <script src="config.js"></script>
   <script>
   const infoEl = document.getElementById('info');
   const btnEditar = document.getElementById('editar');
-  const btnPagar = document.getElementById('pagar');
+  const btnPagar = document.getElementById('btnPagar');
   const saved = JSON.parse(localStorage.getItem('userInfo')||'null');
   if(!saved){
     window.location.href = 'checkout.html';
@@ -48,43 +48,24 @@
       window.location.href = 'checkout.html';
       return;
     }
-    try{
-      const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`, {
-        mode: 'cors',
+    try {
+      const cart = [{ name: producto.titulo, price: producto.precio, quantity: producto.cantidad }];
+      const customer = { email: saved.email };
+      const carritoBackend = cart.map(({ name, price, quantity }) => ({
+        titulo: name,
+        precio: price,
+        cantidad: quantity,
+      }));
+      console.log('🔥 Enviando preferencia MP', { carritoBackend, customer });
+      const res = await fetch('/api/mercado-pago/crear-preferencia', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          carrito: [
-            {
-              titulo: producto.titulo,
-              precio: producto.precio,
-              cantidad: producto.cantidad
-            }
-          ],
-          usuario: {
-            email: saved.email
-          }
-        })
+        body: JSON.stringify({ carrito: carritoBackend, usuario: customer }),
       });
-      const text = await res.text();
-      try {
-        const data = JSON.parse(text);
-        console.log('Respuesta API:', data);
-        if(res.ok && data.init_point){
-          console.log('Mercado Pago init_point:', data.init_point);
-          window.location.href = data.init_point;
-        }else{
-          console.error('init_point no recibido', data);
-          throw new Error(data.error || 'No se pudo obtener link de pago');
-        }
-      } catch (e) {
-        console.error('Respuesta NO JSON:', text.slice(0, 300));
-        alert('Error al procesar el pago (respuesta no válida del servidor)');
-        return;
-      }
-    }catch(e){
-      console.error(e);
-      alert(e.message || 'Error al iniciar pago');
+      const { init_point } = await res.json();
+      window.location.href = init_point;
+    } catch (err) {
+      console.error('❌ Error fetch MP', err);
     }
   });
   </script>
