@@ -11,13 +11,15 @@ jest.mock('mercadopago', () => {
     MercadoPagoConfig: jest.fn().mockImplementation(() => ({})),
     Payment: jest.fn().mockImplementation(() => ({
       get: jest.fn().mockResolvedValue({
-        status: 'approved',
-        external_reference: 'pref123',
-        order: { id: 1 },
+        body: {
+          status: 'approved',
+          external_reference: 'pref123',
+          order: { id: 1 },
+        },
       }),
     })),
     MerchantOrder: jest.fn().mockImplementation(() => ({
-      get: jest.fn().mockResolvedValue({ preference_id: 'pref123' }),
+      get: jest.fn().mockResolvedValue({ body: { preference_id: 'pref123' } }),
     })),
   };
 });
