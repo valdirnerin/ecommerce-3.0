@@ -86,11 +86,13 @@ router.post('/crear-preferencia', async (req, res) => {
     const preference = new Preference(client);
     logger.info(`📦 preference.body: ${JSON.stringify(body)}`);
     const response = await preference.create({ body });
-    logger.info(`📝 response: ${JSON.stringify(response)}`);
+    // Log completo de la respuesta de Mercado Pago para facilitar el debug
+    logger.info(`📝 response.body: ${JSON.stringify(response.body)}`);
+    console.log('Respuesta completa de Mercado Pago:', response.body);
 
-    const init_point = response && response.init_point;
+    const { id, init_point } = response.body || {};
     if (init_point) {
-      const payload = { init_point };
+      const payload = { id, init_point };
       logger.info(`⬅️ 200 ${JSON.stringify(payload)}`);
       return res.json(payload);
     }
