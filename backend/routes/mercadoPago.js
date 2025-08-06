@@ -31,34 +31,38 @@ router.post(
       return res.status(400).json({ error: 'payment_id requerido' });
     }
 
-  try {
-    const payment = await paymentClient.get({ id: paymentId });
-    const status = payment.status;
+    try {
+      const payment = await paymentClient.get({ id: paymentId });
+      const {
+        status,
+        external_reference: externalRef,
+        order,
+      } = payment.body || {};
 
-    let preferenceId = payment.external_reference;
-    if (!preferenceId && payment.order && payment.order.id) {
-      const orderInfo = await merchantClient.get({ id: payment.order.id });
-      preferenceId = orderInfo.preference_id;
+      let preferenceId = externalRef;
+      if (!preferenceId && order && order.id) {
+        const orderInfo = await merchantClient.get({ id: order.id });
+        preferenceId = orderInfo.body && orderInfo.body.preference_id;
+      }
+
+      if (!preferenceId) {
+        logger.error('No se pudo determinar preference_id para el pago');
+        return res.status(400).json({ error: 'preference_id no encontrado' });
+      }
+
+      await db.query(
+        'UPDATE orders SET payment_status = $1, payment_id = $2 WHERE preference_id = $3',
+        [status, String(paymentId), preferenceId]
+      );
+      logger.info(
+        `Pedido ${preferenceId} actualizado con estado ${status} y payment_id ${paymentId}`
+      );
+
+      res.sendStatus(200);
+    } catch (error) {
+      logger.error(`Error al procesar webhook: ${error.message}`);
+      res.status(500).json({ error: 'Error interno' });
     }
-
-    if (!preferenceId) {
-      logger.error('No se pudo determinar preference_id para el pago');
-      return res.status(400).json({ error: 'preference_id no encontrado' });
-    }
-
-    await db.query(
-      'UPDATE orders SET payment_status = $1, payment_id = $2 WHERE preference_id = $3',
-      [status, String(paymentId), preferenceId]
-    );
-    logger.info(
-      `Pedido ${preferenceId} actualizado con estado ${status} y payment_id ${paymentId}`
-    );
-
-    res.sendStatus(200);
-  } catch (error) {
-    logger.error(`Error al procesar webhook: ${error.message}`);
-    res.status(500).json({ error: 'Error interno' });
-  }
 });
 
 module.exports = router;
