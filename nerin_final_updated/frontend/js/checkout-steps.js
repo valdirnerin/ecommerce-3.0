@@ -157,7 +157,9 @@ confirmarBtn.addEventListener('click', async () => {
         localStorage.removeItem('nerinCart');
         window.location.href = data.init_point;
       } else {
-        const msg = data.error || 'No se pudo iniciar el pago. Verificá tus datos e intentá nuevamente.';
+        const msg =
+          data.error ||
+          'Error al generar el pago. Revisá los datos del carrito o intentá más tarde.';
         alert(msg);
         console.error('init_point no recibido', data);
       }
