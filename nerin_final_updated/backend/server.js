@@ -1775,7 +1775,11 @@ const server = http.createServer((req, res) => {
           throw new Error("Mercado Pago no está configurado");
         }
         const result = await mpPreference.create({ body: preferenceBody });
-        return sendJson(res, 200, { preference: result.id });
+        console.log('Respuesta completa de Mercado Pago:', result);
+        return sendJson(res, 200, {
+          init_point: result.init_point,
+          id: result.id,
+        });
       } catch (err) {
         console.error(err);
         return sendJson(res, 500, {
