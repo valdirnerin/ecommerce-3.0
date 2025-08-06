@@ -154,13 +154,13 @@ confirmar.addEventListener('click', async () => {
     const text = await res.text();
     try {
       const data = JSON.parse(text);
-      console.log('Respuesta API:', data);
+      console.log('Respuesta completa crear-preferencia:', data);
       if(res.ok && data.init_point){
         localStorage.setItem('userInfo', JSON.stringify(customer));
         window.location.href = data.init_point;
       }else{
-        console.error('init_point no recibido', data);
-        alert(data.error || 'Hubo un error con el pago');
+        console.error('init_point no recibido:', data);
+        alert(data.error || 'No se recibió el enlace de pago.');
       }
     } catch (e) {
       console.error('Respuesta NO JSON:', text.slice(0, 300));
