@@ -69,9 +69,9 @@ router.post('/crear-preferencia', async (req, res) => {
     const preference = new Preference(client);
     logger.info(`📦 preference.body: ${JSON.stringify(body)}`);
     const response = await preference.create({ body });
-    logger.info(`📝 response.body: ${JSON.stringify(response.body)}`);
+    logger.info(`📝 response: ${JSON.stringify(response)}`);
 
-    const init_point = response && response.body && response.body.init_point;
+    const init_point = response && response.init_point;
     if (init_point) {
       const payload = { init_point };
       logger.info(`⬅️ 200 ${JSON.stringify(payload)}`);
