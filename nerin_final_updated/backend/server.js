@@ -1721,7 +1721,11 @@ const server = http.createServer((req, res) => {
   }
 
   // === Integración con Mercado Pago ===
-  if (pathname === "/api/mercadopago/preference" && req.method === "POST") {
+  if (
+    (pathname === "/api/mercadopago/preference" ||
+      pathname === "/api/mercado-pago/crear-preferencia") &&
+    req.method === "POST"
+  ) {
     let body = "";
     req.on("data", (chunk) => {
       body += chunk;
