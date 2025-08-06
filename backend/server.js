@@ -6,7 +6,7 @@ const path = require('path');
 const db = require('./db');
 const generarNumeroOrden = require('./utils/generarNumeroOrden');
 const logger = require('./logger');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const webhookRoutes = require('./routes/mercadoPago');
 const mercadoPagoPreferenceRoutes = require('./routes/mercadoPagoPreference');
