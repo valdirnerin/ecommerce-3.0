@@ -20,14 +20,6 @@ router.post('/crear-preferencia', async (req, res) => {
   const { carrito, usuario } = req.body || {};
   logger.info(`📥 body recibido: ${JSON.stringify(req.body)}`);
 
-  if (!Array.isArray(carrito) || carrito.length === 0) {
-    const payload = {
-      error: 'carrito debe ser un array con al menos un item',
-    };
-    logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
-    return res.status(400).json(payload);
-  }
-
   if (!usuario || !usuario.email) {
     const payload = { error: 'email requerido' };
     logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
@@ -41,11 +33,36 @@ router.post('/crear-preferencia', async (req, res) => {
     return res.status(400).json(payload);
   }
 
-  const items = carrito.map(({ titulo, precio, cantidad }) => ({
-    title: titulo,
+  const hasValidItems =
+    Array.isArray(carrito) &&
+    carrito.length > 0 &&
+    carrito.every((i) => {
+      return (
+        i &&
+        typeof i.titulo === 'string' &&
+        i.titulo.trim() !== '' &&
+        !isNaN(Number(i.precio)) &&
+        Number(i.precio) > 0 &&
+        Number.isInteger(Number(i.cantidad)) &&
+        Number(i.cantidad) > 0 &&
+        (typeof i.currency_id === 'undefined' || typeof i.currency_id === 'string')
+      );
+    });
+
+  if (!hasValidItems) {
+    const payload = {
+      error:
+        'Faltan datos en los ítems del carrito. Verificá que todos los productos tengan título, precio y cantidad.',
+    };
+    logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
+    return res.status(400).json(payload);
+  }
+
+  const items = carrito.map(({ titulo, precio, cantidad, currency_id }) => ({
+    title: String(titulo),
     unit_price: Number(precio),
     quantity: Number(cantidad),
-    currency_id: 'ARS',
+    currency_id: currency_id || 'ARS',
   }));
 
   const numeroOrden = generarNumeroOrden();
