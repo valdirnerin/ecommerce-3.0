@@ -1,9 +1,0 @@
-{
-  "costos": [
-    {"provincia": "CABA", "costo": 1500},
-    {"provincia": "Buenos Aires", "costo": 2000},
-    {"provincia": "Córdoba", "costo": 2500},
-    {"provincia": "Santa Fe", "costo": 2200},
-    {"provincia": "Otras", "costo": 3000}
-  ]
-}
