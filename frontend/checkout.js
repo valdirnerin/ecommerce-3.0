@@ -135,9 +135,9 @@ confirmar.addEventListener('click', async () => {
   if(metodo !== 'mp') return;
   try {
     const cart = [{
-      titulo: producto.titulo,
-      precio: producto.precio,
-      cantidad: producto.cantidad
+      name: producto.titulo,
+      price: producto.precio,
+      quantity: producto.cantidad
     }];
     const customer = { ...datos, ...envio };
     const carritoBackend = cart.map(({ name, price, quantity }) => ({
