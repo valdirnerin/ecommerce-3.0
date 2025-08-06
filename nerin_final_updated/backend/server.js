@@ -1732,11 +1732,49 @@ const server = http.createServer((req, res) => {
     });
     req.on("end", async () => {
       try {
-        const preference = JSON.parse(body || "{}");
+        const { carrito, usuario } = JSON.parse(body || "{}");
+        const hasValidItems =
+          Array.isArray(carrito) &&
+          carrito.length > 0 &&
+          carrito.every(
+            (i) =>
+              i &&
+              typeof i.titulo === "string" &&
+              i.titulo.trim() !== "" &&
+              !isNaN(Number(i.precio)) &&
+              Number(i.precio) > 0 &&
+              Number.isInteger(Number(i.cantidad)) &&
+              Number(i.cantidad) > 0 &&
+              (typeof i.currency_id === "undefined" ||
+                typeof i.currency_id === "string"),
+          );
+        if (!hasValidItems) {
+          return sendJson(res, 400, {
+            error: "Faltan datos en los ítems del carrito",
+          });
+        }
+
+        const items = carrito.map(({ titulo, precio, cantidad, currency_id }) => ({
+          title: String(titulo),
+          unit_price: Number(precio),
+          quantity: Number(cantidad),
+          currency_id: currency_id || "ARS",
+        }));
+        const preferenceBody = {
+          items,
+          payer: { email: usuario?.email },
+          back_urls: {
+            success: `${DOMAIN}/success`,
+            failure: `${DOMAIN}/failure`,
+            pending: `${DOMAIN}/pending`,
+          },
+          auto_return: "approved",
+        };
+        console.log("Preferencia enviada a Mercado Pago:", preferenceBody);
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
         }
-        const result = await mpPreference.create({ body: preference });
+        const result = await mpPreference.create({ body: preferenceBody });
         return sendJson(res, 200, { preference: result.id });
       } catch (err) {
         console.error(err);
