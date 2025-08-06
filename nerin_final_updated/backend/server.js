@@ -17,7 +17,7 @@ const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
 const multer = require("multer");
-const generarNumeroOrden = require("../../backend/utils/generarNumeroOrden");
+const generarNumeroOrden = require("./utils/generarNumeroOrden");
 const verifyEmail = require("./emailValidator");
 require("dotenv").config();
 const CONFIG = getConfig();

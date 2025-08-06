@@ -12,7 +12,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const { MercadoPagoConfig, Preference } = require("mercadopago");
-const generarNumeroOrden = require("../../backend/utils/generarNumeroOrden");
+const generarNumeroOrden = require("./utils/generarNumeroOrden");
 let Resend;
 try {
   ({ Resend } = require("resend"));
