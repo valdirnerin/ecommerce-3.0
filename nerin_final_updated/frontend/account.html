@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Mi cuenta – NERIN</title>
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/account.html" class="active">Mi cuenta</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      <h2>Mi cuenta</h2>
+      <section id="mainPanel" class="account-section">
+        <div id="accountInfo"></div>
+      </section>
+      <section id="loyaltySection" class="account-section">
+        <h3>Estado de cliente</h3>
+        <div id="loyaltyCard">
+          <div id="loyaltyLevel"></div>
+          <div class="progress-bar">
+            <div id="loyaltyProgress" class="progress"></div>
+          </div>
+          <p id="loyaltyMessage"></p>
+        </div>
+      </section>
+      <section id="benefitsSection" class="account-section">
+        <h3>Beneficios activos</h3>
+        <div id="benefitsList" class="benefits"></div>
+      </section>
+      <section id="ordersSection" class="account-section">
+        <h3>Mis pedidos</h3>
+        <div class="table-wrapper">
+          <table class="admin-table" id="userOrdersTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Productos</th>
+                <th>Estado</th>
+                <th>Transportista</th>
+                <th>Total</th>
+                <th>Factura</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="returnsSection" class="account-section">
+        <h3>Mis devoluciones</h3>
+        <div class="table-wrapper">
+          <table class="admin-table" id="userReturnsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Pedido</th>
+                <th>Fecha</th>
+                <th>Motivo</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="filesSection" class="account-section">
+        <h3>Archivos y facturas</h3>
+        <ul id="invoiceList"></ul>
+        <button id="downloadAll" class="button secondary">
+          Descargar todo en ZIP
+        </button>
+      </section>
+      <section id="profileSection" class="account-section">
+        <h3>Configuración del perfil</h3>
+        <form id="profileForm">
+          <label for="pName">Nombre completo</label>
+          <input type="text" id="pName" />
+          <label for="pEmail">Correo</label>
+          <input type="email" id="pEmail" disabled />
+          <label for="pPhone">Teléfono</label>
+          <input type="text" id="pPhone" />
+          <label for="pAddress">Dirección de facturación</label>
+          <input type="text" id="pAddress" />
+          <label for="pPassword">Contraseña</label>
+          <input
+            type="password"
+            id="pPassword"
+            placeholder="Nueva contraseña"
+          />
+          <label for="pCUIT">CUIT/CUIL</label>
+          <input type="text" id="pCUIT" />
+          <div class="contact-prefs">
+            <label><input type="checkbox" id="prefWhatsApp" /> WhatsApp</label>
+            <label><input type="checkbox" id="prefEmail" /> Mail</label>
+          </div>
+          <button type="submit" class="button primary">Guardar cambios</button>
+        </form>
+      </section>
+      <section id="supportSection" class="account-section">
+        <h3>Soporte</h3>
+        <p>
+          📞 ¿Necesitás ayuda? Te atendemos por WhatsApp en menos de 1 hora.
+        </p>
+        <a id="supportBtn" class="button primary" target="_blank"
+          >Contactar asesor</a
+        >
+      </section>
+      <section id="helpSection" class="account-section">
+        <h3>Centro de ayuda</h3>
+        <ul>
+          <li><a href="#">¿Cómo comprar?</a></li>
+          <li><a href="#">Métodos de pago</a></li>
+          <li><a href="#">Política de garantía</a></li>
+          <li><a href="#">¿Dónde veo mi factura?</a></li>
+        </ul>
+      </section>
+      <section id="metricsSection" class="account-section">
+        <h3>Métricas personales</h3>
+        <div id="metricsInfo"></div>
+      </section>
+    </main>
+    <script type="module" src="/js/account.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/config.js"></script>
+  </body>
+</html>

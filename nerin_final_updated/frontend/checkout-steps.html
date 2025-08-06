@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Checkout</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html">NERIN</a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      <div id="step1" class="checkout-step">
+        <h2>Paso 1 de 3: Datos</h2>
+        <form id="formDatos" class="login-container">
+          <label>Nombre completo
+            <input type="text" id="nombre" required />
+          </label>
+          <label>Apellido
+            <input type="text" id="apellido" required />
+          </label>
+          <label>Email
+            <input type="email" id="email" required />
+            <small id="emailError" class="error-message"></small>
+          </label>
+          <label>Teléfono
+            <input type="tel" id="telefono" required />
+          </label>
+          <button type="submit">Continuar</button>
+        </form>
+      </div>
+      <div id="step2" class="checkout-step" style="display:none">
+        <h2>Paso 2 de 3: Envío</h2>
+        <form id="formEnvio" class="login-container">
+          <label>Provincia
+            <input type="text" id="provincia" required />
+          </label>
+          <label>Localidad
+            <input type="text" id="localidad" required />
+          </label>
+          <label>Calle
+            <input type="text" id="calle" required />
+          </label>
+          <label>Número
+            <input type="text" id="numero" required />
+          </label>
+          <label>Piso
+            <input type="text" id="piso" />
+          </label>
+          <label>Código Postal
+            <input type="text" id="cp" required />
+          </label>
+          <label>Método de envío
+            <select id="metodo" required>
+              <option value="">Seleccione</option>
+              <option value="retiro">Retiro en local</option>
+              <option value="estandar">Envío estándar</option>
+              <option value="express">Envío express</option>
+            </select>
+          </label>
+          <p id="costoEnvio"></p>
+          <button type="submit">Continuar</button>
+        </form>
+      </div>
+      <div id="step3" class="checkout-step" style="display:none">
+        <h2>Paso 3 de 3: Pago</h2>
+        <div id="resumen"></div>
+        <div class="login-container" style="margin-top:1rem">
+          <label><input type="radio" name="pago" value="mp" checked /> Mercado Pago</label>
+          <label><input type="radio" name="pago" value="transferencia" /> Transferencia bancaria</label>
+          <label><input type="radio" name="pago" value="efectivo" /> Pago en efectivo</label>
+          <div id="metodoInfo" style="margin:0.5rem 0"></div>
+          <button id="confirmar" type="button">Confirmar compra</button>
+        </div>
+      </div>
+    </main>
+    <footer class="container">
+      <p>📞 WhatsApp | 📧 Email | 📍 CABA</p>
+      <p>
+        <a href="https://instagram.com" target="_blank">Instagram</a> |
+        <a href="/index.html">Inicio</a> | <a href="/shop.html">Catálogo</a> |
+        <a href="/contact.html">Contacto</a> |
+        <a href="/seguimiento.html">Seguir mi pedido</a> |
+        <a href="/pages/terminos.html">Términos y Condiciones</a>
+      </p>
+      <p class="legal">
+        NERIN comercializa repuestos Samsung originales Service Pack adquiridos
+        por canales oficiales. No tenemos vínculo directo con Samsung
+        Electronics.
+      </p>
+    </footer>
+    <div id="whatsapp-button">
+      <a href="https://wa.me/541112345678" target="_blank">
+        <img src="/assets/whatsapp.svg" alt="WhatsApp" />
+      </a>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/checkout-steps.js"></script>
+    <script type="module" src="/js/config.js"></script>
+  </body>
+</html>

@@ -12,7 +12,7 @@ const costoEnvioEl = document.getElementById('costoEnvio');
 const resumenEl = document.getElementById('resumen');
 const metodoInfo = document.getElementById('metodoInfo');
 const pagoRadios = document.getElementsByName('pago');
-const API_BASE_URL = globalThis.API_BASE_URL || '';
+const API_BASE_URL = '';
 let costoEnvio = 0;
 let datos = {};
 let envio = {};
@@ -134,19 +134,19 @@ confirmar.addEventListener('click', async () => {
   const metodo = Array.from(pagoRadios).find(r=>r.checked)?.value;
   if(metodo !== 'mp') return;
   try {
-    const customer = { ...datos, ...envio };
-    const carritoBackend = [{
-      titulo: producto.titulo,
-      precio: Number(producto.precio),
-      cantidad: Number(producto.cantidad)
+    const cart = [{
+      name: producto.titulo,
+      price: producto.precio,
+      quantity: producto.cantidad
     }];
-    const item = carritoBackend[0];
-    if(!item.titulo || item.precio <= 0 || item.cantidad <= 0){
-      console.error('Producto inválido', item);
-      return alert('Producto inválido');
-    }
-    console.log('→ creando preferencia', { carrito: carritoBackend, usuario: customer });
-    const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`, {
+    const customer = { ...datos, ...envio };
+    const carritoBackend = cart.map(({ name, price, quantity }) => ({
+      titulo: name,
+      precio: price,
+      cantidad: quantity,
+    }));
+    console.log('→ carritoBackend', carritoBackend);
+    const res = await fetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ carrito: carritoBackend, usuario: customer })
@@ -159,7 +159,7 @@ confirmar.addEventListener('click', async () => {
         localStorage.setItem('userInfo', JSON.stringify(customer));
         window.location.href = data.init_point;
       }else{
-        console.error('Error al crear preferencia', data);
+        console.error('init_point no recibido', data);
         alert(data.error || 'Hubo un error con el pago');
       }
     } catch (e) {

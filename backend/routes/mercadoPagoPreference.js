@@ -6,12 +6,6 @@ const logger = require('../logger');
 const router = express.Router();
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
-if (!ACCESS_TOKEN) {
-  throw new Error('MP_ACCESS_TOKEN no configurado');
-}
-if (ACCESS_TOKEN.startsWith('TEST-')) {
-  logger.warn('⚠️ Advertencia: usando access_token de prueba de Mercado Pago');
-}
 
 // Determina la URL pública a utilizar. Si no está configurada la variable de
 // entorno PUBLIC_URL (por ejemplo en entornos de producción con dominios
@@ -23,10 +17,7 @@ function getPublicUrl(req) {
 
 router.post('/crear-preferencia', async (req, res) => {
   logger.info(`➡️ ${req.method} ${req.originalUrl}`);
-  const { carrito: carritoEs, cart, usuario: usuarioEs, customer } =
-    req.body || {};
-  const carrito = carritoEs || cart;
-  const usuario = usuarioEs || customer;
+  const { carrito, usuario } = req.body || {};
   logger.info(`📥 body recibido: ${JSON.stringify(req.body)}`);
 
   if (!Array.isArray(carrito) || carrito.length === 0) {
@@ -50,18 +41,12 @@ router.post('/crear-preferencia', async (req, res) => {
     return res.status(400).json(payload);
   }
 
-  const items = [];
-  for (const [index, { titulo, precio, cantidad }] of carrito.entries()) {
-    const title = String(titulo || '').trim();
-    const unit_price = Number(precio);
-    const quantity = Number(cantidad);
-    if (!title || isNaN(unit_price) || unit_price <= 0 || isNaN(quantity) || quantity <= 0) {
-      const payload = { error: `item inválido en posición ${index}` };
-      logger.info(`⬅️ 400 ${JSON.stringify(payload)}`);
-      return res.status(400).json(payload);
-    }
-    items.push({ title, unit_price, quantity, currency_id: 'ARS' });
-  }
+  const items = carrito.map(({ titulo, precio, cantidad }) => ({
+    title: titulo,
+    unit_price: Number(precio),
+    quantity: Number(cantidad),
+    currency_id: 'ARS',
+  }));
 
   const numeroOrden = generarNumeroOrden();
 
@@ -97,10 +82,9 @@ router.post('/crear-preferencia', async (req, res) => {
     return res.status(500).json(payload);
   } catch (error) {
     logger.error(`Error al crear preferencia: ${error.message}`);
-    const status = error && error.status && Number(error.status) < 600 ? error.status : 500;
-    const payload = { error: error.message || 'Error al crear preferencia' };
-    logger.info(`⬅️ ${status} ${JSON.stringify(payload)}`);
-    return res.status(status).json(payload);
+    const payload = { error: 'Error al crear preferencia' };
+    logger.info(`⬅️ 500 ${JSON.stringify(payload)}`);
+    return res.status(500).json(payload);
   }
 });
 
