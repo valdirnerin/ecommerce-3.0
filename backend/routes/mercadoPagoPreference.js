@@ -72,7 +72,7 @@ router.post('/crear-preferencia', async (req, res) => {
     items,
     payer: { email: usuario.email },
     external_reference: numeroOrden,
-    notification_url: `${PUBLIC_URL}/api/mercado-pago/webhook`,
+    notification_url: `${PUBLIC_URL}/api/webhooks/mp`,
     back_urls: {
       success: `${PUBLIC_URL}/success`,
       failure: `${PUBLIC_URL}/failure`,
