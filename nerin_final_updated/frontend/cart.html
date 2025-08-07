@@ -31,26 +31,25 @@
       </div>
     </header>
     <main class="container cart-container">
-      <h2>Resumen de tu compra</h2>
-      <div id="cartItems"></div>
-      <div id="cartSummary" class="cart-summary"></div>
-      <div id="cartActions" class="cart-actions" style="display: none">
-        <button id="whatsappBtn" class="button secondary">
-          Enviar por WhatsApp
-        </button>
-        <button id="payBtn" class="button mp-button">
-          <img
-            src="https://http2.mlstatic.com/frontend-assets/landing-mptools/panel/mp_logo.svg"
-            alt="Mercado Pago"
-          />
-          Pagar con Mercado Pago
-        </button>
+      <div class="cart-box">
+        <h2 class="cart-title">🛒 Tu carrito de compras</h2>
+        <div id="cartItems"></div>
+        <div id="cartSummary" class="cart-summary"></div>
+        <div id="cartActions" class="cart-actions" style="display: none">
+          <a href="/shop.html" class="button secondary continue-shopping"
+            >Seguir comprando</a
+          >
+          <button id="payBtn" class="button primary">Continuar con el pago</button>
+          <button id="whatsappBtn" class="button secondary small">
+            Enviar por WhatsApp
+          </button>
+        </div>
+        <div
+          id="orderSummary"
+          class="payment-summary"
+          style="display: none"
+        ></div>
       </div>
-      <div
-        id="orderSummary"
-        class="payment-summary"
-        style="display: none"
-      ></div>
     </main>
     <div id="whatsapp-button">
       <a href="https://wa.me/541112345678" target="_blank">
