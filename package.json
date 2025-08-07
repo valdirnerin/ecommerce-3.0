@@ -4,7 +4,8 @@
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
-    "test": "jest"
+    "test": "jest",
+    "list:webhooks": "node scripts/listMpWebhooks.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
