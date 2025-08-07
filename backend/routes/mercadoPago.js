@@ -34,24 +34,83 @@ router.post(
   try {
     const payment = await paymentClient.get({ id: paymentId });
     const status = payment.status;
+    const orderNumber = payment.external_reference;
 
-    let preferenceId = payment.external_reference;
-    if (!preferenceId && payment.order && payment.order.id) {
-      const orderInfo = await merchantClient.get({ id: payment.order.id });
-      preferenceId = orderInfo.preference_id;
+    let merchantOrder;
+    if (payment.order && payment.order.id) {
+      merchantOrder = await merchantClient.get({ id: payment.order.id });
     }
 
-    if (!preferenceId) {
-      logger.error('No se pudo determinar preference_id para el pago');
-      return res.status(400).json({ error: 'preference_id no encontrado' });
+    const preferenceId = merchantOrder && merchantOrder.preference_id;
+
+    if (!preferenceId && !orderNumber) {
+      logger.error('No se pudieron determinar identificadores del pago');
+      return res
+        .status(400)
+        .json({ error: 'Identificador de orden no encontrado' });
     }
 
-    await db.query(
-      'UPDATE orders SET payment_status = $1, payment_id = $2 WHERE preference_id = $3',
-      [status, String(paymentId), preferenceId]
-    );
+    let existing;
+    if (preferenceId) {
+      existing = await db.query(
+        'SELECT id FROM orders WHERE preference_id = $1',
+        [preferenceId]
+      );
+    } else if (orderNumber) {
+      existing = await db.query(
+        'SELECT id FROM orders WHERE order_number = $1',
+        [orderNumber]
+      );
+    }
+
+    if (existing && existing.rowCount > 0) {
+      const whereField = preferenceId ? 'preference_id' : 'order_number';
+      await db.query(
+        `UPDATE orders SET payment_status = $1, payment_id = $2 WHERE ${whereField} = $3`,
+        [status, String(paymentId), preferenceId || orderNumber]
+      );
+    } else {
+      const item =
+        (merchantOrder && merchantOrder.items && merchantOrder.items[0]) || {};
+      const payer = payment.payer || {};
+      const shipment =
+        (merchantOrder && merchantOrder.shipments && merchantOrder.shipments[0]) || {};
+      const address = shipment.receiver_address || {};
+      const shippingOption = shipment.shipping_option || {};
+      const shippingCost = shippingOption.cost || shipment.shipping_cost || 0;
+      const shippingMethod =
+        shippingOption.name || shipment.shipping_mode || null;
+      const totalAmount =
+        (merchantOrder && merchantOrder.total_amount) ||
+        (payment.transaction_amount + shippingCost);
+
+      await db.query(
+        'INSERT INTO orders (order_number, preference_id, payment_status, payment_id, product_title, unit_price, quantity, user_email, first_name, last_name, phone, shipping_province, shipping_city, shipping_address, shipping_zip, shipping_method, shipping_cost, total_amount) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)',
+        [
+          orderNumber,
+          preferenceId,
+          status,
+          String(paymentId),
+          item.title || null,
+          item.unit_price || null,
+          item.quantity || null,
+          payer.email || null,
+          payer.first_name || null,
+          payer.last_name || null,
+          (payer.phone && payer.phone.number) || null,
+          address.state_name || null,
+          address.city_name || null,
+          address.street_name || null,
+          address.zip_code || null,
+          shippingMethod,
+          shippingCost,
+          totalAmount,
+        ]
+      );
+    }
+
     logger.info(
-      `Pedido ${preferenceId} actualizado con estado ${status} y payment_id ${paymentId}`
+      `Pedido ${(orderNumber || preferenceId)} actualizado con estado ${status} y payment_id ${paymentId}`
     );
 
     res.sendStatus(200);
