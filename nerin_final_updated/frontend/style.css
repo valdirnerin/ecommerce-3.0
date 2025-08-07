@@ -229,7 +229,8 @@ nav a:hover {
   display: inline-block;
   padding: 0.75rem 1.5rem;
   border-radius: var(--radius);
-  font-weight: 500;
+  font-family: "Inter", sans-serif;
+  font-weight: 600;
   text-decoration: none;
   transition:
     background-color var(--transition),
@@ -803,24 +804,45 @@ nav a:hover {
 
 
 .cart-actions {
-  margin-top: 1.5rem;
+  margin-top: 2rem;
   display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.cart-actions .button.primary {
-  flex: 2;
+.cart-actions .button {
+  width: 100%;
   text-align: center;
 }
 
-.cart-actions .button.secondary {
-  flex: 1;
-  text-align: center;
+.cart-pay-btn {
+  padding: 1rem;
+  font-size: 1.125rem;
 }
 
-.cart-actions .button.small {
-  flex: 1 1 100%;
+.cart-whatsapp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.cart-whatsapp-btn .whatsapp-icon {
+  width: 20px;
+  height: 20px;
+}
+
+@media (min-width: 600px) {
+  .cart-actions {
+    flex-direction: row;
+  }
+  .cart-pay-btn {
+    flex: 2;
+  }
+  .cart-whatsapp-btn,
+  .cart-continue-btn {
+    flex: 1;
+  }
 }
 
 .payment-summary {
@@ -851,9 +873,6 @@ nav a:hover {
   .cart-price,
   .cart-item-total {
     text-align: left;
-  }
-  .cart-actions {
-    flex-direction: column;
   }
 }
 

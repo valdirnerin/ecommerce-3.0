@@ -7,6 +7,12 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>NERIN – Carrito</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="style.css" />
     <link
       rel="stylesheet"
@@ -36,13 +42,22 @@
         <div id="cartItems"></div>
         <div id="cartSummary" class="cart-summary"></div>
         <div id="cartActions" class="cart-actions" style="display: none">
-          <a href="/shop.html" class="button secondary continue-shopping"
-            >Seguir comprando</a
-          >
-          <button id="payBtn" class="button primary">Continuar con el pago</button>
-          <button id="whatsappBtn" class="button secondary small">
+          <button id="payBtn" class="button primary cart-pay-btn">
+            Continuar con el pago
+          </button>
+          <button id="whatsappBtn" class="button secondary cart-whatsapp-btn">
+            <img
+              src="/assets/icons/whatsapp-logo.png"
+              alt="WhatsApp"
+              class="whatsapp-icon"
+            />
             Enviar por WhatsApp
           </button>
+          <a
+            href="/shop.html"
+            class="button secondary cart-continue-btn"
+            >Seguir comprando</a
+          >
         </div>
         <div
           id="orderSummary"
