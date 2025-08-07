@@ -31,5 +31,5 @@ document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
     window.location.href = "/checkout.html?status=failure";
   }
   btn.disabled = false;
-  btn.textContent = "Pagar con Mercado Pago";
+  btn.textContent = "Continuar con el pago";
 });

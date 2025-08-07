@@ -255,6 +255,11 @@ nav a:hover {
   background-color: #e5e7eb;
 }
 
+.button.small {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
 /* WhatsApp botón flotante */
 #whatsapp-button {
   position: fixed;
@@ -662,16 +667,29 @@ nav a:hover {
 
 /* ========= Estilos para el carrito ========= */
 
-.cart-container h2 {
-  margin-top: 1rem;
-  margin-bottom: 1.5rem;
-  text-align: center;
-}
-
 .cart-container {
   max-width: 700px;
   margin: 2rem auto;
   padding: 0 1rem;
+}
+
+.cart-box {
+  background-color: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 2rem 1rem;
+}
+
+.cart-title {
+  text-align: center;
+  font-size: 1.8rem;
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .cart-item {
@@ -779,9 +797,10 @@ nav a:hover {
 
 .cart-total-amount {
   font-weight: 700;
-  font-size: 1.6rem;
+  font-size: 2rem;
   color: var(--color-primary);
 }
+
 
 .cart-actions {
   margin-top: 1.5rem;
@@ -791,7 +810,7 @@ nav a:hover {
 }
 
 .cart-actions .button.primary {
-  flex: 1;
+  flex: 2;
   text-align: center;
 }
 
@@ -800,21 +819,8 @@ nav a:hover {
   text-align: center;
 }
 
-.mp-button {
-  background-color: #009ee3;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  width: 100%;
-  max-width: 360px;
-  margin: 0 auto;
-}
-
-.mp-button img {
-  width: 24px;
-  height: 24px;
+.cart-actions .button.small {
+  flex: 1 1 100%;
 }
 
 .payment-summary {
@@ -848,9 +854,6 @@ nav a:hover {
   }
   .cart-actions {
     flex-direction: column;
-  }
-  .mp-button {
-    max-width: none;
   }
 }
 
