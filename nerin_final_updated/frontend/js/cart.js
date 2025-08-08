@@ -152,10 +152,10 @@ function renderCart() {
     );
   };
 
-  p  payBtn.onclick = () => {
+  payBtn.onclick = () => {
     // Siempre redirigimos al flujo de checkout para que el usuario revise sus datos
     window.location.href = "/checkout-steps.html";
-      };
+  };
 
   
 
