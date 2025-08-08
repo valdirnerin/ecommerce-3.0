@@ -157,10 +157,14 @@ function renderCart() {
     window.location.href = "/checkout-steps.html";
   };
 
-  
+
 
 // Ejecutar al cargar el documento
-document.addEventListener("DOMContentLoaded", renderCart);
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", renderCart);
+} else {
+  renderCart();
+}
 
 function showPaymentSummary(orderId, cart, preferenceId) {
   if (!preferenceId) {
