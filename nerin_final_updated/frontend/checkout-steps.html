@@ -47,9 +47,35 @@
       <div id="step2" class="checkout-step" style="display:none">
         <h2>Paso 2 de 3: Envío</h2>
         <form id="formEnvio" class="login-container">
-          <label>Provincia
-            <input type="text" id="provincia" required />
-          </label>
+                   <label>Provincia
+                <input list="provincias" id="provincia" required />
+            </label>       
+          <datalist id="provincias">
+                <option value="Buenos Aires">
+                <option value="Ciudad Autónoma de Buenos Aires">
+                <option value="Catamarca">
+                <option value="Chaco">
+                <option value="Chubut">
+                <option value="Córdoba">
+                <option value="Corrientes">
+                <option value="Entre Ríos">
+                <option value="Formosa">
+                <option value="Jujuy">
+                <option value="La Pampa">
+                <option value="La Rioja">
+                <option value="Mendoza">
+                <option value="Misiones">
+                <option value="Neuquén">
+                <option value="Río Negro">
+                <option value="Salta">
+                <option value="San Juan">
+                <option value="San Luis">
+                <option value="Santa Cruz">
+                <option value="Santa Fe">
+                <option value="Santiago del Estero">
+                <option value="Tierra del Fuego">
+                <option value="Tucumán">
+            </datalist>
           <label>Localidad
             <input type="text" id="localidad" required />
           </label>
