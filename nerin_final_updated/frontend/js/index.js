@@ -1,9 +1,10 @@
 // Manejo del formulario de contacto en la página principal
 
 import { fetchProducts, isWholesale } from "./api.js";
+import { getCart, saveCart } from "./cart-storage.js";
 
 function addToCart(product) {
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cart = getCart();
   const existing = cart.find((item) => item.id === product.id);
   if (existing) {
     existing.quantity += 1;
@@ -19,7 +20,7 @@ function addToCart(product) {
       image: product.image,
     });
   }
-  localStorage.setItem("nerinCart", JSON.stringify(cart));
+  saveCart(cart);
   if (window.updateNav) window.updateNav();
   if (window.showToast) window.showToast("✅ Producto agregado al carrito");
 }

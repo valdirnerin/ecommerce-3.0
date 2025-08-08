@@ -5,6 +5,8 @@
  * en `window.NERIN_CONFIG` para que otros módulos puedan consultarla.
  */
 
+import { getCart } from "./cart-storage.js";
+
 async function loadConfig() {
   try {
     const res = await fetch("/api/config");
@@ -61,7 +63,7 @@ function showToast(message) {
 }
 
 function renderCartPreview(container) {
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cart = getCart();
   if (cart.length === 0) {
     container.innerHTML = "<p>Carrito vacío</p>";
     return;
@@ -112,13 +114,8 @@ function updateNav() {
     });
   }
   // Calcular cantidad total en el carrito
-  let cartCount = 0;
-  try {
-    const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
-    cartCount = cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
-  } catch (e) {
-    cartCount = 0;
-  }
+  const cart = getCart();
+  const cartCount = cart.reduce((sum, item) => sum + (item.quantity || 0), 0);
   // Recorrer elementos <li> para encontrar enlaces
   const liItems = navUl.querySelectorAll("li");
   liItems.forEach((li) => {

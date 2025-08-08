@@ -1,3 +1,5 @@
+import { getCart, clearCart } from "./cart-storage.js";
+
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.querySelector("form.shipping-form");
   const loading = document.getElementById("loading");
@@ -28,7 +30,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!valid) return;
 
     try {
-      const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+      const cart = getCart();
       if (cart.length === 0) {
         alert("Carrito vacío");
         return;
@@ -67,7 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (data && data.init_point) {
-        localStorage.removeItem("nerinCart");
+        clearCart();
         window.location.href = data.init_point;
       } else {
         alert("Pedido creado, pero no se pudo iniciar el pago");

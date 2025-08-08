@@ -4,6 +4,8 @@
  * editar perfil en un panel de cliente profesional.
  */
 
+import { getCart, saveCart } from "./cart-storage.js";
+
 async function initAccount() {
   const email = localStorage.getItem("nerinUserEmail");
   const name = localStorage.getItem("nerinUserName");
@@ -152,7 +154,7 @@ async function initAccount() {
 }
 
 function addItemsToCart(items) {
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cart = getCart();
   items.forEach((it) => {
     const existing = cart.find((c) => c.id === it.id);
     if (existing) existing.quantity += it.quantity;
@@ -165,7 +167,7 @@ function addItemsToCart(items) {
         image: it.image,
       });
   });
-  localStorage.setItem("nerinCart", JSON.stringify(cart));
+  saveCart(cart);
   if (window.updateNav) window.updateNav();
 }
 

@@ -10,6 +10,7 @@
  */
 
 import { fetchProducts, isWholesale } from "./api.js";
+import { getCart, saveCart } from "./cart-storage.js";
 
 // Obtenemos la referencia al contenedor donde se mostrará el producto
 const detailContainer = document.getElementById("productDetail");
@@ -144,7 +145,7 @@ function renderProduct(product) {
           alert(`No hay stock suficiente. Disponibles: ${product.stock}`);
           return;
         }
-        const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+        const cart = getCart();
         const existing = cart.find((item) => item.id === product.id);
         if (existing) {
           if (existing.quantity + qty > product.stock) {
@@ -163,7 +164,7 @@ function renderProduct(product) {
             image: product.image,
           });
         }
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        saveCart(cart);
         if (window.updateNav) window.updateNav();
         if (window.showToast)
           window.showToast("✅ Producto agregado al carrito");
@@ -181,7 +182,7 @@ function renderProduct(product) {
       addBtn.className = "button primary";
       addBtn.textContent = "Agregar al carrito";
       addBtn.addEventListener("click", () => {
-        const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+        const cart = getCart();
         const existing = cart.find((item) => item.id === product.id);
         const available = product.stock;
         if (existing) {
@@ -201,7 +202,7 @@ function renderProduct(product) {
             image: product.image,
           });
         }
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        saveCart(cart);
         if (window.updateNav) window.updateNav();
         if (window.showToast)
           window.showToast("✅ Producto agregado al carrito");

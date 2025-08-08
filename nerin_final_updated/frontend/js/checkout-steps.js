@@ -1,3 +1,5 @@
+import { getCart, clearCart } from './cart-storage.js';
+
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
 const step2 = document.getElementById('step2');
@@ -11,7 +13,7 @@ const emailInput = document.getElementById('email');
 const emailError = document.getElementById('emailError');
 const pagoRadios = document.getElementsByName('pago');
 
-const cart = JSON.parse(localStorage.getItem('nerinCart') || '[]');
+const cart = getCart();
 if (cart.length === 0) {
   window.location.href = '/cart.html';
 }
@@ -162,7 +164,7 @@ confirmarBtn.addEventListener('click', async () => {
       console.log('Respuesta preferencia MP', { status: res.status, data });
       if (res.ok && data.init_point) {
         localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
-        localStorage.removeItem('nerinCart');
+        clearCart();
         window.location.href = data.init_point;
       } else {
         const msg =

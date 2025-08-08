@@ -1,4 +1,5 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
+import { getCart, saveCart } from "./cart-storage.js";
 
 // Referencias a elementos del DOM
 const productGrid = document.getElementById("productGrid");
@@ -149,7 +150,7 @@ function createProductCard(product) {
         qtyInput.value = available;
         return;
       }
-      const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+      const cart = getCart();
       const existing = cart.find((item) => item.id === product.id);
       if (existing) {
         const newQty = existing.quantity + qty;
@@ -169,7 +170,7 @@ function createProductCard(product) {
           image: product.image,
         });
       }
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      saveCart(cart);
       addBtn.textContent = "Añadido";
       setTimeout(() => {
         addBtn.textContent = "Agregar";
@@ -190,7 +191,7 @@ function createProductCard(product) {
         alert("Sin stock disponible");
         return;
       }
-      const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+      const cart = getCart();
       const existing = cart.find((item) => item.id === product.id);
       const available =
         typeof product.stock === "number" ? product.stock : Infinity;
@@ -211,7 +212,7 @@ function createProductCard(product) {
           image: product.image,
         });
       }
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      saveCart(cart);
       addBtn.textContent = "Añadido";
       setTimeout(() => {
         addBtn.textContent = "Agregar";

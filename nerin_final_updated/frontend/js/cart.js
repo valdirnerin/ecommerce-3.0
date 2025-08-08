@@ -10,6 +10,7 @@
  */
 
 import { isWholesale } from "./api.js";
+import { getCart, saveCart } from "./cart-storage.js";
 
 // Referencias a los elementos del DOM
 const itemsContainer = document.getElementById("cartItems");
@@ -33,7 +34,7 @@ function calculateDiscountedPrice(basePrice, quantity) {
 
 // Renderizar el carrito completo
 function renderCart() {
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cart = getCart();
   itemsContainer.innerHTML = "";
   let subtotal = 0;
   if (cart.length === 0) {
@@ -88,7 +89,7 @@ function renderCart() {
     minus.addEventListener("click", () => {
       if (cart[index].quantity > 1) {
         cart[index].quantity -= 1;
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        saveCart(cart);
         renderCart();
       }
     });
@@ -101,7 +102,7 @@ function renderCart() {
     qtyInput.addEventListener("change", () => {
       const qty = parseInt(qtyInput.value, 10) || 1;
       cart[index].quantity = qty;
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      saveCart(cart);
       renderCart();
     });
     const plus = document.createElement("button");
@@ -109,7 +110,7 @@ function renderCart() {
     plus.textContent = "+";
     plus.addEventListener("click", () => {
       cart[index].quantity += 1;
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      saveCart(cart);
       renderCart();
     });
     stepper.appendChild(minus);
@@ -122,7 +123,7 @@ function renderCart() {
     removeBtn.textContent = "Eliminar";
     removeBtn.addEventListener("click", () => {
       cart.splice(index, 1);
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      saveCart(cart);
       renderCart();
     });
     itemEl.appendChild(removeBtn);
