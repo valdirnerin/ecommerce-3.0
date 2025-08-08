@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const verifySignature = require('../middleware/verifySignature');
+//co/st verifySignature = require('../middleware/verifySignature');
 const validateWebhook = require('../middleware/validateWebhook');
 const webhookRateLimit = require('../middleware/webhookRateLimit');
 const enforcePostJson = require('../middleware/enforcePostJson');
@@ -18,7 +18,7 @@ router.post(
   requireHttps,
   webhookRateLimit,
   enforcePostJson,
-  verifySignature,
+  
   validateWebhook,
   async (req, res) => {
     console.log('📥 Webhook recibido:', req.body);
