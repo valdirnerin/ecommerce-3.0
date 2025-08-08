@@ -31,9 +31,22 @@ function calculateDiscountedPrice(basePrice, quantity) {
   return Math.round(basePrice * (1 - discount));
 }
 
+// Obtener y validar el contenido del carrito desde localStorage
+function getStoredCart() {
+  try {
+    const raw = localStorage.getItem("nerinCart");
+    const cart = JSON.parse(raw || "[]");
+    return Array.isArray(cart) ? cart : [];
+  } catch (err) {
+    console.warn("Cart storage corrupt, resetting", err);
+    localStorage.removeItem("nerinCart");
+    return [];
+  }
+}
+
 // Renderizar el carrito completo
 function renderCart() {
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cart = getStoredCart();
   itemsContainer.innerHTML = "";
   let subtotal = 0;
   if (cart.length === 0) {
