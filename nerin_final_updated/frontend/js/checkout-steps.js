@@ -33,29 +33,13 @@ if (saved) {
   if (saved.metodo) document.getElementById('metodo').value = saved.metodo;
 }
 
-const params = new URLSearchParams(window.location.search);
-if (params.get('step') === '3' && saved) {
-  datos = {
-    nombre: saved.nombre || '',
-    apellido: saved.apellido || '',
-    email: saved.email || '',
-    telefono: saved.telefono || '',
-  };
-  envio = {
-    provincia: saved.provincia || '',
-    localidad: saved.localidad || '',
-    calle: saved.calle || '',
-    numero: saved.numero || '',
-    piso: saved.piso || '',
-    cp: saved.cp || '',
-    metodo: saved.metodo || '',
-    costo: saved.costo || 0,
-  };
-  buildResumen();
-  step1.style.display = 'none';
-  step2.style.display = 'none';
-  step3.style.display = 'block';
-}
+
+// Inicializar los pasos: mostrar Paso 1 y ocultar los demás
+step1.style.display = 'block';
+step2.style.display = 'none';
+step3.style.display = 'none';
+
+
 
 async function validateEmail() {
   const email = emailInput.value.trim();
