@@ -152,27 +152,12 @@ function renderCart() {
     );
   };
 
-  payBtn.onclick = () => {
-    const saved = JSON.parse(localStorage.getItem("nerinUserInfo") || "null");
-    const hasInfo =
-      saved &&
-      saved.email &&
-      saved.provincia &&
-      saved.localidad &&
-      saved.calle &&
-      saved.numero &&
-      saved.cp &&
-      saved.metodo;
+  p  payBtn.onclick = () => {
+    // Siempre redirigimos al flujo de checkout para que el usuario revise sus datos
+    window.location.href = "/checkout-steps.html";
+      };
 
-    window.location.href = hasInfo
-      ? "/checkout-steps.html?step=3"
-      : "/checkout-steps.html";
-  };
-  // Después de renderizar el carrito actualiza la navegación para reflejar el contador del carrito
-  if (window.updateNav) {
-    window.updateNav();
-  }
-}
+  
 
 // Ejecutar al cargar el documento
 document.addEventListener("DOMContentLoaded", renderCart);
