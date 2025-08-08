@@ -153,7 +153,20 @@ function renderCart() {
   };
 
   payBtn.onclick = () => {
-    window.location.href = "/checkout-steps.html?step=3";
+    const saved = JSON.parse(localStorage.getItem("nerinUserInfo") || "null");
+    const hasInfo =
+      saved &&
+      saved.email &&
+      saved.provincia &&
+      saved.localidad &&
+      saved.calle &&
+      saved.numero &&
+      saved.cp &&
+      saved.metodo;
+
+    window.location.href = hasInfo
+      ? "/checkout-steps.html?step=3"
+      : "/checkout-steps.html";
   };
   // Después de renderizar el carrito actualiza la navegación para reflejar el contador del carrito
   if (window.updateNav) {
