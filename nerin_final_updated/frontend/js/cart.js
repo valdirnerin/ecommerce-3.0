@@ -156,8 +156,7 @@ function renderCart() {
     // Siempre redirigimos al flujo de checkout para que el usuario revise sus datos
     window.location.href = "/checkout-steps.html";
   };
-
-
+}
 
 // Ejecutar al cargar el documento
 if (document.readyState === "loading") {
