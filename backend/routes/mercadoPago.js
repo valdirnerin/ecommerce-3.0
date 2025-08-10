@@ -41,7 +41,7 @@ router.post(
       merchantOrder = await merchantClient.get({ id: payment.order.id });
     }
 
-    const preferenceId = merchantOrder && merchantOrder.preference_id;
+    const preferenceId = merchantOrder?.preference_id;
 
     if (!preferenceId && !orderNumber) {
       logger.error('No se pudieron determinar identificadores del pago');
@@ -49,25 +49,17 @@ router.post(
         .status(400)
         .json({ error: 'Identificador de orden no encontrado' });
     }
+    const identifier = preferenceId || orderNumber;
+    const whereField = preferenceId ? 'preference_id' : 'order_number';
+    const existing = await db.query(
+      `SELECT id FROM orders WHERE ${whereField} = $1`,
+      [identifier]
+    );
 
-    let existing;
-    if (preferenceId) {
-      existing = await db.query(
-        'SELECT id FROM orders WHERE preference_id = $1',
-        [preferenceId]
-      );
-    } else if (orderNumber) {
-      existing = await db.query(
-        'SELECT id FROM orders WHERE order_number = $1',
-        [orderNumber]
-      );
-    }
-
-    if (existing && existing.rowCount > 0) {
-      const whereField = preferenceId ? 'preference_id' : 'order_number';
+    if (existing.rowCount > 0) {
       await db.query(
         `UPDATE orders SET payment_status = $1, payment_id = $2 WHERE ${whereField} = $3`,
-        [status, String(paymentId), preferenceId || orderNumber]
+        [status, String(paymentId), identifier]
       );
     } else {
       const item =
