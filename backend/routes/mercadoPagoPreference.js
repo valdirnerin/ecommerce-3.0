@@ -2,6 +2,7 @@ const express = require('express');
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 const generarNumeroOrden = require('../utils/generarNumeroOrden');
 const logger = require('../logger');
+const db = require('../db');
 
 const router = express.Router();
 
@@ -86,6 +87,10 @@ router.post('/crear-preferencia', async (req, res) => {
     const preference = new Preference(client);
     logger.info(`📦 preference.body: ${JSON.stringify(body)}`);
     const response = await preference.create({ body });
+    const prefId = response.id || response.body?.id || response.preference_id;
+    if (prefId) {
+      await db.query('UPDATE orders SET preference_id = $1 WHERE order_number = $2', [String(prefId), String(numeroOrden)]);
+    }
     // Log completo de la respuesta de Mercado Pago para facilitar el debug
     logger.info(`📝 response.body: ${JSON.stringify(response.body)}`);
     console.log('Respuesta completa de Mercado Pago:', response.body);
