@@ -40,7 +40,7 @@ router.get('/:id/status', async (req, res) => {
       ).rows;
     }
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'Pedido no encontrado' });
+      return res.json({ status: 'pending', numeroOrden: null });
     }
     res.json({ status: rows[0].payment_status, numeroOrden: rows[0].order_number });
   } catch (error) {
