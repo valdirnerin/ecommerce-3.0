@@ -9,8 +9,11 @@
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
-const bodyParser = require("body-parser");
 const cors = require("cors");
+// Usar fetch nativo si está disponible; como fallback se importa dinámicamente node-fetch
+const fetchFn =
+  globalThis.fetch ||
+  ((...args) => import("node-fetch").then(({ default: f }) => f(...args)));
 const { MercadoPagoConfig, Preference } = require("mercadopago");
 const generarNumeroOrden = require("./utils/generarNumeroOrden");
 let Resend;
@@ -34,7 +37,14 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
+app.use(express.urlencoded({ extended: true }));
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
@@ -95,6 +105,35 @@ function sendOrderPaidEmail(order) {
   }
 }
 
+async function mpWebhookRelay(req, res) {
+  // 1) ACK rápido a MP
+  res.sendStatus(200);
+
+  try {
+    const FORWARD_URL = process.env.MP_WEBHOOK_FORWARD_URL;
+    if (!FORWARD_URL) {
+      console.warn("MP_WEBHOOK_FORWARD_URL no seteada");
+      return;
+    }
+    const qs = new URLSearchParams(req.query || {}).toString();
+    const url = qs ? `${FORWARD_URL}?${qs}` : FORWARD_URL;
+
+    // Reenviar body y algunos headers útiles
+    await fetchFn(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Forwarded-For": req.ip || "",
+        "X-Source-Service": "nerin_final_updated",
+      },
+      body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
+    });
+    console.info("mp-webhook relay OK →", url);
+  } catch (e) {
+    console.error("mp-webhook relay FAIL:", e?.message);
+  }
+}
+
 // API: obtener la lista de productos
 app.get("/api/products", (_req, res) => {
   try {
@@ -148,6 +187,7 @@ app.post("/api/orders", async (req, res) => {
           },
           auto_return: "approved",
           external_reference: id,
+          notification_url: `${process.env.PUBLIC_URL}/api/webhooks/mp`,
         };
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;
@@ -181,72 +221,8 @@ app.post("/api/track-order", (req, res) => {
   res.json({ order });
 });
 
-// Webhook de Mercado Pago para actualizar estado de pedido
-  app.post("/api/webhooks/mp", (req, res) => {
-    try {
-      const event = req.body || {};
-      const payment = event.data && event.data.id ? event.data : null;
-      if (!payment) return res.json({ received: true });
-      const orders = getOrders();
-      const order = orders.find((o) => o.id === payment.external_reference);
-      if (order) {
-        if (payment.status === "approved") {
-          order.estado_pago = "pagado";
-          order.paymentId = payment.id;
-          saveOrders(orders);
-          try {
-            const products = getProducts();
-            let modified = false;
-            (order.productos || []).forEach((item) => {
-              const idx = products.findIndex((p) => p.id === item.id);
-              if (idx !== -1) {
-                if (typeof products[idx].stock === "number") {
-                  products[idx].stock = Math.max(
-                    0,
-                    products[idx].stock - item.quantity,
-                  );
-                }
-                if (products[idx].warehouseStock) {
-                  const whs = products[idx].warehouseStock;
-                  let remaining = item.quantity;
-                  if (whs.central && whs.central > 0) {
-                    const deduct = Math.min(remaining, whs.central);
-                    whs.central -= deduct;
-                    remaining -= deduct;
-                  }
-                  for (const w in whs) {
-                    if (remaining <= 0) break;
-                    if (w === "central") continue;
-                    const avail = whs[w];
-                    const toDeduct = Math.min(remaining, avail);
-                    whs[w] -= toDeduct;
-                    remaining -= toDeduct;
-                  }
-                }
-                modified = true;
-              }
-            });
-            if (modified) {
-              saveProducts(products);
-            }
-          } catch (invErr) {
-            console.error(
-              "Error al descontar inventario desde webhook:",
-              invErr,
-            );
-          }
-          sendOrderPaidEmail(order);
-        } else if (payment.status === "rejected") {
-          order.estado_pago = "rechazado";
-          saveOrders(orders);
-        }
-      }
-      return res.json({ success: true });
-    } catch (err) {
-      console.error(err);
-      return res.status(400).json({ error: "Webhook inválido" });
-    }
-  });
+// Webhook de Mercado Pago: relay al backend externo
+app.post(["/api/mercado-pago/webhook", "/api/webhooks/mp"], mpWebhookRelay);
 
 // API: checkout / confirmar pedido
 // Este endpoint recibe el contenido del carrito y devuelve un mensaje de éxito.
