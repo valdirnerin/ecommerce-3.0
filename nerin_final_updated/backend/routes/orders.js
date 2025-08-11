@@ -40,9 +40,12 @@ router.get('/:id/status', async (req, res) => {
       ).rows;
     }
     if (rows.length === 0) {
+      logger.info(`/api/orders/${req.params.id}/status -> pending`);
       return res.json({ status: 'pending', numeroOrden: null });
     }
-    res.json({ status: rows[0].payment_status, numeroOrden: rows[0].order_number });
+    const status = rows[0].payment_status || 'pending';
+    logger.info(`/api/orders/${req.params.id}/status -> ${status}`);
+    res.json({ status, numeroOrden: rows[0].order_number });
   } catch (error) {
     logger.error(`Error al obtener estado del pedido: ${error.message}`);
     res.status(500).json({ error: 'Error interno' });

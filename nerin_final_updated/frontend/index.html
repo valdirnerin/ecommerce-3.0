@@ -1,120 +1,90 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
-  <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-    />
-    <title>NERIN Repuestos – Pantallas originales</title>
-    <link rel="stylesheet" href="style.css" />
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
-    />
-  </head>
-  <body>
-    <header>
-      <div class="header-inner">
-        <div class="logo"><a href="/index.html">NERIN</a></div>
-        <button class="menu-toggle" id="navToggle">☰</button>
-        <nav id="mainNav">
-          <ul>
-            <li><a href="/index.html">Inicio</a></li>
-            <li><a href="/shop.html">Productos</a></li>
-            <li><a href="/contact.html">Contacto</a></li>
-            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
-            <li><a href="/cart.html">Carrito</a></li>
-            <li><a href="/login.html">Acceder</a></li>
-          </ul>
-        </nav>
-      </div>
-    </header>
-    <section class="hero">
-      <div class="content">
-        <h1>Pantallas Samsung Originales con Garantía</h1>
-        <p>
-          Venta mayorista y minorista con envío inmediato en todo el país.
-          Asesoramiento real por WhatsApp. Stock propio en Argentina.
-        </p>
-        <div class="buttons">
-          <a href="/shop.html" class="button primary">Ver catálogo</a>
-          <a href="/login.html" class="button secondary">Ingresar</a>
-        </div>
-      </div>
-    </section>
-    <section class="container">
-      <h2>¿Por qué elegir NERIN?</h2>
-      <p>
-        En NERIN nos dedicamos a la venta de repuestos originales Samsung
-        Service Pack, con atención personalizada y entregas rápidas en todo el
-        país. Confiá en nosotros para obtener calidad real, sin intermediarios.
-      </p>
-      <ul class="benefits-list">
-        <li>🛡️ Pantallas 100% originales Service Pack</li>
-        <li>🚚 Envío en 24 hs dentro de CABA</li>
-        <li>🛠️ Garantía de funcionamiento técnico</li>
-        <li>📦 Stock propio en Argentina</li>
-        <li>💬 Atención directa por WhatsApp</li>
-        <li>💳 Transferencia, Mercado Pago o efectivo</li>
-      </ul>
-    </section>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pago con Mercado Pago</title>
+</head>
+<body>
+  <h1>Integración Mercado Pago - Checkout Pro</h1>
+  <button id="boton-pago">Pagar con Mercado Pago</button>
 
-    <section class="container">
-      <h2>Productos Destacados</h2>
-      <div id="featuredGrid" class="product-grid"></div>
-    </section>
+  <div id="wallet_container"></div>
 
-    <section class="container">
-      <h2>¿Quiénes somos?</h2>
-      <p>
-        Somos NERIN Repuestos, una empresa argentina enfocada exclusivamente en
-        pantallas Samsung originales. Vendemos tanto a técnicos como a usuarios
-        finales. Sabemos lo que necesitás y trabajamos para darte velocidad,
-        confianza y calidad verdadera.
-      </p>
-    </section>
+  <script src="config.js"></script>
+  <script src="https://sdk.mercadopago.com/js/v2" data-public-key="APP_USR-c28b783a-54c0-4e39-80d3-f8c7dae2b645"></script>
+  <script>
+    // Inicializamos Mercado Pago con la public key configurada en config.js
+    if (!window.MP_PUBLIC_KEY) {
+      throw new Error('Defina MP_PUBLIC_KEY en config.js');
+    }
+    const mp = new MercadoPago(window.MP_PUBLIC_KEY, {
+      locale: 'es-AR',
+    });
 
-    <section id="contacto" class="container">
-      <h2>Contactanos rápido</h2>
-      <form id="contactForm" class="login-container">
-        <input type="text" id="contactName" placeholder="Nombre y apellido" />
-        <input type="tel" id="contactPhone" placeholder="WhatsApp" />
-        <input type="text" id="contactModel" placeholder="Modelo buscado" />
-        <select id="contactType">
-          <option value="tecnico">Técnico</option>
-          <option value="revendedor">Revendedor</option>
-          <option value="particular">Particular</option>
-        </select>
-        <button type="submit" class="button primary">
-          Solicitar cotización
-        </button>
-      </form>
-    </section>
+    const payButton = document.getElementById('boton-pago');
 
-    <footer class="container">
-      <p>📞 WhatsApp | 📧 Email | 📍 CABA</p>
-      <p>
-        <a href="https://instagram.com" target="_blank">Instagram</a> |
-        <a href="/index.html">Inicio</a> | <a href="/shop.html">Catálogo</a> |
-        <a href="/contact.html">Contacto</a> |
-        <a href="/seguimiento.html">Seguir mi pedido</a> |
-        <a href="/pages/terminos.html">Términos y Condiciones</a>
-      </p>
-      <p class="legal">
-        NERIN comercializa repuestos Samsung originales Service Pack adquiridos
-        por canales oficiales. No tenemos vínculo directo con Samsung
-        Electronics.
-      </p>
-    </footer>
-    <div id="whatsapp-button">
-      <a href="https://wa.me/541112345678" target="_blank">
-        <img src="/assets/whatsapp.svg" alt="WhatsApp" />
-      </a>
-    </div>
-    <!-- Configuración y analíticas -->
-    <script type="module" src="/js/index.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
-    <script type="module" src="/js/config.js"></script>
-  </body>
+    // Datos del producto (modificables)
+    const producto = {
+      titulo: 'Producto de ejemplo',
+      precio: 100,
+      cantidad: 1,
+    };
+
+    const saved = JSON.parse(localStorage.getItem('userInfo') || 'null');
+
+    payButton.addEventListener('click', async () => {
+      // Guardamos los datos del producto para reutilizarlos en el checkout de
+      // varios pasos en caso de ser necesario.
+      localStorage.setItem('producto', JSON.stringify(producto));
+
+      // Si el usuario ya tiene datos guardados, creamos la preferencia
+      // directamente y lo redirigimos al pago. En caso contrario, iniciamos
+      // el flujo de checkout completo.
+      if (saved && saved.email && saved.direccion) {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/mercado-pago/crear-preferencia`, {
+            mode: 'cors',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              titulo: producto.titulo,
+              precio: producto.precio,
+              cantidad: producto.cantidad,
+              datos: {
+                nombre: saved.nombre,
+                apellido: saved.apellido,
+                email: saved.email,
+                telefono: saved.telefono,
+              },
+              envio: {
+                provincia: saved.provincia,
+                localidad: saved.localidad,
+                direccion: saved.direccion,
+                cp: saved.cp,
+                metodo: saved.metodo,
+                costo: saved.costo,
+              },
+            }),
+          });
+          const data = await res.json();
+          console.log('Respuesta crear preferencia:', data);
+          if (res.ok && data.init_point) {
+            console.log('Mercado Pago init_point:', data.init_point);
+            window.location.href = data.init_point;
+            return;
+          }
+          console.error('init_point no recibido', data);
+          throw new Error(data.error || 'No se pudo obtener link de pago');
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Error al iniciar pago');
+          return;
+        }
+      }
+      window.location.href = 'checkout.html';
+    });
+  </script>
+</body>
 </html>
+

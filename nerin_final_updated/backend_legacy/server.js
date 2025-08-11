@@ -750,7 +750,6 @@ const server = http.createServer((req, res) => {
               },
               auto_return: "approved",
               external_reference: orderId,
-              notification_url: `${DOMAIN}/api/webhooks/mp`,
             };
             const prefRes = await mpPreference.create({ body: mpPref });
             mpInit = prefRes.init_point;
@@ -887,7 +886,6 @@ const server = http.createServer((req, res) => {
               },
               auto_return: "approved",
               external_reference: orderId,
-              notification_url: `${DOMAIN}/api/webhooks/mp`,
             };
             const prefRes = await mpPreference.create({ body: pref });
             initPoint = prefRes.init_point;
@@ -916,33 +914,6 @@ const server = http.createServer((req, res) => {
       return sendJson(res, 500, {
         error: "No se pudieron obtener los pedidos",
       });
-    }
-  }
-
-  // API: estado de pedido
-  if (
-    pathname.startsWith("/api/orders/") &&
-    pathname.endsWith("/status") &&
-    req.method === "GET"
-  ) {
-    const parts = pathname.split("/");
-    const id = parts[parts.length - 2];
-    try {
-      const orders = getOrders();
-      let order = orders.find((o) => o.preference_id === id);
-      if (!order) {
-        order = orders.find((o) => o.id === id);
-      }
-      if (!order) {
-        return sendJson(res, 200, { status: "pending", numeroOrden: null });
-      }
-      return sendJson(res, 200, {
-        status: order.estado_pago || "pending",
-        numeroOrden: order.id,
-      });
-    } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, { error: "Error al obtener estado" });
     }
   }
 
@@ -1798,7 +1769,6 @@ const server = http.createServer((req, res) => {
             pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
-          notification_url: `${DOMAIN}/api/webhooks/mp`,
         };
         console.log("Preferencia enviada a Mercado Pago:", preferenceBody);
         if (!mpPreference) {
@@ -1847,7 +1817,6 @@ const server = http.createServer((req, res) => {
             failure: `${DOMAIN}/failure`,
           },
           auto_return: "approved",
-          notification_url: `${DOMAIN}/api/webhooks/mp`,
         };
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
@@ -1898,7 +1867,6 @@ const server = http.createServer((req, res) => {
             pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
-          notification_url: `${DOMAIN}/api/webhooks/mp`,
         };
         const result = await mpPreference.create({ body: preference });
         return sendJson(res, 200, {
@@ -1915,10 +1883,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (
-    (pathname === "/api/mercado-pago/webhook" || pathname === "/api/webhooks/mp") &&
-    req.method === "POST"
-  ) {
+  if (pathname === "/api/mercado-pago/webhook" && req.method === "POST") {
     let body = "";
     req.on("data", (c) => {
       body += c;
@@ -1947,7 +1912,7 @@ const server = http.createServer((req, res) => {
           order = orders.find((o) => o.id === payment.external_reference);
         }
         if (!order && payment.preference_id) {
-          order = orders.find((o) => o.preference_id === payment.preference_id);
+          order = orders.find((o) => o.preferenceId === payment.preference_id);
         }
         if (order) {
           if (payment.status === "approved") {

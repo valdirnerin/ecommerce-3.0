@@ -7,14 +7,7 @@ const db = require('../db');
 const router = express.Router();
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
-
-// Determina la URL pública a utilizar. Si no está configurada la variable de
-// entorno PUBLIC_URL (por ejemplo en entornos de producción con dominios
-// personalizados), se usa el dominio de la propia petición.
-function getPublicUrl(req) {
-  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
-  return `${req.protocol}://${req.get('host')}`;
-}
+const PUBLIC_URL = process.env.PUBLIC_URL || '';
 
 router.post('/crear-preferencia', async (req, res) => {
   logger.info(`➡️ ${req.method} ${req.originalUrl}`);
@@ -68,16 +61,15 @@ router.post('/crear-preferencia', async (req, res) => {
 
   const numeroOrden = generarNumeroOrden();
 
-  const PUBLIC_URL = getPublicUrl(req);
   const body = {
     items,
     payer: { email: usuario.email },
-    external_reference: numeroOrden,
-    notification_url: `${PUBLIC_URL}/api/webhooks/mp`,
+    external_reference: String(numeroOrden),
+    notification_url: `${PUBLIC_URL}/api/mercado-pago/webhook`,
     back_urls: {
-      success: `${PUBLIC_URL}/success`,
-      failure: `${PUBLIC_URL}/failure`,
-      pending: `${PUBLIC_URL}/pending`,
+      success: `${PUBLIC_URL}/estado-pedido`,
+      failure: `${PUBLIC_URL}/estado-pedido`,
+      pending: `${PUBLIC_URL}/estado-pedido`,
     },
     auto_return: 'approved',
   };
@@ -87,14 +79,11 @@ router.post('/crear-preferencia', async (req, res) => {
     const preference = new Preference(client);
     logger.info(`📦 preference.body: ${JSON.stringify(body)}`);
     const response = await preference.create({ body });
-    const prefId = response.id || response.body?.id || response.preference_id;
+    const prefId = response?.body?.id || response?.id || response?.preference_id;
     if (prefId) {
       await db.query('UPDATE orders SET preference_id = $1 WHERE order_number = $2', [String(prefId), String(numeroOrden)]);
     }
-    // Log completo de la respuesta de Mercado Pago para facilitar el debug
-    logger.info(`📝 response.body: ${JSON.stringify(response.body)}`);
-    console.log('Respuesta completa de Mercado Pago:', response.body);
-
+    console.info('mp-preference', { numeroOrden, prefId });
     const { id, init_point } = response.body || {};
     if (init_point) {
       const payload = { id, init_point };

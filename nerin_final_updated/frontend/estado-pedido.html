@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Estado del Pedido</title>
+</head>
+<body>
+  <h1 id="message">Procesando tu pago…</h1>
+  <p id="orderNumber" style="display:none"></p>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const prefId =
+      params.get('preference_id') ||
+      params.get('pref_id') ||
+      window.location.pathname.split('/').filter(Boolean).pop();
+    const messageEl = document.getElementById('message');
+    const orderNumberEl = document.getElementById('orderNumber');
+    let attempts = 0;
+    const maxAttempts = 15;
+
+    async function checkStatus() {
+      attempts++;
+      try {
+        const res = await fetch(`/api/orders/${encodeURIComponent(prefId)}/status`);
+        const data = await res.json();
+        if (data.numeroOrden) {
+          orderNumberEl.style.display = 'block';
+          orderNumberEl.textContent = `Número de pedido: ${data.numeroOrden}`;
+        }
+        const status = data.status;
+        if (status === 'paid' || status === 'approved') {
+          messageEl.textContent = 'Pago aprobado ✅';
+          clearInterval(interval);
+        } else if (status === 'rejected') {
+          messageEl.textContent = 'Pago rechazado ❌';
+          clearInterval(interval);
+        } else {
+          messageEl.textContent = 'Procesando tu pago…';
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      if (attempts >= maxAttempts) clearInterval(interval);
+    }
+
+    const interval = setInterval(checkStatus, 4000);
+    checkStatus();
+  </script>
+</body>
+</html>
