@@ -53,6 +53,7 @@ const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
+const API_FORWARD_URL = process.env.API_FORWARD_URL || "";
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
@@ -145,6 +146,30 @@ async function mpWebhookRelay(req, res) {
 app.use('/api', (req, res, next) => {
   console.info('API', req.method, req.path, req.headers['content-type'] || '', req.body && Object.keys(req.body));
   next();
+});
+
+app.use('/api', async (req, res, next) => {
+  if (!API_FORWARD_URL) return next();
+  if (req.path === '/webhooks/mp' || req.path === '/mercado-pago/webhook') return next();
+  try {
+    const base = API_FORWARD_URL.replace(/\/$/, '');
+    const target = base + req.originalUrl.replace(/^\/api/, '');
+    const headers = { ...req.headers };
+    delete headers.host;
+    const opts = { method: req.method, headers };
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      opts.body = req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {});
+    }
+    const r = await fetchFn(target, opts);
+    const body = await r.text();
+    res.status(r.status);
+    const ct = r.headers.get('content-type');
+    if (ct) res.set('Content-Type', ct);
+    res.send(body);
+  } catch (e) {
+    console.error('API relay error', e);
+    res.status(502).json({ error: 'API relay failed' });
+  }
 });
 
 // API: obtener la lista de productos
