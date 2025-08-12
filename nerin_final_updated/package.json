@@ -2,9 +2,9 @@
   "name": "nerin",
   "version": "1.0.0",
   "description": "Sistema ERP + E‑commerce para NERIN Repuestos",
-  "main": "backend/index.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node backend/index.js"
+    "start": "node backend/server.js"
   },
   "dependencies": {
     "afip.ts": "^3.2.2",

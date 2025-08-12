@@ -36,6 +36,67 @@ if (MP_TOKEN) {
   paymentClient = new Payment(mpClient);
 }
 
+// CORS origin configurado
+const ORIGIN = process.env.PUBLIC_URL || "*";
+
+// Polyfill de fetch
+const fetchFn =
+  globalThis.fetch ||
+  ((...a) => import("node-fetch").then(({ default: f }) => f(...a)));
+
+// Parsear cuerpo de la request guardando rawBody
+function parseBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const buf = Buffer.concat(chunks);
+      req.rawBody = buf;
+      const type = req.headers["content-type"] || "";
+      const str = buf.toString();
+      if (type.includes("application/json")) {
+        try {
+          req.body = JSON.parse(str);
+        } catch {
+          req.body = {};
+        }
+      } else if (type.includes("application/x-www-form-urlencoded")) {
+        req.body = Object.fromEntries(new URLSearchParams(str));
+      } else {
+        req.body = str;
+      }
+      resolve();
+    });
+  });
+}
+
+async function mpWebhookRelay(req, res, parsedUrl) {
+  await parseBody(req);
+  res.writeHead(200, {
+    "Access-Control-Allow-Origin": ORIGIN,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers":
+      "Accept, Content-Type, Authorization, X-Requested-With",
+  });
+  res.end();
+  try {
+    const fwd = process.env.MP_WEBHOOK_FORWARD_URL;
+    if (!fwd) return;
+    const qs = new URLSearchParams(parsedUrl.query || {}).toString();
+    const url = qs ? `${fwd}?${qs}` : fwd;
+    await fetchFn(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Source-Service": "nerin",
+      },
+      body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
+    });
+  } catch (e) {
+    console.error("mp-webhook relay FAIL", e?.message);
+  }
+}
+
 // Usuarios de ejemplo para login
 const USERS = [
   {
@@ -343,9 +404,10 @@ function sendJson(res, statusCode, data) {
   const json = JSON.stringify(data);
   res.writeHead(statusCode, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers":
+      "Accept, Content-Type, Authorization, X-Requested-With",
   });
   res.end(json);
 }
@@ -483,12 +545,23 @@ const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
 
+  res.setHeader("Access-Control-Allow-Origin", ORIGIN);
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS",
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Accept, Content-Type, Authorization, X-Requested-With",
+  );
+
   // Soportar solicitudes OPTIONS para CORS
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": ORIGIN,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers":
+        "Accept, Content-Type, Authorization, X-Requested-With",
     });
     return res.end();
   }
@@ -1883,98 +1956,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === "/api/mercado-pago/webhook" && req.method === "POST") {
-    let body = "";
-    req.on("data", (c) => {
-      body += c;
-    });
-    req.on("end", async () => {
-      try {
-        const event = JSON.parse(body || "{}");
-        const paymentId = event && event.data && event.data.id;
-        if (!paymentId) {
-          return sendJson(res, 200, { received: true });
-        }
-
-        const resp = await fetch(
-          `https://api.mercadopago.com/v1/payments/${paymentId}`,
-          {
-            headers: { Authorization: `Bearer ${MP_TOKEN}` },
-          },
-        );
-        const payment = await resp.json();
-        console.log(payment);
-
-        const orders = getOrders();
-
-        let order = null;
-        if (payment.external_reference) {
-          order = orders.find((o) => o.id === payment.external_reference);
-        }
-        if (!order && payment.preference_id) {
-          order = orders.find((o) => o.preferenceId === payment.preference_id);
-        }
-        if (order) {
-          if (payment.status === "approved") {
-            order.estado_pago = "pagado";
-            order.paymentId = payment.id;
-            try {
-              const products = getProducts();
-              let modified = false;
-              const items = order.productos || order.items || [];
-              items.forEach((item) => {
-                const idx = products.findIndex((p) => p.id === item.id);
-                if (idx !== -1) {
-                  if (typeof products[idx].stock === "number") {
-                    products[idx].stock = Math.max(
-                      0,
-                      products[idx].stock - item.quantity,
-                    );
-                  }
-                  if (products[idx].warehouseStock) {
-                    const whs = products[idx].warehouseStock;
-                    let remaining = item.quantity;
-                    if (whs.central && whs.central > 0) {
-                      const toDeduct = Math.min(remaining, whs.central);
-                      whs.central -= toDeduct;
-                      remaining -= toDeduct;
-                    }
-                    for (const w in whs) {
-                      if (remaining <= 0) break;
-                      if (w === "central") continue;
-                      const avail = whs[w];
-                      const deduct = Math.min(remaining, avail);
-                      whs[w] -= deduct;
-                      remaining -= deduct;
-                    }
-                  }
-                  modified = true;
-                }
-              });
-              if (modified) {
-                saveProducts(products);
-              }
-            } catch (e) {
-              console.error("Error al descontar stock:", e);
-            }
-            saveOrders(orders);
-            sendOrderPaidEmail(order);
-          } else if (payment.status === "in_process") {
-            order.estado_pago = "en proceso";
-            order.paymentId = payment.id;
-            saveOrders(orders);
-          } else if (payment.status === "rejected") {
-            order.estado_pago = "rechazado";
-            order.paymentId = payment.id;
-            saveOrders(orders);
-            }
-          }
-        return sendJson(res, 200, { success: true });
-      } catch (err) {
-        console.error(err);
-        return sendJson(res, 400, { error: "Webhook inválido" });
-      }
-    });
+  if (
+    (pathname === "/api/mercado-pago/webhook" ||
+      pathname === "/api/webhooks/mp") &&
+    req.method === "POST"
+  ) {
+    mpWebhookRelay(req, res, parsedUrl);
     return;
   }
 
