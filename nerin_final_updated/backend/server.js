@@ -19,6 +19,8 @@ const { Resend } = require("resend");
 const multer = require("multer");
 const generarNumeroOrden = require("./utils/generarNumeroOrden");
 const verifyEmail = require("./emailValidator");
+const validateWebhook = require("./middleware/validateWebhook");
+const { processNotification } = require("./routes/mercadoPago");
 require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
@@ -2105,7 +2107,42 @@ const server = http.createServer((req, res) => {
       pathname === "/api/webhooks/mp") &&
     req.method === "POST"
   ) {
-    mpWebhookRelay(req, res, parsedUrl);
+    parseBody(req).then(() => {
+      try {
+        req.body = validateWebhook(req.body);
+      } catch (e) {
+        res.writeHead(400, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": ORIGIN,
+        });
+        res.end(JSON.stringify({ error: "Invalid payload" }));
+        return;
+      }
+
+      const topic = parsedUrl.query.topic || req.body.topic;
+      const id =
+        parsedUrl.query.id ||
+        req.body.id ||
+        req.body.payment_id ||
+        (req.body.data && req.body.data.id);
+
+      console.log("mp-webhook recibido:", { topic, id });
+
+      res.writeHead(200, {
+        "Access-Control-Allow-Origin": ORIGIN,
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers":
+          "Accept, Content-Type, Authorization, X-Requested-With",
+      });
+      res.end();
+
+      if (!id) {
+        console.warn("id requerido");
+        return;
+      }
+
+      setImmediate(() => processNotification(topic, id));
+    });
     return;
   }
 

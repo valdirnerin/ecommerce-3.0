@@ -1,8 +1,7 @@
 const Joi = require('joi');
-const logger = require('../logger');
 
 // Joi schema for webhook payload. It accepts an empty body so that
-// topic/id can also arrive via query parameters. Additional keys are
+// topic and id can also arrive via query parameters. Additional keys are
 // allowed beyond the ones explicitly listed here.
 const schema = Joi.object({
   payment_id: Joi.alternatives().try(Joi.string(), Joi.number()).optional(),
@@ -13,12 +12,12 @@ const schema = Joi.object({
   }).optional(),
 }).unknown(true);
 
-module.exports = function validateWebhook(req, res, next) {
-  const { error, value } = schema.validate(req.body, { abortEarly: false });
+module.exports = function validateWebhook(body = {}) {
+  const { error, value } = schema.validate(body, { abortEarly: false });
   if (error) {
-    logger.warn(`invalid body: ${error.message}`);
-    return res.status(400).json({ error: 'Invalid payload' });
+    const err = new Error(error.message);
+    err.name = 'ValidationError';
+    throw err;
   }
-  req.body = value;
-  next();
+  return value;
 };
