@@ -9,7 +9,6 @@
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
-const cors = require("cors");
 // Usar fetch nativo si está disponible; como fallback se importa dinámicamente node-fetch
 const fetchFn =
   globalThis.fetch ||
@@ -25,11 +24,23 @@ try {
 require("dotenv").config();
 
 const app = express();
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
+app.use(express.urlencoded({ extended: true }));
+
 const ORIGIN = process.env.PUBLIC_URL || '*';
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', ORIGIN);
+  res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  const reqHdr = req.headers['access-control-request-headers'];
+  res.header('Access-Control-Allow-Headers', reqHdr || 'Accept, Content-Type, Authorization, X-Requested-With');
+  // si en el futuro usamos cookies: res.header('Access-Control-Allow-Credentials','true');
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 });
@@ -42,17 +53,6 @@ const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
-
-// Middleware
-app.use(cors());
-app.use(
-  express.json({
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  })
-);
-app.use(express.urlencoded({ extended: true }));
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
@@ -141,6 +141,11 @@ async function mpWebhookRelay(req, res) {
     console.error("mp-webhook relay FAIL:", e?.message);
   }
 }
+
+app.use('/api', (req, res, next) => {
+  console.info('API', req.method, req.path, req.headers['content-type'] || '', req.body && Object.keys(req.body));
+  next();
+});
 
 // API: obtener la lista de productos
 app.get("/api/products", (_req, res) => {
