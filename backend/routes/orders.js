@@ -25,20 +25,56 @@ router.get('/pending', async (_req, res) => {
   }
 });
 
+async function findOrder(id) {
+  if (id.startsWith('pref_')) {
+    return (
+      await db.query(
+        'SELECT payment_status, order_number FROM orders WHERE preference_id = $1',
+        [id]
+      )
+    ).rows;
+  }
+  if (id.startsWith('NRN-')) {
+    return (
+      await db.query(
+        'SELECT payment_status, order_number FROM orders WHERE order_number = $1',
+        [id]
+      )
+    ).rows;
+  }
+  let rows = (
+    await db.query(
+      'SELECT payment_status, order_number FROM orders WHERE preference_id = $1',
+      [id]
+    )
+  ).rows;
+  if (rows.length === 0) {
+    rows = (
+      await db.query(
+        'SELECT payment_status, order_number FROM orders WHERE order_number = $1',
+        [id]
+      )
+    ).rows;
+  }
+  return rows;
+}
+
+router.get('/test/:id/status', async (req, res) => {
+  try {
+    const rows = await findOrder(req.params.id);
+    if (rows.length === 0) {
+      return res.json({ status: 'pending', numeroOrden: null });
+    }
+    res.json({ status: rows[0].payment_status, numeroOrden: rows[0].order_number });
+  } catch (error) {
+    logger.error(`Error al obtener estado del pedido (test): ${error.message}`);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 router.get('/:id/status', async (req, res) => {
   try {
-    let { rows } = await db.query(
-      'SELECT payment_status, order_number FROM orders WHERE preference_id = $1',
-      [req.params.id]
-    );
-    if (rows.length === 0) {
-      rows = (
-        await db.query(
-          'SELECT payment_status, order_number FROM orders WHERE order_number = $1',
-          [req.params.id]
-        )
-      ).rows;
-    }
+    const rows = await findOrder(req.params.id);
     if (rows.length === 0) {
       return res.json({ status: 'pending', numeroOrden: null });
     }
