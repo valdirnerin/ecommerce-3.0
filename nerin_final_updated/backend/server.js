@@ -79,23 +79,70 @@ async function mpWebhookRelay(req, res, parsedUrl) {
       "Accept, Content-Type, Authorization, X-Requested-With",
   });
   res.end();
-  try {
-    const fwd = process.env.MP_WEBHOOK_FORWARD_URL;
-    if (!fwd) return;
-    const qs = new URLSearchParams(parsedUrl.query || {}).toString();
-    const url = qs ? `${fwd}?${qs}` : fwd;
-    await fetchFn(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Source-Service": "nerin",
-      },
-      body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
-    });
-    console.info("mp-webhook relay OK →", url);
-  } catch (e) {
-    console.error("mp-webhook relay FAIL", e?.message);
-  }
+
+  setImmediate(async () => {
+    try {
+      const fwd = process.env.MP_WEBHOOK_FORWARD_URL;
+      if (fwd) {
+        const qs = new URLSearchParams(parsedUrl.query || {}).toString();
+        const url = qs ? `${fwd}?${qs}` : fwd;
+        fetchFn(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Source-Service": "nerin",
+          },
+          body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
+        }).catch((e) => console.error("mp-webhook relay FAIL", e?.message));
+        console.info("mp-webhook relay →", url);
+      }
+
+      // TODO: verificar firma HMAC de Mercado Pago
+      const payload = req.body || {};
+      const paymentId =
+        payload.data?.id || payload.data?.payment_id || payload.id || null;
+      let info = payload;
+      if (paymentClient && paymentId) {
+        try {
+          info = await paymentClient.get({ id: paymentId });
+        } catch (e) {
+          console.error("mp get payment fail", e?.message);
+        }
+      }
+      const extRef =
+        info.external_reference || payload.external_reference || null;
+      const prefId = info.preference_id || payload.data?.preference_id || null;
+      const status =
+        (info.status || payload.data?.status || payload.type || "").toLowerCase();
+      if (!extRef && !prefId) return;
+
+      const orders = getOrders();
+      let idx = -1;
+      if (extRef) {
+        idx = orders.findIndex(
+          (o) =>
+            o.id === extRef ||
+            o.external_reference === extRef ||
+            o.order_number === extRef,
+        );
+      }
+      if (idx === -1 && prefId) {
+        idx = orders.findIndex((o) => String(o.preference_id) === String(prefId));
+      }
+      if (idx !== -1) {
+        const row = orders[idx];
+        row.payment_id = paymentId || row.payment_id;
+        row.payment_status = status || row.payment_status;
+        row.estado_pago = status || row.estado_pago;
+        saveOrders(orders);
+        console.log("mp-webhook updated", extRef || prefId, status);
+      } else {
+        console.log("mp-webhook order not found", extRef, prefId);
+      }
+    } catch (e) {
+      console.error("mp-webhook process error", e?.message);
+    }
+  });
 }
 
 // Usuarios de ejemplo para login
@@ -313,16 +360,24 @@ function saveOrders(orders) {
 
 function getOrderStatus(id) {
   const orders = getOrders();
-  let order;
-  if (id && id.startsWith("pref_")) {
-    order = orders.find((o) => String(o.preference_id) === id);
-  } else {
+  let order = null;
+  if (id && /^NRN-/i.test(id)) {
     order = orders.find(
       (o) =>
-        String(o.id) === id ||
-        String(o.external_reference) === id ||
-        String(o.order_number) === id,
+        o.id === id ||
+        o.external_reference === id ||
+        o.order_number === id,
     );
+  } else {
+    order = orders.find((o) => String(o.preference_id) === String(id));
+    if (!order) {
+      order = orders.find(
+        (o) =>
+          o.id === id ||
+          o.external_reference === id ||
+          o.order_number === id,
+      );
+    }
   }
   if (!order) {
     console.log("status: pending (no row yet)");
@@ -1904,7 +1959,7 @@ const server = http.createServer((req, res) => {
             pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
-          notification_url: "https://nerinparts.com.ar/api/webhooks/mp",
+          notification_url: `${DOMAIN}/api/webhooks/mp`,
         };
         console.log("Preferencia enviada a Mercado Pago:", preferenceBody);
         if (!mpPreference) {
@@ -1912,6 +1967,7 @@ const server = http.createServer((req, res) => {
         }
         const pref = await mpPreference.create({ body: preferenceBody });
         const prefId = pref.id || pref.body?.id || pref.preference_id;
+        console.log("MP preference", prefId, numeroOrden);
         if (prefId) {
           const orders = getOrders();
           const idx = orders.findIndex(
@@ -1922,15 +1978,21 @@ const server = http.createServer((req, res) => {
               id: numeroOrden,
               external_reference: numeroOrden,
               preference_id: prefId,
+              payment_status: "pending",
               estado_pago: "pendiente",
+              user_email: usuario?.email || null,
             });
           } else {
-            orders[idx].preference_id = prefId;
-            orders[idx].external_reference = numeroOrden;
+            const row = orders[idx];
+            row.preference_id = prefId;
+            row.external_reference = numeroOrden;
+            row.user_email = usuario?.email || row.user_email || null;
+            row.payment_status = row.payment_status || "pending";
+            row.estado_pago = row.estado_pago || "pendiente";
           }
           saveOrders(orders);
         }
-        console.log('Respuesta completa de Mercado Pago:', pref);
+        console.log("Respuesta completa de Mercado Pago:", pref);
         return sendJson(res, 200, {
           init_point: pref.init_point,
           id: prefId,
