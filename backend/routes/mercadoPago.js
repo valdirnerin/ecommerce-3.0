@@ -13,6 +13,12 @@ const mpClient = new MercadoPagoConfig({ accessToken: ACCESS_TOKEN });
 const paymentClient = new Payment(mpClient);
 const merchantClient = new MerchantOrder(mpClient);
 
+router.post('/test', (req, res) => {
+  console.log('📥 mp-webhook test:', req.body);
+  logger.info(`mp-webhook test: ${JSON.stringify(req.body)}`);
+  res.sendStatus(200);
+});
+
 router.post(
   '/',
   requireHttps,
@@ -21,8 +27,8 @@ router.post(
   
   validateWebhook,
   async (req, res) => {
-    console.log('📥 Webhook recibido:', req.body);
-    logger.info('Webhook recibido');
+    console.log('📥 mp-webhook recibido:', req.body);
+    logger.info('mp-webhook recibido');
     const paymentId =
       req.body.payment_id ||
       (req.body.data && req.body.data.id) ||
@@ -102,7 +108,7 @@ router.post(
     }
 
     logger.info(
-      `Pedido ${(orderNumber || preferenceId)} actualizado con estado ${status} y payment_id ${paymentId}`
+      `mp-webhook ${(orderNumber || preferenceId)} OK estado ${status} payment_id ${paymentId}`
     );
 
     res.sendStatus(200);

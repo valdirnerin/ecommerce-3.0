@@ -89,7 +89,21 @@ router.post('/crear-preferencia', async (req, res) => {
     const response = await preference.create({ body });
     const prefId = response.id || response.body?.id || response.preference_id;
     if (prefId) {
-      await db.query('UPDATE orders SET preference_id = $1 WHERE order_number = $2', [String(prefId), String(numeroOrden)]);
+      const result = await db.query(
+        'UPDATE orders SET preference_id = $1 WHERE order_number = $2',
+        [String(prefId), String(numeroOrden)]
+      );
+      if (result.rowCount === 0) {
+        await db.query(
+          'INSERT INTO orders (order_number, preference_id, payment_status, user_email) VALUES ($1,$2,$3,$4)',
+          [
+            String(numeroOrden),
+            String(prefId),
+            'pending',
+            usuario.email || null,
+          ]
+        );
+      }
     }
     // Log completo de la respuesta de Mercado Pago para facilitar el debug
     logger.info(`📝 response.body: ${JSON.stringify(response.body)}`);
