@@ -150,7 +150,12 @@ app.use('/api', (req, res, next) => {
 
 app.use('/api', async (req, res, next) => {
   if (!API_FORWARD_URL) return next();
-  if (req.path === '/webhooks/mp' || req.path === '/mercado-pago/webhook') return next();
+  if (
+    req.path === '/webhooks/mp' ||
+    req.path === '/mercado-pago/webhook' ||
+    /^\/orders\/[^/]+\/status$/.test(req.path)
+  )
+    return next();
   try {
     const base = API_FORWARD_URL.replace(/\/$/, '');
     const target = base + req.originalUrl.replace(/^\/api/, '');
