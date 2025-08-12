@@ -770,6 +770,7 @@ const server = http.createServer((req, res) => {
         // Registrar pedido con posible información del cliente
         const orderEntry = {
           id: orderId,
+          external_reference: orderId,
           date: new Date().toISOString(),
           // Clonar items para no mutar las cantidades al actualizar inventario
           items: cart.map((it) => ({ ...it })),
@@ -923,6 +924,7 @@ const server = http.createServer((req, res) => {
         const impuestosCalc = Math.round(total * 0.21);
         const order = {
           id: orderId,
+          external_reference: orderId,
           cliente: data.cliente || {},
           productos: items,
           provincia_envio: provincia,
@@ -987,6 +989,46 @@ const server = http.createServer((req, res) => {
       return sendJson(res, 500, {
         error: "No se pudieron obtener los pedidos",
       });
+    }
+  }
+
+  // API: obtener estado de una orden
+  if (
+    pathname.startsWith("/api/orders/") &&
+    pathname.endsWith("/status") &&
+    req.method === "GET"
+  ) {
+    const parts = pathname.split("/");
+    const id = parts[3];
+    try {
+      const orders = getOrders();
+      let order;
+      if (id && id.startsWith("pref_")) {
+        order = orders.find((o) => String(o.preference_id) === id);
+      } else {
+        order = orders.find(
+          (o) =>
+            String(o.id) === id ||
+            String(o.external_reference) === id ||
+            String(o.order_number) === id,
+        );
+      }
+      if (!order) {
+        console.log("status: pending (no row yet)");
+        return sendJson(res, 200, { status: "pending", numeroOrden: null });
+      }
+      const raw = String(order.estado_pago || order.payment_status || "").toLowerCase();
+      let status = "pending";
+      if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
+      else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+      return sendJson(res, 200, {
+        status,
+        numeroOrden:
+          order.id || order.order_number || order.external_reference || null,
+      });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al obtener estado" });
     }
   }
 
@@ -1833,9 +1875,11 @@ const server = http.createServer((req, res) => {
           quantity: Number(cantidad),
           currency_id: currency_id || "ARS",
         }));
+        const numeroOrden = generarNumeroOrden();
         const preferenceBody = {
           items,
           payer: { email: usuario?.email },
+          external_reference: numeroOrden,
           back_urls: {
             success: `${DOMAIN}/success`,
             failure: `${DOMAIN}/failure`,
@@ -1847,11 +1891,30 @@ const server = http.createServer((req, res) => {
         if (!mpPreference) {
           throw new Error("Mercado Pago no está configurado");
         }
-        const result = await mpPreference.create({ body: preferenceBody });
-        console.log('Respuesta completa de Mercado Pago:', result);
+        const pref = await mpPreference.create({ body: preferenceBody });
+        const prefId = pref.id || pref.body?.id || pref.preference_id;
+        if (prefId) {
+          const orders = getOrders();
+          const idx = orders.findIndex(
+            (o) => o.id === numeroOrden || o.external_reference === numeroOrden,
+          );
+          if (idx === -1) {
+            orders.push({
+              id: numeroOrden,
+              external_reference: numeroOrden,
+              preference_id: prefId,
+              estado_pago: "pendiente",
+            });
+          } else {
+            orders[idx].preference_id = prefId;
+            orders[idx].external_reference = numeroOrden;
+          }
+          saveOrders(orders);
+        }
+        console.log('Respuesta completa de Mercado Pago:', pref);
         return sendJson(res, 200, {
-          init_point: result.init_point,
-          id: result.id,
+          init_point: pref.init_point,
+          id: prefId,
         });
       } catch (err) {
         console.error(err);
