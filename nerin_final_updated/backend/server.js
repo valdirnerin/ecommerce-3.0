@@ -92,6 +92,7 @@ async function mpWebhookRelay(req, res, parsedUrl) {
       },
       body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
     });
+    console.info("mp-webhook relay OK →", url);
   } catch (e) {
     console.error("mp-webhook relay FAIL", e?.message);
   }
@@ -308,6 +309,33 @@ function getOrders() {
 function saveOrders(orders) {
   const dataPath = path.join(__dirname, "../data/orders.json");
   fs.writeFileSync(dataPath, JSON.stringify({ orders }, null, 2), "utf8");
+}
+
+function getOrderStatus(id) {
+  const orders = getOrders();
+  let order;
+  if (id && id.startsWith("pref_")) {
+    order = orders.find((o) => String(o.preference_id) === id);
+  } else {
+    order = orders.find(
+      (o) =>
+        String(o.id) === id ||
+        String(o.external_reference) === id ||
+        String(o.order_number) === id,
+    );
+  }
+  if (!order) {
+    console.log("status: pending (no row yet)");
+    return { status: "pending", numeroOrden: null };
+  }
+  const raw = String(order.estado_pago || order.payment_status || "").toLowerCase();
+  let status = "pending";
+  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
+  else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+  return {
+    status,
+    numeroOrden: order.id || order.order_number || order.external_reference || null,
+  };
 }
 
 // Leer clientes desde el archivo JSON
@@ -992,40 +1020,30 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // API: obtener estado de una orden (ruta de test)
+  if (
+    pathname.startsWith("/api/orders/test/") &&
+    pathname.endsWith("/status") &&
+    req.method === "GET"
+  ) {
+    const id = pathname.split("/")[4];
+    try {
+      return sendJson(res, 200, getOrderStatus(id));
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al obtener estado" });
+    }
+  }
+
   // API: obtener estado de una orden
   if (
     pathname.startsWith("/api/orders/") &&
     pathname.endsWith("/status") &&
     req.method === "GET"
   ) {
-    const parts = pathname.split("/");
-    const id = parts[3];
+    const id = pathname.split("/")[3];
     try {
-      const orders = getOrders();
-      let order;
-      if (id && id.startsWith("pref_")) {
-        order = orders.find((o) => String(o.preference_id) === id);
-      } else {
-        order = orders.find(
-          (o) =>
-            String(o.id) === id ||
-            String(o.external_reference) === id ||
-            String(o.order_number) === id,
-        );
-      }
-      if (!order) {
-        console.log("status: pending (no row yet)");
-        return sendJson(res, 200, { status: "pending", numeroOrden: null });
-      }
-      const raw = String(order.estado_pago || order.payment_status || "").toLowerCase();
-      let status = "pending";
-      if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
-      else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
-      return sendJson(res, 200, {
-        status,
-        numeroOrden:
-          order.id || order.order_number || order.external_reference || null,
-      });
+      return sendJson(res, 200, getOrderStatus(id));
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al obtener estado" });
@@ -1886,6 +1904,7 @@ const server = http.createServer((req, res) => {
             pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
+          notification_url: "https://nerinparts.com.ar/api/webhooks/mp",
         };
         console.log("Preferencia enviada a Mercado Pago:", preferenceBody);
         if (!mpPreference) {
@@ -2025,6 +2044,14 @@ const server = http.createServer((req, res) => {
     req.method === "POST"
   ) {
     mpWebhookRelay(req, res, parsedUrl);
+    return;
+  }
+
+  if (pathname === "/api/webhooks/mp/test" && req.method === "POST") {
+    parseBody(req).then(() => {
+      console.log("mp-webhook TEST", req.body);
+      sendJson(res, 200, { ok: true });
+    });
     return;
   }
 

@@ -195,19 +195,8 @@ app.post("/api/orders", async (req, res) => {
       (t, it) => t + Number(it.price) * Number(it.quantity),
       0,
     );
-    const order = {
-      id,
-      cliente,
-      productos,
-      estado_pago: "pendiente",
-      estado_envio: "pendiente",
-      fecha: new Date().toISOString(),
-      total,
-    };
-    const orders = getOrders();
-    orders.push(order);
-    saveOrders(orders);
 
+    let preferenceId = null;
     let initPoint = null;
     if (mpPreference) {
       try {
@@ -225,19 +214,80 @@ app.post("/api/orders", async (req, res) => {
           },
           auto_return: "approved",
           external_reference: id,
-          notification_url: `${process.env.PUBLIC_URL}/api/webhooks/mp`,
+          notification_url: `https://nerinparts.com.ar/api/webhooks/mp`,
         };
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;
+        preferenceId = prefRes.id;
       } catch (e) {
         console.error("MP preference error", e);
       }
     }
 
+    const order = {
+      id,
+      cliente,
+      productos,
+      estado_pago: "pendiente",
+      estado_envio: "pendiente",
+      fecha: new Date().toISOString(),
+      total,
+      preference_id: preferenceId,
+      external_reference: id,
+    };
+    const orders = getOrders();
+    orders.push(order);
+    saveOrders(orders);
+
     return res.status(201).json({ orderId: id, init_point: initPoint });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "No se pudo crear el pedido" });
+  }
+});
+
+function getOrderStatus(id) {
+  const orders = getOrders();
+  let order;
+  if (id && id.startsWith("pref_")) {
+    order = orders.find((o) => String(o.preference_id) === id);
+  } else {
+    order = orders.find(
+      (o) =>
+        String(o.id) === id ||
+        String(o.external_reference) === id ||
+        String(o.order_number) === id,
+    );
+  }
+  if (!order) {
+    console.log("status: pending (no row yet)");
+    return { status: "pending", numeroOrden: null };
+  }
+  const raw = String(order.estado_pago || order.payment_status || "").toLowerCase();
+  let status = "pending";
+  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
+  else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+  return {
+    status,
+    numeroOrden: order.id || order.order_number || order.external_reference || null,
+  };
+}
+
+app.get("/api/orders/test/:id/status", (req, res) => {
+  try {
+    res.json(getOrderStatus(req.params.id));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al obtener estado" });
+  }
+});
+
+app.get("/api/orders/:id/status", (req, res) => {
+  try {
+    res.json(getOrderStatus(req.params.id));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al obtener estado" });
   }
 });
 
@@ -247,6 +297,11 @@ app.get("/api/orders/:id", (req, res) => {
   const order = orders.find((o) => o.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
   res.json({ order });
+});
+
+app.post("/api/webhooks/mp/test", (req, res) => {
+  console.log("mp-webhook TEST", req.body);
+  res.sendStatus(200);
 });
 
 app.post("/api/track-order", (req, res) => {
