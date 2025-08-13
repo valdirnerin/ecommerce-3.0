@@ -67,6 +67,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (data && data.init_point) {
+        localStorage.setItem('mp_last_pref', data.preferenceId || '');
+        localStorage.setItem('mp_last_nrn', data.nrn || data.orderId || '');
         localStorage.removeItem("nerinCart");
         window.location.href = data.init_point;
       } else {
