@@ -4,27 +4,47 @@
     <meta charset="UTF-8" />
     <title>Estado del pago</title>
     <link rel="stylesheet" href="/css/style.css" />
-    <script src="/frontend/js/order-status.js"></script>
+    <script src="/js/order-status.js" defer></script>
+    <noscript>
+      <style>
+        .noscript-msg {
+          max-width: 600px;
+          margin: 2rem auto;
+          padding: 1rem;
+          text-align: center;
+        }
+      </style>
+      <div class="noscript-msg">
+        Por favor habilitá JavaScript para ver el estado de tu pago.
+      </div>
+    </noscript>
   </head>
   <body>
-    <div class="contenedor" id="statusContainer"></div>
+    <div class="contenedor" id="statusContainer">
+      <div class="spinner"></div>
+      <p>Estamos confirmando tu pago...</p>
+    </div>
     <script>
       document.addEventListener('DOMContentLoaded', async () => {
-        const id = getIdentifier();
-        if (!id) {
+        try {
+          const id = getIdentifier();
           showProcessing();
-          return;
-        }
-        showProcessing();
-        const { status, id: resolvedId, numeroOrden } = await pollOrderStatus(id);
-        if (status === 'approved') {
-          showApproved(numeroOrden || resolvedId);
-          localStorage.removeItem('mp_last_pref');
-          localStorage.removeItem('mp_last_nrn');
-        } else if (status === 'rejected') {
-          showRejected();
-        } else {
-          showProcessing('Estamos acreditando tu pago...');
+          if (!id) return;
+          const { status, id: resolvedId, numeroOrden } = await pollOrderStatus(id);
+          if (status === 'approved') {
+            showApproved(numeroOrden || resolvedId);
+            localStorage.removeItem('mp_last_pref');
+            localStorage.removeItem('mp_last_nrn');
+          } else if (status === 'rejected') {
+            showRejected();
+          } else {
+            showProcessing('Estamos acreditando tu pago...');
+          }
+        } catch (e) {
+          const el = document.getElementById('statusContainer');
+          if (el) {
+            el.innerHTML = '<p>Ocurrió un problema al verificar tu pago. Intentá nuevamente más tarde.</p>';
+          }
         }
       });
     </script>

@@ -601,7 +601,7 @@ const upload = multer({
 });
 
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
-function serveStatic(filePath, res) {
+function serveStatic(filePath, res, headers = {}) {
   const ext = path.extname(filePath).toLowerCase();
   const mimeTypes = {
     ".html": "text/html",
@@ -619,7 +619,7 @@ function serveStatic(filePath, res) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Not Found");
     } else {
-      res.writeHead(200, { "Content-Type": contentType });
+      res.writeHead(200, { "Content-Type": contentType, ...headers });
       res.end(data);
     }
   });
@@ -2205,13 +2205,19 @@ const server = http.createServer((req, res) => {
 
   // Páginas de resultado de pago de Mercado Pago
   if (pathname === "/success") {
-    return serveStatic(path.join(__dirname, "../frontend/success.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/success.html"), res, {
+      "Cache-Control": "no-store",
+    });
   }
   if (pathname === "/failure") {
-    return serveStatic(path.join(__dirname, "../frontend/failure.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/failure.html"), res, {
+      "Cache-Control": "no-store",
+    });
   }
   if (pathname === "/pending") {
-    return serveStatic(path.join(__dirname, "../frontend/pending.html"), res);
+    return serveStatic(path.join(__dirname, "../frontend/pending.html"), res, {
+      "Cache-Control": "no-store",
+    });
   }
 
   if (pathname === "/seguimiento" || pathname === "/seguimiento-pedido") {

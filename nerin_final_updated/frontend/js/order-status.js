@@ -7,13 +7,14 @@
       params.get('o') ||
       params.get('order') ||
       params.get('external_reference') ||
+      params.get('collection_id') ||
       localStorage.getItem('mp_last_pref') ||
       localStorage.getItem('mp_last_nrn');
     return id || null;
   }
 
   async function pollOrderStatus(id, opts = {}) {
-    const { tries = 40, interval = 1500 } = opts;
+    const { tries = 120, interval = 1500 } = opts;
     for (let attempt = 0; attempt < tries; attempt++) {
       try {
         const res = await fetch(`/api/orders/${encodeURIComponent(id)}/status`);
@@ -40,14 +41,14 @@
   function showProcessing(message = 'Estamos confirmando tu pago...') {
     const el = containerEl();
     if (el) {
-      el.innerHTML = `<p>⏳ ${message}</p>`;
+      el.innerHTML = `<div class="spinner"></div><p>${message}</p>`;
     }
   }
 
   function showApproved(nrn) {
     const el = containerEl();
     if (el) {
-      el.innerHTML = `<p>✅ ¡Pago aprobado!</p>${nrn ? `<p>N° de orden: ${nrn}</p>` : ''}`;
+      el.innerHTML = `<p>✅ ¡Pago aprobado!</p>${nrn ? `<p>N° de orden: ${nrn}</p>` : ''}<a class="btn" href="/seguimiento.html">Seguir mi pedido</a>`;
     }
   }
 
