@@ -9,7 +9,7 @@
  * seleccionada.
  */
 
-import { isWholesale } from "./api.js";
+import { isWholesale, fetchProducts } from "./api.js";
 
 // Referencias a los elementos del DOM
 const itemsContainer = document.getElementById("cartItems");
@@ -45,7 +45,7 @@ function getStoredCart() {
 }
 
 // Renderizar el carrito completo
-function renderCart() {
+async function renderCart() {
   const cart = getStoredCart();
   itemsContainer.innerHTML = "";
   let subtotal = 0;
@@ -55,10 +55,28 @@ function renderCart() {
     actionsContainer.style.display = "none";
     return;
   }
+
+  // Obtener stock actualizado de productos
+  let stockMap = {};
+  try {
+    const products = await fetchProducts();
+    stockMap = Object.fromEntries(
+      products.map((p) => [p.id, typeof p.stock === "number" ? p.stock : Infinity]),
+    );
+  } catch (e) {
+    console.warn("No se pudieron obtener los productos", e);
+  }
+
   actionsContainer.style.display = "flex";
   cart.forEach((item, index) => {
     const itemEl = document.createElement("div");
     itemEl.className = "cart-item";
+
+    const available = stockMap[item.id] ?? Infinity;
+    if (item.quantity > available) {
+      item.quantity = available;
+      localStorage.setItem("nerinCart", JSON.stringify(cart));
+    }
 
     if (item.image) {
       const imgEl = document.createElement("img");
@@ -74,6 +92,13 @@ function renderCart() {
     nameEl.className = "cart-name";
     nameEl.textContent = item.name;
     details.appendChild(nameEl);
+
+    if (available !== Infinity) {
+      const stockEl = document.createElement("div");
+      stockEl.className = "cart-stock";
+      stockEl.textContent = `Stock: ${available}`;
+      details.appendChild(stockEl);
+    }
 
     const basePrice = item.price;
     let unitPrice = basePrice;
@@ -108,11 +133,17 @@ function renderCart() {
     const qtyInput = document.createElement("input");
     qtyInput.type = "number";
     qtyInput.min = 1;
+    qtyInput.max = available;
     qtyInput.value = item.quantity;
     qtyInput.className = "cart-qty-input";
     qtyInput.setAttribute("inputmode", "numeric");
     qtyInput.addEventListener("change", () => {
-      const qty = parseInt(qtyInput.value, 10) || 1;
+      let qty = parseInt(qtyInput.value, 10) || 1;
+      if (qty > available) {
+        qty = available;
+        qtyInput.value = available;
+        alert(`Stock disponible: ${available}`);
+      }
       cart[index].quantity = qty;
       localStorage.setItem("nerinCart", JSON.stringify(cart));
       renderCart();
@@ -121,14 +152,25 @@ function renderCart() {
     plus.className = "stepper-btn";
     plus.textContent = "+";
     plus.addEventListener("click", () => {
-      cart[index].quantity += 1;
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
-      renderCart();
+      if (cart[index].quantity < available) {
+        cart[index].quantity += 1;
+        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        renderCart();
+      } else {
+        alert(`Stock disponible: ${available}`);
+      }
     });
     stepper.appendChild(minus);
     stepper.appendChild(qtyInput);
     stepper.appendChild(plus);
     itemEl.appendChild(stepper);
+
+    if (available <= 0) {
+      qtyInput.value = 0;
+      qtyInput.disabled = true;
+      plus.disabled = true;
+      minus.disabled = true;
+    }
 
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove-item-btn";
