@@ -161,6 +161,8 @@ confirmarBtn.addEventListener('click', async () => {
       const data = JSON.parse(text);
       console.log('Respuesta preferencia MP', { status: res.status, data });
       if (res.ok && data.init_point) {
+        localStorage.setItem('mp_last_pref', data.preferenceId || '');
+        localStorage.setItem('mp_last_nrn', data.nrn || data.orderId || '');
         localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
         localStorage.removeItem('nerinCart');
         window.location.href = data.init_point;

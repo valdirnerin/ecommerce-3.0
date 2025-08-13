@@ -1998,6 +1998,8 @@ const server = http.createServer((req, res) => {
         return sendJson(res, 200, {
           init_point: pref.init_point,
           id: prefId,
+          preferenceId: prefId,
+          nrn: numeroOrden,
         });
       } catch (err) {
         console.error(err);

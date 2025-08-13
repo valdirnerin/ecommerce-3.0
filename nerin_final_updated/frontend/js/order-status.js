@@ -1,0 +1,66 @@
+(function () {
+  function getIdentifier() {
+    const params = new URLSearchParams(window.location.search);
+    const id =
+      params.get('preference_id') ||
+      params.get('pref_id') ||
+      params.get('o') ||
+      params.get('order') ||
+      params.get('external_reference') ||
+      localStorage.getItem('mp_last_pref') ||
+      localStorage.getItem('mp_last_nrn');
+    return id || null;
+  }
+
+  async function pollOrderStatus(id, opts = {}) {
+    const { tries = 40, interval = 1500 } = opts;
+    for (let attempt = 0; attempt < tries; attempt++) {
+      try {
+        const res = await fetch(`/api/orders/${encodeURIComponent(id)}/status`);
+        if (res.ok) {
+          const data = await res.json();
+          const st = data.status;
+          const nrn = data.numeroOrden;
+          if (st === 'approved' || st === 'rejected') {
+            return { status: st, id, numeroOrden: nrn };
+          }
+        }
+      } catch (e) {
+        // ignore errors, treat as pending
+      }
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    return { status: 'pending', id };
+  }
+
+  function containerEl() {
+    return document.getElementById('statusContainer');
+  }
+
+  function showProcessing(message = 'Estamos confirmando tu pago...') {
+    const el = containerEl();
+    if (el) {
+      el.innerHTML = `<p>⏳ ${message}</p>`;
+    }
+  }
+
+  function showApproved(nrn) {
+    const el = containerEl();
+    if (el) {
+      el.innerHTML = `<p>✅ ¡Pago aprobado!</p>${nrn ? `<p>N° de orden: ${nrn}</p>` : ''}`;
+    }
+  }
+
+  function showRejected() {
+    const el = containerEl();
+    if (el) {
+      el.innerHTML = `<p>❌ Tu pago fue rechazado</p><a class="btn" href="/checkout.html">Intentar de nuevo</a>`;
+    }
+  }
+
+  window.getIdentifier = getIdentifier;
+  window.pollOrderStatus = pollOrderStatus;
+  window.showProcessing = showProcessing;
+  window.showApproved = showApproved;
+  window.showRejected = showRejected;
+})();

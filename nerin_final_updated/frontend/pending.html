@@ -4,14 +4,29 @@
     <meta charset="UTF-8" />
     <title>Pago pendiente</title>
     <link rel="stylesheet" href="/css/style.css" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <script src="/frontend/js/order-status.js"></script>
   </head>
   <body>
-    <div class="contenedor">
-      <p>
-        ⏳ Tu pago está pendiente. Te avisaremos por email cuando se acredite.
-      </p>
-      <a class="btn" href="/index.html">Volver a la tienda</a>
-    </div>
+    <div class="contenedor" id="statusContainer"></div>
+    <script>
+      document.addEventListener('DOMContentLoaded', async () => {
+        const id = getIdentifier();
+        if (!id) {
+          showProcessing();
+          return;
+        }
+        showProcessing();
+        const { status, id: resolvedId, numeroOrden } = await pollOrderStatus(id);
+        if (status === 'approved') {
+          showApproved(numeroOrden || resolvedId);
+          localStorage.removeItem('mp_last_pref');
+          localStorage.removeItem('mp_last_nrn');
+        } else if (status === 'rejected') {
+          showRejected();
+        } else {
+          showProcessing('Estamos acreditando tu pago...');
+        }
+      });
+    </script>
   </body>
 </html>

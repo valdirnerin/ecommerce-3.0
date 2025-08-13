@@ -244,7 +244,12 @@ app.post("/api/orders", async (req, res) => {
     orders.push(order);
     saveOrders(orders);
 
-    return res.status(201).json({ orderId: id, init_point: initPoint });
+    return res.status(201).json({
+      orderId: id,
+      init_point: initPoint,
+      preferenceId,
+      nrn: id,
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "No se pudo crear el pedido" });

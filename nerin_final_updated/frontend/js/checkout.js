@@ -22,6 +22,8 @@ document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
     const data = await res.json();
 
     if (data.init_point) {
+      localStorage.setItem('mp_last_pref', data.preferenceId || '');
+      localStorage.setItem('mp_last_nrn', data.nrn || data.orderId || '');
       window.location.href = data.init_point;
     } else {
       window.location.href = "/checkout.html?status=failure";
