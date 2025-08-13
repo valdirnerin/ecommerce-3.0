@@ -1137,16 +1137,34 @@ const server = http.createServer((req, res) => {
           return ps === status;
         });
       }
-      const rows = orders.map((o) => ({
-        order_number:
-          o.order_number || o.id || o.external_reference || "", // NRN
-        date: o.fecha || o.date || o.created_at || "",
-        client: o.cliente?.nombre || o.cliente?.name || "",
-        phone: o.cliente?.telefono || "",
-        shipping_province: o.provincia_envio || "",
-        payment_status: o.payment_status || o.estado_pago || "pending",
-        total: o.total || 0,
-      }));
+      const rows = orders.map((o) => {
+        const orderNum = o.order_number || o.id || o.external_reference || "";
+        const created = o.created_at || o.fecha || o.date || "";
+        const email =
+          o.user_email ||
+          o.cliente?.email ||
+          o.customer?.email ||
+          "";
+        const payment = o.payment_status || o.estado_pago || "pending";
+        const shipping = o.estado_envio || o.shipping_status || "pendiente";
+        const total = o.total || o.total_amount || 0;
+        return {
+          ...o,
+          order_number: orderNum,
+          orderNumber: orderNum,
+          created_at: created,
+          createdAt: created,
+          user_email: email,
+          payment_status: payment,
+          paymentStatus: payment,
+          shipping_status: shipping,
+          shippingStatus: shipping,
+          total_amount: total,
+          total,
+          productos: o.productos || o.items || [],
+          cliente: o.cliente || o.customer || {},
+        };
+      });
       return sendJson(res, 200, { orders: rows });
     } catch (err) {
       console.error(err);
@@ -1208,50 +1226,55 @@ const server = http.createServer((req, res) => {
     });
     req.on("end", () => {
       try {
-        const { email, id } = JSON.parse(body || "{}");
+        const { email, order_number, id } = JSON.parse(body || "{}");
+        const searchId = order_number || id;
         const orders = getOrders();
-        const order = orders.find(
-          (o) =>
-            (o.id === id || o.order_number === id) &&
-            (!o.cliente ||
-              !o.cliente.email ||
-              o.cliente.email.toLowerCase() === String(email).toLowerCase()),
-        );
+        const order = orders.find((o) => {
+          const matchId =
+            o.id === searchId ||
+            o.order_number === searchId ||
+            o.external_reference === searchId;
+          const matchEmail =
+            (o.user_email &&
+              o.user_email.toLowerCase() === String(email).toLowerCase()) ||
+            (o.cliente &&
+              o.cliente.email &&
+              o.cliente.email.toLowerCase() === String(email).toLowerCase()) ||
+            (o.customer &&
+              o.customer.email &&
+              o.customer.email.toLowerCase() === String(email).toLowerCase());
+          return matchId && matchEmail;
+        });
         if (!order) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
         }
-        const resp = {
-          order_number: order.id || order.order_number || order.external_reference,
-          payment_status: order.payment_status || order.estado_pago || "pending",
-          items: order.productos || order.items || [],
-          total: order.total || 0,
-          shipping: {
-            transportista: order.transportista || null,
-            tracking: order.seguimiento || null,
-            estado: order.estado_envio || "pendiente",
-          },
-          seguimiento: order.seguimiento || null,
-          transportista: order.transportista || null,
-          timeline: [
-            {
-              status: "creado",
-              date: order.fecha || order.created_at || new Date().toISOString(),
-            },
-          ],
+        const orderNum =
+          order.order_number || order.id || order.external_reference;
+        const created = order.created_at || order.fecha || order.date || "";
+        const payment = order.payment_status || order.estado_pago || "pending";
+        const shipping = order.estado_envio || "pendiente";
+        const total = order.total || 0;
+        const orderData = {
+          ...order,
+          order_number: orderNum,
+          orderNumber: orderNum,
+          payment_status: payment,
+          paymentStatus: payment,
+          shipping_status: shipping,
+          shippingStatus: shipping,
+          created_at: created,
+          createdAt: created,
+          total_amount: total,
+          total,
         };
-        if (resp.payment_status && resp.payment_status !== "pendiente") {
-          resp.timeline.push({
-            status: `pago_${resp.payment_status}`,
-            date: order.updated_at || order.fecha,
-          });
-        }
-        if (order.estado_envio && order.estado_envio !== "pendiente") {
-          resp.timeline.push({
-            status: `envio_${order.estado_envio}`,
-            date: order.shipped_at || order.updated_at || order.fecha,
-          });
-        }
-        return sendJson(res, 200, { order: resp });
+        return sendJson(res, 200, {
+          order: orderData,
+          orderNumber: orderNum,
+          paymentStatus: payment,
+          shippingStatus: shipping,
+          createdAt: created,
+          total,
+        });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });

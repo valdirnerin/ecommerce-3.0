@@ -596,12 +596,12 @@ async function loadOrders() {
     const statusFilter = filter ? filter.value : "todos";
     data.orders
       .filter((o) =>
-        statusFilter === "todos" ? true : o.estado_pago === statusFilter,
+        statusFilter === "todos" ? true : o.payment_status === statusFilter,
       )
       .forEach(async (order) => {
         const tr = document.createElement("tr");
         // Resumen de items
-        const itemsText = (order.productos || [])
+        const itemsText = (order.productos || order.items || [])
           .map((it) => `${it.name} x${it.quantity}`)
           .join(", ");
         const cliente = order.cliente || {};
@@ -613,9 +613,11 @@ async function loadOrders() {
           : "";
         // Crear celdas manualmente para añadir listeners
         const idTd = document.createElement("td");
-        idTd.textContent = order.id;
+        idTd.textContent = order.order_number;
         const dateTd = document.createElement("td");
-        dateTd.textContent = new Date(order.fecha).toLocaleString("es-AR");
+        dateTd.textContent = new Date(order.created_at).toLocaleString(
+          "es-AR",
+        );
         const nameTd = document.createElement("td");
         nameTd.textContent = cliente.nombre || "";
         const phoneTd = document.createElement("td");
@@ -629,17 +631,17 @@ async function loadOrders() {
         const itemsTd = document.createElement("td");
         itemsTd.textContent = itemsText;
         const totalTd = document.createElement("td");
-        totalTd.textContent = `$${order.total.toLocaleString("es-AR")}`;
+        totalTd.textContent = `$${order.total_amount.toLocaleString("es-AR")}`;
         const statusTd = document.createElement("td");
         const statusSelect = document.createElement("select");
         ["pendiente", "en proceso", "pagado", "rechazado"].forEach((st) => {
           const opt = document.createElement("option");
           opt.value = st;
           opt.textContent = st;
-          if (order.estado_pago === st) opt.selected = true;
           statusSelect.appendChild(opt);
         });
-        statusTd.appendChild(statusSelect);
+      statusSelect.value = order.payment_status;
+      statusTd.appendChild(statusSelect);
         const trackingTd = document.createElement("td");
         const trackingInput = document.createElement("input");
         trackingInput.type = "text";
@@ -659,7 +661,7 @@ async function loadOrders() {
             const opt = document.createElement("option");
             opt.value = st;
             opt.textContent = st;
-            if (order.estado_envio === st) opt.selected = true;
+            if (order.shipping_status === st) opt.selected = true;
             envioSelect.appendChild(opt);
           },
         );
@@ -705,14 +707,18 @@ async function loadOrders() {
           const newEnvio = envioSelect.value;
           const trackingVal = trackingInput.value.trim();
           const carrierVal = carrierInput.value.trim();
-          const resp = await fetch(`/api/orders/${order.id}`, {
+          const resp = await fetch(`/api/orders/${order.order_number}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               estado_pago: newPago,
+              payment_status: newPago,
               estado_envio: newEnvio,
+              shipping_status: newEnvio,
               seguimiento: trackingVal,
+              tracking_code: trackingVal,
               transportista: carrierVal,
+              carrier: carrierVal,
             }),
           });
           if (resp.ok) {
@@ -724,7 +730,7 @@ async function loadOrders() {
         });
         async function updateInvoiceUI() {
           try {
-            const invRes = await fetch(`/api/invoice-files/${order.id}`);
+            const invRes = await fetch(`/api/invoice-files/${order.order_number}`);
             if (invRes.ok) {
               const data = await invRes.json();
               invoiceBtn.textContent = "Ver factura";
@@ -737,7 +743,7 @@ async function loadOrders() {
             } else {
               invoiceBtn.textContent = "Cargar factura";
               fileNameSpan.textContent = "";
-              const pending = order.estado_pago === "pagado";
+              const pending = order.payment_status === "pagado";
               invoiceStatus.textContent = pending ? "Pendiente" : "No emitida";
               invoiceStatus.className =
                 "invoice-status " + (pending ? "pending" : "none");
@@ -756,7 +762,7 @@ async function loadOrders() {
           const reader = new FileReader();
           reader.onload = async () => {
             const base64 = reader.result.split(",")[1];
-            const resp = await fetch(`/api/invoice-files/${order.id}`, {
+            const resp = await fetch(`/api/invoice-files/${order.order_number}`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ fileName: file.name, data: base64 }),

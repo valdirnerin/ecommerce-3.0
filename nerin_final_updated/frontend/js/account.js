@@ -33,12 +33,10 @@ async function initAccount() {
       const { clients } = await clientsRes.json();
       clientData = clients.find((c) => c.email === email) || null;
     }
-    if (ordersRes.ok) {
-      const data = await ordersRes.json();
-      orders = data.orders.filter(
-        (o) => o.customer && o.customer.email === email,
-      );
-    }
+      if (ordersRes.ok) {
+        const data = await ordersRes.json();
+        orders = data.orders.filter((o) => o.user_email === email);
+      }
   } catch (err) {
     console.error(err);
   }
@@ -66,7 +64,7 @@ async function initAccount() {
   accountInfoDiv.innerHTML = infoHtml;
 
   // Calcular estado de fidelización
-  const totalSpent = orders.reduce((t, o) => t + (o.total || 0), 0);
+  const totalSpent = orders.reduce((t, o) => t + (o.total_amount || o.total || 0), 0);
   const orderCount = orders.length;
   let level = "Nuevo";
   let progress = 0;
@@ -181,27 +179,27 @@ async function renderOrders(orders, email, invoiceList) {
   for (const order of orders) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${order.id}</td>
-      <td>${new Date(order.fecha).toLocaleString("es-AR")}</td>
-      <td>${(order.productos || [])
+      <td>${order.order_number}</td>
+      <td>${new Date(order.created_at).toLocaleString("es-AR")}</td>
+      <td>${(order.productos || order.items || [])
         .map((it) => `${it.name} x${it.quantity}`)
         .join(", ")}</td>
-      <td><span class="status-badge status-${order.estado_envio}">${
-        order.estado_envio
-      }</span></td>
+      <td><span class="status-badge status-${
+        order.shipping_status
+      }">${order.shipping_status}</span></td>
       <td>${order.transportista || ""}</td>
-      <td>$${order.total.toLocaleString("es-AR")}</td>
+      <td>$${(order.total_amount || order.total).toLocaleString("es-AR")}</td>
       <td><button class="invoice-btn">Factura</button></td>
       <td></td>`;
     const actionsTd = tr.lastElementChild;
     const invoiceBtn = tr.querySelector(".invoice-btn");
     invoiceBtn.addEventListener("click", async () => {
       try {
-        const resp = await fetch(`/api/invoices/${order.id}`, {
+        const resp = await fetch(`/api/invoices/${order.order_number}`, {
           method: "POST",
         });
         if (resp.ok) {
-          window.open(`/invoice.html?orderId=${order.id}`, "_blank");
+            window.open(`/invoice.html?orderId=${order.order_number}`, "_blank");
         } else {
           const errData = await resp.json().catch(() => ({}));
           alert(errData.error || "Error al obtener factura");
@@ -212,14 +210,14 @@ async function renderOrders(orders, email, invoiceList) {
     });
     // Verificar si existe factura para listar en Archivos
     try {
-      const resp = await fetch(`/api/invoices/${order.id}`);
+          const resp = await fetch(`/api/invoices/${order.order_number}`);
       if (resp.ok) {
         invoiceBtn.textContent = "Ver factura";
         const { invoice } = await resp.json();
         const li = document.createElement("li");
         const link = document.createElement("a");
-        link.href = `/invoice.html?orderId=${order.id}`;
-        link.textContent = `Factura ${invoice.id}`;
+          link.href = `/invoice.html?orderId=${order.order_number}`;
+          link.textContent = `Factura ${invoice.id}`;
         link.target = "_blank";
         li.appendChild(link);
         invoiceList.appendChild(li);
