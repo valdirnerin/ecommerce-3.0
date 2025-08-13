@@ -153,7 +153,7 @@ app.use('/api', async (req, res, next) => {
   if (
     req.path === '/webhooks/mp' ||
     req.path === '/mercado-pago/webhook' ||
-    /^\/orders\/[^/]+\/status$/.test(req.path)
+    /^\/orders(\/|$)/.test(req.path)
   )
     return next();
   try {
@@ -253,6 +253,32 @@ app.post("/api/orders", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "No se pudo crear el pedido" });
+  }
+});
+
+app.get("/api/orders", (req, res) => {
+  try {
+    const status = (req.query.payment_status || "all").toLowerCase();
+    let orders = getOrders();
+    if (["pending", "approved", "rejected"].includes(status)) {
+      orders = orders.filter((o) => {
+        const ps = String(o.payment_status || o.estado_pago || "pending").toLowerCase();
+        return ps === status;
+      });
+    }
+    const rows = orders.map((o) => ({
+      order_number: o.order_number || o.id || o.external_reference || "",
+      date: o.fecha || o.date || o.created_at || "",
+      client: o.cliente?.nombre || o.cliente?.name || "",
+      phone: o.cliente?.telefono || "",
+      shipping_province: o.provincia_envio || "",
+      payment_status: o.payment_status || o.estado_pago || "pending",
+      total: o.total || 0,
+    }));
+    res.json({ orders: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "No se pudieron obtener los pedidos" });
   }
 });
 

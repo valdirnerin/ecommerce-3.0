@@ -136,6 +136,24 @@ async function mpWebhookRelay(req, res, parsedUrl) {
         row.payment_id = paymentId || row.payment_id;
         row.payment_status = status || row.payment_status;
         row.estado_pago = status || row.estado_pago;
+        if (status === "approved" && !row.inventory_applied) {
+          const products = getProducts();
+          (row.productos || row.items || []).forEach((it) => {
+            const pIdx = products.findIndex(
+              (p) => String(p.id) === String(it.id) || p.sku === it.sku,
+            );
+            if (pIdx !== -1) {
+              products[pIdx].stock =
+                Number(products[pIdx].stock || 0) - Number(it.quantity || 0);
+            }
+          });
+          saveProducts(products);
+          row.inventory_applied = true;
+          console.log(`inventory applied for ${row.id || row.order_number}`);
+        }
+        if (status === "rejected" && row.inventory_applied) {
+          // TODO: revertir stock si el pago fue rechazado luego de aprobarse
+        }
         saveOrders(orders);
         console.log("mp-webhook updated", extRef || prefId, status);
       } else {
@@ -358,6 +376,27 @@ function getOrders() {
 function saveOrders(orders) {
   const dataPath = path.join(__dirname, "../data/orders.json");
   fs.writeFileSync(dataPath, JSON.stringify({ orders }, null, 2), "utf8");
+}
+
+// Leer líneas de pedidos
+function getOrderItems() {
+  const dataPath = path.join(__dirname, "../data/order_items.json");
+  try {
+    const file = fs.readFileSync(dataPath, "utf8");
+    return JSON.parse(file).order_items || [];
+  } catch {
+    return [];
+  }
+}
+
+// Guardar líneas de pedidos
+function saveOrderItems(items) {
+  const dataPath = path.join(__dirname, "../data/order_items.json");
+  fs.writeFileSync(
+    dataPath,
+    JSON.stringify({ order_items: items }, null, 2),
+    "utf8",
+  );
 }
 
 function getOrderStatus(id) {
@@ -1007,14 +1046,16 @@ const server = http.createServer((req, res) => {
         const shippingCost = getShippingCost(provincia);
         const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const impuestosCalc = Math.round(total * 0.21);
-        const order = {
+        const baseOrder = {
           id: orderId,
+          order_number: orderId,
           external_reference: orderId,
           cliente: data.cliente || {},
           productos: items,
           provincia_envio: provincia,
           costo_envio: shippingCost,
           estado_pago: "pendiente",
+          payment_status: "pending",
           estado_envio: "pendiente",
           metodo_envio: data.metodo_envio || "Correo Argentino",
           comentarios: data.comentarios || "",
@@ -1025,11 +1066,30 @@ const server = http.createServer((req, res) => {
             totalImpuestos: impuestosCalc,
           },
           fecha: new Date().toISOString(),
+          created_at: new Date().toISOString(),
           seguimiento: "",
           transportista: "",
+          user_email: (data.cliente && data.cliente.email) || "",
         };
-        orders.push(order);
+        const idx = orders.findIndex((o) => o.id === orderId);
+        if (idx !== -1) orders[idx] = { ...orders[idx], ...baseOrder };
+        else orders.push(baseOrder);
         saveOrders(orders);
+
+        // guardar líneas
+        const orderItems = getOrderItems();
+        items.forEach((it) => {
+          const line = {
+            order_number: orderId,
+            product_id: it.id || it.sku || "",
+            title: it.name,
+            qty: it.quantity,
+            unit_price: it.price,
+            subtotal: it.price * it.quantity,
+          };
+          orderItems.push(line);
+        });
+        saveOrderItems(orderItems);
         let initPoint = null;
         if (mpPreference) {
           try {
@@ -1067,8 +1127,27 @@ const server = http.createServer((req, res) => {
   // API: obtener lista de pedidos
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
-      const orders = getOrders();
-      return sendJson(res, 200, { orders });
+      const status = (parsedUrl.query.payment_status || "all").toLowerCase();
+      let orders = getOrders();
+      if (["pending", "approved", "rejected"].includes(status)) {
+        orders = orders.filter((o) => {
+          const ps = String(
+            o.payment_status || o.estado_pago || "pending",
+          ).toLowerCase();
+          return ps === status;
+        });
+      }
+      const rows = orders.map((o) => ({
+        order_number:
+          o.order_number || o.id || o.external_reference || "", // NRN
+        date: o.fecha || o.date || o.created_at || "",
+        client: o.cliente?.nombre || o.cliente?.name || "",
+        phone: o.cliente?.telefono || "",
+        shipping_province: o.provincia_envio || "",
+        payment_status: o.payment_status || o.estado_pago || "pending",
+        total: o.total || 0,
+      }));
+      return sendJson(res, 200, { orders: rows });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, {
@@ -1133,21 +1212,106 @@ const server = http.createServer((req, res) => {
         const orders = getOrders();
         const order = orders.find(
           (o) =>
-            o.id === id &&
-            o.cliente &&
-            o.cliente.email &&
-            o.cliente.email.toLowerCase() === String(email).toLowerCase(),
+            (o.id === id || o.order_number === id) &&
+            (!o.cliente ||
+              !o.cliente.email ||
+              o.cliente.email.toLowerCase() === String(email).toLowerCase()),
         );
         if (!order) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
         }
-        return sendJson(res, 200, { order });
+        const resp = {
+          order_number: order.id || order.order_number || order.external_reference,
+          payment_status: order.payment_status || order.estado_pago || "pending",
+          items: order.productos || order.items || [],
+          total: order.total || 0,
+          shipping: {
+            transportista: order.transportista || null,
+            tracking: order.seguimiento || null,
+            estado: order.estado_envio || "pendiente",
+          },
+          seguimiento: order.seguimiento || null,
+          transportista: order.transportista || null,
+          timeline: [
+            {
+              status: "creado",
+              date: order.fecha || order.created_at || new Date().toISOString(),
+            },
+          ],
+        };
+        if (resp.payment_status && resp.payment_status !== "pendiente") {
+          resp.timeline.push({
+            status: `pago_${resp.payment_status}`,
+            date: order.updated_at || order.fecha,
+          });
+        }
+        if (order.estado_envio && order.estado_envio !== "pendiente") {
+          resp.timeline.push({
+            status: `envio_${order.estado_envio}`,
+            date: order.shipped_at || order.updated_at || order.fecha,
+          });
+        }
+        return sendJson(res, 200, { order: resp });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
       }
     });
     return;
+  }
+
+  if (
+    pathname.startsWith("/api/orders/") &&
+    pathname.endsWith("/ship") &&
+    req.method === "PUT"
+  ) {
+    const parts = pathname.split("/");
+    const orderNumber = parts[3];
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { carrier, tracking_number } = JSON.parse(body || "{}");
+        const orders = getOrders();
+        const idx = orders.findIndex(
+          (o) => o.id === orderNumber || o.order_number === orderNumber,
+        );
+        if (idx === -1)
+          return sendJson(res, 404, { error: "Pedido no encontrado" });
+        orders[idx] = {
+          ...orders[idx],
+          transportista: carrier || orders[idx].transportista,
+          seguimiento: tracking_number || orders[idx].seguimiento,
+          estado_envio: "enviado",
+          shipped_at: new Date().toISOString(),
+        };
+        saveOrders(orders);
+        return sendJson(res, 200, { success: true, order: orders[idx] });
+      } catch (e) {
+        console.error(e);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
+  }
+
+  if (
+    pathname.startsWith("/api/orders/") &&
+    pathname.endsWith("/cancel") &&
+    req.method === "PUT"
+  ) {
+    const parts = pathname.split("/");
+    const orderNumber = parts[3];
+    const orders = getOrders();
+    const idx = orders.findIndex(
+      (o) => o.id === orderNumber || o.order_number === orderNumber,
+    );
+    if (idx === -1)
+      return sendJson(res, 404, { error: "Pedido no encontrado" });
+    orders[idx].estado_envio = "cancelado";
+    orders[idx].cancelled_at = new Date().toISOString();
+    saveOrders(orders);
+    return sendJson(res, 200, { success: true, order: orders[idx] });
   }
 
   // API: actualizar pedido por ID (cambiar estado o agregar seguimiento)
