@@ -74,7 +74,8 @@ header .logo {
 header .logo a {
   display: block;
   width: 180px;
-  height: 32px;
+  height: auto;
+  aspect-ratio: 2048 / 357;
   background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACAAAAAFlCAIAAADwZJ9dAAB1NUlEQVR4Ae3d\
 B7RdVZ0wcMhLL6QASQi9KgJCqAoIUYSQkFANMo6KODac0ZkRZXTN8luZouO3\
 Bh0rKn4qg2MZehog0gVBIEGa1KBICxBCSEJ6+f7w9JG8vHLrufuc83uuhfee\
