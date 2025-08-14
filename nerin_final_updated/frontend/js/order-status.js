@@ -45,18 +45,13 @@
     }
   }
 
-  function showApproved(nrn) {
-    const el = containerEl();
-    if (el) {
-      el.innerHTML = `<p>✅ ¡Pago aprobado!</p>${nrn ? `<p>N° de orden: ${nrn}</p>` : ''}<a class="btn" href="/seguimiento.html">Seguir mi pedido</a>`;
-    }
+  function showApproved(nrn) { // nerin brand fix
+    const q = nrn ? `?order=${encodeURIComponent(nrn)}` : '';
+    window.location.href = `/success.html${q}`;
   }
 
-  function showRejected() {
-    const el = containerEl();
-    if (el) {
-      el.innerHTML = `<p>❌ Tu pago fue rechazado</p><a class="btn" href="/checkout.html">Intentar de nuevo</a>`;
-    }
+  function showRejected() { // nerin brand fix
+    window.location.href = `/failure.html`;
   }
 
   window.getIdentifier = getIdentifier;

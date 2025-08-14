@@ -2,9 +2,29 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pago pendiente</title>
-    <link rel="stylesheet" href="/css/style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="css/receipt.css" /> <!-- nerin brand fix -->
     <script src="/js/order-status.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
     <noscript>
       <style>
         .noscript-msg {
@@ -18,12 +38,13 @@
         Por favor habilitá JavaScript para ver el estado de tu pago.
       </div>
     </noscript>
-  </head>
-  <body>
-    <div class="contenedor" id="statusContainer">
-      <div class="spinner"></div>
-      <p>Estamos confirmando tu pago...</p>
-    </div>
+    <main class="container receipt-container">
+      <div class="receipt-card" id="statusContainer">
+        <div class="spinner"></div>
+        <p>Estamos confirmando tu pago...</p>
+      </div>
+    </main>
+    <script type="module" src="/js/config.js"></script>
     <script>
       document.addEventListener('DOMContentLoaded', async () => {
         try {

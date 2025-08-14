@@ -27,9 +27,7 @@ async function pollOrderStatus(id, opts = {}) {
           return { status: st, id, numeroOrden: nrn };
         }
       }
-    } catch (_) {
-      // ignore errors
-    }
+    } catch (_) {}
     await new Promise((r) => setTimeout(r, interval));
   }
   return { status: "pending", id };
@@ -49,29 +47,31 @@ function formatMoney(n) {
   }).format(n);
 }
 
-function renderError(msg) {
-  card.innerHTML = `<p>${msg}</p><div class="actions"><button id="retry" class="primary">Reintentar</button><a class="secondary" href="/index.html">Volver al inicio</a></div>`;
-  const btn = document.getElementById("retry");
-  if (btn) btn.addEventListener("click", init);
+async function copyToClipboard(text) { // nerin brand fix
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    if (window.showToast) window.showToast("Copiado");
+  } catch (e) {
+    if (window.showToast) window.showToast("No se pudo copiar");
+  }
 }
 
-function setupCopy(btn) {
-  const text = btn.dataset.copy;
-  btn.addEventListener("click", async () => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-      }
-      btn.classList.add("copied");
-      setTimeout(() => btn.classList.remove("copied"), 1500);
-    } catch (_) {}
+function bindCopyButtons() {
+  document.querySelectorAll(".copy-btn").forEach((btn) => {
+    const sel = btn.getAttribute("data-copy");
+    btn.addEventListener("click", () => {
+      const el = document.querySelector(sel);
+      if (el) copyToClipboard(el.textContent.trim());
+    });
   });
 }
 
@@ -88,6 +88,12 @@ function setupShare(nrn, tracking) {
   }
 }
 
+function renderError(msg) {
+  card.innerHTML = `<p>${msg}</p><div class="actions"><button id="retry" class="button primary">Reintentar</button><a class="button secondary" href="/index.html">Volver al inicio</a></div>`; // nerin brand fix
+  const btn = document.getElementById("retry");
+  if (btn) btn.addEventListener("click", init);
+}
+
 function renderSuccess(o) {
   const nrn = o?.id || o?.order_number || o?.external_reference || "";
   const tracking = o?.seguimiento || o?.tracking_number || "";
@@ -95,38 +101,35 @@ function renderSuccess(o) {
   const total = typeof o?.total === "number" ? o.total : 0;
   const fecha = o?.fecha || o?.date || new Date().toISOString();
   const items = o?.items || o?.productos || [];
-  const itemsHtml = items
-    .map((i) => `<li>${i.name} x${i.quantity}</li>`)
-    .join("");
+  const itemsHtml = items.map((i) => `<li>${i.name} x${i.quantity}</li>`).join("");
   const email = o?.cliente?.email || o?.customer?.email || "";
+  const statusClass =
+    paymentStatus === "aprobado"
+      ? "status-badge status-pagado"
+      : paymentStatus === "rechazado"
+      ? "status-badge status-rechazado"
+      : "status-badge status-pendiente";
   card.innerHTML = `
-    <div class="header">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-      <h1>Pago aprobado</h1>
-      <p>${formatDate(fecha)}</p>
-    </div>
-    <div class="details">
-      <section class="block">
-        <h2>Tu pedido</h2>
-        ${nrn ? `<p>N° de pedido: <span id="nrn">${nrn}</span> <button class="copy-btn" data-copy="${nrn}" aria-label="Copiar número"><span class="icon">📋</span><span class="tooltip" role="status" aria-live="polite">Copiado</span></button></p>` : `<p>No encontramos el número de pedido.</p>`}
-        <p>Estado de pago: ${paymentStatus}</p>
-        <p>Total: ${formatMoney(total)}</p>
-        ${items.length ? `<ul class="items">${itemsHtml}</ul>` : ""}
-      </section>
-      <section class="block">
-        <h2>Seguimiento</h2>
-        ${tracking ? `<p>N° de seguimiento: <span id="tracking">${tracking}</span> <button class="copy-btn" data-copy="${tracking}" aria-label="Copiar número"><span class="icon">📋</span><span class="tooltip" role="status" aria-live="polite">Copiado</span></button></p>` : "<p>Aún sin número de envío</p>"}
-      </section>
-    </div>
+    <h1>Pago aprobado</h1>
+    <p class="date">${formatDate(fecha)}</p>
+    <section class="receipt-card">
+      <h2>Tu pedido</h2>
+      ${nrn ? `<p>N° de pedido: <span id="orderNumber">${nrn}</span><button class="button secondary copy-btn" data-copy="#orderNumber">Copiar</button></p>` : `<p>No encontramos el número de pedido.</p>`}
+      <p>Estado de pago: <span class="${statusClass}">${paymentStatus}</span></p>
+      <p>Total: ${formatMoney(total)}</p>
+      ${items.length ? `<ul class="items">${itemsHtml}</ul>` : ""}
+    </section>
+    <section class="receipt-card">
+      <h2>Seguimiento</h2>
+      ${tracking ? `<p>N° de seguimiento: <span id="tracking">${tracking}</span><button class="button secondary copy-btn" data-copy="#tracking">Copiar</button></p>` : "<p>Aún sin número de envío</p>"}
+    </section>
     <div class="actions">
-      <a id="trackLink" class="primary" href="/seguimiento.html?order=${encodeURIComponent(nrn)}${email ? `&email=${encodeURIComponent(email)}` : ""}">Ver estado del pedido</a>
-      <button id="shareBtn" class="secondary" type="button">Compartir</button>
-      <a class="secondary" href="/index.html">Volver al inicio</a>
+      <a id="trackLink" class="button primary" href="/seguimiento.html?order=${encodeURIComponent(nrn)}${email ? `&email=${encodeURIComponent(email)}` : ""}">Ver estado del pedido</a>
+      <button id="shareBtn" class="button secondary" type="button">Compartir</button>
+      <a class="button secondary" href="/index.html">Volver al inicio</a>
     </div>
   `;
-  document.querySelectorAll(".copy-btn").forEach((b) => setupCopy(b));
+  bindCopyButtons();
   setupShare(nrn, tracking);
 }
 

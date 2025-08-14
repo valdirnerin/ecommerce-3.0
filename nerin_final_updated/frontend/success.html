@@ -4,9 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pago aprobado</title>
-    <link rel="stylesheet" href="/css/success.css" />
+    <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="css/receipt.css" /> <!-- nerin brand fix -->
   </head>
   <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
     <noscript>
       <style>
         .noscript-msg {
@@ -20,13 +37,16 @@
         Por favor habilitá JavaScript para ver el estado de tu pago.
       </div>
     </noscript>
-    <main class="success-container">
-      <article id="card" class="card" aria-live="polite">
+    <main class="container receipt-container">
+       <article id="card" aria-live="polite">
+      <div class="receipt-card">
         <div class="skeleton" style="height: 3rem"></div>
         <div class="skeleton" style="height: 6rem"></div>
         <div class="skeleton" style="height: 4rem"></div>
+      </div>
       </article>
     </main>
-    <script type="module" src="/js/success.js" defer></script>
+    <script type="module" src="/js/config.js"></script>
+    <script type="module" src="/js/success.js"></script>
   </body>
 </html>

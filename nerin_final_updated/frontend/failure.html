@@ -2,13 +2,38 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pago rechazado</title>
-    <link rel="stylesheet" href="/css/style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="css/receipt.css" /> <!-- nerin brand fix -->
   </head>
   <body>
-    <div class="contenedor">
-      <p>❌ Tu pago fue rechazado.</p>
-      <a class="btn" href="/checkout.html">Elegir otro medio de pago</a>
-    </div>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container receipt-container">
+      <article class="receipt-card">
+        <h1>Pago rechazado</h1>
+        <p>❌ Tu pago fue rechazado.</p>
+        <div class="actions">
+          <a class="button primary" href="/checkout.html">Intentar de nuevo</a>
+          <a class="button secondary" href="/index.html">Volver al inicio</a>
+        </div>
+      </article>
+    </main>
+    <script type="module" src="/js/config.js"></script>
   </body>
 </html>
