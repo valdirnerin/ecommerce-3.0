@@ -35,7 +35,7 @@
   }
 
   function containerEl() {
-    return document.getElementById('statusContainer');
+    return document.getElementById('statusMessage');
   }
 
   function showProcessing(message = 'Estamos confirmando tu pago...') {
