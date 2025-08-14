@@ -70,17 +70,18 @@ header .logo {
   align-items: center;
 }
 
-header .brand {
+.brand {
   display: flex;
   align-items: center;
   text-decoration: none;
 }
 
-header .brand .site-logo {
+.site-logo {
   height: clamp(28px, 6vw, 40px);
   max-height: 56px;
   width: auto;
   object-fit: contain;
+  display: block;
 }
 
 header nav {
@@ -192,6 +193,7 @@ nav a:hover {
   text-align: center;
   padding: 3rem 1rem;
   color: var(--color-secondary);
+  background-color: #fff;
   background-image: url("../assets/hero.png");
   background-size: cover;
   background-position: center;
