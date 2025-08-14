@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pago aprobado</title>
     <link rel="stylesheet" href="style.css?v=mobfix-1" />
-    <link rel="stylesheet" href="css/receipt.css" /> <!-- nerin brand fix -->
+    <link rel="stylesheet" href="css/success.css" />
   </head>
   <body>
     <header>
@@ -37,13 +37,15 @@
         Por favor habilitá JavaScript para ver el estado de tu pago.
       </div>
     </noscript>
-    <main class="container receipt-container">
-       <article id="card" aria-live="polite">
-      <div class="receipt-card">
-        <div class="skeleton" style="height: 3rem"></div>
-        <div class="skeleton" style="height: 6rem"></div>
-        <div class="skeleton" style="height: 4rem"></div>
+    <main class="container">
+      <div id="statusIcon" class="status-icon success" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="icon">
+          <path class="draw" d="M20 6L9 17l-5-5" />
+        </svg>
       </div>
+      <article id="card" class="receipt" aria-live="polite">
+        <div class="skeleton title"></div>
+        <div class="skeleton block"></div>
       </article>
     </main>
     <script type="module" src="/js/config.js"></script>

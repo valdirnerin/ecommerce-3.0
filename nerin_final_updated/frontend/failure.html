@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pago rechazado</title>
     <link rel="stylesheet" href="style.css?v=mobfix-1" />
-    <link rel="stylesheet" href="css/receipt.css" /> <!-- nerin brand fix -->
+    <link rel="stylesheet" href="css/success.css" />
   </head>
   <body>
     <header>
@@ -24,16 +24,34 @@
         </nav>
       </div>
     </header>
-    <main class="container receipt-container">
-      <article class="receipt-card">
+    <main class="container">
+      <div class="status-icon failure" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="icon">
+          <path class="draw" d="M18 6L6 18" />
+          <path class="draw" d="M6 6l12 12" />
+        </svg>
+      </div>
+      <article class="receipt">
         <h1>Pago rechazado</h1>
-        <p>❌ Tu pago fue rechazado.</p>
+        <p class="date" id="fecha"></p>
+        <section class="section">
+          <p>Tu pago fue rechazado.</p>
+        </section>
         <div class="actions">
-          <a class="button primary" href="/checkout.html">Intentar de nuevo</a>
+          <a class="button primary" href="/seguimiento.html">Ver estado del pedido</a>
           <a class="button secondary" href="/index.html">Volver al inicio</a>
         </div>
       </article>
     </main>
     <script type="module" src="/js/config.js"></script>
+    <script>
+      document.getElementById('fecha').textContent = new Date().toLocaleString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    </script>
   </body>
 </html>
