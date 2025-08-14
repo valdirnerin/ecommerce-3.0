@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <title>Pago pendiente</title>
     <link rel="stylesheet" href="/css/style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="/frontend/css/footer.css" />
     <script src="/js/order-status.js" defer></script>
     <noscript>
       <style>
@@ -24,6 +25,7 @@
       <div class="spinner"></div>
       <p>Estamos confirmando tu pago...</p>
     </div>
+    <div id="footer-root"></div>
     <script>
       document.addEventListener('DOMContentLoaded', async () => {
         try {
@@ -48,5 +50,6 @@
         }
       });
     </script>
+    <script src="/frontend/js/footer.js" defer></script>
   </body>
 </html>
