@@ -14,7 +14,8 @@ const logger = {
 function mapStatus(mpStatus) {
   const s = String(mpStatus || '').toLowerCase();
   if (s === 'approved') return 'pagado';
-  if (s === 'rejected') return 'rechazado';
+  if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(s))
+    return 'rechazado';
   return 'pendiente';
 }
 
@@ -35,13 +36,45 @@ function saveOrders(orders) {
   fs.writeFileSync(ordersPath(), JSON.stringify({ orders }, null, 2), 'utf8');
 }
 
-function wasProcessed(paymentId) {
-  if (!paymentId) return false;
-  const orders = getOrders();
-  return orders.some((o) => String(o.payment_id) === String(paymentId));
+function productsPath() {
+  return path.join(__dirname, '../../data/products.json');
 }
 
-async function upsertOrder({ externalRef, prefId, status, paymentId, total }) {
+function getProducts() {
+  try {
+    const file = fs.readFileSync(productsPath(), 'utf8');
+    return JSON.parse(file).products || [];
+  } catch {
+    return [];
+  }
+}
+
+function saveProducts(products) {
+  fs.writeFileSync(
+    productsPath(),
+    JSON.stringify({ products }, null, 2),
+    'utf8'
+  );
+}
+
+function wasProcessed(paymentId, statusRaw) {
+  if (!paymentId) return false;
+  const orders = getOrders();
+  return orders.some(
+    (o) =>
+      String(o.payment_id) === String(paymentId) &&
+      String(o.payment_status_raw || '') === String(statusRaw)
+  );
+}
+
+async function upsertOrder({
+  externalRef,
+  prefId,
+  status,
+  statusRaw,
+  paymentId,
+  total,
+}) {
   const identifier = prefId || externalRef;
   if (!identifier) return;
   const orders = getOrders();
@@ -59,6 +92,7 @@ async function upsertOrder({ externalRef, prefId, status, paymentId, total }) {
       row.payment_status = status;
       row.estado_pago = status;
     }
+    if (statusRaw) row.payment_status_raw = statusRaw;
     if (total && !row.total) row.total = total;
     if (!row.created_at) row.created_at = new Date().toISOString();
     if (prefId != null) row.preference_id = prefId;
@@ -69,11 +103,79 @@ async function upsertOrder({ externalRef, prefId, status, paymentId, total }) {
     if (externalRef != null) row.external_reference = externalRef;
     row.payment_status = status || 'pendiente';
     row.estado_pago = status || 'pendiente';
+    if (statusRaw) row.payment_status_raw = statusRaw;
     if (paymentId != null) row.payment_id = String(paymentId);
     row.total = total || 0;
     row.created_at = new Date().toISOString();
     orders.push(row);
   }
+
+  const row = orders[idx !== -1 ? idx : orders.length - 1];
+  const items = row.productos || row.items || [];
+  const identifierStr = row.id || row.external_reference || row.preference_id;
+
+  if (statusRaw === 'approved') {
+    if (!row.inventory_applied) {
+      const products = getProducts();
+      const logItems = [];
+      let oversell = false;
+      items.forEach((it) => {
+        const pIdx = products.findIndex(
+          (p) => String(p.id) === String(it.id) || p.sku === it.sku
+        );
+        if (pIdx !== -1) {
+          const current = Number(products[pIdx].stock || 0);
+          const qty = Number(it.quantity || 0);
+          let next = current - qty;
+          if (next < 0) {
+            oversell = true;
+            next = 0;
+            products[pIdx].oversell = true;
+          }
+          products[pIdx].stock = next;
+          logItems.push({ sku: products[pIdx].sku, qty });
+        }
+      });
+      saveProducts(products);
+      row.inventory_applied = true;
+      row.inventory_applied_at = new Date().toISOString();
+      if (oversell) row.oversell = true;
+      logger.info('inventory apply OK', { order: identifierStr, items: logItems });
+    } else {
+      logger.info('inventory skipped (already applied)', {
+        order: identifierStr,
+      });
+    }
+  } else if (
+    ['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)
+  ) {
+    if (row.inventory_applied) {
+      const products = getProducts();
+      const logItems = [];
+      items.forEach((it) => {
+        const pIdx = products.findIndex(
+          (p) => String(p.id) === String(it.id) || p.sku === it.sku
+        );
+        if (pIdx !== -1) {
+          const qty = Number(it.quantity || 0);
+          products[pIdx].stock = Number(products[pIdx].stock || 0) + qty;
+          logItems.push({ sku: products[pIdx].sku, qty });
+        }
+      });
+      saveProducts(products);
+      row.inventory_applied = false;
+      row.inventory_applied_at = null;
+      logger.info('inventory revert OK', {
+        order: identifierStr,
+        items: logItems,
+      });
+    } else {
+      logger.info('inventory skipped (not applied)', {
+        order: identifierStr,
+      });
+    }
+  }
+
   saveOrders(orders);
 }
 
@@ -94,9 +196,10 @@ async function processPayment(id, hints = {}) {
         0
     );
 
-    if (await wasProcessed(p.id)) {
+    if (await wasProcessed(p.id, statusRaw)) {
       logger.info('mp-webhook payment idempotente (ya procesado)', {
         paymentId: p.id,
+        status: statusRaw,
       });
       return;
     }
@@ -105,6 +208,7 @@ async function processPayment(id, hints = {}) {
       externalRef,
       prefId,
       status: mapped,
+      statusRaw,
       paymentId: p.id,
       total,
     });
