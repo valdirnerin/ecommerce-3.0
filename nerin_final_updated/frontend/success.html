@@ -2,9 +2,11 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <title>Estado del pago</title>
-    <link rel="stylesheet" href="/css/style.css" />
-    <script src="/js/order-status.js" defer></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pago aprobado</title>
+    <link rel="stylesheet" href="/css/success.css" />
+  </head>
+  <body>
     <noscript>
       <style>
         .noscript-msg {
@@ -18,35 +20,13 @@
         Por favor habilitá JavaScript para ver el estado de tu pago.
       </div>
     </noscript>
-  </head>
-  <body>
-    <div class="contenedor" id="statusContainer">
-      <div class="spinner"></div>
-      <p>Estamos confirmando tu pago...</p>
-    </div>
-    <script>
-      document.addEventListener('DOMContentLoaded', async () => {
-        try {
-          const id = getIdentifier();
-          showProcessing();
-          if (!id) return;
-          const { status, id: resolvedId, numeroOrden } = await pollOrderStatus(id);
-          if (status === 'approved') {
-            showApproved(numeroOrden || resolvedId);
-            localStorage.removeItem('mp_last_pref');
-            localStorage.removeItem('mp_last_nrn');
-          } else if (status === 'rejected') {
-            showRejected();
-          } else {
-            showProcessing('Estamos acreditando tu pago...');
-          }
-        } catch (e) {
-          const el = document.getElementById('statusContainer');
-          if (el) {
-            el.innerHTML = '<p>Ocurrió un problema al verificar tu pago. Intentá nuevamente más tarde.</p>';
-          }
-        }
-      });
-    </script>
+    <main class="success-container">
+      <article id="card" class="card" aria-live="polite">
+        <div class="skeleton" style="height: 3rem"></div>
+        <div class="skeleton" style="height: 6rem"></div>
+        <div class="skeleton" style="height: 4rem"></div>
+      </article>
+    </main>
+    <script type="module" src="/js/success.js" defer></script>
   </body>
 </html>
