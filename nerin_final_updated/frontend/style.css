@@ -73,7 +73,7 @@ header .logo {
 /* Estilos para el logo clickeable */
 header .logo a {
   display: block;
-  width: 32px;
+  width: 180px;
   height: 32px;
   background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACAAAAAFlCAIAAADwZJ9dAAB1NUlEQVR4Ae3d\
 B7RdVZ0wcMhLL6QASQi9KgJCqAoIUYSQkFANMo6KODac0ZkRZXTN8luZouO3\
@@ -746,6 +746,8 @@ ECBAgAABAgQIECBAgAABAgQIECBAgEAeBf4/0aLxBKY634cAAAAASUVORK5C\
 YII=");
   background-size: contain;
   background-repeat: no-repeat;
+  background-position: center;
+  background-color: #fff;
   text-decoration: none;
 }
 
