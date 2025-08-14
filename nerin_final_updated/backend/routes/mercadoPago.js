@@ -12,11 +12,10 @@ const logger = {
 };
 
 function mapStatus(mpStatus) {
-  return mpStatus === 'approved'
-    ? 'approved'
-    : mpStatus === 'rejected'
-    ? 'rejected'
-    : 'pending';
+  const s = String(mpStatus || '').toLowerCase();
+  if (s === 'approved') return 'pagado';
+  if (s === 'rejected') return 'rechazado';
+  return 'pendiente';
 }
 
 function ordersPath() {
@@ -42,7 +41,7 @@ function wasProcessed(paymentId) {
   return orders.some((o) => String(o.payment_id) === String(paymentId));
 }
 
-async function upsertOrder({ externalRef, prefId, status, paymentId }) {
+async function upsertOrder({ externalRef, prefId, status, paymentId, total }) {
   const identifier = prefId || externalRef;
   if (!identifier) return;
   const orders = getOrders();
@@ -60,15 +59,19 @@ async function upsertOrder({ externalRef, prefId, status, paymentId }) {
       row.payment_status = status;
       row.estado_pago = status;
     }
+    if (total && !row.total) row.total = total;
+    if (!row.created_at) row.created_at = new Date().toISOString();
     if (prefId != null) row.preference_id = prefId;
     if (externalRef != null) row.external_reference = externalRef;
   } else {
     const row = { id: externalRef || prefId };
     if (prefId != null) row.preference_id = prefId;
     if (externalRef != null) row.external_reference = externalRef;
-    row.payment_status = status || 'pending';
-    row.estado_pago = status || 'pending';
+    row.payment_status = status || 'pendiente';
+    row.estado_pago = status || 'pendiente';
     if (paymentId != null) row.payment_id = String(paymentId);
+    row.total = total || 0;
+    row.created_at = new Date().toISOString();
     orders.push(row);
   }
   saveOrders(orders);
@@ -84,6 +87,12 @@ async function processPayment(id, hints = {}) {
     const mapped = mapStatus(statusRaw);
     const externalRef = p.external_reference || hints.externalRef || null;
     const prefId = p.preference_id || hints.prefId || null;
+    const total = Number(
+      p.transaction_amount ||
+        p.transaction_details?.total_paid_amount ||
+        p.amount ||
+        0
+    );
 
     if (await wasProcessed(p.id)) {
       logger.info('mp-webhook payment idempotente (ya procesado)', {
@@ -97,6 +106,7 @@ async function processPayment(id, hints = {}) {
       prefId,
       status: mapped,
       paymentId: p.id,
+      total,
     });
 
     logger.info('mp-webhook OK', {

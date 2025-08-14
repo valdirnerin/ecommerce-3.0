@@ -399,6 +399,63 @@ function saveOrderItems(items) {
   );
 }
 
+function mapPaymentStatus(status) {
+  const s = String(status || '').toLowerCase();
+  if (s === 'approved' || s === 'aprobado' || s === 'pagado') return 'pagado';
+  if (s === 'rejected' || s === 'rechazado') return 'rechazado';
+  return 'pendiente';
+}
+
+function normalizeOrder(o) {
+  const orderNum = o.order_number || o.id || o.external_reference || '';
+  const created = o.created_at || o.fecha || o.date || '';
+  const cliente = o.cliente || {};
+  const dir = cliente.direccion || {};
+  const phone = cliente.telefono || cliente.phone || '';
+  const address = dir.calle
+    ? `${dir.calle} ${dir.numero || ''}${dir.localidad ? ', ' + dir.localidad : ''}${dir.provincia ? ', ' + dir.provincia : ''} ${dir.cp || ''}`.trim()
+    : '';
+  const province = o.provincia_envio || dir.provincia || '';
+  const shippingCost = Number(o.costo_envio || 0);
+  const items = o.productos || o.items || [];
+  const itemsSummary = items
+    .map(
+      (it) =>
+        `${
+          it.name || it.title || it.titulo || it.id || 'item'
+        } x${it.quantity || it.qty || it.cantidad || 0}`,
+    )
+    .join(', ');
+  const total = Number(o.total || o.total_amount || 0);
+  const payment = mapPaymentStatus(o.payment_status || o.estado_pago);
+  const shipping = o.shipping_status || o.estado_envio || 'pendiente';
+  const tracking = o.tracking || o.seguimiento || '';
+  const carrier = o.carrier || o.transportista || '';
+  return {
+    ...o,
+    order_number: orderNum,
+    orderNumber: orderNum,
+    created_at: created,
+    createdAt: created,
+    user_email: o.user_email || cliente.email || '',
+    phone,
+    address,
+    province,
+    shipping_cost: shippingCost,
+    items_summary: itemsSummary,
+    total_amount: total,
+    total,
+    payment_status: payment,
+    paymentStatus: payment,
+    shipping_status: shipping,
+    shippingStatus: shipping,
+    tracking,
+    carrier,
+    productos: items,
+    cliente,
+  };
+}
+
 function getOrderStatus(id) {
   const orders = getOrders();
   let order = null;
@@ -1046,6 +1103,9 @@ const server = http.createServer((req, res) => {
         const shippingCost = getShippingCost(provincia);
         const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const impuestosCalc = Math.round(total * 0.21);
+        const itemsSummary = items
+          .map((it) => `${it.name} x${it.quantity}`)
+          .join(", ");
         const baseOrder = {
           id: orderId,
           order_number: orderId,
@@ -1055,11 +1115,13 @@ const server = http.createServer((req, res) => {
           provincia_envio: provincia,
           costo_envio: shippingCost,
           estado_pago: "pendiente",
-          payment_status: "pending",
+          payment_status: "pendiente",
           estado_envio: "pendiente",
+          shipping_status: "pendiente",
           metodo_envio: data.metodo_envio || "Correo Argentino",
           comentarios: data.comentarios || "",
           total,
+          items_summary: itemsSummary,
           impuestos: {
             iva: 21,
             percepciones: 0,
@@ -1068,7 +1130,9 @@ const server = http.createServer((req, res) => {
           fecha: new Date().toISOString(),
           created_at: new Date().toISOString(),
           seguimiento: "",
+          tracking: "",
           transportista: "",
+          carrier: "",
           user_email: (data.cliente && data.cliente.email) || "",
         };
         const idx = orders.findIndex((o) => o.id === orderId);
@@ -1109,7 +1173,8 @@ const server = http.createServer((req, res) => {
             };
             const prefRes = await mpPreference.create({ body: pref });
             initPoint = prefRes.init_point;
-            order.preference_id = prefRes.id;
+            const o = orders.find((or) => or.id === orderId);
+            if (o) o.preference_id = prefRes.id;
             saveOrders(orders);
           } catch (e) {
             console.error("Error MP preference", e);
@@ -1129,42 +1194,12 @@ const server = http.createServer((req, res) => {
     try {
       const status = (parsedUrl.query.payment_status || "all").toLowerCase();
       let orders = getOrders();
-      if (["pending", "approved", "rejected"].includes(status)) {
-        orders = orders.filter((o) => {
-          const ps = String(
-            o.payment_status || o.estado_pago || "pending",
-          ).toLowerCase();
-          return ps === status;
-        });
+      if (["pendiente", "pagado", "rechazado"].includes(status)) {
+        orders = orders.filter(
+          (o) => mapPaymentStatus(o.payment_status || o.estado_pago) === status,
+        );
       }
-      const rows = orders.map((o) => {
-        const orderNum = o.order_number || o.id || o.external_reference || "";
-        const created = o.created_at || o.fecha || o.date || "";
-        const email =
-          o.user_email ||
-          o.cliente?.email ||
-          o.customer?.email ||
-          "";
-        const payment = o.payment_status || o.estado_pago || "pending";
-        const shipping = o.estado_envio || o.shipping_status || "pendiente";
-        const total = o.total || o.total_amount || 0;
-        return {
-          ...o,
-          order_number: orderNum,
-          orderNumber: orderNum,
-          created_at: created,
-          createdAt: created,
-          user_email: email,
-          payment_status: payment,
-          paymentStatus: payment,
-          shipping_status: shipping,
-          shippingStatus: shipping,
-          total_amount: total,
-          total,
-          productos: o.productos || o.items || [],
-          cliente: o.cliente || o.customer || {},
-        };
-      });
+      const rows = orders.map((o) => normalizeOrder(o));
       return sendJson(res, 200, { orders: rows });
     } catch (err) {
       console.error(err);
@@ -1209,9 +1244,14 @@ const server = http.createServer((req, res) => {
     const id = pathname.split("/").pop();
     try {
       const orders = getOrders();
-      const order = orders.find((o) => o.id === id);
+      const order = orders.find(
+        (o) =>
+          o.id === id ||
+          o.order_number === id ||
+          o.external_reference === id,
+      );
       if (!order) return sendJson(res, 404, { error: "Pedido no encontrado" });
-      return sendJson(res, 200, { order });
+      return sendJson(res, 200, { order: normalizeOrder(order) });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al obtener pedido" });
@@ -1248,32 +1288,14 @@ const server = http.createServer((req, res) => {
         if (!order) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
         }
-        const orderNum =
-          order.order_number || order.id || order.external_reference;
-        const created = order.created_at || order.fecha || order.date || "";
-        const payment = order.payment_status || order.estado_pago || "pending";
-        const shipping = order.estado_envio || "pendiente";
-        const total = order.total || 0;
-        const orderData = {
-          ...order,
-          order_number: orderNum,
-          orderNumber: orderNum,
-          payment_status: payment,
-          paymentStatus: payment,
-          shipping_status: shipping,
-          shippingStatus: shipping,
-          created_at: created,
-          createdAt: created,
-          total_amount: total,
-          total,
-        };
+        const orderData = normalizeOrder(order);
         return sendJson(res, 200, {
           order: orderData,
-          orderNumber: orderNum,
-          paymentStatus: payment,
-          shippingStatus: shipping,
-          createdAt: created,
-          total,
+          orderNumber: orderData.order_number,
+          paymentStatus: orderData.payment_status,
+          shippingStatus: orderData.shipping_status,
+          createdAt: orderData.created_at,
+          total: orderData.total,
         });
       } catch (err) {
         console.error(err);
@@ -2137,7 +2159,20 @@ const server = http.createServer((req, res) => {
           quantity: Number(cantidad),
           currency_id: currency_id || "ARS",
         }));
+        const itemsForOrder = items.map((it) => ({
+          name: it.title,
+          price: it.unit_price,
+          quantity: it.quantity,
+        }));
+        const total = itemsForOrder.reduce(
+          (t, it) => t + it.price * it.quantity,
+          0,
+        );
+        const itemsSummary = itemsForOrder
+          .map((it) => `${it.name} x${it.quantity}`)
+          .join(", ");
         const numeroOrden = generarNumeroOrden();
+        const now = new Date().toISOString();
         const preferenceBody = {
           items,
           payer: { email: usuario?.email },
@@ -2165,19 +2200,52 @@ const server = http.createServer((req, res) => {
           if (idx === -1) {
             orders.push({
               id: numeroOrden,
+              order_number: numeroOrden,
               external_reference: numeroOrden,
               preference_id: prefId,
-              payment_status: "pending",
+              payment_status: "pendiente",
               estado_pago: "pendiente",
+              estado_envio: "pendiente",
+              shipping_status: "pendiente",
               user_email: usuario?.email || null,
+              cliente: usuario || {},
+              productos: itemsForOrder,
+              items_summary: itemsSummary,
+              total,
+              created_at: now,
+              fecha: now,
+              provincia_envio: usuario?.provincia || "",
+              costo_envio: Number(usuario?.costo || usuario?.costo_envio || 0),
+              seguimiento: "",
+              tracking: "",
+              transportista: "",
+              carrier: "",
             });
           } else {
             const row = orders[idx];
             row.preference_id = prefId;
             row.external_reference = numeroOrden;
+            row.order_number = row.order_number || numeroOrden;
             row.user_email = usuario?.email || row.user_email || null;
-            row.payment_status = row.payment_status || "pending";
-            row.estado_pago = row.estado_pago || "pendiente";
+            row.payment_status = mapPaymentStatus(row.payment_status);
+            row.estado_pago = mapPaymentStatus(row.estado_pago);
+            row.estado_envio = row.estado_envio || "pendiente";
+            row.shipping_status = row.shipping_status || row.estado_envio || "pendiente";
+            row.cliente = row.cliente || usuario || {};
+            row.productos = row.productos || itemsForOrder;
+            row.items_summary = row.items_summary || itemsSummary;
+            if (!row.total) row.total = total;
+            if (!row.created_at) row.created_at = now;
+            row.fecha = row.created_at;
+            row.provincia_envio = row.provincia_envio || usuario?.provincia || "";
+            if (row.costo_envio == null)
+              row.costo_envio = Number(
+                usuario?.costo || usuario?.costo_envio || 0,
+              );
+            row.seguimiento = row.seguimiento || "";
+            row.tracking = row.tracking || "";
+            row.transportista = row.transportista || "";
+            row.carrier = row.carrier || "";
           }
           saveOrders(orders);
         }
