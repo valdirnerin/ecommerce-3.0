@@ -181,6 +181,14 @@
           <option value="pendiente">Pendiente</option>
           <option value="rechazado">Rechazado</option>
         </select>
+        <label for="shippingStatusFilter">Filtrar por envío:</label>
+        <select id="shippingStatusFilter">
+          <option value="todos">Todos</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="en preparación">En preparación</option>
+          <option value="enviado">Enviado</option>
+          <option value="entregado">Entregado</option>
+        </select>
         <div class="table-wrapper">
           <table class="admin-table" id="ordersTable">
             <thead>
@@ -296,18 +304,23 @@
       </section>
 
       <!-- Gestión de costos de envío -->
-      <section id="shippingSection" class="admin-section" style="display:none">
+      <section id="shippingSection" class="admin-section" style="display: none">
         <h3>Costos de envío</h3>
-        <div id="shippingAlert" class="alert" style="display:none"></div>
+        <div id="shippingAlert" class="alert" style="display: none"></div>
         <div class="table-wrapper">
           <table class="admin-table" id="shippingTable">
             <thead>
-              <tr><th>Provincia</th><th>Costo ($)</th></tr>
+              <tr>
+                <th>Provincia</th>
+                <th>Costo ($)</th>
+              </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-        <button id="saveShippingBtn" class="button primary">Guardar cambios</button>
+        <button id="saveShippingBtn" class="button primary">
+          Guardar cambios
+        </button>
       </section>
 
       <!-- Sección de proveedores -->

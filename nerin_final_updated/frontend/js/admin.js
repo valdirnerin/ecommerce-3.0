@@ -205,12 +205,10 @@ async function loadProducts() {
               alert("Error al actualizar");
             }
           });
-        cells[9]
-          .querySelector(".cancel-btn")
-          .addEventListener("click", () => {
-            editingRow = null;
-            loadProducts();
-          });
+        cells[9].querySelector(".cancel-btn").addEventListener("click", () => {
+          editingRow = null;
+          loadProducts();
+        });
       });
       // Eliminar
       tr.querySelector(".delete-btn").addEventListener("click", async () => {
@@ -581,8 +579,14 @@ async function loadAnalytics() {
 // ------------ Pedidos ------------
 const ordersTableBody = document.querySelector("#ordersTable tbody");
 const orderStatusFilter = document.getElementById("orderStatusFilter");
+const shippingStatusFilter = document.getElementById("shippingStatusFilter");
 if (orderStatusFilter) {
   orderStatusFilter.addEventListener("change", () => {
+    loadOrders();
+  });
+}
+if (shippingStatusFilter) {
+  shippingStatusFilter.addEventListener("change", () => {
     loadOrders();
   });
 }
@@ -592,11 +596,18 @@ async function loadOrders() {
     const res = await fetch("/api/orders");
     const data = await res.json();
     ordersTableBody.innerHTML = "";
-    const filter = document.getElementById("orderStatusFilter");
-    const statusFilter = filter ? filter.value : "todos";
+    const statusFilter = orderStatusFilter ? orderStatusFilter.value : "todos";
+    const shipFilter = shippingStatusFilter
+      ? shippingStatusFilter.value
+      : "todos";
     data.orders
       .filter((o) =>
         statusFilter === "todos" ? true : o.payment_status === statusFilter,
+      )
+      .filter((o) =>
+        shipFilter === "todos"
+          ? true
+          : (o.shipping_status || o.estado_envio) === shipFilter,
       )
       .forEach(async (order) => {
         const tr = document.createElement("tr");
@@ -615,9 +626,7 @@ async function loadOrders() {
         const idTd = document.createElement("td");
         idTd.textContent = order.order_number;
         const dateTd = document.createElement("td");
-        dateTd.textContent = new Date(order.created_at).toLocaleString(
-          "es-AR",
-        );
+        dateTd.textContent = new Date(order.created_at).toLocaleString("es-AR");
         const nameTd = document.createElement("td");
         nameTd.textContent = cliente.nombre || "";
         const phoneTd = document.createElement("td");
@@ -640,8 +649,8 @@ async function loadOrders() {
           opt.textContent = st;
           statusSelect.appendChild(opt);
         });
-      statusSelect.value = order.payment_status;
-      statusTd.appendChild(statusSelect);
+        statusSelect.value = order.payment_status;
+        statusTd.appendChild(statusSelect);
         const trackingTd = document.createElement("td");
         const trackingInput = document.createElement("input");
         trackingInput.type = "text";
@@ -730,7 +739,9 @@ async function loadOrders() {
         });
         async function updateInvoiceUI() {
           try {
-            const invRes = await fetch(`/api/invoice-files/${order.order_number}`);
+            const invRes = await fetch(
+              `/api/invoice-files/${order.order_number}`,
+            );
             if (invRes.ok) {
               const data = await invRes.json();
               invoiceBtn.textContent = "Ver factura";
@@ -762,11 +773,14 @@ async function loadOrders() {
           const reader = new FileReader();
           reader.onload = async () => {
             const base64 = reader.result.split(",")[1];
-            const resp = await fetch(`/api/invoice-files/${order.order_number}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileName: file.name, data: base64 }),
-            });
+            const resp = await fetch(
+              `/api/invoice-files/${order.order_number}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileName: file.name, data: base64 }),
+              },
+            );
             if (resp.ok) {
               await updateInvoiceUI();
             } else {
@@ -1179,7 +1193,6 @@ if (saveShippingBtn) {
     }
   });
 }
-
 
 // Cargar productos inicialmente
 loadProducts();
