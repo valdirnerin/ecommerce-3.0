@@ -95,6 +95,9 @@
                 <th>Nombre</th>
                 <th>Marca</th>
                 <th>Modelo</th>
+                <th>Categoría</th>
+                <th>Subcategoría</th>
+                <th>Tags</th>
                 <th>Stock</th>
                 <th>Mín. Stock</th>
                 <th>Precio (Min.)</th>
@@ -154,6 +157,16 @@
             required
           ></textarea>
           <input type="text" id="newCategory" placeholder="Categoría" />
+          <input type="text" id="newSubcategory" placeholder="Subcategoría" />
+          <input type="text" id="newTags" placeholder="Tags (coma separados)" />
+          <input type="text" id="newSlug" placeholder="Slug" required />
+          <input type="text" id="newMetaTitle" placeholder="Meta título" />
+          <input type="text" id="newMetaDesc" placeholder="Meta descripción" />
+          <select id="newVisibility">
+            <option value="public">Público</option>
+            <option value="hidden">Oculto</option>
+          </select>
+          <label><input type="checkbox" id="newFeatured" /> Destacado</label>
           <input
             type="number"
             id="newWeight"
@@ -296,18 +309,23 @@
       </section>
 
       <!-- Gestión de costos de envío -->
-      <section id="shippingSection" class="admin-section" style="display:none">
+      <section id="shippingSection" class="admin-section" style="display: none">
         <h3>Costos de envío</h3>
-        <div id="shippingAlert" class="alert" style="display:none"></div>
+        <div id="shippingAlert" class="alert" style="display: none"></div>
         <div class="table-wrapper">
           <table class="admin-table" id="shippingTable">
             <thead>
-              <tr><th>Provincia</th><th>Costo ($)</th></tr>
+              <tr>
+                <th>Provincia</th>
+                <th>Costo ($)</th>
+              </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-        <button id="saveShippingBtn" class="button primary">Guardar cambios</button>
+        <button id="saveShippingBtn" class="button primary">
+          Guardar cambios
+        </button>
       </section>
 
       <!-- Sección de proveedores -->

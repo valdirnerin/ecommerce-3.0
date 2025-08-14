@@ -20,7 +20,14 @@
       "warehouseStock": {
         "central": 20,
         "buenos_aires": 5
-      }
+      },
+      "subcategory": "iPhone",
+      "tags": ["pantalla", "iphone"],
+      "slug": "pantalla-iphone-12",
+      "meta_title": "Pantalla iPhone 12",
+      "meta_description": "Repuesto original de pantalla OLED para iPhone 12",
+      "visibility": "public",
+      "featured": false
     },
     {
       "id": "2",
@@ -42,7 +49,14 @@
       "warehouseStock": {
         "central": 12,
         "buenos_aires": 6
-      }
+      },
+      "subcategory": "Samsung",
+      "tags": ["pantalla", "samsung"],
+      "slug": "pantalla-samsung-s21",
+      "meta_title": "Pantalla Samsung S21",
+      "meta_description": "Pantalla AMOLED de repuesto para Galaxy S21",
+      "visibility": "public",
+      "featured": false
     },
     {
       "id": "3",
@@ -64,7 +78,14 @@
       "warehouseStock": {
         "central": 20,
         "buenos_aires": 10
-      }
+      },
+      "subcategory": "Xiaomi",
+      "tags": ["pantalla", "xiaomi"],
+      "slug": "pantalla-xiaomi-mi-11",
+      "meta_title": "Pantalla Xiaomi Mi 11",
+      "meta_description": "Pantalla AMOLED de repuesto para Xiaomi Mi 11",
+      "visibility": "public",
+      "featured": false
     },
     {
       "id": "4",
@@ -86,7 +107,14 @@
       "warehouseStock": {
         "central": 30,
         "buenos_aires": 10
-      }
+      },
+      "subcategory": "iPhone",
+      "tags": ["bateria", "iphone"],
+      "slug": "bateria-iphone-12",
+      "meta_title": "Batería iPhone 12",
+      "meta_description": "Batería de repuesto para iPhone 12 de 2815 mAh",
+      "visibility": "public",
+      "featured": false
     },
     {
       "id": "5",
@@ -108,7 +136,14 @@
       "warehouseStock": {
         "central": 35,
         "buenos_aires": 15
-      }
+      },
+      "subcategory": "iPhone",
+      "tags": ["auricular", "iphone"],
+      "slug": "auricular-iphone-11",
+      "meta_title": "Auricular iPhone 11",
+      "meta_description": "Auricular interno de repuesto para iPhone 11",
+      "visibility": "public",
+      "featured": false
     }
   ]
 }
