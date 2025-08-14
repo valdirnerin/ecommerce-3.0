@@ -141,6 +141,11 @@ async function loadProducts() {
     const res = await fetch("/api/products");
     const data = await res.json();
     productsTableBody.innerHTML = "";
+    if (data.products.length === 0) {
+      productsTableBody.innerHTML =
+        '<tr><td colspan="13">No hay productos</td></tr>';
+      return;
+    }
     data.products.forEach((product) => {
       const tr = document.createElement("tr");
       // Resaltar si el stock está por debajo del mínimo configurado
@@ -156,6 +161,9 @@ async function loadProducts() {
         <td>${product.name}</td>
         <td>${product.brand}</td>
         <td>${product.model}</td>
+        <td>${product.category || ""}</td>
+        <td>${product.subcategory || ""}</td>
+        <td>${(product.tags || []).join(", ")}</td>
         <td>${product.stock}</td>
         <td>${product.min_stock ?? ""}</td>
         <td>$${product.price_minorista.toLocaleString("es-AR")}</td>
@@ -174,14 +182,14 @@ async function loadProducts() {
         cells[2].innerHTML = `<input type="text" value="${product.name}" />`;
         cells[3].innerHTML = `<input type="text" value="${product.brand}" />`;
         cells[4].innerHTML = `<input type="text" value="${product.model}" />`;
-        cells[5].innerHTML = `<input type="number" min="0" value="${product.stock}" />`;
-        cells[7].innerHTML = `<input type="number" min="0" value="${product.price_minorista}" />`;
-        cells[8].innerHTML = `<input type="number" min="0" value="${product.price_mayorista}" />`;
-        cells[9].innerHTML = `
+        cells[8].innerHTML = `<input type="number" min="0" value="${product.stock}" />`;
+        cells[10].innerHTML = `<input type="number" min="0" value="${product.price_minorista}" />`;
+        cells[11].innerHTML = `<input type="number" min="0" value="${product.price_mayorista}" />`;
+        cells[12].innerHTML = `
           <button class="save-btn">Guardar</button>
           <button class="cancel-btn">Cancelar</button>
         `;
-        cells[9]
+        cells[12]
           .querySelector(".save-btn")
           .addEventListener("click", async () => {
             const inputs = tr.querySelectorAll("input");
@@ -205,12 +213,10 @@ async function loadProducts() {
               alert("Error al actualizar");
             }
           });
-        cells[9]
-          .querySelector(".cancel-btn")
-          .addEventListener("click", () => {
-            editingRow = null;
-            loadProducts();
-          });
+        cells[12].querySelector(".cancel-btn").addEventListener("click", () => {
+          editingRow = null;
+          loadProducts();
+        });
       });
       // Eliminar
       tr.querySelector(".delete-btn").addEventListener("click", async () => {
@@ -230,7 +236,7 @@ async function loadProducts() {
   } catch (err) {
     console.error(err);
     productsTableBody.innerHTML =
-      '<tr><td colspan="9">No se pudieron cargar los productos</td></tr>';
+      '<tr><td colspan="13">No se pudieron cargar los productos</td></tr>';
   }
 }
 
@@ -254,6 +260,20 @@ addProductForm.addEventListener("submit", async (e) => {
     ),
     description: document.getElementById("newDescription").value.trim(),
     category: document.getElementById("newCategory").value.trim() || undefined,
+    subcategory:
+      document.getElementById("newSubcategory").value.trim() || undefined,
+    tags: document
+      .getElementById("newTags")
+      .value.split(",")
+      .map((t) => t.trim())
+      .filter((t) => t),
+    slug: document.getElementById("newSlug").value.trim(),
+    meta_title:
+      document.getElementById("newMetaTitle").value.trim() || undefined,
+    meta_description:
+      document.getElementById("newMetaDesc").value.trim() || undefined,
+    visibility: document.getElementById("newVisibility").value,
+    featured: document.getElementById("newFeatured").checked,
     weight: (function () {
       const wVal = document.getElementById("newWeight").value;
       return wVal !== "" ? parseFloat(wVal) : undefined;
@@ -615,9 +635,7 @@ async function loadOrders() {
         const idTd = document.createElement("td");
         idTd.textContent = order.order_number;
         const dateTd = document.createElement("td");
-        dateTd.textContent = new Date(order.created_at).toLocaleString(
-          "es-AR",
-        );
+        dateTd.textContent = new Date(order.created_at).toLocaleString("es-AR");
         const nameTd = document.createElement("td");
         nameTd.textContent = cliente.nombre || "";
         const phoneTd = document.createElement("td");
@@ -640,8 +658,8 @@ async function loadOrders() {
           opt.textContent = st;
           statusSelect.appendChild(opt);
         });
-      statusSelect.value = order.payment_status;
-      statusTd.appendChild(statusSelect);
+        statusSelect.value = order.payment_status;
+        statusTd.appendChild(statusSelect);
         const trackingTd = document.createElement("td");
         const trackingInput = document.createElement("input");
         trackingInput.type = "text";
@@ -730,7 +748,9 @@ async function loadOrders() {
         });
         async function updateInvoiceUI() {
           try {
-            const invRes = await fetch(`/api/invoice-files/${order.order_number}`);
+            const invRes = await fetch(
+              `/api/invoice-files/${order.order_number}`,
+            );
             if (invRes.ok) {
               const data = await invRes.json();
               invoiceBtn.textContent = "Ver factura";
@@ -762,11 +782,14 @@ async function loadOrders() {
           const reader = new FileReader();
           reader.onload = async () => {
             const base64 = reader.result.split(",")[1];
-            const resp = await fetch(`/api/invoice-files/${order.order_number}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ fileName: file.name, data: base64 }),
-            });
+            const resp = await fetch(
+              `/api/invoice-files/${order.order_number}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ fileName: file.name, data: base64 }),
+              },
+            );
             if (resp.ok) {
               await updateInvoiceUI();
             } else {
@@ -1179,7 +1202,6 @@ if (saveShippingBtn) {
     }
   });
 }
-
 
 // Cargar productos inicialmente
 loadProducts();
