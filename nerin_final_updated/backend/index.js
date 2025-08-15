@@ -239,7 +239,7 @@ app.post("/api/orders", async (req, res) => {
       total,
       preference_id: preferenceId,
       external_reference: id,
-      inventory_applied: false,
+      inventoryApplied: false,
     };
     const orders = getOrders();
     orders.push(order);

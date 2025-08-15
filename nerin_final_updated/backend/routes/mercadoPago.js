@@ -89,10 +89,8 @@ async function upsertOrder({
       o.order_number === identifier ||
       String(o.preference_id) === String(identifier)
   );
-  let prevStatusRaw = null;
   if (idx !== -1) {
     const row = orders[idx];
-    prevStatusRaw = row.payment_status_raw;
     if (paymentId != null) row.payment_id = String(paymentId);
     if (status) {
       row.payment_status = status;
@@ -117,14 +115,15 @@ async function upsertOrder({
   }
 
   const row = orders[idx !== -1 ? idx : orders.length - 1];
+  const inventoryApplied = row.inventoryApplied || row.inventory_applied;
 
   saveOrders(orders);
 
-  if (statusRaw === 'approved' && prevStatusRaw !== 'approved') {
+  if (statusRaw === 'approved' && !inventoryApplied) {
     applyInventoryForOrder(row);
   } else if (
     ['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw) &&
-    prevStatusRaw === 'approved'
+    inventoryApplied
   ) {
     revertInventoryForOrder(row);
   }
