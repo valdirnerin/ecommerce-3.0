@@ -25,21 +25,21 @@
       </div>
     </header>
     <main class="container">
-      <div class="status-icon failure" aria-hidden="true">
-        <svg viewBox="0 0 24 24" class="icon">
-          <path class="draw" d="M18 6L6 18" />
-          <path class="draw" d="M6 6l12 12" />
-        </svg>
-      </div>
-      <article class="receipt">
+      <article class="receipt" aria-live="polite">
+        <div class="icon-hero failure" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M18 6L6 18" />
+            <path d="M6 6l12 12" />
+          </svg>
+        </div>
         <h1>Pago rechazado</h1>
         <p class="date" id="fecha"></p>
-        <section class="section">
-          <p>Tu pago fue rechazado.</p>
-        </section>
-        <div class="actions">
-          <a class="button primary" href="/seguimiento.html">Ver estado del pedido</a>
-          <a class="button secondary" href="/index.html">Volver al inicio</a>
+        <div class="receipt-card">
+          <p>Tu pago no pudo procesarse. Podés intentar nuevamente o comunicarte con nosotros.</p>
+        </div>
+        <div class="receipt-actions">
+          <a class="button primary" href="/checkout.html">Reintentar</a>
+          <a class="button secondary" id="whatsLink" target="_blank">Contactar por WhatsApp</a>
         </div>
       </article>
     </main>
@@ -51,6 +51,14 @@
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
+      });
+      document.addEventListener('DOMContentLoaded', () => {
+        const cfg = window.NERIN_CONFIG || {};
+        const wa = document.getElementById('whatsLink');
+        if (wa) {
+          const phone = (cfg.whatsappNumber || '').replace(/[^0-9]/g, '');
+          wa.href = phone ? `https://wa.me/${phone}` : '#';
+        }
       });
     </script>
   </body>
