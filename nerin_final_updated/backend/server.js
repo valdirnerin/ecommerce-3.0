@@ -136,7 +136,7 @@ async function mpWebhookRelay(req, res, parsedUrl) {
         row.payment_id = paymentId || row.payment_id;
         row.payment_status = status || row.payment_status;
         row.estado_pago = status || row.estado_pago;
-        if (status === "approved" && !row.inventory_applied) {
+        if (status === "approved" && !row.inventoryApplied && !row.inventory_applied) {
           const products = getProducts();
           (row.productos || row.items || []).forEach((it) => {
             const pIdx = products.findIndex(
@@ -148,10 +148,11 @@ async function mpWebhookRelay(req, res, parsedUrl) {
             }
           });
           saveProducts(products);
+          row.inventoryApplied = true;
           row.inventory_applied = true;
           console.log(`inventory applied for ${row.id || row.order_number}`);
         }
-        if (status === "rejected" && row.inventory_applied) {
+        if (status === "rejected" && (row.inventoryApplied || row.inventory_applied)) {
           // TODO: revertir stock si el pago fue rechazado luego de aprobarse
         }
         saveOrders(orders);
@@ -957,7 +958,7 @@ const server = http.createServer((req, res) => {
           items: cart.map((it) => ({ ...it })),
           estado_pago: "pendiente",
           total,
-          inventory_applied: false,
+            inventoryApplied: false,
         };
         // Si existe información de cliente, agregarla
         if (customer) {
@@ -1135,7 +1136,7 @@ const server = http.createServer((req, res) => {
           transportista: "",
           carrier: "",
           user_email: (data.cliente && data.cliente.email) || "",
-          inventory_applied: false,
+            inventoryApplied: false,
         };
         const idx = orders.findIndex((o) => o.id === orderId);
         if (idx !== -1) orders[idx] = { ...orders[idx], ...baseOrder };
@@ -2155,17 +2156,41 @@ const server = http.createServer((req, res) => {
           });
         }
 
+        const productsList = getProducts();
+        const normalize = (s) =>
+          String(s || "")
+            .normalize("NFD")
+            .replace(/[^\w\s-]/g, "")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .trim();
+
         const items = carrito.map(({ titulo, precio, cantidad, currency_id }) => ({
           title: String(titulo),
           unit_price: Number(precio),
           quantity: Number(cantidad),
           currency_id: currency_id || "ARS",
         }));
-        const itemsForOrder = items.map((it) => ({
-          name: it.title,
-          price: it.unit_price,
-          quantity: it.quantity,
-        }));
+
+        const itemsForOrder = carrito.map(
+          ({ titulo, precio, cantidad, id, productId, sku }) => {
+            const normTitle = normalize(titulo);
+            const prod =
+              productsList.find(
+                (p) =>
+                  normalize(p.id) === normalize(id || productId) ||
+                  normalize(p.sku) === normalize(sku) ||
+                  normalize(p.name) === normTitle,
+              ) || null;
+            return {
+              id: prod ? String(prod.id) : String(id || productId || ""),
+              sku: prod ? String(prod.sku) : String(sku || ""),
+              name: titulo,
+              price: Number(precio),
+              quantity: Number(cantidad),
+            };
+          },
+        );
         const total = itemsForOrder.reduce(
           (t, it) => t + it.price * it.quantity,
           0,
@@ -2222,7 +2247,7 @@ const server = http.createServer((req, res) => {
               tracking: "",
               transportista: "",
               carrier: "",
-              inventory_applied: false,
+              inventoryApplied: false,
             });
           } else {
             const row = orders[idx];
@@ -2235,8 +2260,8 @@ const server = http.createServer((req, res) => {
             row.estado_envio = row.estado_envio || "pendiente";
             row.shipping_status = row.shipping_status || row.estado_envio || "pendiente";
             row.cliente = row.cliente || usuario || {};
-            row.productos = row.productos || itemsForOrder;
-            row.items_summary = row.items_summary || itemsSummary;
+            row.productos = itemsForOrder;
+            row.items_summary = itemsSummary;
             if (!row.total) row.total = total;
             if (!row.created_at) row.created_at = now;
             row.fecha = row.created_at;

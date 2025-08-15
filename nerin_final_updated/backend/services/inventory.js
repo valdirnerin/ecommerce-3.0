@@ -39,6 +39,24 @@ function saveProducts(products) {
   writeJSON('products.json', { products });
 }
 
+function normalize(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function matchProduct(products, item) {
+  const id = normalize(item.productId || item.id);
+  const sku = normalize(item.sku);
+  const title = normalize(item.title || item.name);
+  return (
+    products.find((p) => normalize(p.id) === id || normalize(p.sku) === sku) ||
+    products.find((p) => normalize(p.name) === title)
+  );
+}
+
 function acquireLock() {
   const lockFile = dataPath('.inventory.lock');
   while (true) {
@@ -75,41 +93,44 @@ function applyInventoryForOrder(order) {
     const idx = findOrderIndex(orders, order);
     if (idx === -1) return false;
     const row = orders[idx];
-    if (row.inventory_applied) {
-      logger.info('inventory skipped (already applied)', {
-        order: row.id || row.external_reference,
-      });
+    if (row.inventoryApplied || row.inventory_applied) {
+      logger.info(
+        `inventory: skip (already applied) nrn=${row.external_reference || row.id} pref=${row.preference_id || ''}`,
+      );
       return false;
     }
     const products = getProducts();
     const logItems = [];
-    let oversell = false;
     (row.productos || row.items || []).forEach((it) => {
-      const pIdx = products.findIndex(
-        (p) => String(p.id) === String(it.id) || p.sku === it.sku,
-      );
-      if (pIdx !== -1) {
-        const current = Number(products[pIdx].stock || 0);
-        const qty = Number(it.quantity || 0);
-        let next = current - qty;
-        if (next < 0) {
-          oversell = true;
-          next = 0;
-          products[pIdx].oversell = true;
-        }
-        products[pIdx].stock = next;
-        logItems.push({ sku: products[pIdx].sku, qty });
+      const prod = matchProduct(products, it);
+      if (!prod) {
+        logger.warn('inventory: product not found', { item: it });
+        return;
       }
+      const before = Number(prod.stock || 0);
+      const qty = Number(it.quantity || it.qty || 0);
+      let after = before - qty;
+      if (after < 0) {
+        logger.warn('inventory: negative stock', {
+          id: prod.id || prod.sku,
+          before,
+          qty,
+        });
+        after = 0;
+      }
+      prod.stock = after;
+      logItems.push({ id: prod.id || prod.sku, qty, before, after });
     });
     saveProducts(products);
+    row.inventoryApplied = true;
     row.inventory_applied = true;
     row.inventory_applied_at = new Date().toISOString();
-    if (oversell) row.oversell = true;
     orders[idx] = row;
     saveOrders(orders);
-    logger.info('inventory applied for ' + (row.id || row.external_reference), {
-      items: logItems,
-    });
+    const nrn = row.external_reference || row.id || row.order_number;
+    logger.info(
+      `inventory: apply nrn=${nrn} pref=${row.preference_id || ''} items=${JSON.stringify(logItems)}`,
+    );
     return true;
   } finally {
     release();
@@ -123,33 +144,37 @@ function revertInventoryForOrder(order) {
     const idx = findOrderIndex(orders, order);
     if (idx === -1) return false;
     const row = orders[idx];
-    if (!row.inventory_applied) {
-      logger.info('inventory skipped (not applied)', {
-        order: row.id || row.external_reference,
-      });
+    if (!row.inventoryApplied && !row.inventory_applied) {
+      logger.info(
+        `inventory: skip (not applied) nrn=${row.external_reference || row.id} pref=${row.preference_id || ''}`,
+      );
       return false;
     }
     const products = getProducts();
     const logItems = [];
     (row.productos || row.items || []).forEach((it) => {
-      const pIdx = products.findIndex(
-        (p) => String(p.id) === String(it.id) || p.sku === it.sku,
-      );
-      if (pIdx !== -1) {
-        const qty = Number(it.quantity || 0);
-        products[pIdx].stock = Number(products[pIdx].stock || 0) + qty;
-        logItems.push({ sku: products[pIdx].sku, qty });
+      const prod = matchProduct(products, it);
+      if (!prod) {
+        logger.warn('inventory: product not found', { item: it });
+        return;
       }
+      const qty = Number(it.quantity || it.qty || 0);
+      const before = Number(prod.stock || 0);
+      const after = before + qty;
+      prod.stock = after;
+      logItems.push({ id: prod.id || prod.sku, qty, before, after });
     });
     saveProducts(products);
+    row.inventoryApplied = false;
     row.inventory_applied = false;
     row.inventory_applied_at = null;
     delete row.oversell;
     orders[idx] = row;
     saveOrders(orders);
-    logger.info('inventory reverted for ' + (row.id || row.external_reference), {
-      items: logItems,
-    });
+    const nrn = row.external_reference || row.id || row.order_number;
+    logger.info(
+      `inventory: revert nrn=${nrn} pref=${row.preference_id || ''} items=${JSON.stringify(logItems)}`,
+    );
     return true;
   } finally {
     release();
