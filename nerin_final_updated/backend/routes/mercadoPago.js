@@ -10,6 +10,10 @@ const logger = {
   warn: console.warn,
   error: console.error,
 };
+const {
+  applyInventoryForOrder,
+  revertInventoryForOrder,
+} = require('../services/inventory');
 
 function mapStatus(mpStatus) {
   const s = String(mpStatus || '').toLowerCase();
@@ -85,8 +89,10 @@ async function upsertOrder({
       o.order_number === identifier ||
       String(o.preference_id) === String(identifier)
   );
+  let prevStatusRaw = null;
   if (idx !== -1) {
     const row = orders[idx];
+    prevStatusRaw = row.payment_status_raw;
     if (paymentId != null) row.payment_id = String(paymentId);
     if (status) {
       row.payment_status = status;
@@ -111,72 +117,17 @@ async function upsertOrder({
   }
 
   const row = orders[idx !== -1 ? idx : orders.length - 1];
-  const items = row.productos || row.items || [];
-  const identifierStr = row.id || row.external_reference || row.preference_id;
-
-  if (statusRaw === 'approved') {
-    if (!row.inventory_applied) {
-      const products = getProducts();
-      const logItems = [];
-      let oversell = false;
-      items.forEach((it) => {
-        const pIdx = products.findIndex(
-          (p) => String(p.id) === String(it.id) || p.sku === it.sku
-        );
-        if (pIdx !== -1) {
-          const current = Number(products[pIdx].stock || 0);
-          const qty = Number(it.quantity || 0);
-          let next = current - qty;
-          if (next < 0) {
-            oversell = true;
-            next = 0;
-            products[pIdx].oversell = true;
-          }
-          products[pIdx].stock = next;
-          logItems.push({ sku: products[pIdx].sku, qty });
-        }
-      });
-      saveProducts(products);
-      row.inventory_applied = true;
-      row.inventory_applied_at = new Date().toISOString();
-      if (oversell) row.oversell = true;
-      logger.info('inventory apply OK', { order: identifierStr, items: logItems });
-    } else {
-      logger.info('inventory skipped (already applied)', {
-        order: identifierStr,
-      });
-    }
-  } else if (
-    ['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)
-  ) {
-    if (row.inventory_applied) {
-      const products = getProducts();
-      const logItems = [];
-      items.forEach((it) => {
-        const pIdx = products.findIndex(
-          (p) => String(p.id) === String(it.id) || p.sku === it.sku
-        );
-        if (pIdx !== -1) {
-          const qty = Number(it.quantity || 0);
-          products[pIdx].stock = Number(products[pIdx].stock || 0) + qty;
-          logItems.push({ sku: products[pIdx].sku, qty });
-        }
-      });
-      saveProducts(products);
-      row.inventory_applied = false;
-      row.inventory_applied_at = null;
-      logger.info('inventory revert OK', {
-        order: identifierStr,
-        items: logItems,
-      });
-    } else {
-      logger.info('inventory skipped (not applied)', {
-        order: identifierStr,
-      });
-    }
-  }
 
   saveOrders(orders);
+
+  if (statusRaw === 'approved' && prevStatusRaw !== 'approved') {
+    applyInventoryForOrder(row);
+  } else if (
+    ['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw) &&
+    prevStatusRaw === 'approved'
+  ) {
+    revertInventoryForOrder(row);
+  }
 }
 
 async function processPayment(id, hints = {}) {

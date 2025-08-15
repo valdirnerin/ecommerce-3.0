@@ -957,6 +957,7 @@ const server = http.createServer((req, res) => {
           items: cart.map((it) => ({ ...it })),
           estado_pago: "pendiente",
           total,
+          inventory_applied: false,
         };
         // Si existe información de cliente, agregarla
         if (customer) {
@@ -1134,6 +1135,7 @@ const server = http.createServer((req, res) => {
           transportista: "",
           carrier: "",
           user_email: (data.cliente && data.cliente.email) || "",
+          inventory_applied: false,
         };
         const idx = orders.findIndex((o) => o.id === orderId);
         if (idx !== -1) orders[idx] = { ...orders[idx], ...baseOrder };
@@ -2220,6 +2222,7 @@ const server = http.createServer((req, res) => {
               tracking: "",
               transportista: "",
               carrier: "",
+              inventory_applied: false,
             });
           } else {
             const row = orders[idx];
