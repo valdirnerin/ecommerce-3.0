@@ -6,8 +6,10 @@
       params.get('pref_id') ||
       params.get('o') ||
       params.get('order') ||
+      params.get('nrn') ||
       params.get('external_reference') ||
       params.get('collection_id') ||
+      localStorage.getItem('nerin.lastNRN') ||
       localStorage.getItem('mp_last_pref') ||
       localStorage.getItem('mp_last_nrn');
     return id || null;
@@ -59,4 +61,13 @@
   window.showProcessing = showProcessing;
   window.showApproved = showApproved;
   window.showRejected = showRejected;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const email = localStorage.getItem('nerin.lastEmail');
+    const nrn = localStorage.getItem('nerin.lastNRN');
+    const emailInput = document.getElementById('email');
+    const orderInput = document.getElementById('orderId');
+    if (email && emailInput && !emailInput.value) emailInput.value = email;
+    if (nrn && orderInput && !orderInput.value) orderInput.value = nrn;
+  });
 })();

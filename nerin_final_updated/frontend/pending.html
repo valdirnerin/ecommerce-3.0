@@ -38,51 +38,28 @@
       </div>
     </noscript>
     <main class="container">
-      <div class="status-icon pending" aria-hidden="true">
-        <svg viewBox="0 0 24 24" class="icon">
-          <circle class="draw" cx="12" cy="12" r="9" />
-          <path class="draw" d="M12 8v4l2 2" />
-        </svg>
-      </div>
-      <article class="receipt" id="statusContainer">
-        <h1>Pago pendiente</h1>
-        <p class="date" id="fecha"></p>
-        <div id="statusMessage">
-          <div class="spinner"></div>
-          <p>Estamos confirmando tu pago...</p>
-        </div>
+      <article id="card" class="receipt" aria-live="polite">
+        <div class="skeleton hero"></div>
+        <div class="skeleton title"></div>
+        <div class="skeleton block"></div>
       </article>
     </main>
     <script type="module" src="/js/config.js"></script>
     <script src="/js/order-status.js"></script>
+    <script type="module" src="/js/success.js"></script>
     <script>
-      document.getElementById('fecha').textContent = new Date().toLocaleString('es-AR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
       document.addEventListener('DOMContentLoaded', async () => {
         try {
           const id = getIdentifier();
-          showProcessing();
           if (!id) return;
           const { status, id: resolvedId, numeroOrden } = await pollOrderStatus(id);
           if (status === 'approved') {
             showApproved(numeroOrden || resolvedId);
-            localStorage.removeItem('mp_last_pref');
-            localStorage.removeItem('mp_last_nrn');
           } else if (status === 'rejected') {
             showRejected();
-          } else {
-            showProcessing('Estamos acreditando tu pago...');
           }
         } catch (e) {
-          const el = document.getElementById('statusMessage');
-          if (el) {
-            el.innerHTML = '<p>Ocurrió un problema al verificar tu pago. Intentá nuevamente más tarde.</p>';
-          }
+          // silent
         }
       });
     </script>
