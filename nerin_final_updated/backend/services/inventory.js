@@ -6,6 +6,8 @@ const logger = {
   warn: console.warn,
   error: console.error,
 };
+const db = require('../db');
+const inventoryRepo = require('../data/inventoryRepo');
 
 function dataPath(file) {
   return path.join(__dirname, '../../data', file);
@@ -87,6 +89,9 @@ function findOrderIndex(orders, order) {
 }
 
 function applyInventoryForOrder(order) {
+  if (db.getPool()) {
+    return inventoryRepo.applyForOrder(order);
+  }
   const release = acquireLock();
   try {
     const orders = getOrders();
@@ -138,6 +143,9 @@ function applyInventoryForOrder(order) {
 }
 
 function revertInventoryForOrder(order) {
+  if (db.getPool()) {
+    return inventoryRepo.revertForOrder(order);
+  }
   const release = acquireLock();
   try {
     const orders = getOrders();

@@ -32,6 +32,8 @@ const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
 let mpPreference = null;
 let paymentClient = null;
 let mpClient = null;
+const db = require("./db");
+db.init().catch((e) => console.error("db init", e));
 if (MP_TOKEN) {
   mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
   mpPreference = new Preference(mpClient);
@@ -746,6 +748,20 @@ const server = http.createServer((req, res) => {
         "Accept, Content-Type, Authorization, X-Requested-With",
     });
     return res.end();
+  }
+
+  if (pathname === "/health/db") {
+    (async () => {
+      const pool = db.getPool();
+      if (!pool) return sendJson(res, 503, { ok: false });
+      try {
+        await db.query("SELECT 1");
+        return sendJson(res, 200, { ok: true });
+      } catch {
+        return sendJson(res, 500, { ok: false });
+      }
+    })();
+    return;
   }
 
   // API: obtener productos

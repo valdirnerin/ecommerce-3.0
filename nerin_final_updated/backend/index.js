@@ -54,6 +54,11 @@ const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const API_FORWARD_URL = process.env.API_FORWARD_URL || "";
+const db = require("./db");
+db.init().catch((e) => console.error("db init", e));
+const productsRepo = require("./data/productsRepo");
+const ordersRepo = require("./data/ordersRepo");
+const { processNotification } = require("./routes/mercadoPago");
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
@@ -75,26 +80,28 @@ app.get(["/seguimiento", "/seguimiento-pedido"], (_req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/seguimiento.html"));
 });
 
-// Leer productos desde el archivo JSON
-function getProducts() {
-  const dataPath = path.join(__dirname, "../data/products.json");
-  const file = fs.readFileSync(dataPath, "utf8");
-  return JSON.parse(file).products;
-}
-
-function getOrders() {
-  const dataPath = path.join(__dirname, "../data/orders.json");
+app.get("/health/db", async (_req, res) => {
+  const pool = db.getPool();
+  if (!pool) return res.status(503).json({ ok: false });
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
-    return JSON.parse(file).orders || [];
-  } catch {
-    return [];
+    await db.query("SELECT 1");
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false });
   }
+});
+
+// Leer productos desde el archivo JSON
+async function getProducts() {
+  return productsRepo.getAll();
 }
 
-function saveOrders(orders) {
-  const dataPath = path.join(__dirname, "../data/orders.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ orders }, null, 2), "utf8");
+async function getOrders() {
+  return ordersRepo.getAll();
+}
+
+async function saveOrders(orders) {
+  return ordersRepo.saveAll(orders);
 }
 
 function sendOrderPaidEmail(order) {
@@ -111,35 +118,6 @@ function sendOrderPaidEmail(order) {
       .catch((e) => console.error("Email error", e));
   } catch (e) {
     console.error("send email failed", e);
-  }
-}
-
-async function mpWebhookRelay(req, res) {
-  // 1) ACK rápido a MP
-  res.sendStatus(200);
-
-  try {
-    const FORWARD_URL = process.env.MP_WEBHOOK_FORWARD_URL;
-    if (!FORWARD_URL) {
-      console.warn("MP_WEBHOOK_FORWARD_URL no seteada");
-      return;
-    }
-    const qs = new URLSearchParams(req.query || {}).toString();
-    const url = qs ? `${FORWARD_URL}?${qs}` : FORWARD_URL;
-
-    // Reenviar body y algunos headers útiles
-    await fetchFn(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Forwarded-For": req.ip || "",
-        "X-Source-Service": "nerin_final_updated",
-      },
-      body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
-    });
-    console.info("mp-webhook relay OK →", url);
-  } catch (e) {
-    console.error("mp-webhook relay FAIL:", e?.message);
   }
 }
 
@@ -178,9 +156,9 @@ app.use('/api', async (req, res, next) => {
 });
 
 // API: obtener la lista de productos
-app.get("/api/products", (_req, res) => {
+app.get("/api/products", async (_req, res) => {
   try {
-    const products = getProducts();
+    const products = await getProducts();
     res.json({ products });
   } catch (err) {
     console.error(err);
@@ -241,9 +219,9 @@ app.post("/api/orders", async (req, res) => {
       external_reference: id,
       inventoryApplied: false,
     };
-    const orders = getOrders();
+    const orders = await getOrders();
     orders.push(order);
-    saveOrders(orders);
+    await saveOrders(orders);
 
     return res.status(201).json({
       orderId: id,
@@ -257,10 +235,10 @@ app.post("/api/orders", async (req, res) => {
   }
 });
 
-app.get("/api/orders", (req, res) => {
+app.get("/api/orders", async (req, res) => {
   try {
     const status = (req.query.payment_status || "all").toLowerCase();
-    let orders = getOrders();
+    let orders = await getOrders();
     if (["pending", "approved", "rejected"].includes(status)) {
       orders = orders.filter((o) => {
         const ps = String(o.payment_status || o.estado_pago || "pending").toLowerCase();
@@ -283,8 +261,8 @@ app.get("/api/orders", (req, res) => {
   }
 });
 
-function getOrderStatus(id) {
-  const orders = getOrders();
+async function getOrderStatus(id) {
+  const orders = await getOrders();
   let order;
   if (id && id.startsWith("pref_")) {
     order = orders.find((o) => String(o.preference_id) === id);
@@ -300,7 +278,7 @@ function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(order.estado_pago || order.payment_status || "").toLowerCase();
+  const raw = String(order.status || order.estado_pago || order.payment_status || "").toLowerCase();
   let status = "pending";
   if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
   else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
@@ -310,18 +288,18 @@ function getOrderStatus(id) {
   };
 }
 
-app.get("/api/orders/test/:id/status", (req, res) => {
+app.get("/api/orders/test/:id/status", async (req, res) => {
   try {
-    res.json(getOrderStatus(req.params.id));
+    res.json(await getOrderStatus(req.params.id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al obtener estado" });
   }
 });
 
-app.get("/api/orders/:id/status", (req, res) => {
+app.get("/api/orders/:id/status", async (req, res) => {
   try {
-    res.json(getOrderStatus(req.params.id));
+    res.json(await getOrderStatus(req.params.id));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al obtener estado" });
@@ -329,8 +307,8 @@ app.get("/api/orders/:id/status", (req, res) => {
 });
 
 // Obtener pedido por ID
-app.get("/api/orders/:id", (req, res) => {
-  const orders = getOrders();
+app.get("/api/orders/:id", async (req, res) => {
+  const orders = await getOrders();
   const order = orders.find((o) => o.id === req.params.id);
   if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
   res.json({ order });
@@ -341,9 +319,9 @@ app.post("/api/webhooks/mp/test", (req, res) => {
   res.sendStatus(200);
 });
 
-app.post("/api/track-order", (req, res) => {
+app.post("/api/track-order", async (req, res) => {
   const { email, id } = req.body || {};
-  const orders = getOrders();
+  const orders = await getOrders();
   const order = orders.find(
     (o) => o.id === id && (!o.cliente || o.cliente.email === email),
   );
@@ -351,8 +329,16 @@ app.post("/api/track-order", (req, res) => {
   res.json({ order });
 });
 
-// Webhook de Mercado Pago: relay al backend externo
-app.post(["/api/mercado-pago/webhook", "/api/webhooks/mp"], mpWebhookRelay);
+// Webhook de Mercado Pago: procesar localmente
+app.post(["/api/mercado-pago/webhook", "/api/webhooks/mp"], async (req, res) => {
+  // ACK inmediato a MP
+  res.sendStatus(200);
+  try {
+    await processNotification(req);
+  } catch (e) {
+    console.error("mp local process error", e);
+  }
+});
 
 // API: checkout / confirmar pedido
 // Este endpoint recibe el contenido del carrito y devuelve un mensaje de éxito.

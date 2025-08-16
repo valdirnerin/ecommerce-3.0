@@ -4,6 +4,9 @@ const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
 const fetchFn =
   globalThis.fetch ||
   ((...a) => import('node-fetch').then(({ default: f }) => f(...a)));
+const db = require('../db');
+const ordersRepo = require('../data/ordersRepo');
+const productsRepo = require('../data/productsRepo');
 
 const logger = {
   info: console.log,
@@ -27,7 +30,8 @@ function ordersPath() {
   return path.join(__dirname, '../../data/orders.json');
 }
 
-function getOrders() {
+async function getOrders() {
+  if (db.getPool()) return ordersRepo.getAll();
   try {
     const file = fs.readFileSync(ordersPath(), 'utf8');
     return JSON.parse(file).orders || [];
@@ -36,7 +40,8 @@ function getOrders() {
   }
 }
 
-function saveOrders(orders) {
+async function saveOrders(orders) {
+  if (db.getPool()) return ordersRepo.saveAll(orders);
   fs.writeFileSync(ordersPath(), JSON.stringify({ orders }, null, 2), 'utf8');
 }
 
@@ -44,7 +49,8 @@ function productsPath() {
   return path.join(__dirname, '../../data/products.json');
 }
 
-function getProducts() {
+async function getProducts() {
+  if (db.getPool()) return productsRepo.getAll();
   try {
     const file = fs.readFileSync(productsPath(), 'utf8');
     return JSON.parse(file).products || [];
@@ -53,7 +59,8 @@ function getProducts() {
   }
 }
 
-function saveProducts(products) {
+async function saveProducts(products) {
+  if (db.getPool()) return productsRepo.saveAll(products);
   fs.writeFileSync(
     productsPath(),
     JSON.stringify({ products }, null, 2),
@@ -61,15 +68,6 @@ function saveProducts(products) {
   );
 }
 
-function wasProcessed(paymentId, statusRaw) {
-  if (!paymentId) return false;
-  const orders = getOrders();
-  return orders.some(
-    (o) =>
-      String(o.payment_id) === String(paymentId) &&
-      String(o.payment_status_raw || '') === String(statusRaw)
-  );
-}
 
 async function upsertOrder({
   externalRef,
@@ -81,7 +79,7 @@ async function upsertOrder({
 }) {
   const identifier = prefId || externalRef;
   if (!identifier) return;
-  const orders = getOrders();
+  const orders = await getOrders();
   const idx = orders.findIndex(
     (o) =>
       o.id === identifier ||
@@ -117,15 +115,30 @@ async function upsertOrder({
   const row = orders[idx !== -1 ? idx : orders.length - 1];
   const inventoryApplied = row.inventoryApplied || row.inventory_applied;
 
-  saveOrders(orders);
+  await saveOrders(orders);
 
-  if (statusRaw === 'approved' && !inventoryApplied) {
-    applyInventoryForOrder(row);
-  } else if (
-    ['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw) &&
-    inventoryApplied
-  ) {
-    revertInventoryForOrder(row);
+  if (statusRaw === 'approved') {
+    if (db.getPool()) {
+      await ordersRepo.createOrder({
+        id: row.external_reference || row.id,
+        customer_email: row.cliente?.email || null,
+        items: row.productos || row.items || [],
+      });
+    } else if (!inventoryApplied) {
+      await applyInventoryForOrder(row);
+    }
+  } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)) {
+    if (db.getPool()) {
+      const oid = row.external_reference || row.id;
+      if (oid) {
+        const dbOrder = await ordersRepo.getById(oid);
+        if (dbOrder && dbOrder.inventory_applied) {
+          await revertInventoryForOrder(dbOrder);
+        }
+      }
+    } else if (inventoryApplied) {
+      await revertInventoryForOrder(row);
+    }
   }
 }
 
@@ -145,14 +158,6 @@ async function processPayment(id, hints = {}) {
         p.amount ||
         0
     );
-
-    if (await wasProcessed(p.id, statusRaw)) {
-      logger.info('mp-webhook payment idempotente (ya procesado)', {
-        paymentId: p.id,
-        status: statusRaw,
-      });
-      return;
-    }
 
     await upsertOrder({
       externalRef,
