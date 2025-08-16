@@ -353,3 +353,19 @@ RESEND_API_KEY=
 PUBLIC_URL=http://localhost:3000
 ```
 
+Persistencia con PostgreSQL
+---------------------------
+
+Si la variable de entorno `DATABASE_URL` está definida, el backend utiliza una
+base de datos PostgreSQL. Para crear las tablas básicas e importar los datos
+existentes:
+
+```
+psql "$DATABASE_URL" -f scripts/schema.sql
+node scripts/importFromJson.js
+```
+
+Se agregó el endpoint `GET /health/db` que devuelve `{ ok: true }` cuando la
+conexión con la base de datos es válida. Para volver al modo de archivos JSON,
+simplemente quitar `DATABASE_URL` del entorno.
+
