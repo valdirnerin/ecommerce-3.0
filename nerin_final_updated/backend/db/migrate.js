@@ -63,6 +63,11 @@ async function run() {
       created_at TIMESTAMPTZ DEFAULT now()
     )`,
     `CREATE INDEX IF NOT EXISTS idx_price_changes_product ON price_changes(product_id)`
+    ,`CREATE TABLE IF NOT EXISTS suppliers(
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text, contact text, email text, phone text, address text,
+      payment_terms text, rating numeric DEFAULT 0
+    )`
   ];
 
   for (const q of queries) {

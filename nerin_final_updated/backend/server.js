@@ -34,6 +34,8 @@ let paymentClient = null;
 let mpClient = null;
 const db = require("./db");
 db.init().catch((e) => console.error("db init", e));
+const suppliersRepo = require('./data/suppliersRepo');
+const configRepo = require('./data/configRepo');
 if (MP_TOKEN) {
   mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
   mpPreference = new Preference(mpClient);
@@ -71,6 +73,21 @@ function parseBody(req) {
       }
       resolve();
     });
+  });
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body || '{}'));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on('error', reject);
   });
 }
 
@@ -619,43 +636,37 @@ function sendOrderPaidEmail(order) {
 }
 
 // Leer tabla de costos de envío por provincia
-function getShippingTable() {
-  const dataPath = path.join(__dirname, "../data/shipping.json");
-  try {
-    const file = fs.readFileSync(dataPath, "utf8");
-    return JSON.parse(file);
-  } catch (e) {
-    return { costos: [] };
-  }
+async function getShippingTable() {
+  return await configRepo.getShippingTable();
 }
 
-function saveShippingTable(table) {
-  const dataPath = path.join(__dirname, "../data/shipping.json");
-  fs.writeFileSync(dataPath, JSON.stringify(table, null, 2), "utf8");
+async function saveShippingTable(rows) {
+  await configRepo.saveShippingTable(rows);
 }
 
-function validateShippingTable(table) {
+function validateShippingTable(rows) {
   return (
-    table &&
-    Array.isArray(table.costos) &&
-    table.costos.every(
+    Array.isArray(rows) &&
+    rows.every(
       (c) =>
-        typeof c.provincia === "string" &&
-        typeof c.costo === "number" &&
-        !Number.isNaN(c.costo)
+        typeof (c.provincia || c.province) === "string" &&
+        typeof (c.costo ?? c.cost) === "number" &&
+        !Number.isNaN(c.costo ?? c.cost)
     )
   );
 }
 
 // Obtener costo de envío para una provincia (retorna 0 si no se encuentra)
-function getShippingCost(provincia) {
-  const table = getShippingTable();
-  const match = table.costos.find(
-    (c) => c.provincia.toLowerCase() === String(provincia || "").toLowerCase(),
+async function getShippingCost(provincia) {
+  const table = await getShippingTable();
+  const match = table.find(
+    (c) =>
+      (c.provincia || c.province || "").toLowerCase() ===
+      String(provincia || "").toLowerCase(),
   );
-  if (match) return match.costo;
-  const other = table.costos.find((c) => c.provincia === "Otras");
-  return other ? other.costo : 0;
+  if (match) return Number(match.costo ?? match.cost);
+  const other = table.find((c) => (c.provincia || c.province) === "Otras");
+  return other ? Number(other.costo ?? other.cost) : 0;
 }
 
 // Enviar email cuando el pedido se despacha
@@ -725,7 +736,7 @@ function serveStatic(filePath, res, headers = {}) {
 }
 
 // Crear servidor HTTP
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
 
@@ -1052,7 +1063,7 @@ const server = http.createServer((req, res) => {
   // API: obtener costo de envío por provincia
   if (pathname === "/api/shipping-cost" && req.method === "GET") {
     const prov = parsedUrl.query.provincia || "";
-    const costo = getShippingCost(prov);
+    const costo = await getShippingCost(prov);
     return sendJson(res, 200, { costo });
   }
 
@@ -1070,32 +1081,29 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === "/api/shipping-table" && req.method === "GET") {
-    const table = getShippingTable();
-    if (!validateShippingTable(table)) {
-      return sendJson(res, 500, { error: "Tabla de env\u00edos inv\u00e1lida" });
+    try {
+      const table = await getShippingTable();
+      if (!validateShippingTable(table)) return sendJson(res, 200, []);
+      return sendJson(res, 200, table);
+    } catch (e) {
+      console.error(e);
+      return sendJson(res, 200, []);
     }
-    return sendJson(res, 200, table);
   }
 
   if (pathname === "/api/shipping-table" && req.method === "PUT") {
-    let body = "";
-    req.on("data", (c) => {
-      body += c;
-    });
-    req.on("end", () => {
-      try {
-        const data = JSON.parse(body || "{}");
-        if (!validateShippingTable(data)) {
-          return sendJson(res, 400, { error: "Datos de env\u00edos inv\u00e1lidos" });
-        }
-        saveShippingTable(data);
-        return sendJson(res, 200, { success: true });
-      } catch (e) {
-        console.error(e);
-        return sendJson(res, 400, { error: "Solicitud inv\u00e1lida" });
+    try {
+      const body = await readBody(req);
+      const rows = Array.isArray(body.costos) ? body.costos : [];
+      if (!validateShippingTable(rows)) {
+        return sendJson(res, 400, { error: "Datos de env\u00edos inv\u00e1lidos" });
       }
-    });
-    return;
+      await saveShippingTable(rows);
+      return sendJson(res, 200, { success: true });
+    } catch (e) {
+      console.error(e);
+      return sendJson(res, 200, []);
+    }
   }
 
   // API: crear nueva orden pendiente con datos de cliente y envío
@@ -1118,7 +1126,7 @@ const server = http.createServer((req, res) => {
           (data.cliente &&
             data.cliente.direccion &&
             data.cliente.direccion.provincia) || "";
-        const shippingCost = getShippingCost(provincia);
+        const shippingCost = await getShippingCost(provincia);
         const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const impuestosCalc = Math.round(total * 0.21);
         const itemsSummary = items
@@ -1869,96 +1877,25 @@ const server = http.createServer((req, res) => {
 
   /* =====================================================================
    * API: Proveedores (Suppliers)
-   * Los proveedores permiten llevar un registro de los socios comerciales
-   * que suministran productos al negocio. Se pueden crear, obtener,
-   * actualizar y eliminar proveedores. Cada proveedor cuenta con un ID
-   * único (generado automáticamente), un nombre, contacto, dirección,
-   * email, teléfono y condiciones de pago.
    */
-  // Obtener lista de proveedores
   if (pathname === "/api/suppliers" && req.method === "GET") {
     try {
-      const suppliers = getSuppliers();
-      return sendJson(res, 200, { suppliers });
-    } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, {
-        error: "No se pudieron obtener los proveedores",
-      });
+      const rows = await suppliersRepo.getAll();
+      return sendJson(res, 200, rows);
+    } catch (e) {
+      console.error(e);
+      return sendJson(res, 200, []);
     }
   }
-  // Crear nuevo proveedor
   if (pathname === "/api/suppliers" && req.method === "POST") {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
-      try {
-        const newSup = JSON.parse(body || "{}");
-        if (!newSup.name) {
-          return sendJson(res, 400, {
-            error: "Se requiere el nombre del proveedor",
-          });
-        }
-        const suppliers = getSuppliers();
-        // Generar ID incremental
-        const newId = suppliers.length
-          ? (
-              Math.max(...suppliers.map((s) => parseInt(s.id, 10))) + 1
-            ).toString()
-          : "1";
-        newSup.id = newId;
-        suppliers.push(newSup);
-        saveSuppliers(suppliers);
-        return sendJson(res, 201, { success: true, supplier: newSup });
-      } catch (err) {
-        console.error(err);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
-      }
-    });
-    return;
-  }
-  // Actualizar proveedor
-  if (pathname.startsWith("/api/suppliers/") && req.method === "PUT") {
-    const supId = pathname.split("/").pop();
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
-      try {
-        const update = JSON.parse(body || "{}");
-        const suppliers = getSuppliers();
-        const idx = suppliers.findIndex((s) => s.id === supId);
-        if (idx === -1) {
-          return sendJson(res, 404, { error: "Proveedor no encontrado" });
-        }
-        suppliers[idx] = { ...suppliers[idx], ...update, id: supId };
-        saveSuppliers(suppliers);
-        return sendJson(res, 200, { success: true, supplier: suppliers[idx] });
-      } catch (err) {
-        console.error(err);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
-      }
-    });
-    return;
-  }
-  // Eliminar proveedor
-  if (pathname.startsWith("/api/suppliers/") && req.method === "DELETE") {
-    const supId = pathname.split("/").pop();
     try {
-      const suppliers = getSuppliers();
-      const index = suppliers.findIndex((s) => s.id === supId);
-      if (index === -1) {
-        return sendJson(res, 404, { error: "Proveedor no encontrado" });
-      }
-      const removed = suppliers.splice(index, 1)[0];
-      saveSuppliers(suppliers);
-      return sendJson(res, 200, { success: true, supplier: removed });
-    } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, { error: "Error al eliminar proveedor" });
+      const body = await readBody(req);
+      await suppliersRepo.create(body);
+      const rows = await suppliersRepo.getAll();
+      return sendJson(res, 200, rows);
+    } catch (e) {
+      console.error(e);
+      return sendJson(res, 400, { error: "No se pudo crear proveedor" });
     }
   }
 
