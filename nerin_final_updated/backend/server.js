@@ -1082,12 +1082,12 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === "/api/shipping-table" && req.method === "GET") {
     try {
-      const table = await getShippingTable();
-      if (!validateShippingTable(table)) return sendJson(res, 200, []);
+      const table = await configRepo.getShippingTable();
+      if (!validateShippingTable(table)) throw new Error("invalid shipping table");
       return sendJson(res, 200, table);
     } catch (e) {
       console.error(e);
-      return sendJson(res, 200, []);
+      return sendJson(res, 200, { costos: {} });
     }
   }
 
@@ -1095,14 +1095,12 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req);
       const rows = Array.isArray(body.costos) ? body.costos : [];
-      if (!validateShippingTable(rows)) {
-        return sendJson(res, 400, { error: "Datos de env\u00edos inv\u00e1lidos" });
-      }
-      await saveShippingTable(rows);
+      if (!validateShippingTable(rows)) throw new Error("Datos de env\u00edos inv\u00e1lidos");
+      await configRepo.saveShippingTable(rows);
       return sendJson(res, 200, { success: true });
     } catch (e) {
       console.error(e);
-      return sendJson(res, 200, []);
+      return sendJson(res, 200, { costos: {} });
     }
   }
 
@@ -1895,7 +1893,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, rows);
     } catch (e) {
       console.error(e);
-      return sendJson(res, 400, { error: "No se pudo crear proveedor" });
+      return sendJson(res, 200, []);
     }
   }
 

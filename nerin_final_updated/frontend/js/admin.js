@@ -177,8 +177,16 @@ async function loadProducts() {
         <td>${(product.tags || []).join(", ")}</td>
         <td>${product.stock}</td>
         <td>${product.min_stock ?? ""}</td>
-        <td>${formatCurrencyARS(product.price_minorista)}</td>
-        <td>${formatCurrencyARS(product.price_mayorista)}</td>
+        <td>${
+          Number(product.price_minorista) > 0
+            ? formatCurrencyARS(product.price_minorista)
+            : "—"
+        }</td>
+        <td>${
+          Number(product.price_mayorista) > 0
+            ? formatCurrencyARS(product.price_mayorista)
+            : "—"
+        }</td>
         <td>
           <button class="edit-btn">Editar</button>
           <button class="delete-btn">Eliminar</button>
