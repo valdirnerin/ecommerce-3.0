@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node backend/server.js",
     "test": "jest",
-    "list:webhooks": "node scripts/listMpWebhooks.js"
+    "list:webhooks": "node scripts/listMpWebhooks.js",
+    "migrate": "node nerin_final_updated/backend/db/migrate.js",
+    "seed": "node nerin_final_updated/backend/db/seed-from-json.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

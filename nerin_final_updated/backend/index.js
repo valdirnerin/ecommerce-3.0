@@ -58,6 +58,7 @@ const db = require("./db");
 db.init().catch((e) => console.error("db init", e));
 const productsRepo = require("./data/productsRepo");
 const ordersRepo = require("./data/ordersRepo");
+const configRepo = require("./data/configRepo");
 const { processNotification } = require("./routes/mercadoPago");
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
@@ -80,14 +81,37 @@ app.get(["/seguimiento", "/seguimiento-pedido"], (_req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/seguimiento.html"));
 });
 
-app.get("/health/db", async (_req, res) => {
+app.get("/api/health/db", async (_req, res) => {
   const pool = db.getPool();
-  if (!pool) return res.status(503).json({ ok: false });
+  const mode = pool ? "postgres" : "json";
+  if (!pool) return res.json({ ok: true, mode, details: {} });
   try {
     await db.query("SELECT 1");
-    res.json({ ok: true });
+    res.json({ ok: true, mode, details: {} });
   } catch (e) {
-    res.status(500).json({ ok: false });
+    res.status(500).json({ ok: false, mode, details: { error: e.message } });
+  }
+});
+
+app.get("/api/config", async (_req, res) => {
+  try {
+    const cfg = await configRepo.get();
+    res.json(cfg);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "No se pudo obtener la configuración" });
+  }
+});
+
+app.put("/api/config", async (req, res) => {
+  try {
+    const current = await configRepo.get();
+    const newCfg = { ...current, ...req.body };
+    await configRepo.save(newCfg);
+    res.json(newCfg);
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: "Solicitud inválida" });
   }
 });
 

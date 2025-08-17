@@ -121,8 +121,10 @@ async function upsertOrder({
     if (db.getPool()) {
       await ordersRepo.createOrder({
         id: row.external_reference || row.id,
-        customer_email: row.cliente?.email || null,
+        email: row.cliente?.email || row.email || null,
         items: row.productos || row.items || [],
+        preference_id: row.preference_id || prefId || null,
+        nrn: row.nrn || row.order_number || row.external_reference || null,
       });
     } else if (!inventoryApplied) {
       await applyInventoryForOrder(row);
