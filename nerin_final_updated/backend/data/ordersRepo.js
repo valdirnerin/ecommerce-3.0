@@ -15,7 +15,13 @@ async function getAll() {
     }
   }
   const { rows } = await pool.query(
-    'SELECT id, nrn, preference_id, email, status, total, inventory_applied, created_at, updated_at FROM orders ORDER BY created_at DESC'
+    `SELECT o.id, o.nrn, o.preference_id, o.email, o.status,
+            COALESCE(o.total, SUM(oi.qty*oi.price), 0) AS total,
+            o.inventory_applied, o.created_at, o.updated_at
+     FROM orders o
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     GROUP BY o.id
+     ORDER BY o.created_at DESC`
   );
   return rows;
 }
@@ -38,6 +44,87 @@ async function getById(id) {
   );
   order.items = items.rows;
   return order;
+}
+
+const orderItemsPath = path.join(
+  __dirname,
+  '../../data/order_items.json'
+);
+
+async function insertOrderItemsIfMissing(orderId, items, client) {
+  const pool = client || db.getPool();
+  if (!pool) {
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(orderItemsPath, 'utf8'));
+    } catch {
+      data = { order_items: [] };
+    }
+    const existing = data.order_items.filter((it) => it.order_id === orderId);
+    if (existing.length) return 0;
+    for (const it of items) {
+      const prods = await productsRepo.getAll();
+      const prod = prods.find((p) => String(p.sku) === String(it.sku));
+      if (!prod) continue;
+      data.order_items.push({
+        order_id: orderId,
+        product_id: prod.id,
+        qty: Number(it.qty),
+        price: Number(it.price),
+      });
+    }
+    fs.writeFileSync(orderItemsPath, JSON.stringify(data, null, 2), 'utf8');
+    return items.length;
+  }
+  const { rows } = await pool.query(
+    'SELECT 1 FROM order_items WHERE order_id=$1 LIMIT 1',
+    [orderId]
+  );
+  if (rows.length) return 0;
+  for (const it of items) {
+    const { rows: pidRows } = await pool.query(
+      'SELECT id FROM products WHERE sku=$1',
+      [it.sku]
+    );
+    const pid = pidRows[0] ? pidRows[0].id : null;
+    if (!pid) continue;
+    await pool.query(
+      'INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1,$2,$3,$4)',
+      [orderId, pid, Number(it.qty), Number(it.price)]
+    );
+  }
+  return items.length;
+}
+
+async function recalcOrderTotal(orderId, client) {
+  const pool = client || db.getPool();
+  if (!pool) {
+    let orders = await getAll();
+    const idx = orders.findIndex((o) => String(o.id) === String(orderId));
+    if (idx === -1) return 0;
+    let data;
+    try {
+      data = JSON.parse(fs.readFileSync(orderItemsPath, 'utf8'));
+    } catch {
+      data = { order_items: [] };
+    }
+    const total = data.order_items
+      .filter((it) => it.order_id === orderId)
+      .reduce((t, it) => t + Number(it.qty) * Number(it.price), 0);
+    orders[idx].total = total;
+    fs.writeFileSync(filePath, JSON.stringify({ orders }, null, 2), 'utf8');
+    return total;
+  }
+  const { rows } = await pool.query(
+    'SELECT COALESCE(SUM(qty*price),0) AS t FROM order_items WHERE order_id=$1',
+    [orderId]
+  );
+  const total = rows[0] ? Number(rows[0].t) : 0;
+  await pool.query(
+    'UPDATE orders SET total=$2, updated_at=now() WHERE id=$1 AND (total IS NULL OR total=0)',
+    [orderId, total]
+  );
+  return total;
 }
 
 async function saveAll(orders) {
@@ -192,13 +279,29 @@ async function createOrder({ id, email, customer_email, items, preference_id, nr
 
 async function markInventoryApplied(id) {
   const pool = db.getPool();
-  if (!pool) return;
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((o) => String(o.id) === String(id));
+    if (idx !== -1) {
+      orders[idx].inventory_applied = true;
+      fs.writeFileSync(filePath, JSON.stringify({ orders }, null, 2), 'utf8');
+    }
+    return;
+  }
   await pool.query('UPDATE orders SET inventory_applied=true, updated_at=now() WHERE id=$1', [id]);
 }
 
 async function clearInventoryApplied(id) {
   const pool = db.getPool();
-  if (!pool) return;
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((o) => String(o.id) === String(id));
+    if (idx !== -1) {
+      orders[idx].inventory_applied = false;
+      fs.writeFileSync(filePath, JSON.stringify({ orders }, null, 2), 'utf8');
+    }
+    return;
+  }
   await pool.query('UPDATE orders SET inventory_applied=false, updated_at=now() WHERE id=$1', [id]);
 }
 
@@ -208,6 +311,8 @@ module.exports = {
   saveAll,
   create,
   createOrder,
+  insertOrderItemsIfMissing,
+  recalcOrderTotal,
   markInventoryApplied,
   clearInventoryApplied,
 };
