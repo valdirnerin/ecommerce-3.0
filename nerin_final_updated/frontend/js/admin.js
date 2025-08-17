@@ -6,8 +6,19 @@
  * crear/editar/eliminar productos y actualizar estados de pedidos.
  */
 
-import { getUserRole, logout } from "./api.js";
+import {
+  getUserRole,
+  logout,
+  getProducts,
+  getOrders,
+  getClients,
+  getSuppliers,
+  createSupplier,
+  getShippingTable,
+  saveShippingTable,
+} from "./api.js";
 import { renderAnalyticsDashboard } from "./analytics.js";
+import { formatCurrencyARS } from "./dataAdapters.js";
 
 // Verificar rol de administrador o vendedor
 const currentRole = getUserRole();
@@ -166,8 +177,8 @@ async function loadProducts() {
         <td>${(product.tags || []).join(", ")}</td>
         <td>${product.stock}</td>
         <td>${product.min_stock ?? ""}</td>
-        <td>$${product.price_minorista.toLocaleString("es-AR")}</td>
-        <td>$${product.price_mayorista.toLocaleString("es-AR")}</td>
+        <td>${formatCurrencyARS(product.price_minorista)}</td>
+        <td>${formatCurrencyARS(product.price_mayorista)}</td>
         <td>
           <button class="edit-btn">Editar</button>
           <button class="delete-btn">Eliminar</button>
@@ -311,121 +322,49 @@ const addSupplierForm = document.getElementById("addSupplierForm");
 
 async function loadSuppliers() {
   try {
-    const res = await fetch("/api/suppliers");
-    const data = await res.json();
+    const suppliers = await getSuppliers();
     suppliersTableBody.innerHTML = "";
-    data.suppliers.forEach((sup) => {
+    suppliers.forEach((sup) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${sup.id}</td>
         <td>${sup.name}</td>
-        <td>${sup.contact || ""}</td>
-        <td>${sup.email || ""}</td>
-        <td>${sup.phone || ""}</td>
-        <td>${sup.address || ""}</td>
-        <td>${sup.payment_terms || ""}</td>
-        <td>${sup.rating != null ? sup.rating : ""}</td>
-        <td>
-          <button class="edit-sup-btn">Editar</button>
-          <button class="delete-sup-btn">Eliminar</button>
-        </td>
+        <td>${sup.contact || "—"}</td>
+        <td>${sup.email || "—"}</td>
+        <td>${sup.phone || "—"}</td>
+        <td>${sup.address || "—"}</td>
+        <td>${sup.payment_terms || "—"}</td>
+        <td>${sup.rating ?? "—"}</td>
       `;
-      // Editar proveedor
-      tr.querySelector(".edit-sup-btn").addEventListener("click", async () => {
-        const name = prompt("Nombre", sup.name);
-        if (name === null) return;
-        const contact = prompt("Contacto", sup.contact || "");
-        if (contact === null) return;
-        const email = prompt("Correo electrónico", sup.email || "");
-        if (email === null) return;
-        const phone = prompt("Teléfono", sup.phone || "");
-        if (phone === null) return;
-        const address = prompt("Dirección", sup.address || "");
-        if (address === null) return;
-        const terms = prompt("Condiciones de pago", sup.payment_terms || "");
-        if (terms === null) return;
-        const rating = prompt(
-          "Valoración (0–5)",
-          sup.rating != null ? sup.rating : "",
-        );
-        if (rating === null) return;
-        const update = {
-          name,
-          contact,
-          email,
-          phone,
-          address,
-          payment_terms: terms,
-          rating: rating !== "" ? parseFloat(rating) : null,
-        };
-        const resp = await fetch(`/api/suppliers/${sup.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(update),
-        });
-        if (resp.ok) {
-          alert("Proveedor actualizado");
-          loadSuppliers();
-        } else {
-          alert("Error al actualizar proveedor");
-        }
-      });
-      // Eliminar proveedor
-      tr.querySelector(".delete-sup-btn").addEventListener(
-        "click",
-        async () => {
-          if (!confirm("¿Deseas eliminar este proveedor?")) return;
-          const resp = await fetch(`/api/suppliers/${sup.id}`, {
-            method: "DELETE",
-          });
-          if (resp.ok) {
-            alert("Proveedor eliminado");
-            loadSuppliers();
-          } else {
-            alert("Error al eliminar proveedor");
-          }
-        },
-      );
       suppliersTableBody.appendChild(tr);
     });
-    // Cargar proveedores en selector de órdenes de compra
-    populateSupplierSelect(data.suppliers);
+    populateSupplierSelect(suppliers);
   } catch (err) {
     console.error(err);
     suppliersTableBody.innerHTML =
-      '<tr><td colspan="9">No se pudieron cargar los proveedores</td></tr>';
+      '<tr><td colspan="8">No se pudieron cargar los proveedores</td></tr>';
   }
 }
 
-// Manejo del formulario de proveedores
 if (addSupplierForm) {
   addSupplierForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const newSup = {
+    const body = {
       name: document.getElementById("supName").value.trim(),
       contact: document.getElementById("supContact").value.trim(),
       email: document.getElementById("supEmail").value.trim(),
       phone: document.getElementById("supPhone").value.trim(),
       address: document.getElementById("supAddress").value.trim(),
       payment_terms: document.getElementById("supTerms").value.trim(),
-      rating: parseFloat(document.getElementById("supRating").value) || null,
+      rating: parseFloat(document.getElementById("supRating").value) || 0,
     };
     try {
-      const resp = await fetch("/api/suppliers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newSup),
-      });
-      if (resp.ok) {
-        alert("Proveedor agregado");
-        addSupplierForm.reset();
-        loadSuppliers();
-      } else {
-        alert("Error al agregar proveedor");
-      }
+      await createSupplier(body);
+      addSupplierForm.reset();
+      loadSuppliers();
     } catch (err) {
       console.error(err);
-      alert("Error de red");
+      if (window.showToast) window.showToast("Error al agregar proveedor");
     }
   });
 }
@@ -486,7 +425,7 @@ async function loadPurchaseOrders() {
         : "";
       tr.innerHTML = `
         <td>${po.id}</td>
-        <td>${new Date(po.date).toLocaleString()}</td>
+        <td>${po.date ? new Date(po.date).toLocaleString('es-AR') : '—'}</td>
         <td>${po.supplier}</td>
         <td>${itemsSummary}</td>
         <td>${po.status}</td>
@@ -635,7 +574,9 @@ async function loadOrders() {
         const idTd = document.createElement("td");
         idTd.textContent = order.order_number;
         const dateTd = document.createElement("td");
-        dateTd.textContent = new Date(order.created_at).toLocaleString("es-AR");
+        dateTd.textContent = order.created_at
+          ? new Date(order.created_at).toLocaleString('es-AR')
+          : '—';
         const nameTd = document.createElement("td");
         nameTd.textContent = cliente.nombre || "";
         const phoneTd = document.createElement("td");
@@ -645,11 +586,11 @@ async function loadOrders() {
         const provTd = document.createElement("td");
         provTd.textContent = order.provincia_envio || "";
         const costoTd = document.createElement("td");
-        costoTd.textContent = `$${(order.costo_envio || 0).toLocaleString("es-AR")}`;
+        costoTd.textContent = formatCurrencyARS(order.costo_envio || 0);
         const itemsTd = document.createElement("td");
         itemsTd.textContent = itemsText;
         const totalTd = document.createElement("td");
-        totalTd.textContent = `$${order.total_amount.toLocaleString("es-AR")}`;
+        totalTd.textContent = formatCurrencyARS(order.total_amount);
         const statusTd = document.createElement("td");
         const statusSelect = document.createElement("select");
         ["pendiente", "en proceso", "pagado", "rechazado"].forEach((st) => {
@@ -824,9 +765,9 @@ async function loadClients() {
       const nameTd = document.createElement("td");
       nameTd.textContent = client.name || "";
       const balanceTd = document.createElement("td");
-      balanceTd.textContent = `$${client.balance.toLocaleString("es-AR")}`;
+      balanceTd.textContent = formatCurrencyARS(client.balance);
       const limitTd = document.createElement("td");
-      limitTd.textContent = `$${client.limit.toLocaleString("es-AR")}`;
+      limitTd.textContent = formatCurrencyARS(client.limit);
       const actionTd = document.createElement("td");
       const payBtn = document.createElement("button");
       payBtn.textContent = "Registrar pago";
@@ -896,8 +837,8 @@ function renderMetrics(m) {
     0,
   );
   const iva = Math.round(totalAnnual * 0.21);
-  html += `<p>Total de ventas (neto): $${totalAnnual.toLocaleString("es-AR")}</p>`;
-  html += `<p>IVA (21%): $${iva.toLocaleString("es-AR")}</p>`;
+  html += `<p>Total de ventas (neto): ${formatCurrencyARS(totalAnnual)}</p>`;
+  html += `<p>IVA (21%): ${formatCurrencyARS(iva)}</p>`;
   html += "<h4>Ventas por mes</h4>";
   html +=
     '<div class="chart-wrapper"><canvas id="salesChartCanvas" height="180"></canvas></div>';
@@ -929,7 +870,7 @@ function renderMetrics(m) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) => `$${ctx.parsed.y.toLocaleString("es-AR")}`,
+            label: (ctx) => formatCurrencyARS(ctx.parsed.y),
           },
         },
       },
@@ -1011,7 +952,7 @@ async function loadReturns() {
         <td>${ret.id}</td>
         <td>${ret.orderId}</td>
         <td>${ret.customerEmail || ""}</td>
-        <td>${new Date(ret.date).toLocaleString("es-AR")}</td>
+        <td>${ret.date ? new Date(ret.date).toLocaleString('es-AR') : '—'}</td>
         <td>${ret.reason}</td>
         <td>${ret.status}</td>
         <td></td>
@@ -1096,19 +1037,17 @@ async function loadConfigForm() {
 
 async function loadShippingTable() {
   try {
-    const res = await fetch("/api/shipping-table");
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "error");
+    const rows = await getShippingTable();
     shippingTableBody.innerHTML = "";
-    (data.costos || []).forEach((row) => {
+    rows.forEach((row) => {
       const tr = document.createElement("tr");
       const provTd = document.createElement("td");
-      provTd.textContent = row.provincia;
+      provTd.textContent = row.province || row.provincia;
       const costTd = document.createElement("td");
       const input = document.createElement("input");
       input.type = "number";
       input.min = "0";
-      input.value = row.costo;
+      input.value = row.cost ?? row.costo ?? 0;
       costTd.appendChild(input);
       tr.appendChild(provTd);
       tr.appendChild(costTd);
@@ -1160,7 +1099,7 @@ if (configForm) {
 if (saveShippingBtn) {
   saveShippingBtn.addEventListener("click", async () => {
     const rows = shippingTableBody.querySelectorAll("tr");
-    const costos = [];
+    const list = [];
     let valid = true;
     rows.forEach((tr) => {
       const provincia = tr.children[0].textContent.trim();
@@ -1172,32 +1111,22 @@ if (saveShippingBtn) {
       } else {
         input.classList.remove("invalid");
       }
-      costos.push({ provincia, costo: val });
+      list.push({ province: provincia, cost: val });
     });
     if (!valid) {
-      shippingAlert.textContent = "Ingresa valores v\u00e1lidos";
+      shippingAlert.textContent = "Ingresa valores válidos";
       shippingAlert.style.display = "block";
       return;
     }
     try {
-      const resp = await fetch("/api/shipping-table", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ costos }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (resp.ok) {
-        shippingAlert.textContent = "Cambios guardados";
-        shippingAlert.style.color = "green";
-        shippingAlert.style.display = "block";
-      } else {
-        shippingAlert.textContent = data.error || "Error al guardar";
-        shippingAlert.style.color = "";
-        shippingAlert.style.display = "block";
-      }
+      await saveShippingTable(list);
+      shippingAlert.textContent = "Cambios guardados";
+      shippingAlert.style.color = "green";
+      shippingAlert.style.display = "block";
     } catch (err) {
       console.error(err);
-      shippingAlert.textContent = "Error de red";
+      shippingAlert.textContent = "Error al guardar";
+      shippingAlert.style.color = "";
       shippingAlert.style.display = "block";
     }
   });

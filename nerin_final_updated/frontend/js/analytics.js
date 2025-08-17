@@ -1,3 +1,5 @@
+import { formatCurrencyARS } from './dataAdapters.js';
+
 export async function renderAnalyticsDashboard(containerId = 'analytics-dashboard') {
   const container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
   if (!container) return;
@@ -45,7 +47,7 @@ export async function renderAnalyticsDashboard(containerId = 'analytics-dashboar
                   const val = type === 'pie' ? ctx.parsed : ctx.parsed.y;
                   return valueType === 'units'
                     ? `${val} u.`
-                    : `$${val.toLocaleString('es-AR')}`;
+                    : formatCurrencyARS(val);
                 },
               },
             },
@@ -130,7 +132,7 @@ export async function renderAnalyticsDashboard(containerId = 'analytics-dashboar
     const stats = document.createElement('div');
     stats.className = 'analytics-stats';
     stats.innerHTML = `
-      <p>Valor medio de pedido: $${analytics.averageOrderValue.toFixed(2)}</p>
+      <p>Valor medio de pedido: ${formatCurrencyARS(analytics.averageOrderValue)}</p>
       <p>Tasa de devoluciones: ${(analytics.returnRate * 100).toFixed(2)}%</p>
       <p>Producto más devuelto: ${analytics.mostReturnedProduct || 'N/A'}</p>
     `;
