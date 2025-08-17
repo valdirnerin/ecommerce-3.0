@@ -1,188 +1,20 @@
-const fs = require('fs');
-const path = require('path');
-const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
-const fetchFn =
-  globalThis.fetch ||
-  ((...a) => import('node-fetch').then(({ default: f }) => f(...a)));
 const db = require('../db');
 const ordersRepo = require('../data/ordersRepo');
 const productsRepo = require('../data/productsRepo');
+const { resolveFromWebhook } = require('../services/mercadoPago');
 
 const logger = {
-  info: console.log,
-  warn: console.warn,
-  error: console.error,
+  info: (...a) => console.log(...a),
+  warn: (...a) => console.warn(...a),
+  error: (...a) => console.error(...a),
 };
-const {
-  applyInventoryForOrder,
-  revertInventoryForOrder,
-} = require('../services/inventory');
 
 function mapStatus(mpStatus) {
   const s = String(mpStatus || '').toLowerCase();
-  if (s === 'approved') return 'pagado';
+  if (s === 'approved') return 'approved';
   if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(s))
-    return 'rechazado';
-  return 'pendiente';
-}
-
-function ordersPath() {
-  return path.join(__dirname, '../../data/orders.json');
-}
-
-async function getOrders() {
-  if (db.getPool()) return ordersRepo.getAll();
-  try {
-    const file = fs.readFileSync(ordersPath(), 'utf8');
-    return JSON.parse(file).orders || [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveOrders(orders) {
-  if (db.getPool()) return ordersRepo.saveAll(orders);
-  fs.writeFileSync(ordersPath(), JSON.stringify({ orders }, null, 2), 'utf8');
-}
-
-function productsPath() {
-  return path.join(__dirname, '../../data/products.json');
-}
-
-async function getProducts() {
-  if (db.getPool()) return productsRepo.getAll();
-  try {
-    const file = fs.readFileSync(productsPath(), 'utf8');
-    return JSON.parse(file).products || [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveProducts(products) {
-  if (db.getPool()) return productsRepo.saveAll(products);
-  fs.writeFileSync(
-    productsPath(),
-    JSON.stringify({ products }, null, 2),
-    'utf8'
-  );
-}
-
-
-async function upsertOrder({
-  externalRef,
-  prefId,
-  status,
-  statusRaw,
-  paymentId,
-  total,
-}) {
-  const identifier = prefId || externalRef;
-  if (!identifier) return;
-  const orders = await getOrders();
-  const idx = orders.findIndex(
-    (o) =>
-      o.id === identifier ||
-      o.external_reference === identifier ||
-      o.order_number === identifier ||
-      String(o.preference_id) === String(identifier)
-  );
-  if (idx !== -1) {
-    const row = orders[idx];
-    if (paymentId != null) row.payment_id = String(paymentId);
-    if (status) {
-      row.payment_status = status;
-      row.estado_pago = status;
-    }
-    if (statusRaw) row.payment_status_raw = statusRaw;
-    if (total && !row.total) row.total = total;
-    if (!row.created_at) row.created_at = new Date().toISOString();
-    if (prefId != null) row.preference_id = prefId;
-    if (externalRef != null) row.external_reference = externalRef;
-  } else {
-    const row = { id: externalRef || prefId };
-    if (prefId != null) row.preference_id = prefId;
-    if (externalRef != null) row.external_reference = externalRef;
-    row.payment_status = status || 'pendiente';
-    row.estado_pago = status || 'pendiente';
-    if (statusRaw) row.payment_status_raw = statusRaw;
-    if (paymentId != null) row.payment_id = String(paymentId);
-    row.total = total || 0;
-    row.created_at = new Date().toISOString();
-    orders.push(row);
-  }
-
-  const row = orders[idx !== -1 ? idx : orders.length - 1];
-  const inventoryApplied = row.inventoryApplied || row.inventory_applied;
-
-  await saveOrders(orders);
-
-  if (statusRaw === 'approved') {
-    if (db.getPool()) {
-      await ordersRepo.createOrder({
-        id: row.external_reference || row.id,
-        email: row.cliente?.email || row.email || null,
-        items: row.productos || row.items || [],
-        preference_id: row.preference_id || prefId || null,
-        nrn: row.nrn || row.order_number || row.external_reference || null,
-      });
-    } else if (!inventoryApplied) {
-      await applyInventoryForOrder(row);
-    }
-  } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)) {
-    if (db.getPool()) {
-      const oid = row.external_reference || row.id;
-      if (oid) {
-        const dbOrder = await ordersRepo.getById(oid);
-        if (dbOrder && dbOrder.inventory_applied) {
-          await revertInventoryForOrder(dbOrder);
-        }
-      }
-    } else if (inventoryApplied) {
-      await revertInventoryForOrder(row);
-    }
-  }
-}
-
-async function processPayment(id, hints = {}) {
-  try {
-    const res = await fetchFn(`https://api.mercadopago.com/v1/payments/${id}`, {
-      headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
-    });
-    const p = await res.json();
-    const statusRaw = p.status;
-    const mapped = mapStatus(statusRaw);
-    const externalRef = p.external_reference || hints.externalRef || null;
-    const prefId = p.preference_id || hints.prefId || null;
-    const total = Number(
-      p.transaction_amount ||
-        p.transaction_details?.total_paid_amount ||
-        p.amount ||
-        0
-    );
-
-    await upsertOrder({
-      externalRef,
-      prefId,
-      status: mapped,
-      statusRaw,
-      paymentId: p.id,
-      total,
-    });
-
-    logger.info('mp-webhook OK', {
-      topic: 'payment',
-      paymentId: p.id,
-      externalRef,
-      prefId,
-      status: mapped,
-    });
-  } catch (e) {
-    logger.warn('mp-webhook payment fetch omitido', {
-      paymentId: id,
-      msg: e?.message,
-    });
-  }
+    return 'rejected';
+  return 'pending';
 }
 
 async function processNotification(reqOrTopic, maybeId) {
@@ -200,86 +32,88 @@ async function processNotification(reqOrTopic, maybeId) {
     body?.id ||
     (typeof reqOrTopic === 'string' ? maybeId : undefined) ||
     maybeId;
-  const resource = query.resource || body?.resource;
 
-  logger.info('mp-webhook recibido', { topic, id: rawId });
+  const info = await resolveFromWebhook({ topic, id: rawId, body, query });
+  const orderId = info.externalRef || info.preferenceId;
+  if (!orderId) {
+    logger.warn('mp-webhook unresolved', { topic, rawId });
+    return;
+  }
 
+  const pool = db.getPool();
+  const items = info.items || [];
+  logger.info('mp-items', { source: info.source || 'unknown', count: items.length });
+
+  if (!pool) {
+    // JSON fallback
+    await ordersRepo.insertOrderItemsIfMissing(orderId, items);
+    await ordersRepo.recalcOrderTotal(orderId);
+    const order = await ordersRepo.getById(orderId);
+    const mapped = mapStatus(info.status);
+    if (order) {
+      order.status = mapped;
+      await ordersRepo.saveAll([order]);
+      if (mapped === 'approved' && !order.inventory_applied) {
+        for (const it of items) {
+          const prods = await productsRepo.getAll();
+          const prod = prods.find((p) => p.sku === it.sku);
+          if (prod) await productsRepo.adjustStock(prod.id, -it.qty, 'sale', orderId);
+        }
+        await ordersRepo.markInventoryApplied(orderId);
+      }
+    }
+    return;
+  }
+
+  const client = await pool.connect();
   try {
-    if (resource) {
-      try {
-        const res = await fetchFn(resource, {
-          headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
-        });
-        const data = await res.json();
-        if (data?.payments) {
-          const paymentId = data.payments?.[0]?.id || null;
-          const prefId = data.preference_id || null;
-          const externalRef = data.external_reference || null;
-          if (!paymentId) {
-            await upsertOrder({ externalRef, prefId, status: 'pending' });
-            logger.info('mp-webhook merchant_order sin payment (pending)', {
-              externalRef,
-              prefId,
-            });
-            return;
-          }
-          await processPayment(paymentId, { externalRef, prefId });
-          return;
-        }
-        if (data?.status && data?.external_reference) {
-          await processPayment(data.id, {
-            externalRef: data.external_reference,
-            prefId: data.preference_id,
-          });
-          return;
-        }
-      } catch (e) {
-        logger.warn('mp-webhook resource fetch omitido', {
-          resource,
-          msg: e?.message,
-        });
-        return;
-      }
-    }
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO orders (id, nrn, preference_id, email, status, total, inventory_applied, created_at, updated_at)
+       VALUES ($1,$1,$2,$3,$4,0,false,now(),now())
+       ON CONFLICT (id) DO UPDATE SET preference_id=EXCLUDED.preference_id, email=COALESCE(EXCLUDED.email,orders.email), status=EXCLUDED.status, updated_at=now()`,
+      [orderId, info.preferenceId || null, info.email || null, mapStatus(info.status)]
+    );
+    const { rows } = await client.query(
+      'SELECT inventory_applied FROM orders WHERE id=$1 FOR UPDATE',
+      [orderId]
+    );
+    const inventoryApplied = rows[0] ? rows[0].inventory_applied : false;
 
-    if (topic === 'merchant_order') {
-      const moId = Number(rawId) || rawId;
-      try {
-        const res = await fetchFn(
-          `https://api.mercadopago.com/merchant_orders/${moId}`,
-          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
+    const inserted = await ordersRepo.insertOrderItemsIfMissing(orderId, items, client);
+    if (inserted) logger.info('mp-order_items inserted', { orderId, count: inserted });
+    await ordersRepo.recalcOrderTotal(orderId, client);
+
+    if (mapStatus(info.status) === 'approved' && !inventoryApplied) {
+      for (const it of items) {
+        const { rows: pidRows } = await client.query(
+          'SELECT id FROM products WHERE sku=$1',
+          [it.sku]
         );
-        const mo = await res.json();
-        const paymentId = mo?.payments?.[0]?.id || null;
-        const prefId = mo?.preference_id || null;
-        const externalRef = mo?.external_reference || null;
-        if (!paymentId) {
-          await upsertOrder({ externalRef, prefId, status: 'pending' });
-          logger.info('mp-webhook merchant_order sin payment (pending)', {
-            externalRef,
-            prefId,
-          });
-          return;
-        }
-        await processPayment(paymentId, { externalRef, prefId });
-        return;
-      } catch (e) {
-        logger.info('mp-webhook merchant_order fetch omitido', {
-          moId,
-          msg: e?.message,
-        });
-        return;
+        const pid = pidRows[0] ? pidRows[0].id : null;
+        if (!pid) continue;
+        await client.query(
+          'UPDATE products SET stock=stock-$1, updated_at=now() WHERE id=$2',
+          [it.qty, pid]
+        );
+        await client.query(
+          'INSERT INTO stock_movements(id, product_id, qty, reason, order_id, created_at) VALUES ($1,$2,$3,$4,$5,now())',
+          [require('crypto').randomUUID(), pid, -it.qty, 'sale', orderId]
+        );
       }
+      await client.query(
+        'UPDATE orders SET inventory_applied=true WHERE id=$1',
+        [orderId]
+      );
+      logger.info('mp-inventory applied', { orderId });
     }
-
-    if (topic === 'payment' || /^[0-9]+$/.test(String(rawId))) {
-      await processPayment(rawId);
-      return;
-    }
-  } catch (error) {
-    logger.error(`mp-webhook error inesperado: ${error.message}`);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    logger.error('mp-webhook error', e);
+  } finally {
+    client.release();
   }
 }
 
 module.exports = { processNotification };
-

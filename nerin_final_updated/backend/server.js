@@ -2181,12 +2181,15 @@ const server = http.createServer((req, res) => {
             .toLowerCase()
             .trim();
 
-        const items = carrito.map(({ titulo, precio, cantidad, currency_id }) => ({
-          title: String(titulo),
-          unit_price: Number(precio),
-          quantity: Number(cantidad),
-          currency_id: currency_id || "ARS",
-        }));
+        const items = carrito.map(
+          ({ titulo, precio, cantidad, currency_id, sku }) => ({
+            id: String(sku || ''),
+            title: String(titulo),
+            unit_price: Number(precio),
+            quantity: Number(cantidad),
+            currency_id: currency_id || "ARS",
+          })
+        );
 
         const itemsForOrder = carrito.map(
           ({ titulo, precio, cantidad, id, productId, sku }) => {
@@ -2227,6 +2230,15 @@ const server = http.createServer((req, res) => {
           },
           auto_return: "approved",
           notification_url: `${DOMAIN}/api/webhooks/mp`,
+          metadata: {
+            items: itemsForOrder.map((it) => ({
+              sku: it.sku,
+              name: it.name,
+              price: it.price,
+              qty: it.quantity,
+            })),
+            email: usuario?.email || null,
+          },
         };
         console.log("Preferencia enviada a Mercado Pago:", preferenceBody);
         if (!mpPreference) {

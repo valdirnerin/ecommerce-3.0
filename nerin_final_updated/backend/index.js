@@ -209,6 +209,7 @@ app.post("/api/orders", async (req, res) => {
       try {
         const pref = {
           items: productos.map((p) => ({
+            id: String(p.sku || ''),
             title: p.name,
             quantity: Number(p.quantity),
             unit_price: Number(p.price),
@@ -222,6 +223,15 @@ app.post("/api/orders", async (req, res) => {
           auto_return: "approved",
           external_reference: id,
           notification_url: `https://nerinparts.com.ar/api/webhooks/mp`,
+          metadata: {
+            items: productos.map((p) => ({
+              sku: p.sku,
+              name: p.name,
+              price: p.price,
+              qty: p.quantity,
+            })),
+            email: cliente?.email || null,
+          },
         };
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;

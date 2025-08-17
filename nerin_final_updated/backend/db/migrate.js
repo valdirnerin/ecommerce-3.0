@@ -42,6 +42,10 @@ async function run() {
       price NUMERIC,
       PRIMARY KEY(order_id, product_id)
     )`,
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS inventory_applied BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_id TEXT REFERENCES products(id)`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS qty INT`,
+    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS price NUMERIC`,
     `CREATE TABLE IF NOT EXISTS stock_movements (
       id TEXT PRIMARY KEY,
       product_id TEXT REFERENCES products(id),
