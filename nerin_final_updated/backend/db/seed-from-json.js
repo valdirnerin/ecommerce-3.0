@@ -1,87 +1,60 @@
-// CODEXFIX: importa productos desde seed.json
+const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
-const { Pool } = require('pg');
 
-function toNum(v) {
-  // CODEXFIX: normalizador de números
-  if (v === null || v === undefined) return 0;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-  if (typeof v === 'string') {
-    const cleaned = v
-      .replace(/[^0-9.,-]/g, '')
-      .replace(/\./g, '')
-      .replace(/,/g, '.');
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : 0;
-  }
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
+function poolFromEnv() {
+  const cs = process.env.DATABASE_URL;
+  if (!cs) throw new Error('DATABASE_URL not set');
+  const host = new URL(cs).hostname;
+  const ssl = host.includes('.internal') ? false : { rejectUnauthorized: false };
+  return new Pool({ connectionString: cs, ssl });
 }
 
-function createPool() {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.warn('DATABASE_URL not set'); // CODEXFIX
-    return null;
-  }
-  const u = new URL(url);
-  const ssl = u.hostname.includes('.internal')
-    ? false
-    : { rejectUnauthorized: false }; // CODEXFIX
-  return new Pool({ connectionString: url, ssl });
-}
+function toNum(v){ if(v==null) return null; const s=String(v).trim().replace(/\s*\$/g,'').replace(/\./g,'').replace(/,/g,'.'); const n=Number(s); return Number.isFinite(n)? n : null; }
 
-async function run() {
-  const pool = createPool();
-  if (!pool) return;
+(async () => {
+  const pool = poolFromEnv();
   const seedPath = path.join(__dirname, 'seed.json');
-  if (!fs.existsSync(seedPath)) {
-    console.warn('seed.json not found, skipping'); // CODEXFIX
-    await pool.end();
-    return;
-  }
-  const raw = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
-  const list = Array.isArray(raw) ? raw : raw.products || [];
-  for (const p of list) {
-    const tags = Array.isArray(p.tags) ? p.tags.join(',') : p.tags || null;
-    await pool.query(
-      `INSERT INTO products (sku, name, brand, model, category, subcategory, tags, stock, min_stock, price, price_min, price_may, image_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-       ON CONFLICT (sku) DO UPDATE SET
-         name=EXCLUDED.name,
-         brand=EXCLUDED.brand,
-         model=EXCLUDED.model,
-         category=EXCLUDED.category,
-         subcategory=EXCLUDED.subcategory,
-         tags=EXCLUDED.tags,
-         stock=EXCLUDED.stock,
-         min_stock=EXCLUDED.min_stock,
-         price=EXCLUDED.price,
-         price_min=EXCLUDED.price_min,
-         price_may=EXCLUDED.price_may,
-         image_url=EXCLUDED.image_url`,
-      [
-        p.sku || null,
-        p.name || '',
-        p.brand || null,
-        p.model || null,
-        p.category || null,
-        p.subcategory || null,
-        tags,
-        toNum(p.stock),
-        toNum(p.min_stock),
-        toNum(p.price),
-        toNum(p.price_min),
-        toNum(p.price_may),
-        p.image_url || null,
+  let raw;
+  if (fs.existsSync(seedPath)) {
+    raw = JSON.parse(fs.readFileSync(seedPath,'utf8'));
+    console.log('[seed] using seed.json');
+  } else {
+    raw = {
+      products: [
+        {"sku":"SSP-G990-ORG","name":"Pantalla Samsung S21 FE Service Pack","brand":"Samsung","model":"G990","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":25,"min_stock":5,"price":245000,"price_min":245000,"price_may":215000,"image_url":null},
+        {"sku":"SSP-A546-ORG","name":"Pantalla Samsung A54 Service Pack","brand":"Samsung","model":"A546","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":40,"min_stock":8,"price":185000,"price_min":185000,"price_may":165000,"image_url":null},
+        {"sku":"SSP-S911-ORG","name":"Pantalla Samsung S23 Service Pack","brand":"Samsung","model":"S911","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":15,"min_stock":3,"price":315000,"price_min":315000,"price_may":285000,"image_url":null},
+        {"sku":"SSP-S908-ORG","name":"Pantalla Samsung S22 Ultra Service Pack","brand":"Samsung","model":"S908","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":12,"min_stock":3,"price":295000,"price_min":295000,"price_may":270000,"image_url":null},
+        {"sku":"SSP-A346-ORG","name":"Pantalla Samsung A34 Service Pack","brand":"Samsung","model":"A346","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":35,"min_stock":7,"price":156000,"price_min":156000,"price_may":139000,"image_url":null},
+        {"sku":"SSP-A146-ORG","name":"Pantalla Samsung A14 5G Service Pack","brand":"Samsung","model":"A146","category":"Pantallas","subcategory":"Service Pack","tags":"PVA,Original","stock":50,"min_stock":10,"price":98000,"price_min":98000,"price_may":88000,"image_url":null},
+        {"sku":"SSP-S928-ORG","name":"Pantalla Samsung S24 Ultra Service Pack","brand":"Samsung","model":"S928","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":8,"min_stock":2,"price":435000,"price_min":435000,"price_may":410000,"image_url":null},
+        {"sku":"SSP-S711-ORG","name":"Pantalla Samsung S23 FE Service Pack","brand":"Samsung","model":"S711","category":"Pantallas","subcategory":"Service Pack","tags":"AMOLED,Original","stock":18,"min_stock":4,"price":225000,"price_min":225000,"price_may":205000,"image_url":null}
       ]
-    );
+    };
+    console.log('[seed] using embedded dataset');
   }
-  await pool.end();
-}
 
-run().catch((e) => {
-  console.error('seed failed', e); // CODEXFIX
-  process.exit(1);
-});
+  const client = await pool.connect();
+  try {
+    for (const p of raw.products || []) {
+      await client.query(`
+        INSERT INTO products (sku,name,brand,model,category,subcategory,tags,stock,min_stock,price,price_min,price_may,image_url)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        ON CONFLICT (sku) DO UPDATE SET
+          name=EXCLUDED.name, brand=EXCLUDED.brand, model=EXCLUDED.model,
+          category=EXCLUDED.category, subcategory=EXCLUDED.subcategory, tags=EXCLUDED.tags,
+          stock=EXCLUDED.stock, min_stock=EXCLUDED.min_stock,
+          price=EXCLUDED.price, price_min=EXCLUDED.price_min, price_may=EXCLUDED.price_may,
+          image_url=EXCLUDED.image_url
+      `, [
+        p.sku, p.name, p.brand, p.model, p.category, p.subcategory, p.tags || null,
+        p.stock ?? 0, p.min_stock ?? 0,
+        toNum(p.price), toNum(p.price_min), toNum(p.price_may), p.image_url || null
+      ]);
+    }
+    console.log('[seed] OK');
+  } finally {
+    client.release();
+  }
+})().catch(e => { console.error('seed failed error:', e); process.exit(1); });
