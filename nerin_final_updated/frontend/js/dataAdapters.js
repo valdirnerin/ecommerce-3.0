@@ -1,14 +1,28 @@
 // Normalizadores y formateadores seguros para toda la UI
 
 export function toNumberSafe(v, def = 0) {
+  // CODEXFIX: limpieza de precios "$ 1.234,56"
   if (v === null || v === undefined) return def;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : def;
+  if (typeof v === 'string') {
+    const cleaned = v
+      .replace(/[^0-9.,-]/g, '')
+      .replace(/\./g, '')
+      .replace(/,/g, '.');
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : def;
+  }
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
 }
 
 export function formatCurrencyARS(v) {
   const n = toNumberSafe(v, 0);
-  return n.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  return n.toLocaleString('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  });
 }
 
 export function asProduct(api) {
@@ -72,4 +86,3 @@ export function asShippingRow(api) {
     cost: toNumberSafe(api.cost ?? api.costo ?? 0, 0),
   };
 }
-
