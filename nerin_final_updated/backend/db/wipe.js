@@ -1,26 +1,29 @@
 const { Pool } = require('pg');
 
-function createPool() {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.warn('DATABASE_URL not set');
-    return null;
-  }
-  const u = new URL(url);
-  const ssl = u.hostname.includes('.internal') ? false : { rejectUnauthorized: false };
-  return new Pool({ connectionString: url, ssl });
+function poolFromEnv() {
+  const cs = process.env.DATABASE_URL;
+  if (!cs) { console.warn('DATABASE_URL not set'); return null; }
+  const host = new URL(cs).hostname;
+  const ssl = host.includes('.internal') ? false : { rejectUnauthorized: false };
+  return new Pool({ connectionString: cs, ssl });
 }
 
-async function run() {
-  const pool = createPool();
-  if (!pool) return;
-  await pool.query('TRUNCATE TABLE products RESTART IDENTITY');
-  await pool.end();
+(async () => {
+  const pool = poolFromEnv(); if (!pool) process.exit(1);
+  const sql = `
+  DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='order_items') THEN
+      EXECUTE 'TRUNCATE TABLE order_items RESTART IDENTITY CASCADE';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='orders') THEN
+      EXECUTE 'TRUNCATE TABLE orders RESTART IDENTITY CASCADE';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='products') THEN
+      EXECUTE 'TRUNCATE TABLE products RESTART IDENTITY CASCADE';
+    END IF;
+  END$$;`;
+  await pool.query(sql);
   console.log('TRUNCATE OK');
   process.exit(0);
-}
-
-run().catch((e) => {
-  console.error('wipe failed', e);
-  process.exit(1);
-});
+})().catch(e => { console.error('wipe failed', e); process.exit(1); });
