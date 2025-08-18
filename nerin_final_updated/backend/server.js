@@ -36,6 +36,7 @@ const db = require("./db");
 db.init().catch((e) => console.error("db init", e));
 const suppliersRepo = require('./data/suppliersRepo');
 const configRepo = require('./data/configRepo');
+const productsRepo = require("./data/productsRepo");
 if (MP_TOKEN) {
   mpClient = new MercadoPagoConfig({ accessToken: MP_TOKEN });
   mpPreference = new Preference(mpClient);
@@ -156,20 +157,19 @@ async function mpWebhookRelay(req, res, parsedUrl) {
         row.payment_status = status || row.payment_status;
         row.estado_pago = status || row.estado_pago;
         if (status === "approved" && !row.inventoryApplied && !row.inventory_applied) {
-          const products = getProducts();
-          (row.productos || row.items || []).forEach((it) => {
-            const pIdx = products.findIndex(
-              (p) => String(p.id) === String(it.id) || p.sku === it.sku,
-            );
-            if (pIdx !== -1) {
-              products[pIdx].stock =
-                Number(products[pIdx].stock || 0) - Number(it.quantity || 0);
+          try {
+            for (const it of (row.productos || row.items || [])) {
+              // it.id o it.sku, usamos id por consistencia
+              if (it.id != null) {
+                await productsRepo.adjustStock(String(it.id), -Number(it.quantity || 0), "sale", row.id || row.order_number);
+              }
             }
-          });
-          saveProducts(products);
-          row.inventoryApplied = true;
-          row.inventory_applied = true;
-          console.log(`inventory applied for ${row.id || row.order_number}`);
+            row.inventoryApplied = true;
+            row.inventory_applied = true;
+            console.log(`inventory applied for ${row.id || row.order_number}`);
+          } catch (e) {
+            console.error("inventory apply fail", e?.message);
+          }
         }
         if (status === "rejected" && (row.inventoryApplied || row.inventory_applied)) {
           // TODO: revertir stock si el pago fue rechazado luego de aprobarse
@@ -775,26 +775,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // API: obtener productos
+  // API: obtener productos (desde DB si hay DATABASE_URL, sino JSON)
   if (pathname === "/api/products" && req.method === "GET") {
     try {
-      const raw = await Promise.resolve(getProducts());
-      const products = (raw || []).map((p) => {
-        const num = (v) => {
-          const x = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
-          return Number.isFinite(x) ? x : 0;
-        };
-        const base = num(p.price ?? p.precio);
-        const price_min = num(p.price_min ?? p.precio_min ?? base);
-        const price_max = num(p.price_max ?? p.precio_max ?? base);
-        return { ...p, price: base, price_min, price_max };
-      });
-      return sendJson(res, 200, { products });
+      const list = await productsRepo.getAll();
+      return sendJson(res, 200, { products: list || [] });
     } catch (err) {
       console.error(err);
-      return sendJson(res, 500, {
-        error: "No se pudieron cargar los productos",
-      });
+      return sendJson(res, 500, { error: "No se pudieron cargar los productos" });
     }
   }
 
@@ -1435,22 +1423,17 @@ const server = http.createServer(async (req, res) => {
   // API: añadir un nuevo producto
   if (pathname === "/api/products" && req.method === "POST") {
     let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", async () => {
       try {
         const newProduct = JSON.parse(body || "{}");
-        const products = getProducts();
-        // Asignar un ID autoincremental sencillo
-        const newId = (
-          products.length
-            ? Math.max(...products.map((p) => parseInt(p.id, 10))) + 1
-            : 1
-        ).toString();
-        newProduct.id = newId;
-        products.push(newProduct);
-        saveProducts(products);
+        if (!newProduct.id) {
+          // id autoincremental simple por texto
+          const all = await productsRepo.getAll();
+          const next = (all.length ? Math.max(...all.map(p => parseInt(p.id,10) || 0)) + 1 : 1).toString();
+          newProduct.id = next;
+        }
+        await productsRepo.save(newProduct);
         return sendJson(res, 201, { success: true, product: newProduct });
       } catch (err) {
         console.error(err);
@@ -1464,20 +1447,13 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith("/api/products/") && req.method === "PUT") {
     const id = pathname.split("/").pop();
     let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", async () => {
       try {
         const update = JSON.parse(body || "{}");
-        const products = getProducts();
-        const index = products.findIndex((p) => p.id === id);
-        if (index === -1) {
-          return sendJson(res, 404, { error: "Producto no encontrado" });
-        }
-        products[index] = { ...products[index], ...update, id };
-        saveProducts(products);
-        return sendJson(res, 200, { success: true, product: products[index] });
+        update.id = id;
+        await productsRepo.save(update);
+        return sendJson(res, 200, { success: true, product: update });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
@@ -1490,14 +1466,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname.startsWith("/api/products/") && req.method === "DELETE") {
     const id = pathname.split("/").pop();
     try {
-      const products = getProducts();
-      const index = products.findIndex((p) => p.id === id);
-      if (index === -1) {
-        return sendJson(res, 404, { error: "Producto no encontrado" });
-      }
-      const removed = products.splice(index, 1)[0];
-      saveProducts(products);
-      return sendJson(res, 200, { success: true, product: removed });
+      await productsRepo.remove(id);
+      return sendJson(res, 200, { success: true });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al eliminar producto" });
