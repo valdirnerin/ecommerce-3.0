@@ -118,4 +118,17 @@ async function adjustStock(id, qty, reason = 'manual', orderId = null) {
     throw e;
   }
 }
-module.exports = { getAll, getById, saveAll, save, updatePrice, adjustStock };
+async function remove(id) {
+  const pool = db.getPool();
+  if (!pool) {
+    const products = await getAll();
+    const idx = products.findIndex((p) => String(p.id) === String(id));
+    if (idx !== -1) {
+      products.splice(idx, 1);
+      fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), 'utf8');
+    }
+    return;
+  }
+  await pool.query('DELETE FROM products WHERE id=$1', [id]);
+}
+module.exports = { getAll, getById, saveAll, save, updatePrice, adjustStock, remove };
