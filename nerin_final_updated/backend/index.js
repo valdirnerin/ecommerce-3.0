@@ -55,14 +55,14 @@ initDB();
 const app = express();
 app.use(express.json());
 
-const publicDir = path.join(__dirname, '..', 'frontend');
-app.use(express.static(publicDir)); // CODEXFIX
-
+// API routes
 app.get('/api/health', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   res.json({ ok: true }); // CODEXFIX
 });
 
 app.get('/api/products', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
     if (!pool) return res.json({ products: [] }); // CODEXFIX
     const { rows } = await pool.query(
@@ -84,16 +84,31 @@ app.get('/api/products', async (_req, res) => {
   }
 });
 
-const pageMap = {
-  '/': 'index.html',
-  '/index.html': 'index.html',
-  '/shop.html': 'shop.html',
-  '/admin.html': 'admin.html',
-  '/contacto.html': 'contact.html',
-};
+// Static frontend
+const publicDir = path.join(__dirname, '..', 'frontend');
+app.use(express.static(publicDir)); // CODEXFIX
 
-app.get(Object.keys(pageMap), (req, res) => {
-  res.sendFile(path.join(publicDir, pageMap[req.path])); // CODEXFIX
+app.get(
+  [
+    '/',
+    '/index.html',
+    '/shop.html',
+    '/admin.html',
+    '/contact.html',
+    '/seguimiento.html',
+    '/cart.html',
+    '/login.html',
+  ],
+  (req, res) => {
+    const file = req.path === '/' ? 'index.html' : req.path.slice(1);
+    res.sendFile(path.join(publicDir, file)); // CODEXFIX
+  }
+);
+
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/'))
+    return res.status(404).json({ error: 'Not found' });
+  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 app.listen(PORT, () => {
