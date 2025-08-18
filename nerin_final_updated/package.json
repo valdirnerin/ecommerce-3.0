@@ -10,6 +10,7 @@
   "dependencies": {
     "afip.ts": "^3.2.2",
     "dotenv": "^16.4.5",
+    "joi": "^17.11.0",
     "mercadopago": "^2.2.10",
     "multer": "^1.4.5-lts.1",
     "node-fetch": "^3.3.2",
