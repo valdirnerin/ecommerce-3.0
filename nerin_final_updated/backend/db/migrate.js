@@ -1,83 +1,31 @@
+// CODEXFIX: ejecuta migraciones idempotentes
+const fs = require('fs');
+const path = require('path');
 const { Pool } = require('pg');
 
-async function run() {
+function createPool() {
   const url = process.env.DATABASE_URL;
   if (!url) {
-    console.error('DATABASE_URL not set');
-    process.exit(1);
+    console.warn('DATABASE_URL not set'); // CODEXFIX
+    return null;
   }
-  const pool = new Pool({
-    connectionString: url,
-    ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined,
-  });
+  const u = new URL(url);
+  const ssl = u.hostname.includes('.internal')
+    ? false
+    : { rejectUnauthorized: false }; // CODEXFIX
+  return new Pool({ connectionString: url, ssl });
+}
 
-  const queries = [
-    `CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      price NUMERIC,
-      stock INT,
-      sku TEXT,
-      category TEXT,
-      created_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now()
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)` ,
-    `CREATE TABLE IF NOT EXISTS orders (
-      id TEXT PRIMARY KEY,
-      nrn TEXT,
-      preference_id TEXT,
-      email TEXT,
-      status TEXT,
-      total NUMERIC,
-      inventory_applied BOOLEAN DEFAULT FALSE,
-      created_at TIMESTAMPTZ DEFAULT now(),
-      updated_at TIMESTAMPTZ DEFAULT now()
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_orders_email ON orders(email)`,
-    `CREATE TABLE IF NOT EXISTS order_items (
-      order_id TEXT REFERENCES orders(id),
-      product_id TEXT REFERENCES products(id),
-      qty INT,
-      price NUMERIC,
-      PRIMARY KEY(order_id, product_id)
-    )`,
-    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS inventory_applied BOOLEAN DEFAULT FALSE`,
-    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS product_id TEXT REFERENCES products(id)`,
-    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS qty INT`,
-    `ALTER TABLE order_items ADD COLUMN IF NOT EXISTS price NUMERIC`,
-    `CREATE TABLE IF NOT EXISTS stock_movements (
-      id TEXT PRIMARY KEY,
-      product_id TEXT REFERENCES products(id),
-      qty INT,
-      reason TEXT,
-      order_id TEXT REFERENCES orders(id),
-      created_at TIMESTAMPTZ DEFAULT now()
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id)`,
-    `CREATE TABLE IF NOT EXISTS price_changes (
-      id TEXT PRIMARY KEY,
-      product_id TEXT REFERENCES products(id),
-      old_price NUMERIC,
-      new_price NUMERIC,
-      created_at TIMESTAMPTZ DEFAULT now()
-    )`,
-    `CREATE INDEX IF NOT EXISTS idx_price_changes_product ON price_changes(product_id)`
-    ,`CREATE TABLE IF NOT EXISTS suppliers(
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      name text, contact text, email text, phone text, address text,
-      payment_terms text, rating numeric DEFAULT 0
-    )`
-  ];
-
-  for (const q of queries) {
-    await pool.query(q);
-  }
-
+async function run() {
+  const pool = createPool();
+  if (!pool) return;
+  const schemaPath = path.join(__dirname, 'schema.sql');
+  const sql = fs.readFileSync(schemaPath, 'utf8');
+  await pool.query(sql); // CODEXFIX
   await pool.end();
 }
 
 run().catch((e) => {
-  console.error(e);
+  console.error('migrate failed', e); // CODEXFIX
   process.exit(1);
 });
