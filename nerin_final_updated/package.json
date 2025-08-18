@@ -7,7 +7,9 @@
     "start": "node backend/index.js",
     "migrate": "node backend/db/migrate.js",
     "seed": "node backend/db/seed-from-json.js",
-    "wipe": "node backend/db/wipe.js"
+    "wipe": "node backend/db/wipe.js",
+    "db:setup": "npm run migrate && npm run seed",
+    "db:reset": "npm run wipe && npm run seed"
   },
   "dependencies": {
     "afip.ts": "^3.2.2",
