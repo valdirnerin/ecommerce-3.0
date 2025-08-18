@@ -1,10 +1,10 @@
--- Tabla key/value para configuración (envíos, etc.)
+-- CONFIG
 CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value JSONB
 );
 
--- Productos (matchea con productsRepo)
+-- PRODUCTS
 CREATE TABLE IF NOT EXISTS products (
   id         TEXT PRIMARY KEY,
   name       TEXT,
@@ -16,7 +16,17 @@ CREATE TABLE IF NOT EXISTS products (
   updated_at timestamptz DEFAULT now()
 );
 
--- Órdenes (básico; podes ampliarla luego)
+-- NUEVAS COLUMNAS (idempotentes)
+ALTER TABLE products ADD COLUMN IF NOT EXISTS brand TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS model TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS subcategory TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS tags JSONB;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS min_stock INTEGER;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS price_minorista NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS price_mayorista NUMERIC;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS image TEXT;
+
+-- ORDERS
 CREATE TABLE IF NOT EXISTS orders (
   id                TEXT PRIMARY KEY,
   created_at        timestamptz DEFAULT now(),
@@ -35,7 +45,7 @@ CREATE TABLE IF NOT EXISTS order_items (
   UNIQUE(order_id, product_id)
 );
 
--- Historial de cambios de precio
+-- PRICE CHANGES
 CREATE TABLE IF NOT EXISTS price_changes (
   id          TEXT PRIMARY KEY,
   product_id  TEXT REFERENCES products(id),
@@ -45,7 +55,7 @@ CREATE TABLE IF NOT EXISTS price_changes (
   changed_at  timestamptz DEFAULT now()
 );
 
--- Movimientos de stock (matchea con productsRepo.adjustStock)
+-- STOCK MOVEMENTS
 CREATE TABLE IF NOT EXISTS stock_movements (
   id         TEXT PRIMARY KEY,
   product_id TEXT REFERENCES products(id),
