@@ -14,7 +14,11 @@ async function getAll() {
     }
   }
   const { rows } = await pool.query(
-    'SELECT id, name, price, stock, sku, category, updated_at FROM products ORDER BY id'
+    `SELECT id, sku, name, brand, model, category, subcategory,
+            tags, stock, min_stock, price, price_minorista,
+            price_mayorista, image, updated_at
+     FROM products
+     ORDER BY CAST(id AS INTEGER) NULLS LAST, id`
   );
   return rows;
 }
@@ -26,33 +30,82 @@ async function getById(id) {
     return prods.find((p) => String(p.id) === String(id)) || null;
   }
   const { rows } = await pool.query(
-    'SELECT id, name, price, stock, sku, category, updated_at FROM products WHERE id=$1',
+    `SELECT id, sku, name, brand, model, category, subcategory,
+            tags, stock, min_stock, price, price_minorista,
+            price_mayorista, image, updated_at
+     FROM products WHERE id=$1`,
     [id]
   );
   return rows[0] || null;
 }
 
+// normaliza "" -> null y números
+const toNum = (v) => (v === '' || v == null ? null : Number(v));
+const toInt = (v) => (v === '' || v == null ? null : parseInt(v, 10));
+const toJson = (v) => {
+  if (v == null || v === '') return null;
+  if (Array.isArray(v)) return JSON.stringify(v);
+  if (typeof v === 'string') {
+    try { return JSON.stringify(JSON.parse(v)); } catch { return JSON.stringify([v]); }
+  }
+  return JSON.stringify(v);
+};
+
 async function save(product) {
   const pool = db.getPool();
   if (!pool) {
+    // archivo
     const products = await getAll();
     const idx = products.findIndex((p) => String(p.id) === String(product.id));
-    if (idx !== -1) products[idx] = { ...products[idx], ...product };
-    else products.push(product);
+    const merged = { ...(idx !== -1 ? products[idx] : {}), ...product };
+    if (idx !== -1) products[idx] = merged; else products.push(merged);
     fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), 'utf8');
     return;
   }
+  // DB
+  const vals = {
+    id: String(product.id),
+    sku: product.sku ?? null,
+    name: product.name ?? null,
+    brand: product.brand ?? null,
+    model: product.model ?? null,
+    category: product.category ?? null,
+    subcategory: product.subcategory ?? null,
+    tags: toJson(product.tags),
+    stock: toInt(product.stock),
+    min_stock: toInt(product.min_stock),
+    price: toNum(product.price),
+    price_minorista: toNum(product.price_minorista),
+    price_mayorista: toNum(product.price_mayorista),
+    image: product.image ?? product.image_url ?? null
+  };
+
   await pool.query(
-    `INSERT INTO products (id, name, price, stock, sku, category, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,now(),now())
+    `INSERT INTO products
+       (id, sku, name, brand, model, category, subcategory, tags,
+        stock, min_stock, price, price_minorista, price_mayorista, image, created_at, updated_at)
+     VALUES
+       ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now(), now())
      ON CONFLICT (id) DO UPDATE SET
-       name=EXCLUDED.name,
-       price=EXCLUDED.price,
-       stock=EXCLUDED.stock,
        sku=EXCLUDED.sku,
+       name=EXCLUDED.name,
+       brand=EXCLUDED.brand,
+       model=EXCLUDED.model,
        category=EXCLUDED.category,
+       subcategory=EXCLUDED.subcategory,
+       tags=EXCLUDED.tags,
+       stock=EXCLUDED.stock,
+       min_stock=EXCLUDED.min_stock,
+       price=EXCLUDED.price,
+       price_minorista=EXCLUDED.price_minorista,
+       price_mayorista=EXCLUDED.price_mayorista,
+       image=EXCLUDED.image,
        updated_at=now()`,
-    [product.id, product.name, product.price, product.stock, product.sku, product.category]
+    [
+      vals.id, vals.sku, vals.name, vals.brand, vals.model, vals.category,
+      vals.subcategory, vals.tags, vals.stock, vals.min_stock, vals.price,
+      vals.price_minorista, vals.price_mayorista, vals.image
+    ]
   );
 }
 
@@ -67,7 +120,7 @@ async function updatePrice(id, newPrice) {
     const idx = products.findIndex((p) => String(p.id) === String(id));
     if (idx !== -1) {
       products[idx].price = newPrice;
-      saveAll(products);
+      fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), 'utf8');
     }
     return;
   }
@@ -87,7 +140,7 @@ async function updatePrice(id, newPrice) {
   }
 }
 
-async function adjustStock(id, qty, reason = 'manual', orderId = null) {
+async function adjustStock(id, qty, reason='manual', orderId=null) {
   const pool = db.getPool();
   if (!pool) {
     const products = await getAll();
@@ -97,27 +150,27 @@ async function adjustStock(id, qty, reason = 'manual', orderId = null) {
       let after = before + Number(qty);
       if (after < 0) after = 0;
       products[idx].stock = after;
-      saveAll(products);
+      fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), 'utf8');
     }
     return;
   }
   await pool.query('BEGIN');
   try {
-    const { rows } = await pool.query(
-      'UPDATE products SET stock=GREATEST(stock + $1,0), updated_at=now() WHERE id=$2 RETURNING stock',
-      [qty, id]
+    await pool.query(
+      'UPDATE products SET stock=GREATEST(COALESCE(stock,0) + $1, 0), updated_at=now() WHERE id=$2',
+      [Number(qty), String(id)]
     );
     await pool.query(
       'INSERT INTO stock_movements(id, product_id, qty, reason, order_id) VALUES ($1,$2,$3,$4,$5)',
-      [require('crypto').randomUUID(), id, qty, reason, orderId]
+      [require('crypto').randomUUID(), String(id), Number(qty), reason, orderId]
     );
     await pool.query('COMMIT');
-    return rows[0] ? rows[0].stock : null;
   } catch (e) {
     await pool.query('ROLLBACK');
     throw e;
   }
 }
+
 async function remove(id) {
   const pool = db.getPool();
   if (!pool) {
@@ -129,6 +182,8 @@ async function remove(id) {
     }
     return;
   }
-  await pool.query('DELETE FROM products WHERE id=$1', [id]);
+  await pool.query('DELETE FROM products WHERE id=$1', [String(id)]);
 }
+
 module.exports = { getAll, getById, saveAll, save, updatePrice, adjustStock, remove };
+

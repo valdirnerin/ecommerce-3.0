@@ -778,8 +778,24 @@ const server = http.createServer(async (req, res) => {
   // API: obtener productos (desde DB si hay DATABASE_URL, sino JSON)
   if (pathname === "/api/products" && req.method === "GET") {
     try {
-      const list = await productsRepo.getAll();
-      return sendJson(res, 200, { products: list || [] });
+      const raw = await productsRepo.getAll();
+      const norm = (p) => ({
+        id: p.id,
+        sku: p.sku || "",
+        name: p.name || "",
+        brand: p.brand || "",
+        model: p.model || "",
+        category: p.category || "",
+        subcategory: p.subcategory || "",
+        tags: Array.isArray(p.tags) ? p.tags : (p.tags ? p.tags : []),
+        stock: Number.isFinite(Number(p.stock)) ? Number(p.stock) : 0,
+        min_stock: p.min_stock ?? null,
+        price: p.price ?? null,
+        price_minorista: p.price_minorista ?? null,
+        price_mayorista: p.price_mayorista ?? null,
+        image: p.image || null
+      });
+      return sendJson(res, 200, { products: (raw || []).map(norm) });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "No se pudieron cargar los productos" });
@@ -1420,21 +1436,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  function sanitizeProduct(body) {
+    const num = (v) => (v === '' || v == null ? null : Number(v));
+    const int = (v) => (v === '' || v == null ? null : parseInt(v,10));
+    const arr = (v) => (Array.isArray(v) ? v : (v ? [v] : []));
+    return {
+      id: body.id,
+      sku: body.sku ?? null,
+      name: body.name ?? null,
+      brand: body.brand ?? null,
+      model: body.model ?? null,
+      category: body.category ?? null,
+      subcategory: body.subcategory ?? null,
+      tags: arr(body.tags),
+      stock: int(body.stock),
+      min_stock: int(body.min_stock),
+      price: num(body.price),
+      price_minorista: num(body.price_minorista),
+      price_mayorista: num(body.price_mayorista),
+      image: body.image ?? null
+    };
+  }
+
   // API: añadir un nuevo producto
   if (pathname === "/api/products" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", async () => {
       try {
-        const newProduct = JSON.parse(body || "{}");
-        if (!newProduct.id) {
-          // id autoincremental simple por texto
+        const data = sanitizeProduct(JSON.parse(body || "{}"));
+        if (!data.id) {
           const all = await productsRepo.getAll();
-          const next = (all.length ? Math.max(...all.map(p => parseInt(p.id,10) || 0)) + 1 : 1).toString();
-          newProduct.id = next;
+          data.id = (all.length ? Math.max(...all.map(p => parseInt(p.id,10) || 0)) + 1 : 1).toString();
         }
-        await productsRepo.save(newProduct);
-        return sendJson(res, 201, { success: true, product: newProduct });
+        await productsRepo.save(data);
+        return sendJson(res, 201, { success: true, product: data });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
@@ -1450,10 +1486,10 @@ const server = http.createServer(async (req, res) => {
     req.on("data", (chunk) => (body += chunk));
     req.on("end", async () => {
       try {
-        const update = JSON.parse(body || "{}");
-        update.id = id;
-        await productsRepo.save(update);
-        return sendJson(res, 200, { success: true, product: update });
+        const data = sanitizeProduct(JSON.parse(body || "{}"));
+        data.id = id;
+        await productsRepo.save(data);
+        return sendJson(res, 200, { success: true, product: data });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
