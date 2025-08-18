@@ -778,7 +778,17 @@ const server = http.createServer(async (req, res) => {
   // API: obtener productos
   if (pathname === "/api/products" && req.method === "GET") {
     try {
-      const products = getProducts();
+      const raw = await Promise.resolve(getProducts());
+      const products = (raw || []).map((p) => {
+        const num = (v) => {
+          const x = Number(String(v ?? "").replace(/[^0-9.-]/g, ""));
+          return Number.isFinite(x) ? x : 0;
+        };
+        const base = num(p.price ?? p.precio);
+        const price_min = num(p.price_min ?? p.precio_min ?? base);
+        const price_max = num(p.price_max ?? p.precio_max ?? base);
+        return { ...p, price: base, price_min, price_max };
+      });
       return sendJson(res, 200, { products });
     } catch (err) {
       console.error(err);
