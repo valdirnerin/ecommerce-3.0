@@ -48,6 +48,49 @@ const fetchFn =
   globalThis.fetch ||
   ((...a) => import("node-fetch").then(({ default: f }) => f(...a)));
 
+const FOOTER_FILE = path.join(__dirname, "../data/footer.json");
+const DEFAULT_FOOTER = {
+  brand: "NERIN PARTS",
+  slogan: "Samsung Service Pack Original",
+  cta: {
+    enabled: true,
+    text: "¿Sos técnico o mayorista?",
+    buttonLabel: "Acceso mayoristas",
+    href: "/mayoristas",
+  },
+  columns: [],
+  contact: { whatsapp: "", email: "", address: "" },
+  social: { instagram: "", linkedin: "", youtube: "" },
+  badges: {
+    mercadoPago: true,
+    ssl: true,
+    andreani: true,
+    oca: true,
+    dhl: false,
+    authenticity: true,
+  },
+  newsletter: { enabled: false, placeholder: "", successMsg: "" },
+  legal: { cuit: "", iibb: "", terms: "", privacy: "" },
+  show: {
+    cta: true,
+    branding: true,
+    columns: true,
+    contact: true,
+    social: true,
+    badges: true,
+    newsletter: false,
+    legal: true,
+  },
+  theme: {
+    accentFrom: "#FFD54F",
+    accentTo: "#FFC107",
+    border: "rgba(255,255,255,.08)",
+    bg: "#0B0B0C",
+    fg: "#EDEDEF",
+    muted: "#B8B8BC",
+  },
+};
+
 // Parsear cuerpo de la request guardando rawBody
 function parseBody(req) {
   return new Promise((resolve) => {
@@ -617,6 +660,82 @@ function sendOrderPaidEmail(order) {
     console.error("send email failed", e);
   }
 }
+// Leer y guardar configuración de footer
+function readFooter() {
+  try {
+    const txt = fs.readFileSync(FOOTER_FILE, 'utf8');
+    return JSON.parse(txt);
+  } catch {
+    fs.writeFileSync(FOOTER_FILE, JSON.stringify(DEFAULT_FOOTER, null, 2));
+    return { ...DEFAULT_FOOTER };
+  }
+}
+
+function saveFooter(cfg) {
+  fs.writeFileSync(FOOTER_FILE, JSON.stringify(cfg, null, 2));
+}
+
+function normalizeFooter(data) {
+  const base = readFooter();
+  const out = { ...base };
+  out.brand = typeof data.brand === 'string' ? data.brand.trim() : base.brand;
+  out.slogan = typeof data.slogan === 'string' ? data.slogan.trim() : base.slogan;
+  out.cta = {
+    enabled: Boolean(data?.cta?.enabled),
+    text: String(data?.cta?.text || ''),
+    buttonLabel: String(data?.cta?.buttonLabel || ''),
+    href: String(data?.cta?.href || ''),
+  };
+  out.columns = Array.isArray(data.columns) ? data.columns : base.columns;
+  out.contact = {
+    whatsapp: String(data?.contact?.whatsapp || ''),
+    email: String(data?.contact?.email || ''),
+    address: String(data?.contact?.address || ''),
+  };
+  out.social = {
+    instagram: String(data?.social?.instagram || ''),
+    linkedin: String(data?.social?.linkedin || ''),
+    youtube: String(data?.social?.youtube || ''),
+  };
+  out.badges = {
+    mercadoPago: Boolean(data?.badges?.mercadoPago),
+    ssl: Boolean(data?.badges?.ssl),
+    andreani: Boolean(data?.badges?.andreani),
+    oca: Boolean(data?.badges?.oca),
+    dhl: Boolean(data?.badges?.dhl),
+    authenticity: Boolean(data?.badges?.authenticity),
+  };
+  out.newsletter = {
+    enabled: Boolean(data?.newsletter?.enabled),
+    placeholder: String(data?.newsletter?.placeholder || ''),
+    successMsg: String(data?.newsletter?.successMsg || ''),
+  };
+  out.legal = {
+    cuit: String(data?.legal?.cuit || ''),
+    iibb: String(data?.legal?.iibb || ''),
+    terms: String(data?.legal?.terms || ''),
+    privacy: String(data?.legal?.privacy || ''),
+  };
+  out.show = {
+    cta: Boolean(data?.show?.cta),
+    branding: Boolean(data?.show?.branding),
+    columns: Boolean(data?.show?.columns),
+    contact: Boolean(data?.show?.contact),
+    social: Boolean(data?.show?.social),
+    badges: Boolean(data?.show?.badges),
+    newsletter: Boolean(data?.show?.newsletter),
+    legal: Boolean(data?.show?.legal),
+  };
+  out.theme = {
+    accentFrom: String(data?.theme?.accentFrom || base.theme.accentFrom),
+    accentTo: String(data?.theme?.accentTo || base.theme.accentTo),
+    border: String(data?.theme?.border || base.theme.border),
+    bg: String(data?.theme?.bg || base.theme.bg),
+    fg: String(data?.theme?.fg || base.theme.fg),
+    muted: String(data?.theme?.muted || base.theme.muted),
+  };
+  return out;
+}
 
 // Leer tabla de costos de envío por provincia
 function getShippingTable() {
@@ -1067,6 +1186,32 @@ const server = http.createServer((req, res) => {
         console.error("Error validating email", e);
         return sendJson(res, 500, { error: "Error al validar" });
       });
+  }
+
+  if (pathname === "/api/footer" && req.method === "GET") {
+    const cfg = readFooter();
+    return sendJson(res, 200, cfg);
+  }
+
+  if (pathname === "/api/footer" && req.method === "POST") {
+    const adminKey = req.headers["x-admin-key"];
+    if (process.env.ADMIN_KEY && adminKey !== process.env.ADMIN_KEY) {
+      return sendJson(res, 401, { error: "Unauthorized" });
+    }
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const cfg = normalizeFooter(data);
+        saveFooter(cfg);
+        return sendJson(res, 200, { success: true });
+      } catch (e) {
+        console.error(e);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
   }
 
   if (pathname === "/api/shipping-table" && req.method === "GET") {

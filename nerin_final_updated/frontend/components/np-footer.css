@@ -1,0 +1,107 @@
+/* NERIN PARTS ultra-pro footer styles */
+:root {
+  --np-accent-from: #FFD54F;
+  --np-accent-to: #FFC107;
+  --np-border: rgba(255,255,255,.08);
+  --np-bg: #0B0B0C;
+  --np-fg: #EDEDEF;
+  --np-muted: #B8B8BC;
+}
+
+.np-footer {
+  background: var(--np-bg);
+  color: var(--np-fg);
+  font-size: clamp(0.9rem, 0.28vw + 0.9rem, 1.05rem);
+  padding-block: 2rem;
+}
+
+.np-footer-accent {
+  height: 4px;
+  background: linear-gradient(to right,var(--np-accent-from),var(--np-accent-to));
+}
+
+.np-footer-inner {
+  max-width: min(1280px, 92vw);
+  margin-inline: auto;
+  display: grid;
+  gap: 2rem;
+}
+
+.np-footer-link {
+  color: inherit;
+  text-decoration: none;
+  padding: 0.25rem 0;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.np-footer-link:hover,
+.np-footer-link:focus {
+  transform: translateY(-1px);
+  opacity: 0.9;
+  outline: 2px solid var(--np-accent-to);
+  outline-offset: 2px;
+}
+
+.np-footer-columns {
+  display: grid;
+  gap: 1rem 3rem;
+}
+
+@media (min-width: 600px) {
+  .np-footer-columns {
+    grid-template-columns: repeat(auto-fit, minmax(150px,1fr));
+  }
+}
+
+.np-footer-contact,
+.np-footer-social,
+.np-footer-badges,
+.np-footer-legal {
+  border-top: 1px solid var(--np-border);
+  padding-top: 1rem;
+}
+
+.np-footer-social svg,
+.np-footer-badges svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.np-footer-news-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.np-footer-news-input {
+  flex: 1;
+  padding: 0.5rem;
+  background: var(--np-bg);
+  color: var(--np-fg);
+  border: 1px solid var(--np-border);
+  border-radius: 4px;
+}
+
+.np-footer-news-btn {
+  padding: 0.5rem 1rem;
+  background: var(--np-accent-to);
+  color: #000;
+  border-radius: 4px;
+}
+
+.np-footer-legal {
+  font-size: 0.875rem;
+  color: var(--np-muted);
+  text-align: center;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  border: 0;
+}

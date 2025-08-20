@@ -12,6 +12,8 @@
       href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
     />
       <link rel="stylesheet" href="style.css?v=mobfix-1" />
+      <link rel="stylesheet" href="/components/np-footer.css" />
+      <script src="/components/np-footer.js" defer></script>
   </head>
   <body>
     <header>
@@ -71,6 +73,7 @@
         <button data-target="configSection" data-i18n="nav.config">
           Configuración
         </button>
+        <button data-target="footerSection">Footer</button>
         <button data-target="shippingSection" data-i18n="nav.shipping">
           Envíos
         </button>
@@ -185,6 +188,7 @@
           <button type="submit" class="button primary">Agregar</button>
         </form>
       </section>
+
       <section id="ordersSection" class="admin-section" style="display: none">
         <h3>Gestión de pedidos</h3>
         <label for="orderStatusFilter">Filtrar por pago:</label>
@@ -305,6 +309,56 @@
           <button type="submit" class="button primary">
             Guardar configuración
           </button>
+        </form>
+      </section>
+
+      <!-- Editor de footer -->
+      <section id="footerSection" class="admin-section" style="display: none">
+        <h3>Footer</h3>
+        <form id="footerForm" class="admin-form">
+          <input type="text" name="brand" placeholder="Marca" />
+          <input type="text" name="slogan" placeholder="Slogan" />
+          <label><input type="checkbox" name="ctaEnabled" /> CTA habilitado</label>
+          <input type="text" name="ctaText" placeholder="Texto CTA" />
+          <input type="text" name="ctaLabel" placeholder="Etiqueta botón" />
+          <input type="text" name="ctaHref" placeholder="Enlace CTA" />
+          <textarea name="columns" placeholder="Columnas (JSON)" style="min-height:80px"></textarea>
+          <input type="text" name="whatsapp" placeholder="WhatsApp" />
+          <input type="email" name="email" placeholder="Email" />
+          <input type="text" name="address" placeholder="Dirección" />
+          <input type="url" name="instagram" placeholder="Instagram URL" />
+          <input type="url" name="linkedin" placeholder="LinkedIn URL" />
+          <input type="url" name="youtube" placeholder="YouTube URL" />
+          <label><input type="checkbox" name="show_cta" /> Mostrar CTA</label>
+          <label><input type="checkbox" name="show_branding" /> Mostrar branding</label>
+          <label><input type="checkbox" name="show_columns" /> Mostrar columnas</label>
+          <label><input type="checkbox" name="show_contact" /> Mostrar contacto</label>
+          <label><input type="checkbox" name="show_social" /> Mostrar redes</label>
+          <label><input type="checkbox" name="show_badges" /> Mostrar badges</label>
+          <label><input type="checkbox" name="show_newsletter" /> Mostrar newsletter</label>
+          <label><input type="checkbox" name="show_legal" /> Mostrar legal</label>
+          <label><input type="checkbox" name="badge_mercadoPago" /> Mercado Pago</label>
+          <label><input type="checkbox" name="badge_ssl" /> SSL</label>
+          <label><input type="checkbox" name="badge_andreani" /> Andreani</label>
+          <label><input type="checkbox" name="badge_oca" /> OCA</label>
+          <label><input type="checkbox" name="badge_dhl" /> DHL</label>
+          <label><input type="checkbox" name="badge_authenticity" /> Autenticidad</label>
+          <input type="color" name="accentFrom" value="#FFD54F" />
+          <input type="color" name="accentTo" value="#FFC107" />
+          <input type="color" name="bg" value="#0B0B0C" />
+          <input type="color" name="fg" value="#EDEDEF" />
+          <label><input type="checkbox" name="newsEnabled" /> Newsletter habilitado</label>
+          <input type="text" name="newsPlaceholder" placeholder="Placeholder newsletter" />
+          <input type="text" name="newsSuccess" placeholder="Mensaje éxito" />
+          <input type="text" name="cuit" placeholder="CUIT" />
+          <input type="text" name="iibb" placeholder="IIBB" />
+          <input type="text" name="terms" placeholder="URL Términos" />
+          <input type="text" name="privacy" placeholder="URL Privacidad" />
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button type="submit" class="button primary">Guardar</button>
+            <button type="button" id="footerReset" class="button">Restaurar defaults</button>
+            <button type="button" id="footerView" class="button">Ver en sitio</button>
+          </div>
         </form>
       </section>
 
@@ -445,6 +499,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="/js/admin.js"></script>
     <!-- Configuración y analíticas globales -->
+    <script type="module" src="/admin-footer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
     <!-- Traducciones -->
