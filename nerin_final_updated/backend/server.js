@@ -2670,7 +2670,12 @@ const server = http.createServer((req, res) => {
 
   // Servir componentes del frontend: /components/* -> /frontend/components/*
   if (pathname.startsWith("/components/") && req.method === "GET") {
-    const compPath = path.join(__dirname, "..", "frontend", pathname);
+    const compPath = path.join(
+      __dirname,
+      "..",
+      "frontend",
+      pathname.slice(1)
+    );
     if (!fs.existsSync(compPath) || fs.statSync(compPath).isDirectory()) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       return res.end("Not found");

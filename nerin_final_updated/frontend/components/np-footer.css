@@ -25,6 +25,18 @@
   gap: 24px;
 }
 
+.np-footer__cta {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  font-size: .95rem;
+}
+
+.np-footer__branding {
+  text-align: center;
+}
+
 .np-footer__columns {
   display: grid;
   gap: 12px 28px;
@@ -74,6 +86,28 @@
   text-align: center;
   color: #6b7280;
   font-size: .9rem;
+}
+
+.np-footer__contact {
+  text-align: center;
+  font-size: .9rem;
+}
+
+.np-footer__social {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.np-footer__social a {
+  width: 44px;
+  height: 44px;
+  justify-content: center;
+}
+
+.np-footer__social svg {
+  width: 20px;
+  height: 20px;
 }
 
 .sr-only {
