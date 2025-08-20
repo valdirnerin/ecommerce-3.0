@@ -15,7 +15,16 @@ const defaultConfig = {
   newsletter: { enabled: false, placeholder: "", successMsg: "" },
   legal: { cuit: "", iibb: "", terms: "", privacy: "" },
   show: { cta: true, branding: true, columns: true, contact: true, social: true, badges: true, newsletter: false, legal: true },
-  theme: { accentFrom: "#FFD54F", accentTo: "#FFC107", border: "rgba(255,255,255,.08)", bg: "#0B0B0C", fg: "#EDEDEF", muted: "#B8B8BC" },
+  theme: {
+    accentFrom: "#FFD54F",
+    accentTo: "#FFC107",
+    border: "rgba(0,0,0,.08)",
+    bg: "#ffffff",
+    fg: "#111827",
+    muted: "#A9ABB2",
+    dark: false,
+    accentBar: true,
+  },
 };
 
 const form = document.getElementById('footerForm');
@@ -53,6 +62,8 @@ function fillForm(cfg) {
   form.accentTo.value = cfg.theme.accentTo;
   form.bg.value = cfg.theme.bg;
   form.fg.value = cfg.theme.fg;
+  form.themeDark.checked = cfg.theme.dark;
+  form.accentBar.checked = cfg.theme.accentBar !== false;
   form.newsEnabled.checked = cfg.newsletter.enabled;
   form.newsPlaceholder.value = cfg.newsletter.placeholder;
   form.newsSuccess.value = cfg.newsletter.successMsg;
@@ -86,10 +97,17 @@ function collectForm() {
     email: form.email.value.trim(),
     address: form.address.value.trim(),
   };
+  const sanitizeUrl = (url) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === 'http:' || u.protocol === 'https:') return url;
+    } catch {}
+    return '';
+  };
   cfg.social = {
-    instagram: form.instagram.value.trim(),
-    linkedin: form.linkedin.value.trim(),
-    youtube: form.youtube.value.trim(),
+    instagram: sanitizeUrl(form.instagram.value.trim()),
+    linkedin: sanitizeUrl(form.linkedin.value.trim()),
+    youtube: sanitizeUrl(form.youtube.value.trim()),
   };
   cfg.legal = {
     cuit: form.cuit.value.trim(),
@@ -104,6 +122,8 @@ function collectForm() {
     bg: form.bg.value,
     fg: form.fg.value,
     muted: defaultConfig.theme.muted,
+    dark: form.themeDark.checked,
+    accentBar: form.accentBar.checked,
   };
   cfg.newsletter = {
     enabled: form.newsEnabled.checked,
