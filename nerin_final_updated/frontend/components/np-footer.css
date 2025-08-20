@@ -1,9 +1,4 @@
 /* NERIN Parts footer - light, minimal */
-:root {
-  --np-accent-from: #FFD54F;
-  --np-accent-to: #FFC107;
-}
-
 .np-footer {
   background: var(--color-bg, #fff);
   color: var(--color-secondary, #111827);
@@ -19,9 +14,15 @@
     var(--np-accent-to, #FFC107));
 }
 
+.np-footer[data-accent="off"] .np-footer__accent {
+  display: none;
+}
+
 .np-footer__inner {
   max-width: min(1200px, 92vw);
   margin: 0 auto;
+  display: grid;
+  gap: 24px;
 }
 
 .np-footer__columns {
@@ -29,7 +30,7 @@
   gap: 12px 28px;
 }
 
-@media (min-width: 600px) {
+@media (min-width: 640px) {
   .np-footer__columns {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
   }
@@ -73,6 +74,27 @@
   text-align: center;
   color: #6b7280;
   font-size: .9rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.np-footer[data-theme="dark"] {
+  background: #0B0B0C;
+  color: #EDEDEF;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+.np-footer[data-theme="dark"] .np-footer__row {
+  border-top: 1px solid rgba(255, 255, 255, .08);
 }
 
 @media (prefers-reduced-motion: reduce) {

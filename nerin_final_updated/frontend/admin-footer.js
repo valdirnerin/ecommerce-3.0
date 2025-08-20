@@ -22,8 +22,8 @@ const defaultConfig = {
     bg: "#ffffff",
     fg: "#111827",
     muted: "#A9ABB2",
-    dark: false,
     accentBar: true,
+    mode: "auto",
   },
 };
 
@@ -62,7 +62,7 @@ function fillForm(cfg) {
   form.accentTo.value = cfg.theme.accentTo;
   form.bg.value = cfg.theme.bg;
   form.fg.value = cfg.theme.fg;
-  form.themeDark.checked = cfg.theme.dark;
+  form.themeMode.value = cfg.theme.mode || 'auto';
   form.accentBar.checked = cfg.theme.accentBar !== false;
   form.newsEnabled.checked = cfg.newsletter.enabled;
   form.newsPlaceholder.value = cfg.newsletter.placeholder;
@@ -122,8 +122,8 @@ function collectForm() {
     bg: form.bg.value,
     fg: form.fg.value,
     muted: defaultConfig.theme.muted,
-    dark: form.themeDark.checked,
     accentBar: form.accentBar.checked,
+    mode: form.themeMode.value,
   };
   cfg.newsletter = {
     enabled: form.newsEnabled.checked,
