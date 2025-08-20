@@ -17,12 +17,16 @@ jest.mock('mercadopago', () => {
       }),
     })),
     MerchantOrder: jest.fn().mockImplementation(() => ({
-      get: jest.fn().mockResolvedValue({ preference_id: 'pref123' }),
+      get: jest.fn().mockResolvedValue({
+        preference_id: 'pref123',
+        payments: [{ id: 987 }],
+      }),
     })),
   };
 });
 
-const { Payment } = require('mercadopago');
+const { Payment, MerchantOrder } = require('mercadopago');
+const router = require('../routes/mercadoPago');
 
 describe('Mercado Pago Webhook', () => {
   let app;
@@ -30,8 +34,8 @@ describe('Mercado Pago Webhook', () => {
     process.env.MP_ACCESS_TOKEN = 'test';
     process.env.WEBHOOK_SECRET = 'secret';
     process.env.NODE_ENV = 'test';
-    const router = require('../routes/mercadoPago');
     app = express();
+    app.use(express.urlencoded({ extended: false }));
     app.use(
       express.json({
         verify: (req, res, buf) => {
@@ -79,5 +83,30 @@ describe('Mercado Pago Webhook', () => {
       .expect(200);
 
     expect(paymentInstance.get).toHaveBeenCalledWith({ id: 456 });
+  });
+
+  test('mapStatus maps cancelled-type statuses to cancelled', () => {
+    expect(router.mapStatus('cancelled')).toBe('cancelled');
+    expect(router.mapStatus('refunded')).toBe('cancelled');
+    expect(router.mapStatus('charged_back')).toBe('cancelled');
+  });
+
+  test('handles merchant_order webhook with resource only', async () => {
+    const merchantInstance = MerchantOrder.mock.results[0].value;
+    merchantInstance.get.mockClear();
+    const paymentInstance = Payment.mock.results[0].value;
+    paymentInstance.get.mockClear();
+
+    await request(app)
+      .post('/api/webhooks/mp?topic=merchant_order')
+      .type('form')
+      .send({ resource: 'https://api.mercadolibre.com/merchant_orders/777' })
+      .expect(200);
+
+    // allow async processing to complete
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(merchantInstance.get).toHaveBeenCalledWith({ id: '777' });
+    expect(paymentInstance.get).toHaveBeenCalledWith({ id: 987 });
   });
 });

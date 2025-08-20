@@ -20,11 +20,18 @@ router.post('/test', (req, res) => {
 });
 
 function mapStatus(mpStatus) {
-  return mpStatus === 'approved'
-    ? 'approved'
-    : mpStatus === 'rejected'
-    ? 'rejected'
-    : 'pending';
+  switch (mpStatus) {
+    case 'approved':
+      return 'approved';
+    case 'rejected':
+      return 'rejected';
+    case 'cancelled':
+    case 'refunded':
+    case 'charged_back':
+      return 'cancelled';
+    default:
+      return 'pending';
+  }
 }
 
 async function processNotification(topic, id) {
@@ -35,7 +42,7 @@ async function processNotification(topic, id) {
     let externalRef = null;
     let status = 'pending';
 
-    if (topic === 'merchant_order') {
+    if (topic && topic.startsWith('merchant_order')) {
       merchantOrder = await merchantClient.get({ id });
       const payments = merchantOrder.payments || [];
       preferenceId = merchantOrder.preference_id || null;
@@ -151,11 +158,13 @@ router.post(
   validateWebhook,
   (req, res) => {
     const topic = req.query.topic || req.body.topic || req.body.type;
+    const resource = req.query.resource || req.body.resource;
     const id =
       req.query.id ||
       req.body.payment_id ||
       (req.body.data && req.body.data.id) ||
-      req.body.id;
+      req.body.id ||
+      (resource && String(resource).split('/').pop());
 
     console.log('📥 mp-webhook recibido:', { topic, id });
     logger.info(`mp-webhook recibido: ${JSON.stringify({ topic, id })}`);
@@ -172,3 +181,4 @@ router.post(
 );
 
 module.exports = router;
+module.exports.mapStatus = mapStatus;
