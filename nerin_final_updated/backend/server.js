@@ -2668,6 +2668,24 @@ const server = http.createServer((req, res) => {
     return serveStatic(path.join(__dirname, "../frontend/seguimiento.html"), res);
   }
 
+  // Servir componentes del frontend: /components/* -> /frontend/components/*
+  if (pathname.startsWith("/components/") && req.method === "GET") {
+    const compPath = path.join(__dirname, "..", "frontend", pathname);
+    if (!fs.existsSync(compPath) || fs.statSync(compPath).isDirectory()) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      return res.end("Not found");
+    }
+    const ext = path.extname(compPath).toLowerCase();
+    const mime =
+      ext === ".css" ? "text/css" :
+      ext === ".js"  ? "application/javascript" :
+      ext === ".html"? "text/html" : "application/octet-stream";
+
+    res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=600" });
+    fs.createReadStream(compPath).pipe(res);
+    return;
+  }
+
   // Servir archivos estáticos del frontend y assets
   let filePath;
   // Servir recursos dentro de /assets (imágenes)
