@@ -1,148 +1,82 @@
-/* NERIN PARTS footer styles aligned with site aesthetics */
-
+/* NERIN Parts footer - light, minimal */
 :root {
   --np-accent-from: #FFD54F;
   --np-accent-to: #FFC107;
-  /* default dark palette */
-  --np-bg-dark: color-mix(in srgb, #0E0F10 92%, white);
-  --np-fg-dark: #EDEDEF;
-  --np-muted-dark: #A9ABB2;
-  --np-border-dark: rgba(0, 0, 0, 0.08);
 }
 
 .np-footer {
-  --np-bg: var(--color-bg, #fff);
-  --np-fg: var(--color-secondary, #111827);
-  --np-muted: var(--color-muted, #6b7280);
-  --np-border: var(--color-border, #e5e7eb);
-
-  background: var(--np-bg);
-  color: var(--np-fg);
-  border-top: 1px solid var(--np-border);
-  font-size: clamp(0.9rem, 0.4vw + 0.85rem, 1rem);
-  line-height: 1.5;
-  margin-top: 0;
-  -webkit-tap-highlight-color: transparent;
+  background: var(--color-bg, #fff);
+  color: var(--color-secondary, #111827);
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  padding-block: clamp(20px, 3vw, 32px);
   padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
 }
 
-.np-footer--dark {
-  --np-bg: var(--np-bg-dark);
-  --np-fg: var(--np-fg-dark);
-  --np-muted: var(--np-muted-dark);
-  --np-border: var(--np-border-dark);
-}
-
-.np-footer-accent {
+.np-footer__accent {
   height: 2px;
-  background: linear-gradient(to right, var(--np-accent-from), var(--np-accent-to));
-  opacity: 0.75;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--np-accent-from, #FFD54F) 75%, transparent),
+    var(--np-accent-to, #FFC107));
 }
 
 .np-footer__inner {
   max-width: min(1200px, 92vw);
   margin: 0 auto;
-  padding: clamp(20px, 3vw, 32px) 0;
+}
+
+.np-footer__columns {
   display: grid;
-  gap: 2rem;
+  gap: 12px 28px;
 }
 
-.np-footer-cta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-@media (min-width: 640px) {
-  .np-footer-cta {
-    flex-direction: row;
-    align-items: center;
-  }
-}
-
-.np-footer-columns {
-  display: grid;
-  gap: 1.25rem 2rem;
-}
-
-@media (min-width: 640px) {
-  .np-footer-columns {
-    grid-template-columns: repeat(2, 1fr);
+@media (min-width: 600px) {
+  .np-footer__columns {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
   }
 }
 
 @media (min-width: 1024px) {
-  .np-footer-columns {
-    grid-template-columns: repeat(3, 1fr);
+  .np-footer__columns {
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
   }
 }
 
-.np-footer-nav h3 {
+.np-footer h3 {
+  margin: 0 0 .5rem;
   font-weight: 600;
-  font-size: clamp(0.95rem, 0.4vw + 0.9rem, 1.05rem);
-  margin: 0 0 0.25rem;
+  font-size: clamp(.95rem, .4vw + .9rem, 1.05rem);
+  color: inherit;
 }
 
 .np-footer a {
-  text-decoration: none;
   color: inherit;
+  text-decoration: none;
   display: inline-flex;
-  align-items: center;
   min-height: 44px;
-  padding-inline: 0.25rem;
-  transition: opacity var(--transition, 0.2s), transform var(--transition, 0.2s);
-}
-
-.np-footer a:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-}
-
-.np-footer a:focus-visible {
-  outline: 2px solid var(--color-primary, var(--np-accent-to));
+  align-items: center;
+  gap: 6px;
+  transition: transform .18s ease, opacity .18s ease;
   outline-offset: 3px;
 }
 
-.np-footer-contact,
-.np-footer-social,
-.np-footer-badges,
-.np-footer-newsletter,
-.np-footer-legal {
-  border-top: 1px solid var(--np-border);
-  padding-block: 0.75rem;
+.np-footer a:hover {
+  opacity: .9;
+  transform: translateY(-1px);
 }
 
-.np-footer-social {
-  display: flex;
-  gap: 1rem;
+.np-footer__row {
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  padding-block: 12px;
 }
 
-.np-footer-social svg {
-  width: 24px;
-  height: 24px;
-  fill: currentColor;
-}
-
-.np-footer-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-}
-
-.np-footer-legal {
-  font-size: 0.875rem;
+.np-footer__legal {
   text-align: center;
-  color: var(--np-muted);
+  color: #6b7280;
+  font-size: .9rem;
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
+@media (prefers-reduced-motion: reduce) {
+  .np-footer * {
+    transition: none !important;
+  }
 }
-

@@ -1,14 +1,15 @@
-// Render and mount NERIN PARTS footer
+// Mount NERIN Parts footer
 (async () => {
+  const path = location.pathname;
+  if (path.includes('/admin.html') || document.querySelector('.admin-container')) return;
   if (window.__npFooterLoaded) return;
-  if (location.pathname.includes('/admin.html') || document.querySelector('.admin-container')) return;
   window.__npFooterLoaded = true;
 
   let tpl = document.getElementById('np-footer-template');
   if (!tpl) {
     try {
-      const tplRes = await fetch('/components/np-footer.html');
-      const html = await tplRes.text();
+      const res = await fetch('/components/np-footer.html');
+      const html = await res.text();
       const div = document.createElement('div');
       div.innerHTML = html;
       tpl = div.querySelector('#np-footer-template');
@@ -28,8 +29,6 @@
   }
 
   const footer = tpl.content.firstElementChild.cloneNode(true);
-  footer.style.setProperty('-webkit-tap-highlight-color', 'transparent');
-
   const theme = cfg.theme || {};
   const rootStyles = getComputedStyle(document.documentElement);
   const luminance = (hex) => {
@@ -42,47 +41,49 @@
     const b = num & 255;
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   };
-  const isDark = theme.dark === true || luminance(theme.bg) < 0.35;
-  if (isDark) {
-    footer.classList.add('np-footer--dark');
-  } else {
-    footer.style.setProperty('--np-bg', rootStyles.getPropertyValue('--color-bg') || '#fff');
-    footer.style.setProperty('--np-fg', rootStyles.getPropertyValue('--color-secondary') || '#111827');
-    footer.style.setProperty('--np-border', rootStyles.getPropertyValue('--color-border') || '#e5e7eb');
-    footer.style.setProperty('--np-muted', rootStyles.getPropertyValue('--color-muted') || '#6b7280');
+
+  footer.style.setProperty('--color-bg', rootStyles.getPropertyValue('--color-bg') || '#fff');
+  footer.style.setProperty('--color-secondary', rootStyles.getPropertyValue('--color-secondary') || '#111827');
+  footer.style.setProperty('--color-border', rootStyles.getPropertyValue('--color-border') || '#e5e7eb');
+
+  if (theme.bg && luminance(theme.bg) < 0.35) {
+    footer.style.setProperty('--color-bg', theme.bg);
+    if (theme.fg) footer.style.setProperty('--color-secondary', theme.fg);
+    if (theme.border) footer.style.setProperty('--color-border', theme.border);
   }
+
   for (const [k, v] of Object.entries(theme)) {
     footer.style.setProperty(`--np-${k.replace(/([A-Z])/g, '-$1').toLowerCase()}`, v);
   }
   if (theme.accentBar === false) {
-    const acc = footer.querySelector('.np-footer-accent');
+    const acc = footer.querySelector('.np-footer__accent');
     if (acc) acc.style.display = 'none';
   }
 
   const show = cfg.show || {};
 
-  // CTA strip
+  // CTA
   if (show.cta && cfg.cta && cfg.cta.enabled) {
-    const cta = footer.querySelector('.np-footer-cta');
+    const cta = footer.querySelector('.np-footer__cta');
     cta.hidden = false;
-    cta.querySelector('.np-footer-cta-text').textContent = cfg.cta.text || '';
-    const btn = cta.querySelector('.np-footer-cta-btn');
+    cta.querySelector('.np-footer__cta-text').textContent = cfg.cta.text || '';
+    const btn = cta.querySelector('.np-footer__cta-btn');
     btn.textContent = cfg.cta.buttonLabel || '';
     btn.href = cfg.cta.href || '#';
   }
 
   // Branding
   if (show.branding) {
-    const brand = footer.querySelector('.np-footer-branding');
+    const brand = footer.querySelector('.np-footer__branding');
     brand.hidden = false;
-    brand.querySelector('.np-footer-brand').textContent = cfg.brand || '';
-    brand.querySelector('.np-footer-slogan').textContent = cfg.slogan || '';
+    brand.querySelector('.np-footer__brand').textContent = cfg.brand || '';
+    brand.querySelector('.np-footer__slogan').textContent = cfg.slogan || '';
   }
 
   // Columns navigation
   if (show.columns && Array.isArray(cfg.columns)) {
-    const nav = footer.querySelector('.np-footer-nav');
-    const cols = nav.querySelector('.np-footer-columns');
+    const nav = footer.querySelector('.np-footer__nav');
+    const cols = nav.querySelector('.np-footer__columns');
     cfg.columns.forEach(col => {
       const div = document.createElement('div');
       const h3 = document.createElement('h3');
@@ -92,7 +93,6 @@
       (col.links || []).forEach(l => {
         const li = document.createElement('li');
         const a = document.createElement('a');
-        a.className = 'np-footer-link';
         a.textContent = l.label;
         a.href = l.href;
         a.rel = 'noopener nofollow';
@@ -107,7 +107,7 @@
 
   // Contact
   if (show.contact && cfg.contact) {
-    const wrap = footer.querySelector('.np-footer-contact');
+    const wrap = footer.querySelector('.np-footer__contact');
     if (cfg.contact.whatsapp) {
       const span = document.createElement('span');
       span.textContent = `WhatsApp: ${cfg.contact.whatsapp}`;
@@ -115,7 +115,6 @@
     }
     if (cfg.contact.email) {
       const a = document.createElement('a');
-      a.className = 'np-footer-link';
       a.href = `mailto:${cfg.contact.email}`;
       a.textContent = cfg.contact.email;
       wrap.append('Email: ', a, ' ');
@@ -130,17 +129,18 @@
 
   // Social
   if (show.social && cfg.social) {
-    const social = footer.querySelector('.np-footer-social');
+    const social = footer.querySelector('.np-footer__social');
     const addIcon = (href, label, path) => {
       if (!href) return;
       const a = document.createElement('a');
-      a.className = 'np-footer-link';
       a.href = href;
       a.target = '_blank';
       a.rel = 'noopener';
       a.setAttribute('aria-label', label);
-      const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-      svg.setAttribute('viewBox','0 0 24 24');
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '24');
+      svg.setAttribute('height', '24');
       svg.innerHTML = path;
       a.appendChild(svg);
       social.appendChild(a);
@@ -151,9 +151,9 @@
     social.hidden = social.childNodes.length === 0;
   }
 
-  // Badges simple icons
+  // Badges
   if (show.badges && cfg.badges) {
-    const wrap = footer.querySelector('.np-footer-badges');
+    const wrap = footer.querySelector('.np-footer__badges');
     const add = (enabled, label) => {
       if (!enabled) return;
       const span = document.createElement('span');
@@ -169,50 +169,20 @@
     wrap.hidden = wrap.childNodes.length === 0;
   }
 
-  // Newsletter
-  if (show.newsletter && cfg.newsletter && cfg.newsletter.enabled) {
-    const wrap = footer.querySelector('.np-footer-newsletter');
-    wrap.hidden = false;
-    const input = wrap.querySelector('.np-footer-news-input');
-    input.placeholder = cfg.newsletter.placeholder || '';
-    const success = wrap.querySelector('.np-footer-news-success');
-    wrap.querySelector('.np-footer-news-form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      success.textContent = cfg.newsletter.successMsg || '';
-      success.hidden = false;
-      e.target.reset();
-    });
-  }
-
-  // Legal line
+  // Legal
   if (show.legal && cfg.legal) {
-    const legal = footer.querySelector('.np-footer-legal');
+    const legal = footer.querySelector('.np-footer__legal');
     legal.hidden = false;
     const year = new Date().getFullYear();
-    const span = document.createElement('span');
-    span.textContent = `© ${year} ${cfg.brand || ''} – CUIT ${cfg.legal.cuit} – IIBB ${cfg.legal.iibb}`;
-    legal.appendChild(span);
-    if (cfg.legal.terms) {
-      const a = document.createElement('a');
-      a.className = 'np-footer-link';
-      a.href = cfg.legal.terms;
-      a.textContent = 'Términos';
-      legal.append(' – ', a);
-    }
-    if (cfg.legal.privacy) {
-      const a = document.createElement('a');
-      a.className = 'np-footer-link';
-      a.href = cfg.legal.privacy;
-      a.textContent = 'Privacidad';
-      legal.append(' – ', a);
-    }
+    const parts = [`© ${year} ${cfg.brand || ''}`];
+    if (cfg.legal.cuit) parts.push(`CUIT ${cfg.legal.cuit}`);
+    if (cfg.legal.iibb) parts.push(`IIBB ${cfg.legal.iibb}`);
+    if (cfg.legal.terms) parts.push(`<a href="${cfg.legal.terms}">Términos</a>`);
+    if (cfg.legal.privacy) parts.push(`<a href="${cfg.legal.privacy}">Privacidad</a>`);
+    legal.innerHTML = parts.join(' – ');
   }
 
-  // insert footer into DOM
-  let mount = document.getElementById('footer-root');
-  if (mount) {
-    mount.appendChild(footer);
-  } else {
-    document.body.appendChild(footer);
-  }
+  // mount
+  const mount = document.getElementById('footer-root');
+  (mount || document.body).appendChild(footer);
 })();
