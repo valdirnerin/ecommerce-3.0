@@ -150,12 +150,12 @@ router.post(
 
   validateWebhook,
   (req, res) => {
-    const topic = req.query.topic || req.body.topic;
+    const topic = req.query.topic || req.body.topic || req.body.type;
     const id =
       req.query.id ||
-      req.body.id ||
       req.body.payment_id ||
-      (req.body.data && req.body.data.id);
+      (req.body.data && req.body.data.id) ||
+      req.body.id;
 
     console.log('📥 mp-webhook recibido:', { topic, id });
     logger.info(`mp-webhook recibido: ${JSON.stringify({ topic, id })}`);

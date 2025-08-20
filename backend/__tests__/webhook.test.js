@@ -22,6 +22,8 @@ jest.mock('mercadopago', () => {
   };
 });
 
+const { Payment } = require('mercadopago');
+
 describe('Mercado Pago Webhook', () => {
   let app;
   beforeAll(() => {
@@ -41,7 +43,7 @@ describe('Mercado Pago Webhook', () => {
   });
 
   test('returns 200 for valid webhook', async () => {
-    const body = { data: { id: 123 } };
+    const body = { id: 999, data: { id: 123 } };
     const raw = JSON.stringify(body);
     const signature = crypto
       .createHmac('sha256', process.env.WEBHOOK_SECRET)
@@ -54,5 +56,28 @@ describe('Mercado Pago Webhook', () => {
       .set('x-signature', signature)
       .send(body)
       .expect(200);
+
+    const paymentInstance = Payment.mock.results[0].value;
+    expect(paymentInstance.get).toHaveBeenCalledWith({ id: 123 });
+  });
+
+  test('uses payment_id over event or data id', async () => {
+    const paymentInstance = Payment.mock.results[0].value;
+    paymentInstance.get.mockClear();
+    const body = { id: 999, data: { id: 123 }, payment_id: 456 };
+    const raw = JSON.stringify(body);
+    const signature = crypto
+      .createHmac('sha256', process.env.WEBHOOK_SECRET)
+      .update(raw)
+      .digest('hex');
+
+    await request(app)
+      .post('/api/webhooks/mp')
+      .set('Content-Type', 'application/json')
+      .set('x-signature', signature)
+      .send(body)
+      .expect(200);
+
+    expect(paymentInstance.get).toHaveBeenCalledWith({ id: 456 });
   });
 });
