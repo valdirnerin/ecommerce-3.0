@@ -194,6 +194,7 @@ async function processNotification(reqOrTopic, maybeId) {
     (typeof reqOrTopic === 'string' ? reqOrTopic : undefined);
   const rawId =
     query.id ||
+    body?.payment_id ||
     body?.data?.id ||
     body?.id ||
     (typeof reqOrTopic === 'string' ? maybeId : undefined) ||
