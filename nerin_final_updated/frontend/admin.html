@@ -345,7 +345,14 @@
           <input type="color" name="accentTo" value="#FFC107" />
           <input type="color" name="bg" value="#ffffff" />
           <input type="color" name="fg" value="#111827" />
-          <label><input type="checkbox" name="themeDark" /> Modo oscuro</label>
+          <label>
+            Modo
+            <select name="themeMode">
+              <option value="auto">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
           <label><input type="checkbox" name="accentBar" checked /> Barra de acento</label>
           <label><input type="checkbox" name="newsEnabled" /> Newsletter habilitado</label>
           <input type="text" name="newsPlaceholder" placeholder="Placeholder newsletter" />

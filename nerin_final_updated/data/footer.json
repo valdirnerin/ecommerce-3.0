@@ -63,6 +63,8 @@
     "border": "rgba(255,255,255,.08)",
     "bg": "#0B0B0C",
     "fg": "#EDEDEF",
-    "muted": "#B8B8BC"
+    "muted": "#B8B8BC",
+    "accentBar": true,
+    "mode": "auto"
   }
 }

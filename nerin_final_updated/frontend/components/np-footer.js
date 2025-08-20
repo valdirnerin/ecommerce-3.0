@@ -30,7 +30,6 @@
 
   const footer = tpl.content.firstElementChild.cloneNode(true);
   const theme = cfg.theme || {};
-  const rootStyles = getComputedStyle(document.documentElement);
   const luminance = (hex) => {
     if (!hex) return 1;
     const c = hex.replace('#', '');
@@ -41,24 +40,19 @@
     const b = num & 255;
     return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   };
-
-  footer.style.setProperty('--color-bg', rootStyles.getPropertyValue('--color-bg') || '#fff');
-  footer.style.setProperty('--color-secondary', rootStyles.getPropertyValue('--color-secondary') || '#111827');
-  footer.style.setProperty('--color-border', rootStyles.getPropertyValue('--color-border') || '#e5e7eb');
-
-  if (theme.bg && luminance(theme.bg) < 0.35) {
-    footer.style.setProperty('--color-bg', theme.bg);
-    if (theme.fg) footer.style.setProperty('--color-secondary', theme.fg);
-    if (theme.border) footer.style.setProperty('--color-border', theme.border);
-  }
-
   for (const [k, v] of Object.entries(theme)) {
+    if (k === 'accentBar' || k === 'mode') continue;
     footer.style.setProperty(`--np-${k.replace(/([A-Z])/g, '-$1').toLowerCase()}`, v);
+    if (k === 'bg') footer.style.setProperty('--color-bg', v);
+    if (k === 'fg') footer.style.setProperty('--color-secondary', v);
+    if (k === 'border') footer.style.setProperty('--color-border', v);
   }
   if (theme.accentBar === false) {
-    const acc = footer.querySelector('.np-footer__accent');
-    if (acc) acc.style.display = 'none';
+    footer.dataset.accent = 'off';
   }
+  const mode = theme.mode || 'light';
+  const dark = mode === 'dark' || (mode === 'auto' && luminance(theme.bg) < 0.35);
+  if (dark) footer.dataset.theme = 'dark';
 
   const show = cfg.show || {};
 
@@ -66,18 +60,31 @@
   if (show.cta && cfg.cta && cfg.cta.enabled) {
     const cta = footer.querySelector('.np-footer__cta');
     cta.hidden = false;
-    cta.querySelector('.np-footer__cta-text').textContent = cfg.cta.text || '';
-    const btn = cta.querySelector('.np-footer__cta-btn');
+    const span = document.createElement('span');
+    span.textContent = cfg.cta.text || '';
+    const btn = document.createElement('a');
     btn.textContent = cfg.cta.buttonLabel || '';
     btn.href = cfg.cta.href || '#';
+    cta.append(span, btn);
   }
 
   // Branding
   if (show.branding) {
     const brand = footer.querySelector('.np-footer__branding');
     brand.hidden = false;
-    brand.querySelector('.np-footer__brand').textContent = cfg.brand || '';
-    brand.querySelector('.np-footer__slogan').textContent = cfg.slogan || '';
+    const logo = document.createElement('div');
+    logo.className = 'np-footer__logo';
+    logo.setAttribute('aria-hidden', 'true');
+    const textWrap = document.createElement('div');
+    textWrap.className = 'np-footer__brand-text';
+    const brandSpan = document.createElement('span');
+    brandSpan.className = 'np-footer__brand';
+    brandSpan.textContent = cfg.brand || '';
+    const sloganSpan = document.createElement('span');
+    sloganSpan.className = 'np-footer__slogan';
+    sloganSpan.textContent = cfg.slogan || '';
+    textWrap.append(brandSpan, sloganSpan);
+    brand.append(logo, textWrap);
   }
 
   // Columns navigation
@@ -114,10 +121,12 @@
       wrap.appendChild(span);
     }
     if (cfg.contact.email) {
+      const span = document.createElement('span');
       const a = document.createElement('a');
       a.href = `mailto:${cfg.contact.email}`;
       a.textContent = cfg.contact.email;
-      wrap.append('Email: ', a, ' ');
+      span.append('Email: ', a);
+      wrap.appendChild(span);
     }
     if (cfg.contact.address) {
       const span = document.createElement('span');
@@ -184,5 +193,9 @@
 
   // mount
   const mount = document.getElementById('footer-root');
-  (mount || document.body).appendChild(footer);
+  if (mount) {
+    mount.appendChild(footer);
+  } else {
+    document.body.appendChild(footer);
+  }
 })();
