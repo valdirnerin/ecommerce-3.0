@@ -1,6 +1,7 @@
 // Render and mount NERIN PARTS footer
 (async () => {
   if (window.__npFooterLoaded) return;
+  if (location.pathname.includes('/admin.html') || document.querySelector('.admin-container')) return;
   window.__npFooterLoaded = true;
 
   let tpl = document.getElementById('np-footer-template');
@@ -27,11 +28,35 @@
   }
 
   const footer = tpl.content.firstElementChild.cloneNode(true);
+  footer.style.setProperty('-webkit-tap-highlight-color', 'transparent');
 
-  // Apply theme variables
   const theme = cfg.theme || {};
+  const rootStyles = getComputedStyle(document.documentElement);
+  const luminance = (hex) => {
+    if (!hex) return 1;
+    const c = hex.replace('#', '');
+    const full = c.length === 3 ? c.split('').map(ch => ch + ch).join('') : c;
+    const num = parseInt(full, 16);
+    const r = (num >> 16) & 255;
+    const g = (num >> 8) & 255;
+    const b = num & 255;
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  };
+  const isDark = theme.dark === true || luminance(theme.bg) < 0.35;
+  if (isDark) {
+    footer.classList.add('np-footer--dark');
+  } else {
+    footer.style.setProperty('--np-bg', rootStyles.getPropertyValue('--color-bg') || '#fff');
+    footer.style.setProperty('--np-fg', rootStyles.getPropertyValue('--color-secondary') || '#111827');
+    footer.style.setProperty('--np-border', rootStyles.getPropertyValue('--color-border') || '#e5e7eb');
+    footer.style.setProperty('--np-muted', rootStyles.getPropertyValue('--color-muted') || '#6b7280');
+  }
   for (const [k, v] of Object.entries(theme)) {
-    footer.style.setProperty(`--np-${k.replace(/([A-Z])/g,'-$1').toLowerCase()}`, v);
+    footer.style.setProperty(`--np-${k.replace(/([A-Z])/g, '-$1').toLowerCase()}`, v);
+  }
+  if (theme.accentBar === false) {
+    const acc = footer.querySelector('.np-footer-accent');
+    if (acc) acc.style.display = 'none';
   }
 
   const show = cfg.show || {};
@@ -83,9 +108,10 @@
   // Contact
   if (show.contact && cfg.contact) {
     const wrap = footer.querySelector('.np-footer-contact');
-    const parts = [];
     if (cfg.contact.whatsapp) {
-      parts.push(`WhatsApp: ${cfg.contact.whatsapp}`);
+      const span = document.createElement('span');
+      span.textContent = `WhatsApp: ${cfg.contact.whatsapp}`;
+      wrap.appendChild(span);
     }
     if (cfg.contact.email) {
       const a = document.createElement('a');
@@ -99,7 +125,7 @@
       span.textContent = cfg.contact.address;
       wrap.appendChild(span);
     }
-    wrap.hidden = false;
+    wrap.hidden = wrap.childNodes.length === 0;
   }
 
   // Social
@@ -164,21 +190,21 @@
     legal.hidden = false;
     const year = new Date().getFullYear();
     const span = document.createElement('span');
-    span.textContent = `© ${year} ${cfg.brand || ''} - CUIT ${cfg.legal.cuit} - IIBB ${cfg.legal.iibb}`;
+    span.textContent = `© ${year} ${cfg.brand || ''} – CUIT ${cfg.legal.cuit} – IIBB ${cfg.legal.iibb}`;
     legal.appendChild(span);
     if (cfg.legal.terms) {
       const a = document.createElement('a');
       a.className = 'np-footer-link';
       a.href = cfg.legal.terms;
       a.textContent = 'Términos';
-      legal.append(' - ', a);
+      legal.append(' – ', a);
     }
     if (cfg.legal.privacy) {
       const a = document.createElement('a');
       a.className = 'np-footer-link';
       a.href = cfg.legal.privacy;
       a.textContent = 'Privacidad';
-      legal.append(' - ', a);
+      legal.append(' – ', a);
     }
   }
 
