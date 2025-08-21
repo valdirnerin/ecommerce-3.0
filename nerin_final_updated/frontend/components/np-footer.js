@@ -1,145 +1,243 @@
 (function () {
-  console.info("[NP-FOOTER] boot");
+  console.info('[NP-FOOTER] boot');
   if (window.__npFooterLoaded) return;
   window.__npFooterLoaded = true;
 
   const isAdmin =
-    location.pathname.includes("/admin.html") ||
-    document.querySelector(".admin-container");
+    location.pathname.includes('/admin.html') ||
+    document.querySelector('.admin-container');
   if (isAdmin) {
-    console.info("[NP-FOOTER] skip admin");
+    console.info('[NP-FOOTER] skip admin');
     return;
   }
 
   const ready = (fn) =>
-    document.readyState === "loading"
-      ? document.addEventListener("DOMContentLoaded", fn)
+    document.readyState === 'loading'
+      ? document.addEventListener('DOMContentLoaded', fn)
       : fn();
 
   ready(async () => {
     try {
-      // Obtener template
-      let tpl = document.getElementById("np-footer-template");
+      const version = 'np-r1';
+      let tpl = document.getElementById('np-footer-template');
       if (!tpl) {
         try {
-          const r = await fetch("/components/np-footer.html", {
-            cache: "no-store",
+          const r = await fetch(`/components/np-footer.html?v=${version}`, {
+            cache: 'no-store',
           });
-          const div = document.createElement("div");
+          const div = document.createElement('div');
           div.innerHTML = await r.text();
-          tpl = div.querySelector("#np-footer-template");
+          tpl = div.querySelector('#np-footer-template');
           if (tpl) document.body.appendChild(tpl);
-          console.info("[NP-FOOTER] template loaded");
+          console.info('[NP-FOOTER] template loaded');
         } catch (e) {
-          console.warn("[NP-FOOTER] template fetch failed", e);
+          console.warn('[NP-FOOTER] template fetch failed', e);
         }
       } else {
-        console.info("[NP-FOOTER] template loaded");
+        console.info('[NP-FOOTER] template loaded');
       }
 
-      // Crear footer desde template o fallback
       let footerEl;
       if (tpl?.content?.firstElementChild) {
         footerEl = tpl.content.firstElementChild.cloneNode(true);
       } else {
-        footerEl = document.createElement("footer");
-        footerEl.className = "np-footer";
-        footerEl.innerHTML =
-          '<div class="np-footer__inner"><div class="np-footer__nav" hidden><div class="np-footer__columns"></div></div><div class="np-footer__legal np-footer__row"></div></div>';
+        footerEl = document.createElement('footer');
+        footerEl.className = 'np-footer';
+        footerEl.setAttribute('role', 'contentinfo');
+        footerEl.setAttribute('data-accent', 'on');
+        const accent = document.createElement('div');
+        accent.className = 'np-footer__accent';
+        accent.setAttribute('aria-hidden', 'true');
+        const inner = document.createElement('div');
+        inner.className = 'np-footer__inner';
+        const branding = document.createElement('div');
+        branding.className = 'np-footer__branding';
+        branding.hidden = true;
+        const nav = document.createElement('nav');
+        nav.className = 'np-footer__nav';
+        nav.hidden = true;
+        const cols = document.createElement('div');
+        cols.className = 'np-footer__columns';
+        nav.appendChild(cols);
+        const legal = document.createElement('div');
+        legal.className = 'np-footer__legal';
+        legal.hidden = true;
+        inner.append(branding, nav, legal);
+        footerEl.append(accent, inner);
       }
 
-      // Configuración
-      let cfg = {};
+      const defaults = {
+        brand: 'NERIN PARTS',
+        slogan: 'Samsung Service Pack Original',
+        cta: {
+          enabled: true,
+          text: '¿Sos técnico o mayorista?',
+          buttonLabel: 'Acceso mayoristas',
+          href: '/mayoristas',
+        },
+        columns: [
+          {
+            title: 'Catálogo',
+            links: [
+              { label: 'Pantallas Service Pack', href: '/shop.html?cat=pantallas' },
+              { label: 'Baterías', href: '/shop.html?cat=baterias' },
+              { label: 'Módulos / Flex', href: '/shop.html?cat=modulos-flex' },
+            ],
+          },
+          {
+            title: 'Información',
+            links: [
+              { label: 'Verificar originalidad', href: '/info/originalidad' },
+              { label: 'Garantía y devoluciones', href: '/info/garantia' },
+              { label: 'Envíos', href: '/info/envios' },
+            ],
+          },
+          {
+            title: 'Cuenta',
+            links: [
+              { label: 'Mi cuenta', href: '/account.html' },
+              { label: 'Mayoristas', href: '/mayoristas' },
+              { label: 'Soporte técnico', href: '/soporte' },
+            ],
+          },
+        ],
+        contact: {
+          whatsapp: '+54 9 11 1111-1111',
+          email: 'info@nerinparts.com',
+          address: 'CABA, Argentina',
+        },
+        social: {
+          instagram: 'https://instagram.com/nerinparts',
+          linkedin: 'https://linkedin.com/company/nerinparts',
+        },
+        badges: ['mercadopago', 'ssl', 'andreani', 'oca', 'auth'],
+        legal: {
+          cuit: '30-00000000-0',
+          iibb: 'CM 000000',
+          terms: '/terminos.html',
+          privacy: '/privacidad.html',
+        },
+        show: {
+          cta: true,
+          branding: true,
+          columns: true,
+          contact: true,
+          social: true,
+          badges: true,
+          legal: true,
+        },
+        theme: {
+          accentFrom: '#60a5fa',
+          accentTo: '#2563eb',
+          accentBar: true,
+        },
+      };
+
+      const merge = (base, incoming) => {
+        const out = { ...base };
+        for (const k in incoming || {}) {
+          if (
+            incoming[k] &&
+            typeof incoming[k] === 'object' &&
+            !Array.isArray(incoming[k])
+          ) {
+            out[k] = merge(base[k] || {}, incoming[k]);
+          } else if (incoming[k] !== undefined) {
+            out[k] = incoming[k];
+          }
+        }
+        return out;
+      };
+
+      let remote = {};
       try {
-        const res = await fetch("/api/footer", { cache: "no-store" });
-        cfg = await res.json();
+        const res = await fetch('/api/footer', { cache: 'no-store' });
+        remote = await res.json();
       } catch (e) {
-        console.warn("[NP-FOOTER] /api/footer failed", e);
+        console.warn('[NP-FOOTER] /api/footer failed', e);
       }
-
+      const cfg = merge(defaults, remote);
       const show = cfg.show || {};
 
       // CTA
-      const cta = footerEl.querySelector(".np-footer__cta");
+      const cta = footerEl.querySelector('.np-footer__cta');
       if (cta && show.cta && cfg.cta?.enabled) {
         cta.hidden = false;
-        const span = document.createElement("span");
-        span.textContent = cfg.cta.text || "";
-        const a = document.createElement("a");
-        a.href = cfg.cta.href || "#";
-        a.textContent = cfg.cta.buttonLabel || "";
-        cta.append(span, a);
-      }
-
-      // Branding
-      const branding = footerEl.querySelector(".np-footer__branding");
-      if (branding && show.branding && cfg.brand) {
-        branding.hidden = false;
-        const strong = document.createElement("strong");
-        strong.textContent = cfg.brand;
-        branding.appendChild(strong);
-        if (cfg.slogan) {
-          const p = document.createElement("p");
-          p.textContent = cfg.slogan;
-          branding.appendChild(p);
+        const textEl = cta.querySelector('.np-footer__cta-text');
+        const btn = cta.querySelector('.np-footer__cta-btn');
+        if (textEl) textEl.textContent = cfg.cta.text || '';
+        if (btn) {
+          btn.textContent = cfg.cta.buttonLabel || '';
+          btn.href = cfg.cta.href || '#';
         }
       }
 
+      // Branding
+      const branding = footerEl.querySelector('.np-footer__branding');
+      if (branding && show.branding) {
+        branding.hidden = false;
+        const brandEl = branding.querySelector('.np-footer__brand');
+        const sloganEl = branding.querySelector('.np-footer__slogan');
+        if (brandEl) brandEl.textContent = cfg.brand || 'NERIN PARTS';
+        if (sloganEl)
+          sloganEl.textContent = cfg.slogan || 'Samsung Service Pack Original';
+      }
+
       // Columns
-      const nav = footerEl.querySelector(".np-footer__nav");
-      const colWrap = footerEl.querySelector(".np-footer__columns");
+      const nav = footerEl.querySelector('.np-footer__nav');
+      const colWrap = footerEl.querySelector('.np-footer__columns');
       if (nav && colWrap && show.columns && Array.isArray(cfg.columns)) {
         if (cfg.columns.length) nav.hidden = false;
         cfg.columns.forEach((col) => {
-          const d = document.createElement("div");
-          const h = document.createElement("h3");
-          h.textContent = col.title || "";
-          const ul = document.createElement("ul");
+          const d = document.createElement('div');
+          const h = document.createElement('h3');
+          h.textContent = col.title || '';
+          const ul = document.createElement('ul');
           (col.links || []).forEach((l) => {
-            const li = document.createElement("li");
-            const a = document.createElement("a");
-            a.textContent = l.label || "";
-            a.href = l.href || "#";
-            a.rel = "noopener";
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.textContent = l.label || '';
+            a.href = l.href || '#';
+            a.rel = 'noopener';
             li.appendChild(a);
             ul.appendChild(li);
           });
-          d.appendChild(h);
-          d.appendChild(ul);
+          d.append(h, ul);
           colWrap.appendChild(d);
         });
       }
 
       // Contact
-      const contact = footerEl.querySelector(".np-footer__contact");
+      const contact = footerEl.querySelector('.np-footer__contact');
       if (contact && show.contact && cfg.contact) {
         contact.hidden = false;
         const { whatsapp, email, address } = cfg.contact;
         if (whatsapp) {
-          const p = document.createElement("p");
-          const a = document.createElement("a");
-          a.href = `https://wa.me/${whatsapp.replace(/[^\d]/g, "")}`;
+          const p = document.createElement('p');
+          const a = document.createElement('a');
+          a.href = `https://wa.me/${whatsapp.replace(/[^\d]/g, '')}`;
           a.textContent = whatsapp;
-          p.append("WhatsApp: ", a);
+          a.rel = 'noopener';
+          p.append('WhatsApp: ', a);
           contact.appendChild(p);
         }
         if (email) {
-          const p = document.createElement("p");
-          const a = document.createElement("a");
+          const p = document.createElement('p');
+          const a = document.createElement('a');
           a.href = `mailto:${email}`;
           a.textContent = email;
-          p.append("Email: ", a);
+          p.append('Email: ', a);
           contact.appendChild(p);
         }
         if (address) {
-          const p = document.createElement("p");
+          const p = document.createElement('p');
           p.textContent = address;
           contact.appendChild(p);
         }
       }
 
       // Social
-      const social = footerEl.querySelector(".np-footer__social");
+      const social = footerEl.querySelector('.np-footer__social');
       if (social && show.social && cfg.social) {
         const icons = {
           instagram:
@@ -149,60 +247,108 @@
           youtube:
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a2.995 2.995 0 00-2.107-2.122C19.511 3.5 12 3.5 12 3.5s-7.511 0-9.391.564a2.995 2.995 0 00-2.107 2.122A31.533 31.533 0 000 12a31.533 31.533 0 00.502 5.814 2.995 2.995 0 002.107 2.122C4.489 18.5 12 18.5 12 18.5s7.511 0 9.391-.564a2.995 2.995 0 002.107-2.122A31.533 31.533 0 0024 12a31.533 31.533 0 00-.502-5.814zM9.75 15.02V8.98L15.5 12l-5.75 3.02z"/></svg>',
         };
-        const map = {
-          instagram: cfg.social.instagram,
-          linkedin: cfg.social.linkedin,
-          youtube: cfg.social.youtube,
-        };
-        Object.entries(map).forEach(([k, url]) => {
+        const entries = [
+          ['instagram', cfg.social.instagram],
+          ['linkedin', cfg.social.linkedin],
+          ['youtube', cfg.social.youtube],
+        ];
+        entries.forEach(([key, url]) => {
           if (!url) return;
           if (social.hidden) social.hidden = false;
-          const a = document.createElement("a");
+          const a = document.createElement('a');
           a.href = url;
-          a.target = "_blank";
-          a.rel = "noopener";
-          a.innerHTML = icons[k] + `<span class="sr-only">${k}</span>`;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          const label = key.charAt(0).toUpperCase() + key.slice(1);
+          a.setAttribute('aria-label', label);
+          a.innerHTML = icons[key];
+          const span = document.createElement('span');
+          span.textContent = label;
+          a.appendChild(span);
           social.appendChild(a);
         });
       }
 
+      // Badges
+      const badges = footerEl.querySelector('.np-footer__badges');
+      if (badges && show.badges && Array.isArray(cfg.badges)) {
+        const icons = {
+          mercadopago:
+            '<svg aria-label="Mercado Pago" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" fill="currentColor"><rect width="64" height="32" rx="4" ry="4" fill="#f3f4f6"/><path d="M20 11c2-2 6-2 8 0 2-2 6-2 8 0" stroke="#2563eb" stroke-width="2" fill="none"/><path d="M20 11v5c2 2 6 2 8 0 2 2 6 2 8 0v-5" stroke="#2563eb" stroke-width="2" fill="none"/></svg>',
+          ssl:
+            '<svg aria-label="SSL" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor"><rect x="2" y="12" width="28" height="18" rx="2" fill="#f3f4f6"/><path d="M10 12V9a6 6 0 1112 0v3" stroke="#2563eb" stroke-width="2" fill="none"/><circle cx="16" cy="21" r="4" stroke="#2563eb" stroke-width="2" fill="none"/><path d="M16 19v4" stroke="#2563eb" stroke-width="2"/></svg>',
+          andreani:
+            '<svg aria-label="Andreani" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32" fill="currentColor"><rect width="40" height="32" rx="4" fill="#f3f4f6"/><path d="M20 6l9 20h-4l-1.8-4h-6.4l-1.8 4h-4l9-20zm0 7.5l-2.2 5h4.4L20 13.5z" fill="#2563eb"/></svg>',
+          oca:
+            '<svg aria-label="OCA" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32" fill="currentColor"><rect width="48" height="32" rx="4" fill="#f3f4f6"/><path d="M14 10h8l-4 6 4 6h-8l-4-6 4-6zm12 0h8v4h-4v4h4v4h-8v-12zm14 0h8l-4 6 4 6h-8l-4-6 4-6z" fill="#2563eb"/></svg>',
+          auth:
+            '<svg aria-label="Autenticidad garantizada" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor"><path d="M16 2l12 6v8c0 7-5 13-12 14-7-1-12-7-12-14V8l12-6z" fill="#f3f4f6"/><path d="M12 16l3 3 5-5" stroke="#2563eb" stroke-width="2" fill="none"/></svg>',
+        };
+        cfg.badges.forEach((key) => {
+          if (!icons[key]) return;
+          if (badges.hidden) badges.hidden = false;
+          const span = document.createElement('span');
+          span.className = 'np-footer__badge';
+          span.innerHTML = icons[key];
+          badges.appendChild(span);
+        });
+      }
+
+
       // Legal
-      const legal = footerEl.querySelector(".np-footer__legal");
+      const legal = footerEl.querySelector('.np-footer__legal');
       if (legal && show.legal && cfg.legal) {
         legal.hidden = false;
         const y = new Date().getFullYear();
-        const brand = cfg.brand || "NERIN PARTS";
-        legal.innerHTML =
-          `© ${y} ${brand}` +
-          (cfg.legal.cuit ? ` – CUIT ${cfg.legal.cuit}` : "") +
-          (cfg.legal.iibb ? ` – IIBB ${cfg.legal.iibb}` : "") +
-          (cfg.legal.terms
-            ? ` – <a href="${cfg.legal.terms}">Términos</a>`
-            : "") +
-          (cfg.legal.privacy
-            ? ` – <a href="${cfg.legal.privacy}">Privacidad</a>`
-            : "");
+        const brand = cfg.brand || 'NERIN PARTS';
+        legal.appendChild(document.createTextNode(`© ${y} ${brand}`));
+        if (cfg.legal.cuit) {
+          legal.appendChild(
+            document.createTextNode(` – CUIT ${cfg.legal.cuit}`)
+          );
+        }
+        if (cfg.legal.iibb) {
+          legal.appendChild(
+            document.createTextNode(` – IIBB ${cfg.legal.iibb}`)
+          );
+        }
+        if (cfg.legal.terms) {
+          legal.appendChild(document.createTextNode(' – '));
+          const terms = document.createElement('a');
+          terms.href = cfg.legal.terms;
+          terms.textContent = 'Términos';
+          terms.rel = 'noopener';
+          legal.appendChild(terms);
+        }
+        if (cfg.legal.privacy) {
+          legal.appendChild(document.createTextNode(' – '));
+          const priv = document.createElement('a');
+          priv.href = cfg.legal.privacy;
+          priv.textContent = 'Privacidad';
+          priv.rel = 'noopener';
+          legal.appendChild(priv);
+        }
       }
 
-      // Tema
-      if (cfg.theme?.accentBar !== false && cfg.theme?.accentFrom && cfg.theme?.accentTo) {
-        footerEl.removeAttribute("data-accent");
-        footerEl.style.setProperty("--np-accent-from", cfg.theme.accentFrom);
-        footerEl.style.setProperty("--np-accent-to", cfg.theme.accentTo);
+      // Theme
+      if (cfg.theme?.accentFrom && cfg.theme?.accentTo) {
+        footerEl.style.setProperty('--np-accent-from', cfg.theme.accentFrom);
+        footerEl.style.setProperty('--np-accent-to', cfg.theme.accentTo);
       }
-      if (cfg.theme?.mode === "dark") {
-        footerEl.setAttribute("data-theme", "dark");
+      if (cfg.theme?.accentBar === false) {
+        footerEl.setAttribute('data-accent', 'off');
+      }
+      if (cfg.theme?.mode === 'dark') {
+        footerEl.setAttribute('data-theme', 'dark');
       }
 
-      // Montaje
-      if (document.querySelector(".np-footer")) return;
-      const mount = document.getElementById("footer-root");
+      if (document.querySelector('.np-footer')) return;
+      const mount = document.getElementById('footer-root');
       if (mount) mount.appendChild(footerEl);
       else document.body.appendChild(footerEl);
-      console.info("[NP-FOOTER] mounted");
+      console.info('[NP-FOOTER] mounted');
     } catch (e) {
-      console.error("[NP-FOOTER] fatal", e);
+      console.error('[NP-FOOTER] fatal', e);
     }
   });
 })();
-
