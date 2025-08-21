@@ -1,18 +1,26 @@
-<!-- Template for NERIN Parts footer -->
 <template id="np-footer-template">
-  <footer class="np-footer" role="contentinfo" data-accent="off">
+  <footer class="np-footer" role="contentinfo" data-accent="on">
     <div class="np-footer__accent" aria-hidden="true"></div>
     <div class="np-footer__inner">
-      <div class="np-footer__cta" hidden></div>
-      <div class="np-footer__branding" hidden></div>
+      <div class="np-footer__cta" hidden>
+        <p class="np-footer__cta-text"></p>
+        <a class="np-footer__cta-btn" href="#"></a>
+      </div>
+
+      <div class="np-footer__branding" hidden>
+        <div class="np-footer__brand">NERIN PARTS</div>
+        <div class="np-footer__slogan">Samsung Service Pack Original</div>
+      </div>
+
       <nav class="np-footer__nav" aria-labelledby="np-footer-nav-title" hidden>
-        <h2 id="np-footer-nav-title" class="sr-only">Navegación</h2>
+        <h2 id="np-footer-nav-title" class="sr-only">Navegación de pie de página</h2>
         <div class="np-footer__columns"></div>
       </nav>
-      <div class="np-footer__contact np-footer__row" hidden></div>
-      <div class="np-footer__social  np-footer__row" hidden></div>
-      <div class="np-footer__badges  np-footer__row" hidden></div>
-      <div class="np-footer__legal   np-footer__row" hidden></div>
+
+      <div class="np-footer__contact" hidden></div>
+      <div class="np-footer__social" hidden></div>
+      <div class="np-footer__badges" hidden></div>
+      <div class="np-footer__legal" hidden></div>
     </div>
   </footer>
 </template>
