@@ -1038,6 +1038,81 @@ nav a:hover {
 .invoice-status.loaded {
   color: var(--color-success);
 }
+
+/* ---- Admin product modal ---- */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal.hidden {
+  display: none;
+}
+.modal-content {
+  background: #fff;
+  padding: 1rem;
+  border-radius: var(--radius);
+  max-height: 90vh;
+  overflow-y: auto;
+  width: min(900px, 95%);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.product-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.badge {
+  background: var(--color-danger);
+  color: #fff;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+.chip {
+  display: inline-block;
+  background: var(--color-muted);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius);
+  margin-right: 0.25rem;
+  font-size: 0.8rem;
+}
+.tags-field {
+  grid-column: span 2;
+}
+.tags-preview {
+  margin-top: 0.25rem;
+}
+.seo-preview {
+  grid-column: span 2;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.5rem;
+  background: var(--color-muted);
+  font-size: 0.85rem;
+}
 .invoice-status.pending {
   color: #f59e0b;
 }

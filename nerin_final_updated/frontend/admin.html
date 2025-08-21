@@ -91,7 +91,7 @@
           <table class="admin-table" id="productsTable">
             <thead>
               <tr>
-                <th>ID</th>
+                <th><input type="checkbox" id="selectAllProducts" /></th>
                 <th>SKU</th>
                 <th>Nombre</th>
                 <th>Marca</th>
@@ -103,89 +103,155 @@
                 <th>Mín. Stock</th>
                 <th>Precio (Min.)</th>
                 <th>Precio (May.)</th>
+                <th>Visibilidad</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-        <h4>Agregar producto</h4>
-        <form id="addProductForm" class="admin-form">
-          <input type="text" id="newSku" placeholder="SKU" required />
-          <input type="text" id="newName" placeholder="Nombre" required />
-          <input type="text" id="newBrand" placeholder="Marca" required />
-          <input type="text" id="newModel" placeholder="Modelo" required />
-          <input
-            type="number"
-            id="newStock"
-            placeholder="Stock"
-            min="0"
-            required
-          />
-          <input
-            type="number"
-            id="newMinStock"
-            placeholder="Mín. stock"
-            min="0"
-            value="5"
-            required
-          />
-          <input
-            type="number"
-            id="newPriceMinor"
-            placeholder="Precio minorista"
-            min="0"
-            required
-          />
-          <input
-            type="number"
-            id="newPriceMajor"
-            placeholder="Precio mayorista"
-            min="0"
-            required
-          />
-          <!-- Campos adicionales para descripción y atributos -->
-          <textarea
-            id="newDescription"
-            placeholder="Descripción"
-            style="
-              width: 100%;
-              min-height: 60px;
-              padding: 0.4rem;
-              border: 1px solid var(--color-border);
-              border-radius: var(--radius);
-            "
-            required
-          ></textarea>
-          <input type="text" id="newCategory" placeholder="Categoría" />
-          <input type="text" id="newSubcategory" placeholder="Subcategoría" />
-          <input type="text" id="newTags" placeholder="Tags (coma separados)" />
-          <input type="text" id="newSlug" placeholder="Slug" required />
-          <input type="text" id="newMetaTitle" placeholder="Meta título" />
-          <input type="text" id="newMetaDesc" placeholder="Meta descripción" />
-          <select id="newVisibility">
-            <option value="public">Público</option>
-            <option value="hidden">Oculto</option>
-          </select>
-          <label><input type="checkbox" id="newFeatured" /> Destacado</label>
-          <input
-            type="number"
-            id="newWeight"
-            placeholder="Peso (g)"
-            min="0"
-            step="0.1"
-          />
-          <input
-            type="text"
-            id="newDimensions"
-            placeholder="Dimensiones (L×A×A cm)"
-          />
-          <input type="text" id="newColor" placeholder="Color" />
-          <input type="file" id="newImage" accept=".jpg,.jpeg,.png" required />
-          <div id="imagePreview" class="image-preview"></div>
-          <button type="submit" class="button primary">Agregar</button>
-        </form>
+        <div class="product-actions">
+          <button id="openProductModal" class="button primary">
+            Agregar producto
+          </button>
+          <div class="bulk-actions">
+            <select id="bulkActionSelect">
+              <option value="">Acción masiva…</option>
+              <option value="delete">Eliminar</option>
+              <option value="vis-public">Hacer público</option>
+              <option value="vis-private">Hacer privado</option>
+              <option value="vis-draft">Marcar borrador</option>
+              <option value="price-inc">Aumentar precios %</option>
+              <option value="price-dec">Disminuir precios %</option>
+            </select>
+            <input
+              type="number"
+              id="bulkValue"
+              placeholder="%"
+              style="display: none"
+            />
+            <button id="applyBulkBtn" class="button">Aplicar</button>
+          </div>
+        </div>
       </section>
+
+      <!-- Modal reutilizable para agregar/editar producto -->
+      <div id="productModal" class="modal hidden">
+        <div class="modal-content">
+          <h4 id="modalTitle">Agregar producto</h4>
+          <form id="productForm" class="admin-form form-grid">
+            <input type="text" id="productSku" placeholder="SKU" required />
+            <input type="text" id="productName" placeholder="Nombre" required />
+            <input type="text" id="productBrand" placeholder="Marca" />
+            <input type="text" id="productModel" placeholder="Modelo" />
+            <select id="productCategory"></select>
+            <select id="productSubcategory"></select>
+            <div class="tags-field">
+              <input
+                type="text"
+                id="productTags"
+                placeholder="Tags (coma separados)"
+              />
+              <div id="tagsPreview" class="tags-preview"></div>
+            </div>
+            <input
+              type="number"
+              id="productStock"
+              placeholder="Stock actual"
+              min="0"
+            />
+            <input
+              type="number"
+              id="productMinStock"
+              placeholder="Stock mínimo"
+              min="0"
+            />
+            <input
+              type="number"
+              id="productPriceMinorista"
+              placeholder="Precio minorista"
+              min="0"
+              step="0.01"
+            />
+            <input
+              type="number"
+              id="productPriceMayorista"
+              placeholder="Precio mayorista"
+              min="0"
+              step="0.01"
+            />
+            <input
+              type="number"
+              id="productCost"
+              placeholder="Costo"
+              min="0"
+              step="0.01"
+            />
+            <select id="productSupplier"></select>
+            <input
+              type="text"
+              id="productSlug"
+              placeholder="Slug"
+            />
+            <input
+              type="text"
+              id="productMetaTitle"
+              placeholder="Meta título"
+            />
+            <textarea
+              id="productMetaDesc"
+              placeholder="Meta descripción"
+              rows="2"
+            ></textarea>
+            <input
+              type="text"
+              id="productDimensions"
+              placeholder="Dimensiones (L×A×C cm)"
+            />
+            <input
+              type="number"
+              id="productWeight"
+              placeholder="Peso (g)"
+              min="0"
+            />
+            <input type="text" id="productColor" placeholder="Color" />
+            <select id="productVisibility">
+              <option value="public">Público</option>
+              <option value="private">Privado</option>
+              <option value="draft">Borrador</option>
+            </select>
+            <input
+              type="file"
+              id="productImages"
+              accept=".jpg,.jpeg,.png"
+            />
+            <div id="imagePreview" class="image-preview"></div>
+            <div class="seo-preview" id="seoPreview">
+              <p id="seoSlugPreview"></p>
+              <h5 id="seoTitlePreview"></h5>
+              <p id="seoDescPreview"></p>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="button primary" id="saveProductBtn">
+                Guardar
+              </button>
+              <button type="button" class="button danger" id="deleteProductBtn">
+                Eliminar
+              </button>
+              <button
+                type="button"
+                class="button secondary"
+                id="duplicateProductBtn"
+              >
+                Duplicar producto
+              </button>
+              <button type="button" class="button" id="closeModalBtn">
+                Cerrar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
 
       <section id="ordersSection" class="admin-section" style="display: none">
         <h3>Gestión de pedidos</h3>
