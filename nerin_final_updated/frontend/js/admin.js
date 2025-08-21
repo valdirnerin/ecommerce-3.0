@@ -315,17 +315,28 @@ async function openProductModal(id) {
     return;
   }
 
+  modalTitle.textContent = "Editar producto";
+  skuInput.readOnly = true;
+  const cached = productsCache.find((p) => String(p.id) === String(id));
+  if (cached) {
+    originalProduct = cached;
+    fillProductForm(cached);
+  } else {
+    productForm.reset();
+    imagePreview.innerHTML = "";
+    uploadedImagePath = "";
+    originalProduct = null;
+    renderSeoPreview();
+  }
+  productModal.classList.remove("hidden");
   try {
     setLoading(true);
-    modalTitle.textContent = "Editar producto";
     const p = await loadProduct(id);
     originalProduct = p;
     fillProductForm(p);
-    skuInput.readOnly = true;
-    productModal.classList.remove("hidden");
   } catch (err) {
     console.error("Failed to load product", err);
-    if (window.showToast) showToast("No se pudo cargar el producto.");
+    if (!cached && window.showToast) showToast("No se pudo cargar el producto.");
   } finally {
     setLoading(false);
   }

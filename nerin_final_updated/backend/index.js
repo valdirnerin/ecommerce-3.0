@@ -166,6 +166,19 @@ app.get("/api/products", async (_req, res) => {
   }
 });
 
+// API: obtener un producto por ID
+app.get("/api/products/:id", async (req, res) => {
+  try {
+    const products = await getProducts();
+    const product = products.find((p) => String(p.id) === String(req.params.id));
+    if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+    res.json(product);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "No se pudo cargar el producto" });
+  }
+});
+
 // Crear un nuevo pedido y generar preferencia de Mercado Pago
 app.post("/api/orders", async (req, res) => {
   try {
