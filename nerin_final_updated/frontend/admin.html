@@ -140,16 +140,18 @@
         <div class="modal-content">
           <h4 id="modalTitle">Agregar producto</h4>
           <form id="productForm" class="admin-form form-grid">
-            <input type="text" id="productSku" placeholder="SKU" required />
-            <input type="text" id="productName" placeholder="Nombre" required />
-            <input type="text" id="productBrand" placeholder="Marca" />
-            <input type="text" id="productModel" placeholder="Modelo" />
-            <select id="productCategory"></select>
-            <select id="productSubcategory"></select>
+            <input type="hidden" name="id" />
+            <input type="text" id="productSku" name="sku" placeholder="SKU" required />
+            <input type="text" id="productName" name="name" placeholder="Nombre" required />
+            <input type="text" id="productBrand" name="brand" placeholder="Marca" />
+            <input type="text" id="productModel" name="model" placeholder="Modelo" />
+            <select id="productCategory" name="category"></select>
+            <select id="productSubcategory" name="subcategory"></select>
             <div class="tags-field">
               <input
                 type="text"
                 id="productTags"
+                name="tags"
                 placeholder="Tags (coma separados)"
               />
               <div id="tagsPreview" class="tags-preview"></div>
@@ -157,18 +159,21 @@
             <input
               type="number"
               id="productStock"
+              name="stock"
               placeholder="Stock actual"
               min="0"
             />
             <input
               type="number"
               id="productMinStock"
+              name="min_stock"
               placeholder="Stock mínimo"
               min="0"
             />
             <input
               type="number"
               id="productPriceMinorista"
+              name="price_minorista"
               placeholder="Precio minorista"
               min="0"
               step="0.01"
@@ -176,6 +181,7 @@
             <input
               type="number"
               id="productPriceMayorista"
+              name="price_mayorista"
               placeholder="Precio mayorista"
               min="0"
               step="0.01"
@@ -183,39 +189,45 @@
             <input
               type="number"
               id="productCost"
+              name="cost"
               placeholder="Costo"
               min="0"
               step="0.01"
             />
-            <select id="productSupplier"></select>
+            <select id="productSupplier" name="supplier_id"></select>
             <input
               type="text"
               id="productSlug"
+              name="slug"
               placeholder="Slug"
             />
             <input
               type="text"
               id="productMetaTitle"
+              name="meta_title"
               placeholder="Meta título"
             />
             <textarea
               id="productMetaDesc"
+              name="meta_description"
               placeholder="Meta descripción"
               rows="2"
             ></textarea>
             <input
               type="text"
               id="productDimensions"
+              name="dimensions"
               placeholder="Dimensiones (L×A×C cm)"
             />
             <input
               type="number"
               id="productWeight"
+              name="weight"
               placeholder="Peso (g)"
               min="0"
             />
-            <input type="text" id="productColor" placeholder="Color" />
-            <select id="productVisibility">
+            <input type="text" id="productColor" name="color" placeholder="Color" />
+            <select id="productVisibility" name="visibility">
               <option value="public">Público</option>
               <option value="private">Privado</option>
               <option value="draft">Borrador</option>
@@ -223,6 +235,7 @@
             <input
               type="file"
               id="productImages"
+              name="images"
               accept=".jpg,.jpeg,.png"
             />
             <div id="imagePreview" class="image-preview"></div>
