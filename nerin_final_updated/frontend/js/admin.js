@@ -101,8 +101,9 @@ const bulkValueInput = document.getElementById("bulkValue");
 const applyBulkBtn = document.getElementById("applyBulkBtn");
 const selectAllCheckbox = document.getElementById("selectAllProducts");
 
+const API_BASE = "/api/products";
 let uploadedImagePath = "";
-let currentProductId = null;
+let originalProduct = null;
 let productsCache = [];
 let suppliersCache = [];
 
@@ -182,31 +183,111 @@ const seoSlugPreview = document.getElementById("seoSlugPreview");
 const seoTitlePreview = document.getElementById("seoTitlePreview");
 const seoDescPreview = document.getElementById("seoDescPreview");
 
-function updateSeoPreview() {
+function renderSeoPreview() {
   seoSlugPreview.textContent = `/productos/${slugInput.value}`;
   seoTitlePreview.textContent = metaTitleInput.value || nameInput.value;
   seoDescPreview.textContent = metaDescInput.value;
 }
 
 nameInput.addEventListener("input", () => {
-  if (!currentProductId) {
+  if (!productForm.elements.id.value) {
     slugInput.value = slugify(nameInput.value);
   }
-  updateSeoPreview();
+  renderSeoPreview();
 });
-slugInput.addEventListener("input", updateSeoPreview);
-metaTitleInput.addEventListener("input", updateSeoPreview);
-metaDescInput.addEventListener("input", updateSeoPreview);
+slugInput.addEventListener("input", renderSeoPreview);
+metaTitleInput.addEventListener("input", renderSeoPreview);
+metaDescInput.addEventListener("input", renderSeoPreview);
+
+function setLoading(state) {
+  productForm
+    .querySelectorAll("input,select,textarea,button")
+    .forEach((el) => (el.disabled = state));
+  productForm.dataset.loading = state ? "1" : "0";
+}
+
+async function loadProduct(id) {
+  const r = await fetch(`${API_BASE}/${id}`, { headers: { Accept: "application/json" } });
+  if (!r.ok) throw new Error(`GET ${id} failed: ${r.status}`);
+  return await r.json();
+}
+
+function fillProductForm(p) {
+  const set = (name, val) => {
+    if (productForm.elements[name]) productForm.elements[name].value = val ?? "";
+  };
+  set("id", p.id);
+  set("sku", p.sku);
+  set("name", p.name);
+  set("brand", p.brand);
+  set("model", p.model);
+  set("category", p.category);
+  set("subcategory", p.subcategory);
+  set("tags", Array.isArray(p.tags) ? p.tags.join(", ") : p.tags ?? "");
+  set("stock", p.stock);
+  set("min_stock", p.min_stock);
+  set("price_minorista", p.price_minorista);
+  set("price_mayorista", p.price_mayorista);
+  set("cost", p.cost);
+  set("supplier_id", p.supplier_id);
+  set("slug", p.slug);
+  set("meta_title", p.meta_title);
+  set("meta_description", p.meta_description);
+  set("dimensions", p.dimensions);
+  set("weight", p.weight);
+  set("color", p.color);
+  set("visibility", p.visibility);
+  if (p.image) {
+    imagePreview.innerHTML = `<img src="${p.image}" alt="img" />`;
+    uploadedImagePath = p.image;
+  } else {
+    imagePreview.innerHTML = "";
+    uploadedImagePath = "";
+  }
+  renderSeoPreview();
+}
+
+function serializeProductForm(form) {
+  const fd = new FormData(form);
+  const obj = {};
+  fd.forEach((v, k) => {
+    obj[k] = typeof v === "string" ? v.trim() : v;
+  });
+  if (obj.tags) {
+    obj.tags = obj.tags
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  ["stock", "min_stock", "price_minorista", "price_mayorista", "cost", "weight"].forEach(
+    (k) => {
+      if (k in obj && obj[k] !== "") obj[k] = Number(obj[k]);
+    },
+  );
+  if (uploadedImagePath) obj.image = uploadedImagePath;
+  return obj;
+}
+
+function diffObjects(original = {}, current = {}) {
+  const out = {};
+  const keys = new Set([...Object.keys(original), ...Object.keys(current)]);
+  keys.forEach((k) => {
+    const a = original[k];
+    const b = current[k];
+    const A = a == null ? "" : String(a);
+    const B = b == null ? "" : String(b);
+    if (A !== B) out[k] = current[k];
+  });
+  delete out.id;
+  return out;
+}
 
 async function openProductModal(id) {
-  productForm.reset();
-  imagePreview.innerHTML = "";
-  uploadedImagePath = "";
-  currentProductId = id || null;
+  const skuInput = productForm.elements["sku"];
   deleteProductBtn.style.display = id ? "inline-block" : "none";
   duplicateProductBtn.style.display = id ? "inline-block" : "none";
-  document.getElementById("productSku").readOnly = !!id;
 
+  const supplierSelect = document.getElementById("productSupplier");
   if (suppliersCache.length === 0) {
     try {
       const resp = await fetch("/api/suppliers");
@@ -218,64 +299,84 @@ async function openProductModal(id) {
       console.error(e);
     }
   }
-  const supplierSelect = document.getElementById("productSupplier");
   supplierSelect.innerHTML =
     '<option value="">Proveedor</option>' +
-    suppliersCache
-      .map((s) => `<option value="${s.id}">${s.name}</option>`)
-      .join("");
+    suppliersCache.map((s) => `<option value="${s.id}">${s.name}</option>`).join("");
 
-  if (id) {
-    modalTitle.textContent = "Editar producto";
-    try {
-      const res = await fetch(`/api/products/${id}`);
-      if (res.ok) {
-        const product = await res.json();
-        document.getElementById("productSku").value = product.sku;
-        document.getElementById("productName").value = product.name;
-        document.getElementById("productBrand").value = product.brand || "";
-        document.getElementById("productModel").value = product.model || "";
-        document.getElementById("productCategory").value =
-          product.category || "";
-        document.getElementById("productSubcategory").value =
-          product.subcategory || "";
-        document.getElementById("productTags").value =
-          (product.tags || []).join(", ");
-        tagsInput.dispatchEvent(new Event("input"));
-        document.getElementById("productStock").value = product.stock;
-        document.getElementById("productMinStock").value =
-          product.min_stock ?? "";
-        document.getElementById("productPriceMinorista").value =
-          product.price_minorista;
-        document.getElementById("productPriceMayorista").value =
-          product.price_mayorista;
-        document.getElementById("productCost").value = product.cost ?? "";
-        supplierSelect.value = product.supplier_id || "";
-        document.getElementById("productSlug").value = product.slug || "";
-        document.getElementById("productMetaTitle").value =
-          product.meta_title || "";
-        document.getElementById("productMetaDesc").value =
-          product.meta_description || "";
-        document.getElementById("productDimensions").value =
-          product.dimensions || "";
-        document.getElementById("productWeight").value = product.weight || "";
-        document.getElementById("productColor").value = product.color || "";
-        document.getElementById("productVisibility").value =
-          product.visibility || "public";
-        if (product.image) {
-          imagePreview.innerHTML = `<img src="${product.image}" alt="img" />`;
-          uploadedImagePath = product.image;
-        }
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  } else {
+  if (!id) {
+    productForm.reset();
+    imagePreview.innerHTML = "";
+    uploadedImagePath = "";
+    originalProduct = null;
+    skuInput.readOnly = false;
     modalTitle.textContent = "Agregar producto";
+    renderSeoPreview();
+    productModal.classList.remove("hidden");
+    return;
   }
-  updateSeoPreview();
-  productModal.classList.remove("hidden");
+
+  try {
+    setLoading(true);
+    modalTitle.textContent = "Editar producto";
+    const p = await loadProduct(id);
+    originalProduct = p;
+    fillProductForm(p);
+    skuInput.readOnly = true;
+    productModal.classList.remove("hidden");
+  } catch (err) {
+    console.error("Failed to load product", err);
+    if (window.showToast) showToast("No se pudo cargar el producto.");
+  } finally {
+    setLoading(false);
+  }
 }
+
+async function saveProduct(e) {
+  e.preventDefault();
+  const data = serializeProductForm(productForm);
+  const isEdit = Boolean(data.id);
+  if (!isEdit && !data.sku) {
+    if (window.showToast) showToast("SKU requerido");
+    return;
+  }
+  if (data.stock < 0 || data.min_stock < 0) {
+    if (window.showToast) showToast("Stock no puede ser negativo");
+    return;
+  }
+  try {
+    setLoading(true);
+    let res;
+    if (isEdit) {
+      const payload = diffObjects(originalProduct, data);
+      if (Object.keys(payload).length === 0) {
+        productModal.classList.add("hidden");
+        return;
+      }
+      res = await fetch(`${API_BASE}/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      res = await fetch(API_BASE, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+    }
+    if (!res.ok) throw new Error("save fail");
+    if (window.showToast) showToast("Guardado correctamente");
+    productModal.classList.add("hidden");
+    loadProducts();
+  } catch (err) {
+    console.error(err);
+    if (window.showToast) showToast("Error al guardar. Revisá los campos.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+productForm.addEventListener("submit", saveProduct);
 
 async function loadProducts() {
   try {
@@ -313,12 +414,14 @@ async function loadProducts() {
         <td><input type="number" class="inline-edit" data-field="price_minorista" min="0" value="${product.price_minorista}" /></td>
         <td><input type="number" class="inline-edit" data-field="price_mayorista" min="0" value="${product.price_mayorista}" /></td>
         <td>${product.visibility || ""}</td>
-        <td><button class="edit-btn">Editar</button> <button class="delete-btn">Eliminar</button></td>`;
-      tr.querySelector(".edit-btn").addEventListener("click", () =>
-        openProductModal(product.id),
+        <td><button class="edit-btn" data-id="${product.id}">Editar</button> <button class="delete-btn" data-id="${product.id}">Eliminar</button></td>`;
+      const editBtn = tr.querySelector(".edit-btn");
+      editBtn.addEventListener("click", () =>
+        openProductModal(editBtn.dataset.id),
       );
-      tr.querySelector(".delete-btn").addEventListener("click", () =>
-        deleteProduct(product.id),
+      const delBtn = tr.querySelector(".delete-btn");
+      delBtn.addEventListener("click", () =>
+        deleteProduct(delBtn.dataset.id),
       );
       productsTableBody.appendChild(tr);
     });
@@ -341,25 +444,45 @@ async function loadProducts() {
   }
 }
 
-productsTableBody.addEventListener("change", async (e) => {
-  const input = e.target;
-  if (!input.classList.contains("inline-edit")) return;
-  const id = input.closest("tr").dataset.id;
-  const field = input.dataset.field;
-  const value = input.type === "number" ? parseFloat(input.value) : input.value;
+function debounce(fn, t = 600) {
+  let i;
+  return (...a) => {
+    clearTimeout(i);
+    i = setTimeout(() => fn(...a), t);
+  };
+}
+
+async function patchField(id, field, value, input) {
+  const old = input.dataset.original;
   try {
-    const resp = await fetch(`/api/products/${id}`, {
+    const r = await fetch(`${API_BASE}/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value }),
     });
-    if (!resp.ok) {
-      alert("Error al actualizar");
-    }
-  } catch (err) {
-    console.error(err);
-    alert("Error de red");
+    if (!r.ok) throw new Error("patch fail");
+  } catch (e) {
+    console.error(e);
+    if (window.showToast) showToast("No se pudo actualizar");
+    input.value = old;
   }
+}
+const debouncedPatch = debounce(patchField);
+
+productsTableBody.addEventListener("focusin", (e) => {
+  const input = e.target;
+  if (input.classList.contains("inline-edit")) {
+    input.dataset.original = input.value;
+  }
+});
+
+productsTableBody.addEventListener("input", (e) => {
+  const input = e.target;
+  if (!input.classList.contains("inline-edit")) return;
+  const id = input.closest("tr").dataset.id;
+  const field = input.dataset.field;
+  const value = input.type === "number" ? Number(input.value) : input.value;
+  debouncedPatch(id, field, value, input);
 });
 
 selectAllCheckbox.addEventListener("change", () => {
@@ -434,90 +557,10 @@ async function deleteProduct(id) {
   }
 }
 
-function validateForm() {
-  const sku = document.getElementById("productSku").value.trim();
-  if (!currentProductId && productsCache.some((p) => p.sku === sku)) {
-    alert("El SKU ya existe");
-    return false;
-  }
-  const stock = parseInt(document.getElementById("productStock").value, 10);
-  const priceMinor = parseFloat(
-    document.getElementById("productPriceMinorista").value,
-  );
-  const priceMayor = parseFloat(
-    document.getElementById("productPriceMayorista").value,
-  );
-  if (stock < 0 || priceMinor < 0 || priceMayor < 0) {
-    alert("Valores negativos no permitidos");
-    return false;
-  }
-  return true;
-}
-
-productForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if (!validateForm()) return;
-  const payload = {
-    sku: document.getElementById("productSku").value.trim(),
-    name: document.getElementById("productName").value.trim(),
-    brand: document.getElementById("productBrand").value.trim(),
-    model: document.getElementById("productModel").value.trim(),
-    category: document.getElementById("productCategory").value || undefined,
-    subcategory:
-      document.getElementById("productSubcategory").value || undefined,
-    tags: document
-      .getElementById("productTags")
-      .value.split(",")
-      .map((t) => t.trim())
-      .filter((t) => t),
-    stock: parseInt(document.getElementById("productStock").value, 10) || 0,
-    min_stock:
-      parseInt(document.getElementById("productMinStock").value, 10) || 0,
-    price_minorista:
-      parseFloat(document.getElementById("productPriceMinorista").value) || 0,
-    price_mayorista:
-      parseFloat(document.getElementById("productPriceMayorista").value) || 0,
-    cost: parseFloat(document.getElementById("productCost").value) || 0,
-    supplier_id: document.getElementById("productSupplier").value || undefined,
-    slug: document.getElementById("productSlug").value.trim(),
-    meta_title: document.getElementById("productMetaTitle").value.trim(),
-    meta_description: document
-      .getElementById("productMetaDesc")
-      .value.trim(),
-    dimensions: document.getElementById("productDimensions").value.trim(),
-    weight: parseFloat(document.getElementById("productWeight").value) || 0,
-    color: document.getElementById("productColor").value.trim(),
-    visibility: document.getElementById("productVisibility").value,
-    image: uploadedImagePath,
-  };
-  const url = currentProductId
-    ? `/api/products/${currentProductId}`
-    : "/api/products";
-  const method = currentProductId ? "PUT" : "POST";
-  try {
-    const resp = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (resp.ok) {
-      productModal.classList.add("hidden");
-      loadProducts();
-    } else {
-      alert("Error al guardar producto");
-    }
-  } catch (err) {
-    console.error(err);
-    alert("Error de red");
-  }
-});
-
 deleteProductBtn.addEventListener("click", async () => {
-  if (!currentProductId) return;
-  if (!confirm("¿Eliminar producto?")) return;
-  const resp = await fetch(`/api/products/${currentProductId}`, {
-    method: "DELETE",
-  });
+  const id = productForm.elements.id.value;
+  if (!id || !confirm("¿Eliminar producto?")) return;
+  const resp = await fetch(`${API_BASE}/${id}`, { method: "DELETE" });
   if (resp.ok) {
     productModal.classList.add("hidden");
     loadProducts();
@@ -527,8 +570,9 @@ deleteProductBtn.addEventListener("click", async () => {
 });
 
 duplicateProductBtn.addEventListener("click", async () => {
-  if (!currentProductId) return;
-  const resp = await fetch(`/api/products/${currentProductId}/duplicate`, {
+  const id = productForm.elements.id.value;
+  if (!id) return;
+  const resp = await fetch(`${API_BASE}/${id}/duplicate`, {
     method: "POST",
   });
   if (resp.ok) {
