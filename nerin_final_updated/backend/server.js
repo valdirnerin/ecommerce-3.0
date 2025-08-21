@@ -1589,8 +1589,43 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API: duplicar producto existente
+  if (
+    pathname.startsWith("/api/products/") &&
+    pathname.endsWith("/duplicate") &&
+    req.method === "POST"
+  ) {
+    const parts = pathname.split("/");
+    const id = parts[3];
+    try {
+      const products = getProducts();
+      const original = products.find((p) => p.id === id);
+      if (!original) {
+        return sendJson(res, 404, { error: "Producto no encontrado" });
+      }
+      const newId = (
+        products.length
+          ? Math.max(...products.map((p) => parseInt(p.id, 10))) + 1
+          : 1
+      ).toString();
+      const duplicate = { ...original, id: newId };
+      if (duplicate.sku) duplicate.sku = `${duplicate.sku}-copy`;
+      duplicate.name = `${duplicate.name} (copia)`;
+      products.push(duplicate);
+      saveProducts(products);
+      return sendJson(res, 201, { success: true, product: duplicate });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al duplicar producto" });
+    }
+  }
+
   // API: actualizar producto existente
-  if (pathname.startsWith("/api/products/") && req.method === "PUT") {
+  if (
+    pathname.startsWith("/api/products/") &&
+    (req.method === "PUT" || req.method === "PATCH") &&
+    !pathname.endsWith("/duplicate")
+  ) {
     const id = pathname.split("/").pop();
     let body = "";
     req.on("data", (chunk) => {
