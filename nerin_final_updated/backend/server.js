@@ -896,6 +896,22 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // API: obtener un producto por ID
+  if (pathname.startsWith("/api/products/") && req.method === "GET") {
+    const id = pathname.split("/").pop();
+    try {
+      const products = getProducts();
+      const product = products.find((p) => p.id === id);
+      if (!product) {
+        return sendJson(res, 404, { error: "Producto no encontrado" });
+      }
+      return sendJson(res, 200, product);
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "No se pudo cargar el producto" });
+    }
+  }
+
   // API: login
   if (pathname === "/api/login" && req.method === "POST") {
     let body = "";
