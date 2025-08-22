@@ -12,8 +12,8 @@
       href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
     />
       <link rel="stylesheet" href="style.css?v=mobfix-1" />
-    <link rel="stylesheet" href="/components/np-footer.css?v=np-r1">
-  <script src="/components/np-footer.js?v=np-r1" defer></script>
+    <link rel="stylesheet" href="/components/np-footer.css?v=np-r2">
+    <script src="/components/np-footer.js?v=np-r2" defer></script>
 </head>
   <body>
     <header>
@@ -32,6 +32,7 @@
         </nav>
       </div>
     </header>
+    <main>
     <section class="hero">
       <div class="content">
         <h1>Pantallas Samsung Originales con Garantía</h1>
@@ -79,41 +80,33 @@
 
     <section id="contacto" class="container">
       <h2>Contactanos rápido</h2>
-      <form id="contactForm" class="login-container">
-        <input type="text" id="contactName" placeholder="Nombre y apellido" />
-        <input type="tel" id="contactPhone" placeholder="WhatsApp" />
-        <input type="text" id="contactModel" placeholder="Modelo buscado" />
-        <select id="contactType">
-          <option value="tecnico">Técnico</option>
-          <option value="revendedor">Revendedor</option>
-          <option value="particular">Particular</option>
-        </select>
-        <button type="submit" class="button primary">
-          Solicitar cotización
-        </button>
+      <form id="contactForm" class="contact-form">
+        <div>
+          <label for="contactName">Nombre y apellido</label>
+          <input type="text" id="contactName" required />
+        </div>
+        <div>
+          <label for="contactPhone">WhatsApp</label>
+          <input type="tel" id="contactPhone" required />
+        </div>
+        <div>
+          <label for="contactModel">Modelo buscado</label>
+          <input type="text" id="contactModel" required />
+        </div>
+        <div>
+          <label for="contactType">Soy</label>
+          <select id="contactType" required>
+            <option value="" disabled selected>Elegí una opción</option>
+            <option value="tecnico">Técnico</option>
+            <option value="revendedor">Mayorista</option>
+            <option value="particular">Particular</option>
+          </select>
+        </div>
+        <button type="submit" class="button primary">Solicitar cotización</button>
+        <p class="form-msg" aria-live="polite"></p>
       </form>
     </section>
-
-    <footer class="container">
-      <p>📞 WhatsApp | 📧 Email | 📍 CABA</p>
-      <p>
-        <a href="https://instagram.com" target="_blank">Instagram</a> |
-        <a href="/index.html">Inicio</a> | <a href="/shop.html">Catálogo</a> |
-        <a href="/contact.html">Contacto</a> |
-        <a href="/seguimiento.html">Seguir mi pedido</a> |
-        <a href="/pages/terminos.html">Términos y Condiciones</a>
-      </p>
-      <p class="legal">
-        NERIN comercializa repuestos Samsung originales Service Pack adquiridos
-        por canales oficiales. No tenemos vínculo directo con Samsung
-        Electronics.
-      </p>
-    </footer>
-    <div id="whatsapp-button">
-      <a href="https://wa.me/541112345678" target="_blank">
-        <img src="/assets/whatsapp.svg" alt="WhatsApp" />
-      </a>
-    </div>
+    </main>
     <!-- Configuración y analíticas -->
     <script type="module" src="/js/index.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>

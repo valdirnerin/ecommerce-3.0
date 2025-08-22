@@ -20,50 +20,44 @@
         if (tpl) document.body.appendChild(tpl);
       }
       if (!tpl) return;
-      const frag = tpl.content.cloneNode(true);
-      document.body.appendChild(frag);
+      document.body.appendChild(tpl.content.cloneNode(true));
 
-      const cta = document.getElementById("np-wholesale-cta");
-      const adjust = () => {
-        if (!cta) return;
-        document.body.style.paddingBottom = `calc(${cta.offsetHeight + 32}px + env(safe-area-inset-bottom, 0px))`;
-      };
-      adjust();
-      window.addEventListener("resize", adjust);
+      const cta = document.querySelector('[data-sticky-cta]');
+      const main = document.querySelector('main');
+      const wa = document.querySelector('[data-wa]');
 
-      const wa = document.querySelector(".np-whatsapp");
-      if (wa && window.NP_WHATSAPP_URL) wa.href = window.NP_WHATSAPP_URL;
+      function setOffsets() {
+        let h = 0;
+        if (cta && !document.body.classList.contains('hide-cta')) {
+          h = cta.offsetHeight;
+        }
+        document.documentElement.style.setProperty('--cta-offset', h + 'px');
+        if (main) {
+          main.style.paddingBottom = `calc(${h}px + env(safe-area-inset-bottom))`;
+        }
+      }
+      setOffsets();
+      window.addEventListener('resize', setOffsets);
+
+      if (document.body.classList.contains('hide-cta')) {
+        cta && cta.classList.add('is-hidden');
+      }
+
+      window.addEventListener('focusin', (e) => {
+        if (e.target.matches('input,select,textarea')) {
+          cta && cta.classList.add('is-hidden');
+        }
+      });
+      window.addEventListener('focusout', () => cta && cta.classList.remove('is-hidden'));
+
       const checkWa = () => {
-        const hide =
-          window.innerWidth < 360 || document.querySelector(".hide-whatsapp");
-        if (wa) wa.style.display = hide ? "none" : "flex";
+        const hide = window.innerWidth < 360 || document.body.classList.contains('hide-whatsapp');
+        if (wa) wa.style.display = hide ? 'none' : 'flex';
       };
       checkWa();
-      window.addEventListener("resize", checkWa);
-
-      const ld = {
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        name: "NERIN PARTS",
-        url: "https://nerinparts.com.ar",
-        email: "ventas@nerinparts.com.ar",
-        telephone: "+54 9 11 0000-0000",
-        address: {
-          "@type": "PostalAddress",
-          addressLocality: "CABA",
-          addressCountry: "AR",
-        },
-        sameAs: [
-          "https://instagram.com/nerinparts",
-          "https://linkedin.com/company/nerinparts",
-        ],
-      };
-      const s = document.createElement("script");
-      s.type = "application/ld+json";
-      s.textContent = JSON.stringify(ld);
-      document.head.appendChild(s);
+      window.addEventListener('resize', checkWa);
     } catch (e) {
-      console.error("[np-footer]", e);
+      console.error('[np-footer]', e);
     }
   });
 })();
