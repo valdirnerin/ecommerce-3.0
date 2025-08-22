@@ -139,7 +139,9 @@ async function mpWebhookRelay(req, res, parsedUrl) {
             "Content-Type": "application/json",
             "X-Source-Service": "nerin",
           },
-          body: req.rawBody?.length ? req.rawBody : JSON.stringify(req.body || {}),
+          body: req.rawBody?.length
+            ? req.rawBody
+            : JSON.stringify(req.body || {}),
         }).catch((e) => console.error("mp-webhook relay FAIL", e?.message));
         console.info("mp-webhook relay →", url);
       }
@@ -159,8 +161,12 @@ async function mpWebhookRelay(req, res, parsedUrl) {
       const extRef =
         info.external_reference || payload.external_reference || null;
       const prefId = info.preference_id || payload.data?.preference_id || null;
-      const status =
-        (info.status || payload.data?.status || payload.type || "").toLowerCase();
+      const status = (
+        info.status ||
+        payload.data?.status ||
+        payload.type ||
+        ""
+      ).toLowerCase();
       if (!extRef && !prefId) return;
 
       const orders = getOrders();
@@ -174,14 +180,20 @@ async function mpWebhookRelay(req, res, parsedUrl) {
         );
       }
       if (idx === -1 && prefId) {
-        idx = orders.findIndex((o) => String(o.preference_id) === String(prefId));
+        idx = orders.findIndex(
+          (o) => String(o.preference_id) === String(prefId),
+        );
       }
       if (idx !== -1) {
         const row = orders[idx];
         row.payment_id = paymentId || row.payment_id;
         row.payment_status = status || row.payment_status;
         row.estado_pago = status || row.estado_pago;
-        if (status === "approved" && !row.inventoryApplied && !row.inventory_applied) {
+        if (
+          status === "approved" &&
+          !row.inventoryApplied &&
+          !row.inventory_applied
+        ) {
           const products = getProducts();
           (row.productos || row.items || []).forEach((it) => {
             const pIdx = products.findIndex(
@@ -197,7 +209,10 @@ async function mpWebhookRelay(req, res, parsedUrl) {
           row.inventory_applied = true;
           console.log(`inventory applied for ${row.id || row.order_number}`);
         }
-        if (status === "rejected" && (row.inventoryApplied || row.inventory_applied)) {
+        if (
+          status === "rejected" &&
+          (row.inventoryApplied || row.inventory_applied)
+        ) {
           // TODO: revertir stock si el pago fue rechazado luego de aprobarse
         }
         saveOrders(orders);
@@ -446,44 +461,44 @@ function saveOrderItems(items) {
 }
 
 function mapPaymentStatus(status) {
-  const s = String(status || '').toLowerCase();
-  if (s === 'approved' || s === 'aprobado' || s === 'pagado') return 'pagado';
-  if (s === 'rejected' || s === 'rechazado') return 'rechazado';
-  return 'pendiente';
+  const s = String(status || "").toLowerCase();
+  if (s === "approved" || s === "aprobado" || s === "pagado") return "pagado";
+  if (s === "rejected" || s === "rechazado") return "rechazado";
+  return "pendiente";
 }
 
 function normalizeOrder(o) {
-  const orderNum = o.order_number || o.id || o.external_reference || '';
-  const created = o.created_at || o.fecha || o.date || '';
+  const orderNum = o.order_number || o.id || o.external_reference || "";
+  const created = o.created_at || o.fecha || o.date || "";
   const cliente = o.cliente || {};
   const dir = cliente.direccion || {};
-  const phone = cliente.telefono || cliente.phone || '';
+  const phone = cliente.telefono || cliente.phone || "";
   const address = dir.calle
-    ? `${dir.calle} ${dir.numero || ''}${dir.localidad ? ', ' + dir.localidad : ''}${dir.provincia ? ', ' + dir.provincia : ''} ${dir.cp || ''}`.trim()
-    : '';
-  const province = o.provincia_envio || dir.provincia || '';
+    ? `${dir.calle} ${dir.numero || ""}${dir.localidad ? ", " + dir.localidad : ""}${dir.provincia ? ", " + dir.provincia : ""} ${dir.cp || ""}`.trim()
+    : "";
+  const province = o.provincia_envio || dir.provincia || "";
   const shippingCost = Number(o.costo_envio || 0);
   const items = o.productos || o.items || [];
   const itemsSummary = items
     .map(
       (it) =>
         `${
-          it.name || it.title || it.titulo || it.id || 'item'
+          it.name || it.title || it.titulo || it.id || "item"
         } x${it.quantity || it.qty || it.cantidad || 0}`,
     )
-    .join(', ');
+    .join(", ");
   const total = Number(o.total || o.total_amount || 0);
   const payment = mapPaymentStatus(o.payment_status || o.estado_pago);
-  const shipping = o.shipping_status || o.estado_envio || 'pendiente';
-  const tracking = o.tracking || o.seguimiento || '';
-  const carrier = o.carrier || o.transportista || '';
+  const shipping = o.shipping_status || o.estado_envio || "pendiente";
+  const tracking = o.tracking || o.seguimiento || "";
+  const carrier = o.carrier || o.transportista || "";
   return {
     ...o,
     order_number: orderNum,
     orderNumber: orderNum,
     created_at: created,
     createdAt: created,
-    user_email: o.user_email || cliente.email || '',
+    user_email: o.user_email || cliente.email || "",
     phone,
     address,
     province,
@@ -508,18 +523,14 @@ function getOrderStatus(id) {
   if (id && /^NRN-/i.test(id)) {
     order = orders.find(
       (o) =>
-        o.id === id ||
-        o.external_reference === id ||
-        o.order_number === id,
+        o.id === id || o.external_reference === id || o.order_number === id,
     );
   } else {
     order = orders.find((o) => String(o.preference_id) === String(id));
     if (!order) {
       order = orders.find(
         (o) =>
-          o.id === id ||
-          o.external_reference === id ||
-          o.order_number === id,
+          o.id === id || o.external_reference === id || o.order_number === id,
       );
     }
   }
@@ -527,13 +538,16 @@ function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(order.estado_pago || order.payment_status || "").toLowerCase();
+  const raw = String(
+    order.estado_pago || order.payment_status || "",
+  ).toLowerCase();
   let status = "pending";
   if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
   else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
   return {
     status,
-    numeroOrden: order.id || order.order_number || order.external_reference || null,
+    numeroOrden:
+      order.id || order.order_number || order.external_reference || null,
   };
 }
 
@@ -643,11 +657,13 @@ function sendJson(res, statusCode, data) {
 function sendOrderPaidEmail(order) {
   if (!resend || !order.cliente || !order.cliente.email) return;
   try {
-  const tplPath = path.join(__dirname, "../emails/orderPaid.html");
-  let html = fs.readFileSync(tplPath, "utf8");
-  const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
-  const orderUrl = `${urlBase}/seguimiento?order=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
-  html = html.replace("{{ORDER_URL}}", orderUrl).replace("{{ORDER_ID}}", order.id);
+    const tplPath = path.join(__dirname, "../emails/orderPaid.html");
+    let html = fs.readFileSync(tplPath, "utf8");
+    const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
+    const orderUrl = `${urlBase}/seguimiento?order=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
+    html = html
+      .replace("{{ORDER_URL}}", orderUrl)
+      .replace("{{ORDER_ID}}", order.id);
     resend.emails
       .send({
         from: "no-reply@nerin.com",
@@ -663,7 +679,7 @@ function sendOrderPaidEmail(order) {
 // Leer y guardar configuración de footer
 function readFooter() {
   try {
-    const txt = fs.readFileSync(FOOTER_FILE, 'utf8');
+    const txt = fs.readFileSync(FOOTER_FILE, "utf8");
     return JSON.parse(txt);
   } catch {
     fs.writeFileSync(FOOTER_FILE, JSON.stringify(DEFAULT_FOOTER, null, 2));
@@ -678,24 +694,25 @@ function saveFooter(cfg) {
 function normalizeFooter(data) {
   const base = readFooter();
   const out = { ...base };
-  out.brand = typeof data.brand === 'string' ? data.brand.trim() : base.brand;
-  out.slogan = typeof data.slogan === 'string' ? data.slogan.trim() : base.slogan;
+  out.brand = typeof data.brand === "string" ? data.brand.trim() : base.brand;
+  out.slogan =
+    typeof data.slogan === "string" ? data.slogan.trim() : base.slogan;
   out.cta = {
     enabled: Boolean(data?.cta?.enabled),
-    text: String(data?.cta?.text || ''),
-    buttonLabel: String(data?.cta?.buttonLabel || ''),
-    href: String(data?.cta?.href || ''),
+    text: String(data?.cta?.text || ""),
+    buttonLabel: String(data?.cta?.buttonLabel || ""),
+    href: String(data?.cta?.href || ""),
   };
   out.columns = Array.isArray(data.columns) ? data.columns : base.columns;
   out.contact = {
-    whatsapp: String(data?.contact?.whatsapp || ''),
-    email: String(data?.contact?.email || ''),
-    address: String(data?.contact?.address || ''),
+    whatsapp: String(data?.contact?.whatsapp || ""),
+    email: String(data?.contact?.email || ""),
+    address: String(data?.contact?.address || ""),
   };
   out.social = {
-    instagram: String(data?.social?.instagram || ''),
-    linkedin: String(data?.social?.linkedin || ''),
-    youtube: String(data?.social?.youtube || ''),
+    instagram: String(data?.social?.instagram || ""),
+    linkedin: String(data?.social?.linkedin || ""),
+    youtube: String(data?.social?.youtube || ""),
   };
   out.badges = {
     mercadoPago: Boolean(data?.badges?.mercadoPago),
@@ -707,14 +724,14 @@ function normalizeFooter(data) {
   };
   out.newsletter = {
     enabled: Boolean(data?.newsletter?.enabled),
-    placeholder: String(data?.newsletter?.placeholder || ''),
-    successMsg: String(data?.newsletter?.successMsg || ''),
+    placeholder: String(data?.newsletter?.placeholder || ""),
+    successMsg: String(data?.newsletter?.successMsg || ""),
   };
   out.legal = {
-    cuit: String(data?.legal?.cuit || ''),
-    iibb: String(data?.legal?.iibb || ''),
-    terms: String(data?.legal?.terms || ''),
-    privacy: String(data?.legal?.privacy || ''),
+    cuit: String(data?.legal?.cuit || ""),
+    iibb: String(data?.legal?.iibb || ""),
+    terms: String(data?.legal?.terms || ""),
+    privacy: String(data?.legal?.privacy || ""),
   };
   out.show = {
     cta: Boolean(data?.show?.cta),
@@ -761,7 +778,7 @@ function validateShippingTable(table) {
       (c) =>
         typeof c.provincia === "string" &&
         typeof c.costo === "number" &&
-        !Number.isNaN(c.costo)
+        !Number.isNaN(c.costo),
     )
   );
 }
@@ -971,7 +988,11 @@ const server = http.createServer((req, res) => {
       }
       const fileName = req.file.filename;
       const urlBase = `/assets/uploads/products/${encodeURIComponent(fileName)}`;
-      return sendJson(res, 201, { success: true, file: fileName, path: urlBase });
+      return sendJson(res, 201, {
+        success: true,
+        file: fileName,
+        path: urlBase,
+      });
     });
     return;
   }
@@ -1109,7 +1130,7 @@ const server = http.createServer((req, res) => {
           items: cart.map((it) => ({ ...it })),
           estado_pago: "pendiente",
           total,
-            inventoryApplied: false,
+          inventoryApplied: false,
         };
         // Si existe información de cliente, agregarla
         if (customer) {
@@ -1233,7 +1254,9 @@ const server = http.createServer((req, res) => {
   if (pathname === "/api/shipping-table" && req.method === "GET") {
     const table = getShippingTable();
     if (!validateShippingTable(table)) {
-      return sendJson(res, 500, { error: "Tabla de env\u00edos inv\u00e1lida" });
+      return sendJson(res, 500, {
+        error: "Tabla de env\u00edos inv\u00e1lida",
+      });
     }
     return sendJson(res, 200, table);
   }
@@ -1247,7 +1270,9 @@ const server = http.createServer((req, res) => {
       try {
         const data = JSON.parse(body || "{}");
         if (!validateShippingTable(data)) {
-          return sendJson(res, 400, { error: "Datos de env\u00edos inv\u00e1lidos" });
+          return sendJson(res, 400, {
+            error: "Datos de env\u00edos inv\u00e1lidos",
+          });
         }
         saveShippingTable(data);
         return sendJson(res, 200, { success: true });
@@ -1278,7 +1303,8 @@ const server = http.createServer((req, res) => {
         const provincia =
           (data.cliente &&
             data.cliente.direccion &&
-            data.cliente.direccion.provincia) || "";
+            data.cliente.direccion.provincia) ||
+          "";
         const shippingCost = getShippingCost(provincia);
         const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const impuestosCalc = Math.round(total * 0.21);
@@ -1313,7 +1339,7 @@ const server = http.createServer((req, res) => {
           transportista: "",
           carrier: "",
           user_email: (data.cliente && data.cliente.email) || "",
-            inventoryApplied: false,
+          inventoryApplied: false,
         };
         const idx = orders.findIndex((o) => o.id === orderId);
         if (idx !== -1) orders[idx] = { ...orders[idx], ...baseOrder };
@@ -1426,9 +1452,7 @@ const server = http.createServer((req, res) => {
       const orders = getOrders();
       const order = orders.find(
         (o) =>
-          o.id === id ||
-          o.order_number === id ||
-          o.external_reference === id,
+          o.id === id || o.order_number === id || o.external_reference === id,
       );
       if (!order) return sendJson(res, 404, { error: "Pedido no encontrado" });
       return sendJson(res, 200, { order: normalizeOrder(order) });
@@ -2377,12 +2401,14 @@ const server = http.createServer((req, res) => {
             .toLowerCase()
             .trim();
 
-        const items = carrito.map(({ titulo, precio, cantidad, currency_id }) => ({
-          title: String(titulo),
-          unit_price: Number(precio),
-          quantity: Number(cantidad),
-          currency_id: currency_id || "ARS",
-        }));
+        const items = carrito.map(
+          ({ titulo, precio, cantidad, currency_id }) => ({
+            title: String(titulo),
+            unit_price: Number(precio),
+            quantity: Number(cantidad),
+            currency_id: currency_id || "ARS",
+          }),
+        );
 
         const itemsForOrder = carrito.map(
           ({ titulo, precio, cantidad, id, productId, sku }) => {
@@ -2470,14 +2496,16 @@ const server = http.createServer((req, res) => {
             row.payment_status = mapPaymentStatus(row.payment_status);
             row.estado_pago = mapPaymentStatus(row.estado_pago);
             row.estado_envio = row.estado_envio || "pendiente";
-            row.shipping_status = row.shipping_status || row.estado_envio || "pendiente";
+            row.shipping_status =
+              row.shipping_status || row.estado_envio || "pendiente";
             row.cliente = row.cliente || usuario || {};
             row.productos = itemsForOrder;
             row.items_summary = itemsSummary;
             if (!row.total) row.total = total;
             if (!row.created_at) row.created_at = now;
             row.fecha = row.created_at;
-            row.provincia_envio = row.provincia_envio || usuario?.provincia || "";
+            row.provincia_envio =
+              row.provincia_envio || usuario?.provincia || "";
             if (row.costo_envio == null)
               row.costo_envio = Number(
                 usuario?.costo || usuario?.costo_envio || 0,
@@ -2716,28 +2744,33 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === "/seguimiento" || pathname === "/seguimiento-pedido") {
-    return serveStatic(path.join(__dirname, "../frontend/seguimiento.html"), res);
+    return serveStatic(
+      path.join(__dirname, "../frontend/seguimiento.html"),
+      res,
+    );
   }
 
   // Servir componentes del frontend: /components/* -> /frontend/components/*
   if (pathname.startsWith("/components/") && req.method === "GET") {
-    const compPath = path.join(
-      __dirname,
-      "..",
-      "frontend",
-      pathname.slice(1)
-    );
+    const compPath = path.join(__dirname, "..", "frontend", pathname.slice(1));
     if (!fs.existsSync(compPath) || fs.statSync(compPath).isDirectory()) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       return res.end("Not found");
     }
     const ext = path.extname(compPath).toLowerCase();
     const mime =
-      ext === ".css" ? "text/css" :
-      ext === ".js"  ? "application/javascript" :
-      ext === ".html"? "text/html" : "application/octet-stream";
+      ext === ".css"
+        ? "text/css"
+        : ext === ".js"
+          ? "application/javascript"
+          : ext === ".html"
+            ? "text/html"
+            : "application/octet-stream";
 
-    res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=600" });
+    res.writeHead(200, {
+      "Content-Type": mime,
+      "Cache-Control": "public, max-age=600",
+    });
     fs.createReadStream(compPath).pipe(res);
     return;
   }
@@ -2746,7 +2779,8 @@ const server = http.createServer((req, res) => {
   let filePath;
   // Servir recursos dentro de /assets (imágenes)
   if (pathname.startsWith("/assets/")) {
-    filePath = path.join(__dirname, "..", pathname);
+    // Eliminar la barra inicial para evitar que path.join ignore los segmentos anteriores
+    filePath = path.join(__dirname, "..", pathname.slice(1));
   } else {
     filePath = path.join(__dirname, "../frontend", pathname);
   }
