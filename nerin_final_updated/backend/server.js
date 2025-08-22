@@ -13,6 +13,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
+const dataDir = require("./utils/dataDir");
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
@@ -48,7 +49,11 @@ const fetchFn =
   globalThis.fetch ||
   ((...a) => import("node-fetch").then(({ default: f }) => f(...a)));
 
-const FOOTER_FILE = path.join(__dirname, "../data/footer.json");
+function dataPath(file) {
+  return path.join(dataDir, file);
+}
+
+const FOOTER_FILE = dataPath("footer.json");
 const DEFAULT_FOOTER = {
   brand: "NERIN PARTS",
   slogan: "Samsung Service Pack Original",
@@ -263,9 +268,9 @@ const USERS = [
  * { email, password, role, name }. Si no existe, devuelve un array vacío.
  */
 function getUsers() {
-  const dataPath = path.join(__dirname, "../data/users.json");
+  const filePath = dataPath("users.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file).users || [];
   } catch (e) {
     return [];
@@ -276,8 +281,8 @@ function getUsers() {
  * Guardar usuarios registrados. Se almacena bajo la clave "users".
  */
 function saveUsers(users) {
-  const dataPath = path.join(__dirname, "../data/users.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ users }, null, 2), "utf8");
+  const filePath = dataPath("users.json");
+  fs.writeFileSync(filePath, JSON.stringify({ users }, null, 2), "utf8");
 }
 
 // ========================= NUEVAS UTILIDADES PARA MÓDULOS AVANZADOS =========================
@@ -288,9 +293,9 @@ function saveUsers(users) {
  * adicional como dirección, email y tiempo de entrega.
  */
 function getSuppliers() {
-  const dataPath = path.join(__dirname, "../data/suppliers.json");
+  const filePath = dataPath("suppliers.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file).suppliers;
   } catch (e) {
     // Si el archivo no existe, devolver lista vacía
@@ -303,8 +308,8 @@ function getSuppliers() {
  * { "suppliers": [ ... ] } para que sea similar a otros ficheros del sistema.
  */
 function saveSuppliers(suppliers) {
-  const dataPath = path.join(__dirname, "../data/suppliers.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ suppliers }, null, 2), "utf8");
+  const filePath = dataPath("suppliers.json");
+  fs.writeFileSync(filePath, JSON.stringify({ suppliers }, null, 2), "utf8");
 }
 
 /**
@@ -313,9 +318,9 @@ function saveSuppliers(suppliers) {
  * creación, estado (pendiente, aprobada, recibida) y fecha estimada de llegada.
  */
 function getPurchaseOrders() {
-  const dataPath = path.join(__dirname, "../data/purchase_orders.json");
+  const filePath = dataPath("purchase_orders.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file).purchaseOrders;
   } catch (e) {
     return [];
@@ -326,9 +331,9 @@ function getPurchaseOrders() {
  * Guardar órdenes de compra en el archivo JSON.
  */
 function savePurchaseOrders(purchaseOrders) {
-  const dataPath = path.join(__dirname, "../data/purchase_orders.json");
+  const filePath = dataPath("purchase_orders.json");
   fs.writeFileSync(
-    dataPath,
+    filePath,
     JSON.stringify({ purchaseOrders }, null, 2),
     "utf8",
   );
@@ -415,35 +420,35 @@ function calculateDetailedAnalytics() {
 
 // Leer productos desde el archivo JSON
 function getProducts() {
-  const dataPath = path.join(__dirname, "../data/products.json");
-  const file = fs.readFileSync(dataPath, "utf8");
+  const filePath = dataPath("products.json");
+  const file = fs.readFileSync(filePath, "utf8");
   return JSON.parse(file).products;
 }
 
 // Guardar productos en el archivo JSON
 function saveProducts(products) {
-  const dataPath = path.join(__dirname, "../data/products.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ products }, null, 2), "utf8");
+  const filePath = dataPath("products.json");
+  fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), "utf8");
 }
 
 // Leer pedidos desde el archivo JSON
 function getOrders() {
-  const dataPath = path.join(__dirname, "../data/orders.json");
-  const file = fs.readFileSync(dataPath, "utf8");
+  const filePath = dataPath("orders.json");
+  const file = fs.readFileSync(filePath, "utf8");
   return JSON.parse(file).orders;
 }
 
 // Guardar pedidos en el archivo JSON
 function saveOrders(orders) {
-  const dataPath = path.join(__dirname, "../data/orders.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ orders }, null, 2), "utf8");
+  const filePath = dataPath("orders.json");
+  fs.writeFileSync(filePath, JSON.stringify({ orders }, null, 2), "utf8");
 }
 
 // Leer líneas de pedidos
 function getOrderItems() {
-  const dataPath = path.join(__dirname, "../data/order_items.json");
+  const filePath = dataPath("order_items.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file).order_items || [];
   } catch {
     return [];
@@ -452,9 +457,9 @@ function getOrderItems() {
 
 // Guardar líneas de pedidos
 function saveOrderItems(items) {
-  const dataPath = path.join(__dirname, "../data/order_items.json");
+  const filePath = dataPath("order_items.json");
   fs.writeFileSync(
-    dataPath,
+    filePath,
     JSON.stringify({ order_items: items }, null, 2),
     "utf8",
   );
@@ -553,29 +558,29 @@ function getOrderStatus(id) {
 
 // Leer clientes desde el archivo JSON
 function getClients() {
-  const dataPath = path.join(__dirname, "../data/clients.json");
-  const file = fs.readFileSync(dataPath, "utf8");
+  const filePath = dataPath("clients.json");
+  const file = fs.readFileSync(filePath, "utf8");
   return JSON.parse(file).clients;
 }
 
 // Guardar clientes en el archivo JSON
 function saveClients(clients) {
-  const dataPath = path.join(__dirname, "../data/clients.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ clients }, null, 2), "utf8");
+  const filePath = dataPath("clients.json");
+  fs.writeFileSync(filePath, JSON.stringify({ clients }, null, 2), "utf8");
 }
 
 // Leer facturas desde el archivo JSON
 function getInvoices() {
-  const dataPath = path.join(__dirname, "../data/invoices.json");
-  const file = fs.readFileSync(dataPath, "utf8");
+  const filePath = dataPath("invoices.json");
+  const file = fs.readFileSync(filePath, "utf8");
   return JSON.parse(file).invoices;
 }
 
 // Leer configuración general (ID de Google Analytics, Meta Pixel, WhatsApp, etc.)
 function getConfig() {
-  const dataPath = path.join(__dirname, "../data/config.json");
+  const filePath = dataPath("config.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file);
   } catch (e) {
     // Si el archivo no existe o está corrupto, devolver configuración vacía
@@ -585,34 +590,34 @@ function getConfig() {
 
 // Guardar configuración general
 function saveConfig(cfg) {
-  const dataPath = path.join(__dirname, "../data/config.json");
-  fs.writeFileSync(dataPath, JSON.stringify(cfg, null, 2), "utf8");
+  const filePath = dataPath("config.json");
+  fs.writeFileSync(filePath, JSON.stringify(cfg, null, 2), "utf8");
 }
 
 // Leer devoluciones desde el archivo JSON
 function getReturns() {
-  const dataPath = path.join(__dirname, "../data/returns.json");
-  const file = fs.readFileSync(dataPath, "utf8");
+  const filePath = dataPath("returns.json");
+  const file = fs.readFileSync(filePath, "utf8");
   return JSON.parse(file).returns;
 }
 
 // Guardar devoluciones en el archivo JSON
 function saveReturns(returns) {
-  const dataPath = path.join(__dirname, "../data/returns.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ returns }, null, 2), "utf8");
+  const filePath = dataPath("returns.json");
+  fs.writeFileSync(filePath, JSON.stringify({ returns }, null, 2), "utf8");
 }
 
 // Guardar facturas en el archivo JSON
 function saveInvoices(invoices) {
-  const dataPath = path.join(__dirname, "../data/invoices.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ invoices }, null, 2), "utf8");
+  const filePath = dataPath("invoices.json");
+  fs.writeFileSync(filePath, JSON.stringify({ invoices }, null, 2), "utf8");
 }
 
 // Leer registros de archivos de factura
 function getInvoiceUploads() {
-  const dataPath = path.join(__dirname, "../data/invoice_uploads.json");
+  const filePath = dataPath("invoice_uploads.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file).uploads || [];
   } catch {
     return [];
@@ -621,13 +626,13 @@ function getInvoiceUploads() {
 
 // Guardar registros de archivos de factura
 function saveInvoiceUploads(uploads) {
-  const dataPath = path.join(__dirname, "../data/invoice_uploads.json");
-  fs.writeFileSync(dataPath, JSON.stringify({ uploads }, null, 2), "utf8");
+  const filePath = dataPath("invoice_uploads.json");
+  fs.writeFileSync(filePath, JSON.stringify({ uploads }, null, 2), "utf8");
 }
 
 // Obtener el siguiente número de factura (persistente)
 function getNextInvoiceNumber() {
-  const filePath = path.join(__dirname, "../data/invoice_counter.txt");
+  const filePath = dataPath("invoice_counter.txt");
   let counter = 0;
   try {
     counter = parseInt(fs.readFileSync(filePath, "utf8"), 10);
@@ -756,9 +761,9 @@ function normalizeFooter(data) {
 
 // Leer tabla de costos de envío por provincia
 function getShippingTable() {
-  const dataPath = path.join(__dirname, "../data/shipping.json");
+  const filePath = dataPath("shipping.json");
   try {
-    const file = fs.readFileSync(dataPath, "utf8");
+    const file = fs.readFileSync(filePath, "utf8");
     return JSON.parse(file);
   } catch (e) {
     return { costos: [] };
@@ -766,8 +771,8 @@ function getShippingTable() {
 }
 
 function saveShippingTable(table) {
-  const dataPath = path.join(__dirname, "../data/shipping.json");
-  fs.writeFileSync(dataPath, JSON.stringify(table, null, 2), "utf8");
+  const filePath = dataPath("shipping.json");
+  fs.writeFileSync(filePath, JSON.stringify(table, null, 2), "utf8");
 }
 
 function validateShippingTable(table) {
