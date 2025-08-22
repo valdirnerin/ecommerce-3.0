@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const dataDir = require('../utils/dataDir');
 
 const logger = {
   info: console.log,
@@ -10,7 +11,7 @@ const db = require('../db');
 const inventoryRepo = require('../data/inventoryRepo');
 
 function dataPath(file) {
-  return path.join(__dirname, '../../data', file);
+  return path.join(dataDir, file);
 }
 
 function readJSON(file) {

@@ -1,5 +1,6 @@
 const path = require('path');
 const request = require('supertest');
+const dataDir = require('../utils/dataDir');
 
 jest.mock('../emailValidator');
 jest.mock('afip.ts', () => ({ Afip: class {} }), { virtual: true });
@@ -29,9 +30,9 @@ jest.mock('fs', () => {
 const verifyEmailMock = require('../emailValidator');
 const fs = require('fs');
 
-const ordersPath = path.join(__dirname, '../../data/orders.json');
-const configPath = path.join(__dirname, '../../data/config.json');
-const uploadsPath = path.join(__dirname, '../../data/invoice_uploads.json');
+const ordersPath = path.join(dataDir, 'orders.json');
+const configPath = path.join(dataDir, 'config.json');
+const uploadsPath = path.join(dataDir, 'invoice_uploads.json');
 
 describe('Ecommerce features', () => {
   let server;

@@ -1,9 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../backend/db');
+const dataDir = require('../backend/utils/dataDir');
 
 async function importProducts(pool) {
-  const file = path.join(__dirname, '../data/products.json');
+  const file = path.join(dataDir, 'products.json');
   let products = [];
   try {
     products = JSON.parse(fs.readFileSync(file, 'utf8')).products || [];
@@ -32,7 +33,7 @@ async function importProducts(pool) {
 }
 
 async function importOrders(pool) {
-  const file = path.join(__dirname, '../data/orders.json');
+  const file = path.join(dataDir, 'orders.json');
   let orders = [];
   try {
     orders = JSON.parse(fs.readFileSync(file, 'utf8')).orders || [];
