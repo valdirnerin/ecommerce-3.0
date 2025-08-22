@@ -1355,3 +1355,51 @@ footer .legal {
     transform: rotate(360deg);
   }
 }
+
+/* Contact form card */
+.contact-form {
+  max-width: 400px;
+  margin: 3rem auto;
+  padding: 16px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.contact-form label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.contact-form input,
+.contact-form select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 16px;
+}
+
+.contact-form select {
+  appearance: none;
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+}
+
+.contact-form button {
+  height: 48px;
+  width: 100%;
+}
+
+.contact-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.contact-form .form-msg {
+  min-height: 1em;
+  font-size: 0.875rem;
+}
