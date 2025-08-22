@@ -2,8 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const productsRepo = require('./productsRepo');
+const dataDir = require('../utils/dataDir');
 
-const filePath = path.join(__dirname, '../../data/orders.json');
+const filePath = path.join(dataDir, 'orders.json');
 
 async function getAll() {
   const pool = db.getPool();

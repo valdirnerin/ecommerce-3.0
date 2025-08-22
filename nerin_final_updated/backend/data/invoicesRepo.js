@@ -1,8 +1,9 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
+const dataDir = require('../utils/dataDir');
 
-const filePath = path.join(__dirname, '../../data/invoices.json');
+const filePath = path.join(dataDir, 'invoices.json');
 
 async function getAll() {
   const pool = db.getPool();
