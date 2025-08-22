@@ -1,0 +1,124 @@
+import React from "react";
+
+export default function NpFooter() {
+  return (
+    <>
+      <div className="np-footer__cta" id="np-wholesale-cta">
+        <span className="np-footer__cta-text">¿Sos técnico o mayorista?</span>
+        <a className="np-footer__cta-btn" href="/mayoristas">
+          Acceso mayoristas
+        </a>
+      </div>
+      <footer className="np-footer" role="contentinfo">
+        <div className="np-footer__grid">
+          <section className="np-footer__section">
+            <h2 className="np-footer__heading">Catálogo</h2>
+            <ul className="np-footer__list">
+              <li>
+                <a href="/shop.html?cat=pantallas">Pantallas Service Pack</a>
+              </li>
+              <li>
+                <a href="/shop.html?cat=baterias">Baterías</a>
+              </li>
+              <li>
+                <a href="/shop.html?cat=modulos-flex">Módulos / Flex</a>
+              </li>
+            </ul>
+          </section>
+          <section className="np-footer__section">
+            <h2 className="np-footer__heading">Información</h2>
+            <ul className="np-footer__list">
+              <li>
+                <a href="/info/originalidad">Verificar originalidad</a>
+              </li>
+              <li>
+                <a href="/info/garantia">Garantía y devoluciones</a>
+              </li>
+              <li>
+                <a href="/info/envios">Envíos</a>
+              </li>
+            </ul>
+          </section>
+          <section className="np-footer__section">
+            <h2 className="np-footer__heading">Cuenta</h2>
+            <ul className="np-footer__list">
+              <li>
+                <a href="/account.html">Mi cuenta</a>
+              </li>
+              <li>
+                <a href="/mayoristas">Mayoristas</a>
+              </li>
+              <li>
+                <a href="/soporte">Soporte técnico</a>
+              </li>
+            </ul>
+          </section>
+          <section className="np-footer__section">
+            <h2 className="np-footer__heading">Contacto</h2>
+            <ul className="np-footer__list">
+              <li>
+                <a href="tel:+5491100000000">+54 9 11 0000-0000</a>
+              </li>
+              <li>
+                <a href="mailto:ventas@nerinparts.com.ar">ventas@nerinparts.com.ar</a>
+              </li>
+              <li>
+                <span aria-label="Dirección">CABA, Argentina</span>
+              </li>
+            </ul>
+          </section>
+          <section className="np-footer__section">
+            <h2 className="np-footer__heading">Redes</h2>
+            <ul className="np-footer__list">
+              <li>
+                <a
+                  href="https://instagram.com/nerinparts"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Instagram
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://linkedin.com/company/nerinparts"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  LinkedIn
+                </a>
+              </li>
+            </ul>
+          </section>
+          <section className="np-footer__section">
+            <h2 className="np-footer__heading">Legal</h2>
+            <ul className="np-footer__list">
+              <li>
+                © 2025 NERIN PARTS — CUIT XX-XXXXXXXX-X — Exento/Convenio —
+                <a href="/terminos.html">Términos</a> —
+                <a href="/privacidad.html">Privacidad</a>
+              </li>
+            </ul>
+          </section>
+        </div>
+        <div className="np-footer__copy">nerinparts.com.ar</div>
+      </footer>
+      <a
+        href="https://wa.me/5491100000000?text=Hola%20Nerin%20Parts"
+        className="np-whatsapp"
+        aria-label="WhatsApp"
+        target="_blank"
+        rel="noopener"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M12 0a12 12 0 00-10.61 17.94L0 24l6.25-1.64A12 12 0 1012 0zm5.68 16.45c-.24.66-1.37 1.25-1.89 1.3-.48.05-1.08.07-1.75-.11-.4-.1-.9-.29-1.55-.57-2.73-1.18-4.5-3.94-4.64-4.13-.13-.18-1.11-1.48-1.11-2.82s.7-2 1-2.27c.24-.25.64-.36 1-.36h.72c.23 0 .55-.08.86.66.3.73 1 2.52 1.08 2.7.08.18.13.39.02.57-.1.18-.15.39-.31.6-.16.2-.33.45-.48.6-.16.16-.32.33-.14.65.18.33.8 1.31 1.72 2.12 1.18 1.05 2.17 1.37 2.49 1.52.32.16.5.13.68-.08.18-.2.78-.9.99-1.21.21-.31.42-.25.72-.15.31.1 1.96.93 2.3 1.1.34.18.56.26.64.4.08.15.08.87-.16 1.53z" />
+        </svg>
+      </a>
+    </>
+  );
+}
