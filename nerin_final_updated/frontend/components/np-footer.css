@@ -4,6 +4,8 @@
   --space-16: 16px;
   --color-text: #1a1a1a;
   --color-border: rgba(0, 0, 0, 0.08);
+  --cta-h: 0px;
+  --wa-bottom: 16px;
 }
 
 /* Sticky CTA */
@@ -22,11 +24,14 @@
   gap: var(--space-12);
   min-height: 64px;
   z-index: 970;
-  transition: transform 180ms ease;
+  transform: translateZ(0);
+  transition: transform 0.18s ease, opacity 0.18s ease;
+  will-change: transform;
 }
 
 [data-sticky-cta].is-hidden {
   transform: translateY(110%);
+  opacity: 0.98;
 }
 
 [data-sticky-cta] .button {
@@ -39,7 +44,7 @@
   width: 56px;
   height: 56px;
   right: 16px;
-  bottom: calc(16px + var(--cta-offset, 0px) + env(safe-area-inset-bottom));
+  bottom: calc(var(--wa-bottom) + env(safe-area-inset-bottom));
   border-radius: 50%;
   background: #25d366;
   display: flex;
@@ -51,6 +56,30 @@
 
 [data-wa]:focus-visible {
   outline: 2px auto;
+}
+
+main {
+  padding-bottom: calc(var(--cta-h) + env(safe-area-inset-bottom));
+}
+
+@media (max-width: 360px) {
+  [data-wa] {
+    width: 52px;
+    height: 52px;
+    right: 12px;
+  }
+}
+
+html.cta-visible [data-wa] {
+  bottom: calc(var(--wa-bottom) + var(--cta-h) + env(safe-area-inset-bottom));
+}
+
+body.hide-cta [data-sticky-cta] {
+  display: none;
+}
+
+body.hide-cta main {
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Footer */
