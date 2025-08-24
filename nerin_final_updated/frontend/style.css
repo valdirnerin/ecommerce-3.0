@@ -9,7 +9,7 @@
 
 :root {
   --color-bg: #ffffff;
-  --color-primary: #0070f3;
+  --color-primary: #1660FF;
   --color-secondary: #111827;
   --color-muted: #f5f5f5;
   --color-border: #e5e7eb;
@@ -24,6 +24,12 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 body {
@@ -243,6 +249,7 @@ nav a:hover {
   transition:
     background-color var(--transition),
     color var(--transition);
+  min-height: 44px;
 }
 
 .button.primary {
