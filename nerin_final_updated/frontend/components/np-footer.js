@@ -38,7 +38,7 @@
 
       function isCTAOnScreen() {
         const r = cta?.getBoundingClientRect();
-        return r ? (window.innerHeight - r.bottom) <= 1 : false;
+        return r ? r.top < window.innerHeight && r.bottom > 0 : false;
       }
 
       window.addEventListener('focusin', (e) => {
@@ -69,7 +69,7 @@
         io.observe(footer);
       }
 
-      ['load', 'resize'].forEach((ev) =>
+      ['load', 'resize', 'orientationchange'].forEach((ev) =>
         window.addEventListener(ev, setOffsets, { passive: true })
       );
       const ro = 'ResizeObserver' in window && cta ? new ResizeObserver(setOffsets) : null;

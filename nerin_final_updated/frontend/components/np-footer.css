@@ -16,8 +16,8 @@
   bottom: env(safe-area-inset-bottom);
   padding: 12px 16px;
   background: #fff;
-  border: 1px solid var(--color-border);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -35,11 +35,11 @@
 }
 
 [data-sticky-cta] .button {
-  min-height: 40px;
+  min-height: 44px;
 }
 
 /* WhatsApp floating button */
-[data-wa] {
+.wa-fab {
   position: fixed;
   width: 56px;
   height: 56px;
@@ -54,7 +54,7 @@
   z-index: 980;
 }
 
-[data-wa]:focus-visible {
+.wa-fab:focus-visible {
   outline: 2px auto;
 }
 
@@ -63,14 +63,14 @@ main {
 }
 
 @media (max-width: 360px) {
-  [data-wa] {
+  .wa-fab {
     width: 52px;
     height: 52px;
     right: 12px;
   }
 }
 
-html.cta-visible [data-wa] {
+html.cta-visible .wa-fab {
   bottom: calc(var(--wa-bottom) + var(--cta-h) + env(safe-area-inset-bottom));
 }
 
