@@ -1,12 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const dataDir = require('../utils/dataDir');
-
-const logger = {
-  info: console.log,
-  warn: console.warn,
-  error: console.error,
-};
+const logger = require('../logger');
 const db = require('../db');
 const inventoryRepo = require('../data/inventoryRepo');
 
@@ -23,7 +18,9 @@ function readJSON(file) {
 }
 
 function writeJSON(file, data) {
-  fs.writeFileSync(dataPath(file), JSON.stringify(data, null, 2), 'utf8');
+  fs.promises
+    .writeFile(dataPath(file), JSON.stringify(data, null, 2), 'utf8')
+    .catch(() => {});
 }
 
 function getOrders() {

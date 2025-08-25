@@ -36,7 +36,11 @@ async function getById(id) {
 async function saveAll(products) {
   const pool = db.getPool();
   if (!pool) {
-    fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), 'utf8');
+    await fs.promises.writeFile(
+      filePath,
+      JSON.stringify({ products }, null, 2),
+      'utf8'
+    );
     return;
   }
   await pool.query('BEGIN');
