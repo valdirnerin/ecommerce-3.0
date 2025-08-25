@@ -22,6 +22,7 @@
       if (!tpl) return;
       document.body.appendChild(tpl.content.cloneNode(true));
 
+      const html = document.documentElement;
       const cta = document.querySelector('[data-sticky-cta]');
       const main = document.querySelector('main');
       const wa = document.querySelector('[data-wa]');
@@ -67,6 +68,17 @@
           { rootMargin: '0px 0px -10% 0px', threshold: 0.01 }
         );
         io.observe(footer);
+      }
+
+      if ('IntersectionObserver' in window && footer) {
+        const footerIO = new IntersectionObserver(
+          (entries) => {
+            const visible = entries.some((en) => en.isIntersecting);
+            html.classList.toggle('footer-visible', visible);
+          },
+          { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.01 }
+        );
+        footerIO.observe(footer);
       }
 
       ['load', 'resize', 'orientationchange'].forEach((ev) =>

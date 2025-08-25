@@ -58,6 +58,25 @@
   outline: 2px auto;
 }
 
+/* transición suave para mostrar/ocultar WA */
+[data-wa] {
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+/* opción A: ocultar WA cuando el footer está visible */
+html.footer-visible [data-wa] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20%);
+}
+
+/* opción B (si NO querés ocultarlo): subirlo 96px cuando el footer entra */
+html.footer-visible.move-wa [data-wa] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-96px);
+}
+
 main {
   padding-bottom: calc(var(--cta-h) + env(safe-area-inset-bottom));
 }
