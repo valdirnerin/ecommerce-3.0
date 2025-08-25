@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: nerin
+    env: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node index.js
+    disk:
+      name: data
+      mountPath: /var/nerin-data
+    envVars:
+      - key: STORAGE_DIR
+        value: /var/nerin-data
+      - key: UPLOADS_DIR
+        value: /var/nerin-data/uploads
+      - key: INVOICES_DIR
+        value: /var/nerin-data/invoices
+      - key: DATA_DIR
+        value: /var/nerin-data/data
+      - key: CACHE_DIR
+        value: /var/nerin-data/cache
+      - key: LOG_DIR
+        value: /var/nerin-data/logs
+      - key: LOG_LEVEL
+        value: info

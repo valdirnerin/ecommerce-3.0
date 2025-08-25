@@ -13,7 +13,21 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
-const dataDir = require("./utils/dataDir");
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execAsync = promisify(exec);
+const {
+  STORAGE_DIR,
+  UPLOADS_DIR,
+  INVOICES_DIR,
+  DATA_DIR,
+  CACHE_DIR,
+} = require("./config/storage");
+const logger = require("./logger");
+const cleanup = require("./utils/cleanup");
+const dataDir = DATA_DIR;
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
@@ -97,10 +111,19 @@ const DEFAULT_FOOTER = {
 };
 
 // Parsear cuerpo de la request guardando rawBody
-function parseBody(req) {
-  return new Promise((resolve) => {
+function parseBody(req, limit = 1e6) {
+  return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", (c) => chunks.push(c));
+    let size = 0;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new Error("payload too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
     req.on("end", () => {
       const buf = Buffer.concat(chunks);
       req.rawBody = buf;
@@ -123,7 +146,11 @@ function parseBody(req) {
 }
 
 async function mpWebhookRelay(req, res, parsedUrl) {
-  await parseBody(req);
+  try {
+    await parseBody(req);
+  } catch {
+    return sendJson(res, 413, { error: "Payload too large" });
+  }
   res.writeHead(200, {
     "Access-Control-Allow-Origin": ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -280,9 +307,13 @@ function getUsers() {
 /**
  * Guardar usuarios registrados. Se almacena bajo la clave "users".
  */
-function saveUsers(users) {
+async function saveUsers(users) {
   const filePath = dataPath("users.json");
-  fs.writeFileSync(filePath, JSON.stringify({ users }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ users }, null, 2),
+    "utf8",
+  );
 }
 
 // ========================= NUEVAS UTILIDADES PARA MÓDULOS AVANZADOS =========================
@@ -307,9 +338,13 @@ function getSuppliers() {
  * Guardar la lista de proveedores. La estructura del archivo es
  * { "suppliers": [ ... ] } para que sea similar a otros ficheros del sistema.
  */
-function saveSuppliers(suppliers) {
+async function saveSuppliers(suppliers) {
   const filePath = dataPath("suppliers.json");
-  fs.writeFileSync(filePath, JSON.stringify({ suppliers }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ suppliers }, null, 2),
+    "utf8",
+  );
 }
 
 /**
@@ -330,9 +365,9 @@ function getPurchaseOrders() {
 /**
  * Guardar órdenes de compra en el archivo JSON.
  */
-function savePurchaseOrders(purchaseOrders) {
+async function savePurchaseOrders(purchaseOrders) {
   const filePath = dataPath("purchase_orders.json");
-  fs.writeFileSync(
+  await fs.promises.writeFile(
     filePath,
     JSON.stringify({ purchaseOrders }, null, 2),
     "utf8",
@@ -426,9 +461,13 @@ function getProducts() {
 }
 
 // Guardar productos en el archivo JSON
-function saveProducts(products) {
+async function saveProducts(products) {
   const filePath = dataPath("products.json");
-  fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ products }, null, 2),
+    "utf8",
+  );
 }
 
 // Leer pedidos desde el archivo JSON
@@ -439,9 +478,13 @@ function getOrders() {
 }
 
 // Guardar pedidos en el archivo JSON
-function saveOrders(orders) {
+async function saveOrders(orders) {
   const filePath = dataPath("orders.json");
-  fs.writeFileSync(filePath, JSON.stringify({ orders }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ orders }, null, 2),
+    "utf8",
+  );
 }
 
 // Leer líneas de pedidos
@@ -456,9 +499,9 @@ function getOrderItems() {
 }
 
 // Guardar líneas de pedidos
-function saveOrderItems(items) {
+async function saveOrderItems(items) {
   const filePath = dataPath("order_items.json");
-  fs.writeFileSync(
+  await fs.promises.writeFile(
     filePath,
     JSON.stringify({ order_items: items }, null, 2),
     "utf8",
@@ -564,9 +607,13 @@ function getClients() {
 }
 
 // Guardar clientes en el archivo JSON
-function saveClients(clients) {
+async function saveClients(clients) {
   const filePath = dataPath("clients.json");
-  fs.writeFileSync(filePath, JSON.stringify({ clients }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ clients }, null, 2),
+    "utf8",
+  );
 }
 
 // Leer facturas desde el archivo JSON
@@ -589,9 +636,13 @@ function getConfig() {
 }
 
 // Guardar configuración general
-function saveConfig(cfg) {
+async function saveConfig(cfg) {
   const filePath = dataPath("config.json");
-  fs.writeFileSync(filePath, JSON.stringify(cfg, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify(cfg, null, 2),
+    "utf8",
+  );
 }
 
 // Leer devoluciones desde el archivo JSON
@@ -602,15 +653,23 @@ function getReturns() {
 }
 
 // Guardar devoluciones en el archivo JSON
-function saveReturns(returns) {
+async function saveReturns(returns) {
   const filePath = dataPath("returns.json");
-  fs.writeFileSync(filePath, JSON.stringify({ returns }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ returns }, null, 2),
+    "utf8",
+  );
 }
 
 // Guardar facturas en el archivo JSON
-function saveInvoices(invoices) {
+async function saveInvoices(invoices) {
   const filePath = dataPath("invoices.json");
-  fs.writeFileSync(filePath, JSON.stringify({ invoices }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ invoices }, null, 2),
+    "utf8",
+  );
 }
 
 // Leer registros de archivos de factura
@@ -625,23 +684,26 @@ function getInvoiceUploads() {
 }
 
 // Guardar registros de archivos de factura
-function saveInvoiceUploads(uploads) {
+async function saveInvoiceUploads(uploads) {
   const filePath = dataPath("invoice_uploads.json");
-  fs.writeFileSync(filePath, JSON.stringify({ uploads }, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify({ uploads }, null, 2),
+    "utf8",
+  );
 }
 
 // Obtener el siguiente número de factura (persistente)
-function getNextInvoiceNumber() {
+async function getNextInvoiceNumber() {
   const filePath = dataPath("invoice_counter.txt");
   let counter = 0;
   try {
-    counter = parseInt(fs.readFileSync(filePath, "utf8"), 10);
+    counter = parseInt(await fs.promises.readFile(filePath, "utf8"), 10);
   } catch (e) {
     counter = 0;
   }
   counter += 1;
-  fs.writeFileSync(filePath, String(counter), "utf8");
-  // Formato: 0000001, 0000002, ...
+  await fs.promises.writeFile(filePath, String(counter), "utf8");
   return counter.toString().padStart(7, "0");
 }
 
@@ -687,13 +749,16 @@ function readFooter() {
     const txt = fs.readFileSync(FOOTER_FILE, "utf8");
     return JSON.parse(txt);
   } catch {
-    fs.writeFileSync(FOOTER_FILE, JSON.stringify(DEFAULT_FOOTER, null, 2));
+    fs.promises.writeFile(
+      FOOTER_FILE,
+      JSON.stringify(DEFAULT_FOOTER, null, 2),
+    );
     return { ...DEFAULT_FOOTER };
   }
 }
 
 function saveFooter(cfg) {
-  fs.writeFileSync(FOOTER_FILE, JSON.stringify(cfg, null, 2));
+  fs.promises.writeFile(FOOTER_FILE, JSON.stringify(cfg, null, 2));
 }
 
 function normalizeFooter(data) {
@@ -770,9 +835,13 @@ function getShippingTable() {
   }
 }
 
-function saveShippingTable(table) {
+async function saveShippingTable(table) {
   const filePath = dataPath("shipping.json");
-  fs.writeFileSync(filePath, JSON.stringify(table, null, 2), "utf8");
+  await fs.promises.writeFile(
+    filePath,
+    JSON.stringify(table, null, 2),
+    "utf8",
+  );
 }
 
 function validateShippingTable(table) {
@@ -819,23 +888,23 @@ function sendOrderShippedEmail(order) {
 }
 
 // Configuración de subida de imágenes de productos
-const productImagesDir = path.join(__dirname, "../assets/uploads/products");
+const productImagesDir = UPLOADS_DIR;
 const upload = multer({
   storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      fs.mkdirSync(productImagesDir, { recursive: true });
-      cb(null, productImagesDir);
-    },
+    destination: (_req, _file, cb) => cb(null, productImagesDir),
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
-      const sku = decodeURIComponent((req.params && req.params.sku) || "img");
-      cb(null, `${sku}${ext}`);
+      const base = path
+        .basename(file.originalname, ext)
+        .replace(/[^a-z0-9_-]/gi, "");
+      const name = `${Date.now()}-${base}${ext}`;
+      cb(null, name);
     },
   }),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if ([".jpg", ".jpeg", ".png"].includes(ext)) cb(null, true);
+    const allowed = ["image/jpeg", "image/png", "image/webp"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
     else cb(new Error("Formato no permitido"));
   },
 });
@@ -899,6 +968,25 @@ const server = http.createServer((req, res) => {
         await db.query("SELECT 1");
         return sendJson(res, 200, { ok: true });
       } catch {
+        return sendJson(res, 500, { ok: false });
+      }
+    })();
+    return;
+  }
+
+  if (pathname === "/healthz" && req.method === "GET") {
+    (async () => {
+      try {
+        const { stdout } = await execAsync(`df -k ${STORAGE_DIR}`);
+        const line = stdout.trim().split('\n').pop();
+        const parts = line.trim().split(/\s+/);
+        const total = parseInt(parts[1], 10) * 1024;
+        const used = parseInt(parts[2], 10) * 1024;
+        const pct = Math.round((used / total) * 100);
+        if (pct > 80) logger.warn(`disk usage ${pct}%`);
+        return sendJson(res, 200, { ok: true, diskUsage: { used, total, pct } });
+      } catch (e) {
+        logger.error(`healthz error ${e.message}`);
         return sendJson(res, 500, { ok: false });
       }
     })();
@@ -992,6 +1080,7 @@ const server = http.createServer((req, res) => {
         return sendJson(res, 400, { error: "No se recibió archivo" });
       }
       const fileName = req.file.filename;
+      fs.chmod(req.file.path, 0o640, () => {});
       const urlBase = `/assets/uploads/products/${encodeURIComponent(fileName)}`;
       return sendJson(res, 201, {
         success: true,
@@ -1794,51 +1883,54 @@ const server = http.createServer((req, res) => {
   // Ruta: /api/invoices/{orderId}
   if (pathname.startsWith("/api/invoices/") && req.method === "POST") {
     const orderId = decodeURIComponent(pathname.split("/").pop());
-    try {
-      const orders = getOrders();
-      const order = orders.find((o) => o.id === orderId);
-      if (!order) {
-        return sendJson(res, 404, { error: "Pedido no encontrado" });
-      }
-      // Buscar si ya existe factura para este pedido
-      let invoices = getInvoices();
-      let existing = invoices.find((inv) => inv.orderId === orderId);
-      if (existing) {
-        return sendJson(res, 200, { invoice: existing });
-      }
-      // Determinar tipo de factura según condición fiscal del cliente
-      let type = "B";
-      let clientInfo = null;
-      if (order.cliente && order.cliente.email) {
-        const clients = getClients();
-        const client = clients.find((c) => c.email === order.cliente.email);
-        if (client) {
-          clientInfo = { ...client };
-          if (
-            client.condicion_iva &&
-            client.condicion_iva.toLowerCase().includes("responsable")
-          ) {
-            type = "A";
+    (async () => {
+      try {
+        const orders = getOrders();
+        const order = orders.find((o) => o.id === orderId);
+        if (!order) {
+          return sendJson(res, 404, { error: "Pedido no encontrado" });
+        }
+        // Buscar si ya existe factura para este pedido
+        let invoices = getInvoices();
+        let existing = invoices.find((inv) => inv.orderId === orderId);
+        if (existing) {
+          return sendJson(res, 200, { invoice: existing });
+        }
+        // Determinar tipo de factura según condición fiscal del cliente
+        let type = "B";
+        let clientInfo = null;
+        if (order.cliente && order.cliente.email) {
+          const clients = getClients();
+          const client = clients.find((c) => c.email === order.cliente.email);
+          if (client) {
+            clientInfo = { ...client };
+            if (
+              client.condicion_iva &&
+              client.condicion_iva.toLowerCase().includes("responsable")
+            ) {
+              type = "A";
+            }
           }
         }
+        const invoiceNumber = await getNextInvoiceNumber();
+        const invoice = {
+          id: invoiceNumber,
+          orderId,
+          date: new Date().toISOString(),
+          type,
+          client: clientInfo,
+          items: order.productos,
+          total: order.total,
+        };
+        invoices.push(invoice);
+        await saveInvoices(invoices);
+        return sendJson(res, 201, { invoice });
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 500, { error: "No se pudo crear la factura" });
       }
-      const invoiceNumber = getNextInvoiceNumber();
-      const invoice = {
-        id: invoiceNumber,
-        orderId,
-        date: new Date().toISOString(),
-        type,
-        client: clientInfo,
-        items: order.productos,
-        total: order.total,
-      };
-      invoices.push(invoice);
-      saveInvoices(invoices);
-      return sendJson(res, 201, { invoice });
-    } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, { error: "No se pudo crear la factura" });
-    }
+    })();
+    return;
   }
 
   // API: obtener factura de un pedido
@@ -1866,17 +1958,21 @@ const server = http.createServer((req, res) => {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const { fileName, data } = JSON.parse(body || "{}");
         if (!fileName || !data) {
           return sendJson(res, 400, { error: "Falta archivo" });
         }
         const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const dir = path.join(__dirname, "../assets/invoices");
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        const filePath = path.join(dir, `${orderId}-${Date.now()}-${safeName}`);
-        fs.writeFileSync(filePath, Buffer.from(data, "base64"));
+        const filePath = path.join(
+          INVOICES_DIR,
+          `${orderId}-${Date.now()}-${safeName}`
+        );
+        await pipeline(
+          Readable.from(Buffer.from(data, "base64")),
+          fs.createWriteStream(filePath, { mode: 0o640 })
+        );
         const uploads = getInvoiceUploads();
         const existingIdx = uploads.findIndex((u) => u.orderId === orderId);
         const record = {
@@ -1885,7 +1981,7 @@ const server = http.createServer((req, res) => {
         };
         if (existingIdx !== -1) uploads[existingIdx] = record;
         else uploads.push(record);
-        saveInvoiceUploads(uploads);
+        await saveInvoiceUploads(uploads);
         return sendJson(res, 201, { success: true, file: record.fileName });
       } catch (err) {
         console.error(err);
@@ -2637,7 +2733,8 @@ const server = http.createServer((req, res) => {
       pathname === "/api/webhooks/mp") &&
     req.method === "POST"
   ) {
-    parseBody(req).then(() => {
+    parseBody(req)
+      .then(() => {
       try {
         req.body = validateWebhook(req.body);
       } catch (e) {
@@ -2672,15 +2769,22 @@ const server = http.createServer((req, res) => {
       }
 
       setImmediate(() => processNotification(topic, id));
-    });
+    })
+      .catch(() => {
+        sendJson(res, 413, { error: "Payload too large" });
+      });
     return;
   }
 
   if (pathname === "/api/webhooks/mp/test" && req.method === "POST") {
-    parseBody(req).then(() => {
-      console.log("mp-webhook TEST", req.body);
-      sendJson(res, 200, { ok: true });
-    });
+    parseBody(req)
+      .then(() => {
+        console.log("mp-webhook TEST", req.body);
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => {
+        sendJson(res, 413, { error: "Payload too large" });
+      });
     return;
   }
 
@@ -2782,9 +2886,12 @@ const server = http.createServer((req, res) => {
 
   // Servir archivos estáticos del frontend y assets
   let filePath;
-  // Servir recursos dentro de /assets (imágenes)
-  if (pathname.startsWith("/assets/")) {
-    // Eliminar la barra inicial para evitar que path.join ignore los segmentos anteriores
+  if (pathname.startsWith("/assets/uploads")) {
+    filePath = path.join(UPLOADS_DIR, pathname.replace("/assets/uploads", ""));
+  } else if (pathname.startsWith("/assets/invoices")) {
+    filePath = path.join(INVOICES_DIR, pathname.replace("/assets/invoices", ""));
+  } else if (pathname.startsWith("/assets/")) {
+    // Otros recursos estáticos empaquetados
     filePath = path.join(__dirname, "..", pathname.slice(1));
   } else {
     filePath = path.join(__dirname, "../frontend", pathname);
@@ -2797,6 +2904,12 @@ const server = http.createServer((req, res) => {
     serveStatic(filePath, res);
   });
 });
+
+cleanup().catch((e) => logger.error(`cleanup error ${e.message}`));
+setInterval(
+  () => cleanup().catch((e) => logger.error(`cleanup error ${e.message}`)),
+  6 * 60 * 60 * 1000,
+);
 
 if (require.main === module) {
   server.listen(APP_PORT, () => {

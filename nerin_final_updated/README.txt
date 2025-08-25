@@ -353,6 +353,20 @@ RESEND_API_KEY=
 PUBLIC_URL=http://localhost:3000
 ```
 
+Para persistir archivos y logs en Render, define además:
+
+```
+STORAGE_DIR=/var/nerin-data
+UPLOADS_DIR=/var/nerin-data/uploads
+INVOICES_DIR=/var/nerin-data/invoices
+DATA_DIR=/var/nerin-data/data
+CACHE_DIR=/var/nerin-data/cache
+LOG_DIR=/var/nerin-data/logs
+LOG_LEVEL=info
+```
+
+Asegúrate de habilitar **Retain disk during deploys** al configurar el Render Disk.
+
 Persistencia con PostgreSQL
 ---------------------------
 

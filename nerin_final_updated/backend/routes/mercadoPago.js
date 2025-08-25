@@ -8,12 +8,7 @@ const fetchFn =
 const db = require('../db');
 const ordersRepo = require('../data/ordersRepo');
 const productsRepo = require('../data/productsRepo');
-
-const logger = {
-  info: console.log,
-  warn: console.warn,
-  error: console.error,
-};
+const logger = require('../logger');
 const {
   applyInventoryForOrder,
   revertInventoryForOrder,
@@ -43,7 +38,11 @@ async function getOrders() {
 
 async function saveOrders(orders) {
   if (db.getPool()) return ordersRepo.saveAll(orders);
-  fs.writeFileSync(ordersPath(), JSON.stringify({ orders }, null, 2), 'utf8');
+  await fs.promises.writeFile(
+    ordersPath(),
+    JSON.stringify({ orders }, null, 2),
+    'utf8'
+  );
 }
 
 function productsPath() {
@@ -62,7 +61,7 @@ async function getProducts() {
 
 async function saveProducts(products) {
   if (db.getPool()) return productsRepo.saveAll(products);
-  fs.writeFileSync(
+  await fs.promises.writeFile(
     productsPath(),
     JSON.stringify({ products }, null, 2),
     'utf8'
