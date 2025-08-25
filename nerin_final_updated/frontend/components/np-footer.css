@@ -105,13 +105,15 @@ body.hide-cta main {
 .site-footer {
   background: #fff;
   color: var(--color-text);
-  font-size: 16px;
+  font-size: clamp(14px, 1.5vw, 16px);
   border-top: 1px solid var(--color-border);
-  padding: var(--space-16);
-  padding-bottom: calc(var(--space-16) + env(safe-area-inset-bottom));
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-12);
+  padding-bottom: calc(var(--space-12) + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: var(--space-16);
+  gap: var(--space-12);
 }
 
 .contact-chips {
@@ -182,4 +184,34 @@ body.hide-cta main {
 
 .legal a:visited {
   color: var(--color-text);
+}
+
+@media (min-width: 600px) and (max-width: 1024px) {
+  .site-footer {
+    padding: var(--space-16);
+    padding-bottom: calc(var(--space-16) + env(safe-area-inset-bottom));
+    gap: var(--space-16);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "chips nav"
+      "social legal";
+  }
+  .contact-chips { grid-area: chips; }
+  .footer-nav { grid-area: nav; }
+  .footer-social { grid-area: social; }
+  .legal { grid-area: legal; }
+
+  .chip,
+  .footer-nav a,
+  .footer-social a {
+    min-height: 40px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .site-footer {
+    padding: 24px;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
 }
