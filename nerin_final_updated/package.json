@@ -5,7 +5,8 @@
   "main": "backend/index.js",
   "scripts": {
     "start": "node backend/index.js",
-    "cleanup": "node backend/scripts/cleanup.js"
+    "cleanup": "node backend/scripts/cleanup.js",
+    "verify:overrides": "node backend/scripts/verifyOverrides.js"
   },
   "dependencies": {
     "afip.ts": "^3.2.2",
