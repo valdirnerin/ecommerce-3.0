@@ -27,6 +27,8 @@ const {
 } = require("./config/storage");
 const logger = require("./logger");
 const cleanup = require("./utils/cleanup");
+const { initializeData } = require("./utils/dataStore");
+initializeData();
 const dataDir = DATA_DIR;
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
