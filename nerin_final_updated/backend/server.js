@@ -38,6 +38,7 @@ const generarNumeroOrden = require("./utils/generarNumeroOrden");
 const verifyEmail = require("./emailValidator");
 const validateWebhook = require("./middleware/validateWebhook");
 const { processNotification } = require("./routes/mercadoPago");
+const { getFooter, postFooter } = require("./routes/adminFooter");
 require("dotenv").config();
 const CONFIG = getConfig();
 const APP_PORT = process.env.PORT || 3000;
@@ -1322,29 +1323,11 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === "/api/footer" && req.method === "GET") {
-    const cfg = readFooter();
-    return sendJson(res, 200, cfg);
+    return getFooter(req, res);
   }
 
-  if (pathname === "/api/footer" && req.method === "POST") {
-    const adminKey = req.headers["x-admin-key"];
-    if (process.env.ADMIN_KEY && adminKey !== process.env.ADMIN_KEY) {
-      return sendJson(res, 401, { error: "Unauthorized" });
-    }
-    let body = "";
-    req.on("data", (c) => (body += c));
-    req.on("end", () => {
-      try {
-        const data = JSON.parse(body || "{}");
-        const cfg = normalizeFooter(data);
-        saveFooter(cfg);
-        return sendJson(res, 200, { success: true });
-      } catch (e) {
-        console.error(e);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
-      }
-    });
-    return;
+  if (pathname === "/api/admin/footer" && req.method === "POST") {
+    return postFooter(req, res);
   }
 
   if (pathname === "/api/shipping-table" && req.method === "GET") {

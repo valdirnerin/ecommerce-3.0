@@ -1,7 +1,7 @@
 :root{
   --brand:#0A5CFF; --ink:#0E1116; --muted:#5B6676; --line:#E7EBF0;
   --bg:#FFF; --bg-soft:#F6F8FA; --radius:10px; --container:1200px;
-  --sticky:56px; /* altura aprox. del banner “Acceso mayoristas”/FAB */
+  --fab-safe-offset:0px;
 }
 .site-footer{border-top:1px solid var(--line); background:var(--bg); color:var(--ink)}
 .site-footer .container{max-width:var(--container); margin-inline:auto; padding:16px}
@@ -27,7 +27,7 @@
 .footer-nav a:hover,.footer-social a:hover{color:var(--brand)}
 .legal{color:var(--muted); font-size:clamp(12px,1.6vw,13.5px)}
 .legal a{color:inherit; text-decoration:underline}
-body{padding-bottom:calc(var(--sticky) + 72px)}
-[class*="whatsapp"], a[href*="wa.me"], a[href*="whatsapp"]{
-  position:fixed; right:16px; bottom:calc(16px + var(--sticky)); z-index:60
+body{padding-bottom:calc(var(--fab-safe-offset) + 64px)}
+[class*="whatsapp"], a[href*="wa.me"], a[href*="whatsapp"], .whatsapp-fab{
+  position:fixed; right:16px; bottom:calc(16px + var(--fab-safe-offset)); z-index:1000
 }
