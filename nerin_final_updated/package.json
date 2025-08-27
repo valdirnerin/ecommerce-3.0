@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node backend/index.js",
     "cleanup": "node backend/scripts/cleanup.js",
-    "verify:overrides": "node backend/scripts/verifyOverrides.js"
+    "verify:overrides": "node backend/scripts/verifyOverrides.js",
+    "device:qa": "node scripts/device-qa.js"
   },
   "dependencies": {
     "afip.ts": "^3.2.2",
@@ -16,12 +17,13 @@
     "joi": "^17.12.0",
     "mercadopago": "^2.8.0",
     "multer": "^2.0.0",
-    "resend": "^4.7.0",
     "pg": "^8.13.0",
+    "resend": "^4.7.0",
     "rotating-file-stream": "^3.0.3",
     "winston": "^3.10.0"
   },
   "devDependencies": {
+    "playwright": "^1.55.0",
     "prettier": "^3.6.2"
   }
 }

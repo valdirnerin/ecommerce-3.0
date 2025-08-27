@@ -1,8 +1,11 @@
 # QA Manual Checklist
 
-- [ ] 375×667 mobile: home, shop, product, cart → checkout → success/failure
-- [ ] 768×1024 tablet: home, shop, product, cart → checkout → success/failure
-- [ ] 1280px desktop: home, shop, product, cart → checkout → success/failure
+- [ ] 360×640 mobile: index, shop, product, checkout → success/failure, admin
+- [ ] 768×1024 tablet: index, shop, product, checkout → success/failure, admin
+- [ ] 1024×768 tablet-landscape: index, shop, product, checkout → success/failure, admin
+- [ ] 1280px desktop: index, shop, product, checkout → success/failure, admin
+- [ ] Keyboard: focus visible, menu navigation via tab, Escape closes overlays
+- [ ] iOS Safari: CTA visible/oculto, FAB no tapa contenido, respeta safe-area
 - [ ] Admin panel footer renders with CTA hidden
 - [ ] Tab through footer links, focus visible and keyboard navigation works
 - [ ] Contact chips, legal links and social icons resolve correctly
