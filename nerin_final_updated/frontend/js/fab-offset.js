@@ -1,12 +1,6 @@
 (function () {
-  const selectors = 'a[href*="wa.me"], .whatsapp-fab, [class*="whatsapp"]';
+  const selectors = '[data-wa], a[href*="wa.me"], .whatsapp-fab, [class*="whatsapp"]';
   const fab = document.querySelector(selectors);
-  if (fab) {
-    fab.style.position = 'fixed';
-    fab.style.right = '16px';
-    fab.style.bottom = 'calc(var(--fab-safe-offset) + 16px)';
-    fab.style.zIndex = '1000';
-  }
 
   function update() {
     let offset = 0;

@@ -14,7 +14,7 @@ async function loadConfig() {
     window.NERIN_CONFIG = cfg;
     // Actualizar enlace de WhatsApp flotante si existe
     if (cfg.whatsappNumber) {
-      const waBtn = document.querySelector("#whatsapp-button a");
+      const waBtn = document.querySelector('[data-wa]');
       if (waBtn) {
         const phone = cfg.whatsappNumber.replace(/[^0-9]/g, "");
         waBtn.href = `https://wa.me/${phone}`;
