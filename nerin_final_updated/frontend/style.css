@@ -280,32 +280,6 @@ nav a:hover {
   font-size: 0.875rem;
 }
 
-/* WhatsApp botón flotante */
-#whatsapp-button {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 200;
-  background-color: #25d366;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-#whatsapp-button a {
-  color: #fff;
-  font-weight: bold;
-  text-decoration: none;
-  font-size: 0.8rem;
-}
-#whatsapp-button img {
-  width: 28px;
-  height: 28px;
-}
 
 /* Estilos tienda */
 .container {
@@ -1189,12 +1163,6 @@ nav a:hover {
   }
 }
 
-footer .legal {
-  font-size: 0.8rem;
-  color: #555;
-  margin-top: 1rem;
-}
-
 /* ====== Estilos para la página de detalle de producto ====== */
 .product-detail-container {
   display: flex;
@@ -1249,9 +1217,6 @@ footer .legal {
   }
   header {
     padding-top: calc(1rem + env(safe-area-inset-top));
-  }
-  #whatsapp-button {
-    bottom: calc(20px + env(safe-area-inset-bottom));
   }
 }
 
