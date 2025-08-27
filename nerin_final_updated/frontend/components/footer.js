@@ -8,9 +8,7 @@
       <span>¿Sos técnico o mayorista?</span>
       <a href="/mayoristas" class="button primary">Acceso mayoristas</a>
     </div>
-    <footer class="site-footer" role="contentinfo">
-      <p>NERIN Footer 0️⃣</p>
-    </footer>
+    <footer class="site-footer" role="contentinfo"></footer>
     <a href="https://wa.me/5491100000000?text=Hola%20Nerin%20Parts" data-wa class="wa-fab" aria-label="Abrir WhatsApp" target="_blank" rel="noopener">
       <img src="/assets/whatsapp.svg" alt="" aria-hidden="true" />
     </a>`;
