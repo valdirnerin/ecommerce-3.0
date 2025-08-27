@@ -66,13 +66,35 @@
   gap: var(--space-12);
 }
 
+
+
 .footer-nav a,
 .footer-social a {
   display: flex;
   align-items: center;
-  min-height: 44px;
   color: var(--ink);
   text-decoration: none;
+}
+
+.footer-nav a {
+  min-height: 44px;
+}
+
+.footer-social a {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+.footer-social a svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
 }
 
 .footer-nav a:hover,
@@ -82,6 +104,11 @@
   color: var(--brand);
   text-decoration: underline;
   outline: 2px auto;
+}
+
+.footer-social a:hover,
+.footer-social a:focus-visible {
+  text-decoration: none;
 }
 
 .legal {
@@ -114,9 +141,12 @@
   .legal { grid-area: legal; }
 
   .chip,
-  .footer-nav a,
-  .footer-social a {
+  .footer-nav a {
     min-height: 40px;
+  }
+
+  .footer-social a {
+    min-height: 24px;
   }
 }
 

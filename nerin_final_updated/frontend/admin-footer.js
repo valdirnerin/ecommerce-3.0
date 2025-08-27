@@ -27,7 +27,7 @@ function collect(container) {
 
 async function load() {
   try {
-    const res = await fetch('/api/footer');
+    const res = await fetch(`/api/footer?ts=${Date.now()}`, { cache: 'no-store' });
     const data = await res.json();
     data.links?.forEach((l) => createRow(linksFields, l));
     data.social?.forEach((s) => createRow(socialFields, s));
@@ -62,6 +62,7 @@ form.addEventListener('submit', async (e) => {
   });
   if (res.ok) {
     alert('Footer guardado');
+    window.NPFooter?.loadFooter();
   } else {
     alert('Error al guardar');
   }
