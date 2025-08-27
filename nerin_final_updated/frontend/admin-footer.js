@@ -62,6 +62,7 @@ form.addEventListener('submit', async (e) => {
   });
   if (res.ok) {
     alert('Footer guardado');
+    window.NPFooter?.loadFooter();
   } else {
     alert('Error al guardar');
   }

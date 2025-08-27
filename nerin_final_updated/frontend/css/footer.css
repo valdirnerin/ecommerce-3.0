@@ -66,6 +66,7 @@
   gap: var(--space-12);
 }
 
+
 .footer-nav a,
 .footer-social a {
   display: flex;
@@ -75,6 +76,23 @@
   text-decoration: none;
 }
 
+.footer-social a {
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-soft);
+  color: var(--muted);
+}
+
+.footer-social a svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
 .footer-nav a:hover,
 .footer-nav a:focus-visible,
 .footer-social a:hover,
@@ -82,6 +100,11 @@
   color: var(--brand);
   text-decoration: underline;
   outline: 2px auto;
+}
+
+.footer-social a:hover,
+.footer-social a:focus-visible {
+  text-decoration: none;
 }
 
 .legal {
