@@ -258,15 +258,24 @@ app.get("/api/orders", async (req, res) => {
         return ps === status;
       });
     }
-    const rows = orders.map((o) => ({
-      order_number: o.order_number || o.id || o.external_reference || "",
-      date: o.fecha || o.date || o.created_at || "",
-      client: o.cliente?.nombre || o.cliente?.name || "",
-      phone: o.cliente?.telefono || "",
-      shipping_province: o.provincia_envio || "",
-      payment_status: o.payment_status || o.estado_pago || "pending",
-      total: o.total || 0,
-    }));
+    const rows = orders.map((o) => {
+      const cliente = o.cliente || {};
+      const direccion = cliente.direccion || {};
+      return {
+        ...o,
+        order_number: o.order_number || o.id || o.external_reference || "",
+        created_at: o.fecha || o.date || o.created_at || "",
+        cliente,
+        productos: o.productos || o.items || [],
+        provincia_envio: o.provincia_envio || direccion.provincia || "",
+        costo_envio: Number(o.costo_envio || 0),
+        total_amount: Number(o.total_amount || o.total || 0),
+        payment_status: o.payment_status || o.estado_pago || "pending",
+        shipping_status: o.shipping_status || o.estado_envio || "pendiente",
+        seguimiento: o.seguimiento || o.tracking || "",
+        transportista: o.transportista || o.carrier || "",
+      };
+    });
     res.json({ orders: rows });
   } catch (err) {
     console.error(err);

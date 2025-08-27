@@ -919,7 +919,7 @@ async function loadOrders() {
           ? `${direccion.calle} ${direccion.numero || ""}, ${direccion.localidad || ""}, ${
               direccion.provincia || ""
             } ${direccion.cp || ""}`
-          : "";
+          : order.address || "";
         // Crear celdas manualmente para añadir listeners
         const idTd = document.createElement("td");
         idTd.textContent = order.order_number;
