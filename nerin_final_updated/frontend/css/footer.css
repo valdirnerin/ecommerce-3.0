@@ -1,0 +1,33 @@
+:root{
+  --brand:#0A5CFF; --ink:#0E1116; --muted:#5B6676; --line:#E7EBF0;
+  --bg:#FFF; --bg-soft:#F6F8FA; --radius:10px; --container:1200px;
+  --sticky:56px; /* altura aprox. del banner “Acceso mayoristas”/FAB */
+}
+.site-footer{border-top:1px solid var(--line); background:var(--bg); color:var(--ink)}
+.site-footer .container{max-width:var(--container); margin-inline:auto; padding:16px}
+@media (min-width:1024px){.site-footer .container{padding:24px}}
+.footer-grid{display:flex; flex-direction:column; gap:12px}
+@media (min-width:600px) and (max-width:1024px){
+  .footer-grid{display:grid; gap:16px; grid-template-columns:1fr 1fr;
+    grid-template-areas:"chips nav" "social legal"}
+  .contact-chips{grid-area:chips}
+  .footer-nav{grid-area:nav}
+  .footer-social{grid-area:social}
+  .legal{grid-area:legal}
+}
+@media (min-width:1024px){
+  .footer-grid{display:grid; gap:16px; grid-template-columns:2fr 1fr 1fr 1fr}
+}
+.chips{display:flex; gap:12px; flex-wrap:wrap}
+.chip{display:inline-flex; align-items:center; gap:8px; min-height:44px;
+      padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:var(--bg-soft)}
+.chip i,.chip svg{font-size:18px}
+.footer-nav a,.footer-social a{display:inline-flex; align-items:center; min-height:44px;
+  color:var(--ink); text-decoration:none; padding:4px 0}
+.footer-nav a:hover,.footer-social a:hover{color:var(--brand)}
+.legal{color:var(--muted); font-size:clamp(12px,1.6vw,13.5px)}
+.legal a{color:inherit; text-decoration:underline}
+body{padding-bottom:calc(var(--sticky) + 72px)}
+[class*="whatsapp"], a[href*="wa.me"], a[href*="whatsapp"]{
+  position:fixed; right:16px; bottom:calc(16px + var(--sticky)); z-index:60
+}
