@@ -12,7 +12,9 @@
 
   function applyFooter(data) {
     if (!data || typeof data !== 'object') return;
-    const chips = document.querySelector('.contact-chips .chips');
+    const chips =
+      document.querySelector('.contact-chips .chips') ||
+      document.querySelector('.contact-chips');
     if (chips && data.contact) {
       chips.innerHTML = '';
       if (data.contact.phone) {
