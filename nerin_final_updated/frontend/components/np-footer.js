@@ -32,7 +32,7 @@
         const h = (cta?.offsetHeight || 0);
         document.documentElement.style.setProperty('--cta-h', h + 'px');
         if (main) {
-          main.style.paddingBottom = `calc(${h}px + env(safe-area-inset-bottom))`;
+          main.style.paddingBottom = `calc(${h}px + var(--safe-area))`;
         }
         document.documentElement.classList.toggle('cta-visible', h > 0 && isCTAOnScreen());
       }
