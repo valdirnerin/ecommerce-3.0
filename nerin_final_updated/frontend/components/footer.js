@@ -8,7 +8,34 @@
       <span>¿Sos técnico o mayorista?</span>
       <a href="/mayoristas" class="button primary">Acceso mayoristas</a>
     </div>
-    <footer class="site-footer" role="contentinfo"></footer>
+    <footer class="site-footer" role="contentinfo">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <a href="/" class="footer-logo">
+            <img src="/assets/IMG_3086.png" alt="NERIN Parts" class="site-logo" />
+          </a>
+        </div>
+        <nav class="footer-nav" aria-label="Footer">
+          <ul class="footer-nav-list">
+            <li><a href="/shop.html">Tienda</a></li>
+            <li><a href="/product.html">Productos</a></li>
+            <li><a href="/mayoristas">Mayoristas</a></li>
+            <li><a href="#">Sobre nosotros</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+          </ul>
+        </nav>
+        <div class="footer-contact">
+          <ul class="footer-contact-list">
+            <li><a href="https://wa.me/5491100000000?text=Hola%20NERIN" target="_blank" rel="noopener">WhatsApp</a></li>
+            <li><a href="mailto:info@nerinparts.com.ar">info@nerinparts.com.ar</a></li>
+            <li><span>Dirección y horario próximamente</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <small class="legal">Razón Social S.A. – CUIT 30-00000000-0 — <a href="/pages/terminos.html">Términos</a> · <a href="/pages/terminos.html">Privacidad</a></small>
+      </div>
+    </footer>
     <a href="https://wa.me/5491100000000?text=Hola%20Nerin%20Parts" data-wa class="wa-fab" aria-label="Abrir WhatsApp" target="_blank" rel="noopener">
       <img src="/assets/whatsapp.svg" alt="" aria-hidden="true" />
     </a>`;
