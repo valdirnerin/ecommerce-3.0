@@ -16,7 +16,7 @@ const {
 
 function mapStatus(mpStatus) {
   const s = String(mpStatus || '').toLowerCase();
-  if (s === 'approved') return 'pagado';
+  if (s === 'approved') return 'aprobado';
   if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(s))
     return 'rechazado';
   return 'pendiente';
