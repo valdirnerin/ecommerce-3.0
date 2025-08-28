@@ -7,6 +7,7 @@
     "start": "node backend/index.js",
     "cleanup": "node backend/scripts/cleanup.js",
     "verify:overrides": "node backend/scripts/verifyOverrides.js",
+    "verify:mp-webhook": "node backend/scripts/mp_webhook_probe.js",
     "device:qa": "node scripts/device-qa.js"
   },
   "dependencies": {

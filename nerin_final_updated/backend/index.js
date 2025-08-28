@@ -52,6 +52,9 @@ const mpPreference = mpClient ? new Preference(mpClient) : null;
 const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+const MP_NOTIFICATION_URL =
+  process.env.MP_NOTIFICATION_URL ||
+  `${PUBLIC_URL.replace(/\/$/, '')}/api/webhooks/mp`;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const API_FORWARD_URL = process.env.API_FORWARD_URL || "";
 const db = require("./db");
@@ -210,7 +213,7 @@ app.post("/api/orders", async (req, res) => {
           },
           auto_return: "approved",
           external_reference: id,
-          notification_url: `https://nerinparts.com.ar/api/webhooks/mp`,
+          notification_url: MP_NOTIFICATION_URL,
         };
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;
@@ -300,9 +303,11 @@ async function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(order.status || order.estado_pago || order.payment_status || "").toLowerCase();
+  const raw = String(
+    order.status || order.estado_pago || order.payment_status || ""
+  ).toLowerCase();
   let status = "pending";
-  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
+  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved"; // "pagado" solo por compatibilidad
   else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
   return {
     status,
