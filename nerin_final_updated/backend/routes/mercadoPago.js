@@ -13,14 +13,7 @@ const {
   applyInventoryForOrder,
   revertInventoryForOrder,
 } = require('../services/inventory');
-
-function mapStatus(mpStatus) {
-  const s = String(mpStatus || '').toLowerCase();
-  if (s === 'approved') return 'aprobado';
-  if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(s))
-    return 'rechazado';
-  return 'pendiente';
-}
+const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 
 function ordersPath() {
   return path.join(dataDir, 'orders.json');
@@ -117,6 +110,7 @@ async function upsertOrder({
 
   await saveOrders(orders);
 
+  let stockDelta = 0;
   if (statusRaw === 'approved') {
     if (db.getPool()) {
       await ordersRepo.createOrder({
@@ -125,7 +119,8 @@ async function upsertOrder({
         items: row.productos || row.items || [],
       });
     } else if (!inventoryApplied) {
-      await applyInventoryForOrder(row);
+      const qty = await applyInventoryForOrder(row);
+      if (qty) stockDelta -= qty;
     }
   } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)) {
     if (db.getPool()) {
@@ -133,13 +128,17 @@ async function upsertOrder({
       if (oid) {
         const dbOrder = await ordersRepo.getById(oid);
         if (dbOrder && dbOrder.inventory_applied) {
-          await revertInventoryForOrder(dbOrder);
+          const qty = await revertInventoryForOrder(dbOrder);
+          if (qty) stockDelta += qty;
         }
       }
     } else if (inventoryApplied) {
-      await revertInventoryForOrder(row);
+      const qty = await revertInventoryForOrder(row);
+      if (qty) stockDelta += qty;
     }
   }
+
+  return { stockDelta };
 }
 
 async function processPayment(id, hints = {}) {
@@ -149,7 +148,7 @@ async function processPayment(id, hints = {}) {
     });
     const p = await res.json();
     const statusRaw = p.status;
-    const mapped = mapStatus(statusRaw);
+    const mapped = mapMpStatus(statusRaw);
     const externalRef = p.external_reference || hints.externalRef || null;
     const prefId = p.preference_id || hints.prefId || null;
     const total = Number(
@@ -158,8 +157,7 @@ async function processPayment(id, hints = {}) {
         p.amount ||
         0
     );
-
-    await upsertOrder({
+    const { stockDelta } = await upsertOrder({
       externalRef,
       prefId,
       status: mapped,
@@ -174,12 +172,26 @@ async function processPayment(id, hints = {}) {
       externalRef,
       prefId,
       status: mapped,
+      stock_delta: stockDelta,
     });
+
+    return {
+      mp_lookup_ok: true,
+      status: mapped,
+      stockDelta,
+      idempotent: stockDelta === 0,
+    };
   } catch (e) {
     logger.warn('mp-webhook payment fetch omitido', {
       paymentId: id,
       msg: e?.message,
     });
+    return {
+      mp_lookup_ok: false,
+      status: null,
+      stockDelta: 0,
+      idempotent: true,
+    };
   }
 }
 
@@ -220,24 +232,22 @@ async function processNotification(reqOrTopic, maybeId) {
               externalRef,
               prefId,
             });
-            return;
+            return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
           }
-          await processPayment(paymentId, { externalRef, prefId });
-          return;
+          return await processPayment(paymentId, { externalRef, prefId });
         }
         if (data?.status && data?.external_reference) {
-          await processPayment(data.id, {
+          return await processPayment(data.id, {
             externalRef: data.external_reference,
             prefId: data.preference_id,
           });
-          return;
         }
       } catch (e) {
         logger.warn('mp-webhook resource fetch omitido', {
           resource,
           msg: e?.message,
         });
-        return;
+        return { mp_lookup_ok: false, status: null, stockDelta: 0, idempotent: true };
       }
     }
 
@@ -258,22 +268,20 @@ async function processNotification(reqOrTopic, maybeId) {
             externalRef,
             prefId,
           });
-          return;
+          return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
         }
-        await processPayment(paymentId, { externalRef, prefId });
-        return;
+        return await processPayment(paymentId, { externalRef, prefId });
       } catch (e) {
         logger.info('mp-webhook merchant_order fetch omitido', {
           moId,
           msg: e?.message,
         });
-        return;
+        return { mp_lookup_ok: false, status: null, stockDelta: 0, idempotent: true };
       }
     }
 
     if (topic === 'payment' || /^[0-9]+$/.test(String(rawId))) {
-      await processPayment(rawId);
-      return;
+      return await processPayment(rawId);
     }
   } catch (error) {
     logger.error(`mp-webhook error inesperado: ${error.message}`);

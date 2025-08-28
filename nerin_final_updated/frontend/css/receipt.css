@@ -73,7 +73,7 @@ body {
   font-size: 0.875rem;
 }
 
-.status-pagado { /* nerin brand fix */
+.status-aprobado { /* nerin brand fix */
   background: var(--color-success);
   color: #fff;
 }
