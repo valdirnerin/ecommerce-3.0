@@ -20,7 +20,7 @@ Desde este panel es posible:
 * **Gestionar productos**: añadir nuevos artículos, editar los existentes y
   eliminarlos del catálogo. Los cambios se guardan en `data/products.json`.
 * **Gestionar pedidos**: ver todos los pedidos registrados, cambiar su
-  estado (pendiente, pagado, en preparación, enviado o entregado) y
+  estado (pendiente, aprobado, en preparación, enviado o entregado) y
   registrar datos de envío (número de seguimiento y transportista). Desde
   esta sección también se puede generar la factura de cada pedido.
 * **Gestionar clientes**: listar todos los clientes mayoristas con su
@@ -349,9 +349,17 @@ carpetas y scripts según crezcan las necesidades de NERIN.
 Crea un archivo `.env.example` con:
 ```
 MP_ACCESS_TOKEN=
+MP_NOTIFICATION_URL=
+MP_WEBHOOK_SECRET=
 RESEND_API_KEY=
 PUBLIC_URL=http://localhost:3000
+ADMIN_PROBE_TOKEN=
+ENABLE_MP_WEBHOOK_HEALTH=
 ```
+
+Para habilitar temporalmente el endpoint de salud del webhook, definí
+`ENABLE_MP_WEBHOOK_HEALTH=1` junto con `ADMIN_PROBE_TOKEN`. Quitá estas
+variables luego de validar para deshabilitarlo.
 
 Para persistir archivos y logs en Render, define además:
 

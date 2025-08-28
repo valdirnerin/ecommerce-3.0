@@ -8,6 +8,7 @@
 
 import { getUserRole, logout } from "./api.js";
 import { renderAnalyticsDashboard } from "./analytics.js";
+import "./mpStatusMap.js";
 
 // Verificar rol de administrador o vendedor
 const currentRole = getUserRole();
@@ -941,12 +942,14 @@ async function loadOrders() {
         totalTd.textContent = `$${order.total_amount.toLocaleString("es-AR")}`;
         const statusTd = document.createElement("td");
         const statusSelect = document.createElement("select");
-        ["pendiente", "en proceso", "pagado", "rechazado"].forEach((st) => {
-          const opt = document.createElement("option");
-          opt.value = st;
-          opt.textContent = st;
-          statusSelect.appendChild(opt);
-        });
+        (window.MP_STATUS_VALUES || ["pendiente", "aprobado", "rechazado"]).forEach(
+          (st) => {
+            const opt = document.createElement("option");
+            opt.value = st;
+            opt.textContent = st;
+            statusSelect.appendChild(opt);
+          },
+        );
         statusSelect.value = order.payment_status;
         statusTd.appendChild(statusSelect);
         const trackingTd = document.createElement("td");
@@ -1052,7 +1055,7 @@ async function loadOrders() {
             } else {
               invoiceBtn.textContent = "Cargar factura";
               fileNameSpan.textContent = "";
-              const pending = order.payment_status === "pagado";
+              const pending = order.payment_status === "aprobado";
               invoiceStatus.textContent = pending ? "Pendiente" : "No emitida";
               invoiceStatus.className =
                 "invoice-status " + (pending ? "pending" : "none");

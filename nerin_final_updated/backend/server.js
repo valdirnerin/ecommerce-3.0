@@ -38,6 +38,7 @@ const generarNumeroOrden = require("./utils/generarNumeroOrden");
 const verifyEmail = require("./emailValidator");
 const validateWebhook = require("./middleware/validateWebhook");
 const { processNotification } = require("./routes/mercadoPago");
+const { mapMpStatus } = require("../frontend/js/mpStatusMap");
 const { getFooter, postFooter } = require("./routes/adminFooter");
 require("dotenv").config();
 const CONFIG = getConfig();
@@ -512,10 +513,7 @@ async function saveOrderItems(items) {
 }
 
 function mapPaymentStatus(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "approved" || s === "aprobado" || s === "pagado") return "pagado";
-  if (s === "rejected" || s === "rechazado") return "rechazado";
-  return "pendiente";
+  return mapMpStatus(status);
 }
 
 function normalizeOrder(o) {
@@ -589,12 +587,11 @@ function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(
-    order.estado_pago || order.payment_status || "",
-  ).toLowerCase();
+  const raw = order.estado_pago || order.payment_status || "";
+  const mapped = mapMpStatus(raw);
   let status = "pending";
-  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
-  else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+  if (mapped === "aprobado") status = "approved";
+  else if (mapped === "rechazado") status = "rejected";
   return {
     status,
     numeroOrden:
@@ -723,7 +720,7 @@ function sendJson(res, statusCode, data) {
   res.end(json);
 }
 
-// Enviar email de confirmación cuando un pedido se marca como pagado
+// Enviar email de confirmación cuando un pedido se marca como aprobado
 function sendOrderPaidEmail(order) {
   if (!resend || !order.cliente || !order.cliente.email) return;
   try {
@@ -1479,7 +1476,7 @@ const server = http.createServer((req, res) => {
     try {
       const status = (parsedUrl.query.payment_status || "all").toLowerCase();
       let orders = getOrders();
-      if (["pendiente", "pagado", "rechazado"].includes(status)) {
+      if (["pendiente", "aprobado", "rechazado"].includes(status)) {
         orders = orders.filter(
           (o) => mapPaymentStatus(o.payment_status || o.estado_pago) === status,
         );

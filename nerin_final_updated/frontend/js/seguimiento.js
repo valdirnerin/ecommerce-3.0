@@ -1,4 +1,5 @@
 // Módulo para consultar el estado de un pedido
+import './mpStatusMap.js';
 
 const form = document.getElementById('trackForm');
 const emailInput = document.getElementById('email');
@@ -85,7 +86,7 @@ function renderTracker(o) {
     'Entregado'
   ];
   let current = 0;
-  if (o.estado_pago === 'pagado') current = 1;
+  if (mapMpStatus(o.estado_pago) === 'aprobado') current = 1;
   if (o.estado_envio === 'en preparación') current = 2;
   if (o.estado_envio === 'enviado') current = 3;
   if (o.estado_envio === 'entregado') current = 4;

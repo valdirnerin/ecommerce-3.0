@@ -104,6 +104,7 @@ function applyInventoryForOrder(order) {
     }
     const products = getProducts();
     const logItems = [];
+    let total = 0;
     (row.productos || row.items || []).forEach((it) => {
       const prod = matchProduct(products, it);
       if (!prod) {
@@ -122,6 +123,7 @@ function applyInventoryForOrder(order) {
         after = 0;
       }
       prod.stock = after;
+      total += qty;
       logItems.push({ id: prod.id || prod.sku, qty, before, after });
     });
     saveProducts(products);
@@ -134,7 +136,7 @@ function applyInventoryForOrder(order) {
     logger.info(
       `inventory: apply nrn=${nrn} pref=${row.preference_id || ''} items=${JSON.stringify(logItems)}`,
     );
-    return true;
+    return total;
   } finally {
     release();
   }
@@ -158,6 +160,7 @@ function revertInventoryForOrder(order) {
     }
     const products = getProducts();
     const logItems = [];
+    let total = 0;
     (row.productos || row.items || []).forEach((it) => {
       const prod = matchProduct(products, it);
       if (!prod) {
@@ -168,6 +171,7 @@ function revertInventoryForOrder(order) {
       const before = Number(prod.stock || 0);
       const after = before + qty;
       prod.stock = after;
+      total += qty;
       logItems.push({ id: prod.id || prod.sku, qty, before, after });
     });
     saveProducts(products);
@@ -181,7 +185,7 @@ function revertInventoryForOrder(order) {
     logger.info(
       `inventory: revert nrn=${nrn} pref=${row.preference_id || ''} items=${JSON.stringify(logItems)}`,
     );
-    return true;
+    return total;
   } finally {
     release();
   }

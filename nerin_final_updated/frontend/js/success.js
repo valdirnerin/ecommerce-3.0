@@ -1,3 +1,4 @@
+import './mpStatusMap.js';
 const receipt = document.getElementById('card');
 
 function showToast(message) {
@@ -50,9 +51,7 @@ function mapData(data = {}, fallbackId) {
   const statusRaw = String(
     payment.status || order.paymentStatus || order.payment_status || ''
   ).toLowerCase();
-  let status = 'pendiente';
-  if (['approved', 'aprobado', 'pagado'].includes(statusRaw)) status = 'aprobado';
-  else if (['rejected', 'rechazado'].includes(statusRaw)) status = 'rechazado';
+  const status = mapMpStatus(statusRaw);
   const total = resolveTotal(order, payment, merchant, items);
   const tracking =
     order.tracking_number || order.tracking || order.seguimiento || '';

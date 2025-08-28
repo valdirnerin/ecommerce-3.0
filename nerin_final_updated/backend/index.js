@@ -62,6 +62,8 @@ db.init().catch((e) => console.error("db init", e));
 const productsRepo = require("./data/productsRepo");
 const ordersRepo = require("./data/ordersRepo");
 const { processNotification } = require("./routes/mercadoPago");
+const verifySignature = require("./middleware/verifySignature");
+const { mapMpStatus } = require("../frontend/js/mpStatusMap");
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
@@ -303,12 +305,11 @@ async function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(
-    order.status || order.estado_pago || order.payment_status || ""
-  ).toLowerCase();
+  const raw = order.status || order.estado_pago || order.payment_status || "";
+  const mapped = mapMpStatus(raw);
   let status = "pending";
-  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved"; // "pagado" solo por compatibilidad
-  else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+  if (mapped === "aprobado") status = "approved";
+  else if (mapped === "rechazado") status = "rejected";
   return {
     status,
     numeroOrden: order.id || order.order_number || order.external_reference || null,
@@ -357,15 +358,88 @@ app.post("/api/track-order", async (req, res) => {
 });
 
 // Webhook de Mercado Pago: procesar localmente
-app.post(["/api/mercado-pago/webhook", "/api/webhooks/mp"], async (req, res) => {
-  // ACK inmediato a MP
-  res.sendStatus(200);
+app.post(
+  ["/api/mercado-pago/webhook", "/api/webhooks/mp"],
+  verifySignature,
+  async (req, res) => {
+    const isProbe = req.query.probe === '1' || req.headers['x-self-test'] === '1';
+    if (!isProbe) {
+      // ACK inmediato a MP
+      res.sendStatus(200);
+      if (!req.validSignature) return;
+      try {
+        await processNotification(req);
+      } catch (e) {
+        console.error("mp local process error", e);
+      }
+      return;
+    }
+
+    const result = { handler_200: true, signature_valid: !!req.validSignature };
+    if (req.validSignature) {
+      try {
+        const info = await processNotification(req);
+        result.mp_lookup_ok = !!info?.mp_lookup_ok;
+        result.final_status = info?.status || null;
+        result.stock_delta = info?.stockDelta || 0;
+        result.idempotent = info ? !!info.idempotent : true;
+      } catch (e) {
+        result.mp_lookup_ok = false;
+        result.final_status = null;
+        result.stock_delta = 0;
+        result.idempotent = true;
+      }
+    } else {
+      result.mp_lookup_ok = false;
+      result.final_status = null;
+      result.stock_delta = 0;
+      result.idempotent = true;
+    }
+    res.json(result);
+  },
+);
+
+const ADMIN_PROBE_TOKEN = process.env.ADMIN_PROBE_TOKEN || '';
+const ENABLE_MP_WEBHOOK_HEALTH = process.env.ENABLE_MP_WEBHOOK_HEALTH === '1';
+
+async function runSelfProbe() {
+  const crypto = require('crypto');
+  const secret = process.env.MP_WEBHOOK_SECRET || '';
+  const bodyObj = { type: 'self-test', id: Date.now() };
+  const body = JSON.stringify(bodyObj);
+  const sig = secret
+    ? crypto.createHmac('sha256', secret).update(body).digest('hex')
+    : '';
+  const res = await fetchFn(
+    `http://127.0.0.1:${PORT}/api/webhooks/mp?probe=1`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sig ? { 'x-signature': sig } : {}),
+        'x-self-test': '1',
+      },
+      body,
+    },
+  );
   try {
-    await processNotification(req);
-  } catch (e) {
-    console.error("mp local process error", e);
+    return await res.json();
+  } catch {
+    return { handler_200: res.ok };
   }
-});
+}
+
+if (ENABLE_MP_WEBHOOK_HEALTH && ADMIN_PROBE_TOKEN) {
+  app.get('/ops/health/mp-webhook', async (req, res) => {
+    if (req.query.token !== ADMIN_PROBE_TOKEN) return res.status(403).end();
+    try {
+      const r = await runSelfProbe();
+      res.json(r);
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+}
 
 // API: checkout / confirmar pedido
 // Este endpoint recibe el contenido del carrito y devuelve un mensaje de éxito.
