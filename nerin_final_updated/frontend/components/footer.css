@@ -44,11 +44,62 @@ main {
 }
 
 .site-footer {
-  background: #f8f8f8;
-  padding: 1rem;
-  text-align: center;
+  background: var(--color-secondary);
+  color: #fff;
+  padding: 2rem 1rem;
   font-size: 0.875rem;
-  color: #555;
+}
+
+.site-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.site-footer a:hover,
+.site-footer a:focus {
+  text-decoration: underline;
+}
+
+.footer-top {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+}
+
+.footer-nav-list,
+.footer-contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.footer-logo {
+  display: inline-block;
+}
+
+.footer-bottom {
+  margin-top: 2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding-top: 1rem;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .footer-top {
+    flex-direction: row;
+    justify-content: space-between;
+  }
 }
 
 .wa-fab {
