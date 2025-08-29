@@ -61,9 +61,12 @@ const db = require("./db");
 db.init().catch((e) => console.error("db init", e));
 const productsRepo = require("./data/productsRepo");
 const ordersRepo = require("./data/ordersRepo");
-const { processNotification } = require("./routes/mercadoPago");
+const { processNotification, processPayment } = require("./routes/mercadoPago");
 const verifySignature = require("./middleware/verifySignature");
-const { mapMpStatus } = require("../frontend/js/mpStatusMap");
+const { mapMpStatus, MP_STATUS_MAP } = require("../frontend/js/mpStatusMap");
+const logger = require("./logger");
+
+let autoElevateCount = 0;
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
@@ -290,23 +293,44 @@ app.get("/api/orders", async (req, res) => {
 
 async function getOrderStatus(id) {
   const orders = await getOrders();
-  let order;
-  if (id && id.startsWith("pref_")) {
-    order = orders.find((o) => String(o.preference_id) === id);
-  } else {
-    order = orders.find(
-      (o) =>
-        String(o.id) === id ||
-        String(o.external_reference) === id ||
-        String(o.order_number) === id,
-    );
-  }
+  const order = orders.find(
+    (o) =>
+      String(o.id) === id ||
+      String(o.external_reference) === id ||
+      String(o.order_number) === id ||
+      String(o.preference_id) === id,
+  );
   if (!order) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = order.status || order.estado_pago || order.payment_status || "";
-  const mapped = mapMpStatus(raw);
+  let raw = order.status || order.estado_pago || order.payment_status || "";
+  let mapped = mapMpStatus(raw);
+  if (
+    mapped === "pendiente" &&
+    order.payment_id &&
+    order.last_mp_webhook?.status === "approved"
+  ) {
+    try {
+      const info = await processPayment(
+        order.payment_id,
+        { externalRef: order.external_reference, prefId: order.preference_id },
+        { topic: "status-fallback", id: order.payment_id, at: new Date().toISOString() },
+      );
+      if (info?.status) {
+        raw = info.status;
+        mapped = info.status;
+        if (mapped === "aprobado") {
+          autoElevateCount++;
+          logger.info("order-status auto-elevated", {
+            order: order.id || id,
+            payment_id: order.payment_id,
+            count: autoElevateCount,
+          });
+        }
+      }
+    } catch {}
+  }
   let status = "pending";
   if (mapped === "aprobado") status = "approved";
   else if (mapped === "rechazado") status = "rejected";
@@ -318,8 +342,12 @@ async function getOrderStatus(id) {
 
 app.get("/api/orders/test/:id/status", async (req, res) => {
   try {
-    res.set("Cache-Control", "no-store");
-    res.json(await getOrderStatus(req.params.id));
+    const info = await getOrderStatus(req.params.id);
+    res.set(
+      "Cache-Control",
+      info.status === "pending" ? "no-store" : "public, max-age=60",
+    );
+    res.json(info);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al obtener estado" });
@@ -328,8 +356,12 @@ app.get("/api/orders/test/:id/status", async (req, res) => {
 
 app.get("/api/orders/:id/status", async (req, res) => {
   try {
-    res.set("Cache-Control", "no-store");
-    res.json(await getOrderStatus(req.params.id));
+    const info = await getOrderStatus(req.params.id);
+    res.set(
+      "Cache-Control",
+      info.status === "pending" ? "no-store" : "public, max-age=60",
+    );
+    res.json(info);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al obtener estado" });
@@ -350,22 +382,29 @@ app.get("/ops/order-status/:id", async (req, res) => {
         String(o.order_number) === id,
     );
     if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
-    const raw = {
-      status: order.status || null,
-      estado_pago: order.estado_pago || null,
-      payment_status: order.payment_status || null,
-      payment_status_raw: order.payment_status_raw || null,
-      updated_at:
-        order.updated_at || order.fecha || order.created_at || null,
-    };
-    const mapped = mapMpStatus(
-      raw.status || raw.estado_pago || raw.payment_status,
+    const db_status = mapMpStatus(
+      order.status || order.estado_pago || order.payment_status || "",
     );
-    let computed = "pending";
-    if (mapped === "aprobado") computed = "approved";
-    else if (mapped === "rechazado") computed = "rejected";
+    const updated_at = order.updated_at || order.fecha || order.created_at || null;
+    const last_webhook = order.last_mp_webhook || null;
+    let api_status = null;
+    let api_headers = {};
+    try {
+      const r = await fetchFn(
+        `http://127.0.0.1:${PORT}/api/orders/${encodeURIComponent(id)}/status`,
+      );
+      api_status = (await r.json()).status;
+      api_headers = { "cache-control": r.headers.get("cache-control") };
+    } catch {}
     res.set("Cache-Control", "no-store");
-    res.json({ raw_status: raw, computed_status: computed });
+    res.json({
+      db_status,
+      updated_at,
+      last_webhook,
+      api_status,
+      api_headers,
+      mapping_used: MP_STATUS_MAP,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al obtener estado" });
