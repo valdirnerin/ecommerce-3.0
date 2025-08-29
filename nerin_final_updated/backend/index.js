@@ -318,6 +318,7 @@ async function getOrderStatus(id) {
 
 app.get("/api/orders/test/:id/status", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     res.json(await getOrderStatus(req.params.id));
   } catch (err) {
     console.error(err);
@@ -327,7 +328,44 @@ app.get("/api/orders/test/:id/status", async (req, res) => {
 
 app.get("/api/orders/:id/status", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store");
     res.json(await getOrderStatus(req.params.id));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al obtener estado" });
+  }
+});
+
+app.get("/ops/order-status/:id", async (req, res) => {
+  const secret = process.env.DIAG_SECRET;
+  if (secret && req.query.secret !== secret) return res.sendStatus(403);
+  try {
+    const orders = await getOrders();
+    const id = req.params.id;
+    const order = orders.find(
+      (o) =>
+        String(o.id) === id ||
+        String(o.external_reference) === id ||
+        String(o.preference_id) === id ||
+        String(o.order_number) === id,
+    );
+    if (!order) return res.status(404).json({ error: "Pedido no encontrado" });
+    const raw = {
+      status: order.status || null,
+      estado_pago: order.estado_pago || null,
+      payment_status: order.payment_status || null,
+      payment_status_raw: order.payment_status_raw || null,
+      updated_at:
+        order.updated_at || order.fecha || order.created_at || null,
+    };
+    const mapped = mapMpStatus(
+      raw.status || raw.estado_pago || raw.payment_status,
+    );
+    let computed = "pending";
+    if (mapped === "aprobado") computed = "approved";
+    else if (mapped === "rechazado") computed = "rejected";
+    res.set("Cache-Control", "no-store");
+    res.json({ raw_status: raw, computed_status: computed });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al obtener estado" });
