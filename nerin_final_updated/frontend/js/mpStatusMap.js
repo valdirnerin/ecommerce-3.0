@@ -6,6 +6,10 @@ const MP_STATUS_MAP = {
   charged_back: 'rechazado',
   in_process: 'pendiente',
   pending: 'pendiente',
+  // internal statuses
+  aprobado: 'aprobado',
+  rechazado: 'rechazado',
+  pendiente: 'pendiente',
 };
 
 function mapMpStatus(status) {
