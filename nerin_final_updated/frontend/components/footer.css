@@ -1,22 +1,20 @@
 /*
   Footer spacing tokens – single source of truth for FAB/CTA/footer offsets.
-  --safe-area      : device bottom inset from iOS/Android safe-area env var.
-  --footer-offset  : runtime offset set by footer.js based on CTA height
-                     and footer overlap.
-  --bottom-offset  : sum of safe-area and footer-offset; consumed by main
-                     padding and floating UI to avoid collisions.
-  --z-float        : z-index used by floating elements (CTA/FAB) to keep
-                     layering consistent across pages.
+  --safe-area     : device bottom inset from iOS/Android safe-area env var.
+  --bottom-inset  : runtime inset set by footer.js based on CTA height,
+                    footer overlap and safe-area. Consumed by main padding
+                    and floating UI to avoid collisions.
+  --z-float       : z-index used by floating elements (CTA/FAB) to keep
+                    layering consistent across pages.
 */
 :root {
   --safe-area: env(safe-area-inset-bottom, 0px);
-  --footer-offset: 0px;
-  --bottom-offset: calc(var(--safe-area) + var(--footer-offset));
+  --bottom-inset: var(--safe-area);
   --z-float: 1000;
 }
 
 main {
-  padding-bottom: var(--bottom-offset);
+  padding-bottom: var(--bottom-inset);
 }
 
 .hide-cta .sticky-cta {
@@ -37,6 +35,7 @@ main {
   border-top: 1px solid #ddd;
   z-index: var(--z-float);
   transition: transform 0.3s ease;
+  overflow-anchor: none;
 }
 
 .sticky-cta.is-hidden {
@@ -105,7 +104,7 @@ main {
 .wa-fab {
   position: fixed;
   right: 16px;
-  bottom: calc(16px + var(--bottom-offset));
+  bottom: calc(16px + var(--bottom-inset));
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -115,6 +114,7 @@ main {
   justify-content: center;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   z-index: var(--z-float);
+  overflow-anchor: none;
 }
 
 .wa-fab img {

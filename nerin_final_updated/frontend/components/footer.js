@@ -52,10 +52,13 @@
     const getSafe = () =>
       parseFloat(getComputedStyle(html).getPropertyValue('--safe-area')) || 0;
 
+    let lastInset = 0;
+    let raf = 0;
+    let ctaHidden = false;
+    let ctaBase = 0;
+
     function update() {
-      const ctaHeight = cta && !cta.classList.contains('is-hidden')
-        ? cta.offsetHeight
-        : 0;
+      const ctaHeight = cta && !ctaHidden ? cta.offsetHeight : 0;
       let offset = ctaHeight;
       const vp = window.innerHeight;
       const safe = getSafe();
@@ -66,23 +69,41 @@
           if (overlap > offset) offset = overlap;
         }
       }
-      html.style.setProperty('--footer-offset', `${Math.ceil(offset)}px`);
+      const inset = Math.ceil(offset + safe);
+      if (Math.abs(inset - lastInset) > 1) {
+        lastInset = inset;
+        html.style.setProperty('--bottom-inset', `${inset}px`);
+      }
+    }
+
+    function requestUpdate() {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        update();
+      });
     }
 
     // Hide CTA when footer visible
     if ('IntersectionObserver' in window && footer && cta) {
+      const H = 12;
       const io = new IntersectionObserver(
         (entries) => {
           entries.forEach((en) => {
-            if (en.isIntersecting) {
+            const diff = en.rootBounds.bottom - en.boundingClientRect.top;
+            if (!ctaHidden && diff > H) {
+              ctaHidden = true;
+              ctaBase = cta.offsetHeight;
               cta.classList.add('is-hidden');
-            } else {
+              requestUpdate();
+            } else if (ctaHidden && diff < -ctaBase - H) {
+              ctaHidden = false;
               cta.classList.remove('is-hidden');
+              requestUpdate();
             }
-            update();
           });
         },
-        { rootMargin: '0px 0px -10% 0px', threshold: 0.01 }
+        { rootMargin: '0px 0px -16px 0px', threshold: [0, 0.05, 0.1] }
       );
       io.observe(footer);
     }
@@ -90,13 +111,16 @@
     // Hide CTA on input focus
     window.addEventListener('focusin', (e) => {
       if (e.target.matches('input, select, textarea')) {
+        ctaHidden = true;
+        ctaBase = cta ? cta.offsetHeight : 0;
         cta?.classList.add('is-hidden');
-        update();
+        requestUpdate();
       }
     });
     window.addEventListener('focusout', () => {
+      ctaHidden = false;
       cta?.classList.remove('is-hidden');
-      update();
+      requestUpdate();
     });
 
     const checkWa = () => {
@@ -107,11 +131,14 @@
     window.addEventListener('resize', checkWa);
 
     ['load', 'resize', 'orientationchange'].forEach((ev) =>
-      window.addEventListener(ev, update, { passive: true })
+      window.addEventListener(ev, requestUpdate, { passive: true })
     );
-    const ro = 'ResizeObserver' in window && cta ? new ResizeObserver(update) : null;
-    if (ro && cta) ro.observe(cta);
+    const ro = 'ResizeObserver' in window ? new ResizeObserver(requestUpdate) : null;
+    if (ro) {
+      if (cta) ro.observe(cta);
+      if (footer) ro.observe(footer);
+    }
 
-    update();
+    requestUpdate();
   });
 })();
