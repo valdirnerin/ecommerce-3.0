@@ -94,13 +94,13 @@ function applyInventoryForOrder(order) {
   try {
     const orders = getOrders();
     const idx = findOrderIndex(orders, order);
-    if (idx === -1) return false;
+    if (idx === -1) return { total: 0, items: [] };
     const row = orders[idx];
     if (row.inventoryApplied || row.inventory_applied) {
       logger.info(
         `inventory: skip (already applied) nrn=${row.external_reference || row.id} pref=${row.preference_id || ''}`,
       );
-      return false;
+      return { total: 0, items: [] };
     }
     const products = getProducts();
     const logItems = [];
@@ -124,7 +124,7 @@ function applyInventoryForOrder(order) {
       }
       prod.stock = after;
       total += qty;
-      logItems.push({ id: prod.id || prod.sku, qty, before, after });
+      logItems.push({ sku: prod.id || prod.sku, before, after });
     });
     saveProducts(products);
     row.inventoryApplied = true;
@@ -136,7 +136,7 @@ function applyInventoryForOrder(order) {
     logger.info(
       `inventory: apply nrn=${nrn} pref=${row.preference_id || ''} items=${JSON.stringify(logItems)}`,
     );
-    return total;
+    return { total, items: logItems };
   } finally {
     release();
   }
@@ -150,13 +150,13 @@ function revertInventoryForOrder(order) {
   try {
     const orders = getOrders();
     const idx = findOrderIndex(orders, order);
-    if (idx === -1) return false;
+    if (idx === -1) return { total: 0, items: [] };
     const row = orders[idx];
     if (!row.inventoryApplied && !row.inventory_applied) {
       logger.info(
         `inventory: skip (not applied) nrn=${row.external_reference || row.id} pref=${row.preference_id || ''}`,
       );
-      return false;
+      return { total: 0, items: [] };
     }
     const products = getProducts();
     const logItems = [];
@@ -172,7 +172,7 @@ function revertInventoryForOrder(order) {
       const after = before + qty;
       prod.stock = after;
       total += qty;
-      logItems.push({ id: prod.id || prod.sku, qty, before, after });
+      logItems.push({ sku: prod.id || prod.sku, before, after });
     });
     saveProducts(products);
     row.inventoryApplied = false;
@@ -185,7 +185,7 @@ function revertInventoryForOrder(order) {
     logger.info(
       `inventory: revert nrn=${nrn} pref=${row.preference_id || ''} items=${JSON.stringify(logItems)}`,
     );
-    return total;
+    return { total, items: logItems };
   } finally {
     release();
   }

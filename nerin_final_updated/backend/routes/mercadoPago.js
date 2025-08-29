@@ -16,6 +16,10 @@ const {
 const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 
 const TRACE_REF = process.env.TRACE_REF;
+const SKIP_MP_PAYMENT_FETCH =
+  process.env.SKIP_MP_PAYMENT_FETCH === '1' &&
+  process.env.NODE_ENV !== 'production' &&
+  process.env.MP_ENV !== 'production';
 function traceRef(ref, step, info) {
   if (TRACE_REF && String(ref) === String(TRACE_REF)) {
     logger.info(`trace ${step} ${JSON.stringify(info)}`);
@@ -128,18 +132,27 @@ async function upsertOrder({
   const inventoryApplied = row.inventoryApplied || row.inventory_applied;
 
   await saveOrders(orders);
-
   let stockDelta = 0;
+  let idempotent = false;
+  let itemsChanged = [];
   if (statusRaw === 'approved') {
     if (db.getPool()) {
-      await ordersRepo.createOrder({
+      const res = await ordersRepo.createOrder({
         id: row.external_reference || row.id,
         customer_email: row.cliente?.email || null,
         items: row.productos || row.items || [],
       });
+      if (res) {
+        if (!res.alreadyApplied && res.totalQty) stockDelta -= res.totalQty;
+        itemsChanged = res.itemsChanged || [];
+        idempotent = res.alreadyApplied;
+      }
     } else if (!inventoryApplied) {
-      const qty = await applyInventoryForOrder(row);
-      if (qty) stockDelta -= qty;
+      const res = await applyInventoryForOrder(row);
+      if (res?.total) stockDelta -= res.total;
+      itemsChanged = res?.items || [];
+    } else {
+      idempotent = true;
     }
   } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)) {
     if (db.getPool()) {
@@ -147,20 +160,34 @@ async function upsertOrder({
       if (oid) {
         const dbOrder = await ordersRepo.getById(oid);
         if (dbOrder && dbOrder.inventory_applied) {
-          const qty = await revertInventoryForOrder(dbOrder);
-          if (qty) stockDelta += qty;
+          const res = await revertInventoryForOrder(dbOrder);
+          if (res?.total) stockDelta += res.total;
+          itemsChanged = res?.items || [];
         }
       }
     } else if (inventoryApplied) {
-      const qty = await revertInventoryForOrder(row);
-      if (qty) stockDelta += qty;
+      const res = await revertInventoryForOrder(row);
+      if (res?.total) stockDelta += res.total;
+      itemsChanged = res?.items || [];
     }
   }
 
-  return { stockDelta };
+  if (!idempotent && inventoryApplied && stockDelta === 0) {
+    idempotent = true;
+  }
+  return { stockDelta, idempotent, itemsChanged };
 }
 
 async function processPayment(id, hints = {}, webhookInfo = null) {
+  if (SKIP_MP_PAYMENT_FETCH) {
+    logger.warn('mp-webhook payment fetch omitido (flag)', { paymentId: id });
+    return {
+      mp_lookup_ok: false,
+      status: null,
+      stockDelta: 0,
+      idempotent: false,
+    };
+  }
   try {
     const res = await fetchFn(`https://api.mercadopago.com/v1/payments/${id}`, {
       headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
@@ -192,7 +219,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     });
     traceRef(traceId, 'mapped_status', { mapped });
 
-    const { stockDelta } = await upsertOrder({
+    const { stockDelta, idempotent, itemsChanged } = await upsertOrder({
       externalRef,
       prefId,
       status: mapped,
@@ -206,25 +233,25 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     const persistInfo = {
       status: mapped,
       stock_delta: stockDelta,
-      idempotent: stockDelta === 0,
+      idempotent,
     };
     traceRef(traceId, 'order_persisted', persistInfo);
 
     logger.info(
       `mp-webhook OK ${JSON.stringify({
-        topic: 'payment',
-        paymentId: p.id,
+        orderId: externalRef || prefId,
         externalRef,
-        prefId,
-        status: mapped,
+        paymentId: p.id,
+        final_status: mapped,
+        items_changed: itemsChanged,
         stock_delta: stockDelta,
-        idempotent: stockDelta === 0,
+        idempotent,
       })}`,
     );
 
-    return { mp_lookup_ok: true, status: mapped, stockDelta, idempotent: stockDelta === 0 };
+    return { mp_lookup_ok: true, status: mapped, stockDelta, idempotent };
   } catch (e) {
-    logger.warn('mp-webhook payment fetch omitido', {
+    logger.error('mp-webhook payment fetch omitido', {
       paymentId: id,
       msg: e?.message,
     });
@@ -232,7 +259,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       mp_lookup_ok: false,
       status: null,
       stockDelta: 0,
-      idempotent: true,
+      idempotent: false,
     };
   }
 }
