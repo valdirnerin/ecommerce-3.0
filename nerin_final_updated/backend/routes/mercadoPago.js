@@ -15,6 +15,13 @@ const {
 } = require('../services/inventory');
 const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 
+const TRACE_REF = process.env.TRACE_REF;
+function traceRef(ref, step, info) {
+  if (TRACE_REF && String(ref) === String(TRACE_REF)) {
+    logger.info(`trace ${step} ${JSON.stringify(info)}`);
+  }
+}
+
 function ordersPath() {
   return path.join(dataDir, 'orders.json');
 }
@@ -68,6 +75,7 @@ async function upsertOrder({
   status,
   statusRaw,
   paymentId,
+  merchantOrderId,
   total,
   lastWebhook,
 }) {
@@ -84,6 +92,8 @@ async function upsertOrder({
   if (idx !== -1) {
     const row = orders[idx];
     if (paymentId != null) row.payment_id = String(paymentId);
+    if (merchantOrderId != null)
+      row.merchant_order_id = String(merchantOrderId);
     if (status) {
       row.payment_status = status;
       row.estado_pago = status;
@@ -105,6 +115,8 @@ async function upsertOrder({
     row.status = status || 'pendiente';
     if (statusRaw) row.payment_status_raw = statusRaw;
     if (paymentId != null) row.payment_id = String(paymentId);
+    if (merchantOrderId != null)
+      row.merchant_order_id = String(merchantOrderId);
     row.total = total || 0;
     row.created_at = new Date().toISOString();
     row.updated_at = row.created_at;
@@ -158,6 +170,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     const mapped = mapMpStatus(statusRaw);
     const externalRef = p.external_reference || hints.externalRef || null;
     const prefId = p.preference_id || hints.prefId || null;
+    const merchantOrderId = p.order?.id || hints.merchantOrderId || null;
     const total = Number(
       p.transaction_amount ||
         p.transaction_details?.total_paid_amount ||
@@ -170,15 +183,32 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       status: statusRaw,
       at: webhookInfo?.at || new Date().toISOString(),
     };
+    const traceId = externalRef || prefId;
+    traceRef(traceId, 'webhook_received', webhookInfo || {});
+    traceRef(traceId, 'mp_lookup', {
+      status_raw: statusRaw,
+      payment_id: p.id,
+      merchant_order_id: merchantOrderId,
+    });
+    traceRef(traceId, 'mapped_status', { mapped });
+
     const { stockDelta } = await upsertOrder({
       externalRef,
       prefId,
       status: mapped,
       statusRaw,
       paymentId: p.id,
+      merchantOrderId,
       total,
       lastWebhook,
     });
+
+    const persistInfo = {
+      status: mapped,
+      stock_delta: stockDelta,
+      idempotent: stockDelta === 0,
+    };
+    traceRef(traceId, 'order_persisted', persistInfo);
 
     logger.info(
       `mp-webhook OK ${JSON.stringify({
@@ -192,12 +222,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       })}`,
     );
 
-    return {
-      mp_lookup_ok: true,
-      status: mapped,
-      stockDelta,
-      idempotent: stockDelta === 0,
-    };
+    return { mp_lookup_ok: true, status: mapped, stockDelta, idempotent: stockDelta === 0 };
   } catch (e) {
     logger.warn('mp-webhook payment fetch omitido', {
       paymentId: id,
@@ -246,6 +271,7 @@ async function processNotification(reqOrTopic, maybeId) {
           const paymentId = data.payments?.[0]?.id || null;
           const prefId = data.preference_id || null;
           const externalRef = data.external_reference || null;
+          const merchantOrderId = data.id || null;
           if (!paymentId) {
             await upsertOrder({
               externalRef,
@@ -260,7 +286,11 @@ async function processNotification(reqOrTopic, maybeId) {
             });
             return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
           }
-          return await processPayment(paymentId, { externalRef, prefId }, { topic, id: paymentId, at: receivedAt });
+          return await processPayment(
+            paymentId,
+            { externalRef, prefId, merchantOrderId },
+            { topic, id: paymentId, at: receivedAt },
+          );
         }
         if (data?.status && data?.external_reference) {
           return await processPayment(
@@ -268,6 +298,7 @@ async function processNotification(reqOrTopic, maybeId) {
             {
               externalRef: data.external_reference,
               prefId: data.preference_id,
+              merchantOrderId: data.order_id || data.id,
             },
             { topic, id: data.id, at: receivedAt },
           );
@@ -292,6 +323,7 @@ async function processNotification(reqOrTopic, maybeId) {
         const paymentId = mo?.payments?.[0]?.id || null;
         const prefId = mo?.preference_id || null;
         const externalRef = mo?.external_reference || null;
+        const merchantOrderId = mo?.id || null;
         if (!paymentId) {
           await upsertOrder({
             externalRef,
@@ -306,7 +338,11 @@ async function processNotification(reqOrTopic, maybeId) {
           });
           return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
         }
-        return await processPayment(paymentId, { externalRef, prefId }, { topic, id: paymentId, at: receivedAt });
+        return await processPayment(
+          paymentId,
+          { externalRef, prefId, merchantOrderId },
+          { topic, id: paymentId, at: receivedAt },
+        );
       } catch (e) {
         logger.info('mp-webhook merchant_order fetch omitido', {
           moId,
@@ -324,5 +360,5 @@ async function processNotification(reqOrTopic, maybeId) {
   }
 }
 
-module.exports = { processNotification, processPayment };
+module.exports = { processNotification, processPayment, traceRef };
 

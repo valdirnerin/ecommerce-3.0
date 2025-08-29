@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node backend/server.js",
     "test": "jest",
-    "list:webhooks": "node scripts/listMpWebhooks.js"
+    "list:webhooks": "node scripts/listMpWebhooks.js",
+    "mp:trace": "node scripts/mpTrace.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
