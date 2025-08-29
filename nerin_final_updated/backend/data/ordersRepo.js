@@ -100,10 +100,12 @@ async function createOrder({ id, customer_email, items }) {
     (t, it) => t + Number(it.price) * Number(it.qty || it.quantity || 0),
     0
   );
+  const itemsChanged = [];
+  let totalQty = 0;
   if (!pool) {
     const orders = await getAll();
     const existing = orders.find((o) => String(o.id) === String(id));
-    if (existing) return existing;
+    if (existing) return { alreadyApplied: true, totalQty: 0, itemsChanged: [] };
     const order = {
       id,
       customer_email,
@@ -118,21 +120,22 @@ async function createOrder({ id, customer_email, items }) {
       const pid = it.product_id || it.id || it.productId;
       const qty = Number(it.qty || it.quantity || 0);
       if (pid && qty) {
-        await productsRepo.adjustStock(pid, -qty, 'order', id);
+        const before = (await productsRepo.getById(pid))?.stock || 0;
+        const after = await productsRepo.adjustStock(pid, -qty, 'order', id);
+        itemsChanged.push({ sku: pid, before: Number(before), after: Number(after) });
+        totalQty += qty;
       }
     }
-    return order;
+    return { alreadyApplied: false, totalQty, itemsChanged };
   }
   await pool.query('BEGIN');
   try {
-    // Upsert primero, para evitar doble inserción en concurrencia
     await pool.query(
       'INSERT INTO orders (id, created_at, customer_email, status, total, inventory_applied) ' +
-      'VALUES ($1, now(), $2, $3, $4, false) ' +
-      'ON CONFLICT (id) DO NOTHING',
+        'VALUES ($1, now(), $2, $3, $4, false) ' +
+        'ON CONFLICT (id) DO NOTHING',
       [id, customer_email || null, 'approved', total]
     );
-    // Ahora si: tomar lock de la fila
     const { rows } = await pool.query(
       'SELECT inventory_applied FROM orders WHERE id=$1 FOR UPDATE',
       [id]
@@ -144,7 +147,7 @@ async function createOrder({ id, customer_email, items }) {
         [id, customer_email || null, total]
       );
       await pool.query('COMMIT');
-      return { id, customer_email, status: 'approved', total };
+      return { alreadyApplied: true, totalQty: 0, itemsChanged: [] };
     }
     for (const it of items || []) {
       const pid = it.product_id || it.id || it.productId;
@@ -155,21 +158,26 @@ async function createOrder({ id, customer_email, items }) {
         'INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1,$2,$3,$4) ON CONFLICT (order_id, product_id) DO NOTHING',
         [id, pid, qty, price]
       );
-      await pool.query(
-        'UPDATE products SET stock = GREATEST(stock - $1, 0), updated_at=now() WHERE id=$2',
+      const { rows: beforeRows } = await pool.query('SELECT stock FROM products WHERE id=$1', [pid]);
+      const before = beforeRows[0] ? Number(beforeRows[0].stock) : 0;
+      const { rows: afterRows } = await pool.query(
+        'UPDATE products SET stock = GREATEST(stock - $1, 0), updated_at=now() WHERE id=$2 RETURNING stock',
         [qty, pid]
       );
+      const after = afterRows[0] ? Number(afterRows[0].stock) : 0;
       await pool.query(
         'INSERT INTO stock_movements(product_id, delta, reason, ref_id) VALUES ($1,$2,$3,$4)',
         [pid, -qty, 'order', id]
       );
+      itemsChanged.push({ sku: pid, before, after });
+      totalQty += qty;
     }
     await pool.query(
       'UPDATE orders SET inventory_applied=true, customer_email=COALESCE($2, customer_email), total=$3 WHERE id=$1',
       [id, customer_email || null, total]
     );
     await pool.query('COMMIT');
-    return { id, customer_email, status: 'approved', total };
+    return { alreadyApplied: false, totalQty, itemsChanged };
   } catch (e) {
     await pool.query('ROLLBACK');
     throw e;
