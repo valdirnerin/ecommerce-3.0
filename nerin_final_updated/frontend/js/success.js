@@ -74,7 +74,7 @@ function render(info) {
       ? 'Pago aprobado'
       : status === 'rechazado'
       ? 'Pago rechazado'
-      : 'Pago en revisión';
+      : 'Pago pendiente';
   const guide =
     status === 'pendiente'
       ? '<p class="guide">Te avisamos por email. Podés seguir el estado con tu número de pedido.</p>'
