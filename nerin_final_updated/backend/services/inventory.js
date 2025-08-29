@@ -124,7 +124,7 @@ function applyInventoryForOrder(order) {
       }
       prod.stock = after;
       total += qty;
-      logItems.push({ sku: prod.id || prod.sku, before, after });
+      logItems.push({ sku: prod.id || prod.sku, before, after, qty });
     });
     saveProducts(products);
     row.inventoryApplied = true;
@@ -172,7 +172,7 @@ function revertInventoryForOrder(order) {
       const after = before + qty;
       prod.stock = after;
       total += qty;
-      logItems.push({ sku: prod.id || prod.sku, before, after });
+      logItems.push({ sku: prod.id || prod.sku, before, after, qty });
     });
     saveProducts(products);
     row.inventoryApplied = false;

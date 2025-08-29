@@ -20,8 +20,9 @@ const TRACE_REF = process.env.TRACE_REF;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const MP_ENV = process.env.MP_ENV || 'production';
 const SKIP_MP_PAYMENT_FETCH =
-  envFlag('SKIP_MP_PAYMENT_FETCH') &&
-  (!ACCESS_TOKEN || NODE_ENV !== 'production' || MP_ENV !== 'production');
+  !ACCESS_TOKEN || NODE_ENV !== 'production'
+    ? envFlag('SKIP_MP_PAYMENT_FETCH')
+    : false;
 const ENABLE_MP_WEBHOOK_HEALTH = envFlag('ENABLE_MP_WEBHOOK_HEALTH');
 function traceRef(ref, step, info) {
   if (TRACE_REF && String(ref) === String(TRACE_REF)) {
@@ -219,10 +220,39 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       p.external_reference ||
       prefId;
     const merchantOrderId = p.order?.id || hints.merchantOrderId || null;
-    const items =
-      p.additional_info?.items ||
-      p.order?.items ||
-      [];
+    let items = [];
+    if (merchantOrderId) {
+      try {
+        const moRes = await fetchFn(
+          `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`,
+          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
+        );
+        const mo = await moRes.json();
+        items = (mo.order_items || mo.items || []).map((it) => ({
+          id: it.item?.id || it.id,
+          product_id: it.item?.id || it.id,
+          quantity: it.quantity || it.item?.quantity || it.qty || 0,
+          price: it.unit_price || it.item?.unit_price || it.price || 0,
+          title: it.item?.title || it.title,
+          sku: it.sku || it.item?.sku || it.item?.id || it.id,
+        }));
+      } catch (e) {
+        logger.debug('mp-webhook merchant_order items fetch error', {
+          merchantOrderId,
+          msg: e?.message,
+        });
+      }
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      items = (p.additional_info?.items || p.order?.items || []).map((it) => ({
+        id: it.id || it.sku || it.productId || it.product_id,
+        product_id: it.product_id || it.productId || it.id || it.sku,
+        quantity: it.quantity || it.qty || 0,
+        price: it.unit_price || it.price || 0,
+        title: it.title || it.name,
+        sku: it.sku || it.id,
+      }));
+    }
     const total = Number(
       p.transaction_amount ||
         p.transaction_details?.total_paid_amount ||
@@ -311,8 +341,8 @@ async function processNotification(reqOrTopic, maybeId) {
 
   logger.debug('mp-webhook handler flags', {
     MP_ENV,
-    SKIP_MP_PAYMENT_FETCH,
     ENABLE_MP_WEBHOOK_HEALTH,
+    skip_fetch: SKIP_MP_PAYMENT_FETCH,
   });
 
   logger.info(

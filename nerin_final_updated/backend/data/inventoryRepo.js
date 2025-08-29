@@ -10,7 +10,12 @@ async function applyForOrder(order) {
     if (id && qty) {
       const before = (await productsRepo.getById(id))?.stock || 0;
       const after = await productsRepo.adjustStock(id, -qty, 'order', order.id);
-      items.push({ sku: id, before: Number(before), after: Number(after) });
+      items.push({
+        sku: id,
+        before: Number(before),
+        after: Number(after),
+        qty,
+      });
       total += qty;
     }
   }
@@ -27,7 +32,12 @@ async function revertForOrder(order) {
     if (id && qty) {
       const before = (await productsRepo.getById(id))?.stock || 0;
       const after = await productsRepo.adjustStock(id, qty, 'order-revert', order.id);
-      items.push({ sku: id, before: Number(before), after: Number(after) });
+      items.push({
+        sku: id,
+        before: Number(before),
+        after: Number(after),
+        qty,
+      });
       total += qty;
     }
   }

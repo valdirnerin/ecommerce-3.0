@@ -122,7 +122,12 @@ async function createOrder({ id, customer_email, items }) {
       if (pid && qty) {
         const before = (await productsRepo.getById(pid))?.stock || 0;
         const after = await productsRepo.adjustStock(pid, -qty, 'order', id);
-        itemsChanged.push({ sku: pid, before: Number(before), after: Number(after) });
+        itemsChanged.push({
+          sku: pid,
+          before: Number(before),
+          after: Number(after),
+          qty,
+        });
         totalQty += qty;
       }
     }
@@ -169,7 +174,7 @@ async function createOrder({ id, customer_email, items }) {
         'INSERT INTO stock_movements(product_id, delta, reason, ref_id) VALUES ($1,$2,$3,$4)',
         [pid, -qty, 'order', id]
       );
-      itemsChanged.push({ sku: pid, before, after });
+      itemsChanged.push({ sku: pid, before, after, qty });
       totalQty += qty;
     }
     await pool.query(
