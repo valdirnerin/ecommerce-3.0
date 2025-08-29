@@ -38,3 +38,13 @@ Request: `GET /ops/health/mp-webhook?token=****`
 | Real payment log | TODO | no payment captured |
 
 Health endpoint disabled (`ENABLE_MP_WEBHOOK_HEALTH=0`) after this check.
+
+## Trace command
+
+Para trazar una orden específica:
+
+```
+npm run mp:trace -- --external NRN-290825-7098
+```
+
+Esto imprime el estado persistido, último webhook y respuesta real del endpoint consumido por la UI.

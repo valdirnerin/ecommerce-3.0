@@ -61,7 +61,7 @@ const db = require("./db");
 db.init().catch((e) => console.error("db init", e));
 const productsRepo = require("./data/productsRepo");
 const ordersRepo = require("./data/ordersRepo");
-const { processNotification, processPayment } = require("./routes/mercadoPago");
+const { processNotification, processPayment, traceRef } = require("./routes/mercadoPago");
 const verifySignature = require("./middleware/verifySignature");
 const { mapMpStatus, MP_STATUS_MAP } = require("../frontend/js/mpStatusMap");
 const logger = require("./logger");
@@ -334,6 +334,11 @@ async function getOrderStatus(id) {
   let status = "pending";
   if (mapped === "aprobado") status = "approved";
   else if (mapped === "rechazado") status = "rejected";
+  traceRef(
+    order.external_reference || order.preference_id || order.order_number || id,
+    "api_response_to_ui",
+    { status: mapped },
+  );
   return {
     status,
     numeroOrden: order.id || order.order_number || order.external_reference || null,
@@ -387,6 +392,9 @@ app.get("/ops/order-status/:id", async (req, res) => {
     );
     const updated_at = order.updated_at || order.fecha || order.created_at || null;
     const last_webhook = order.last_mp_webhook || null;
+    const payment_id = order.payment_id || null;
+    const merchant_order_id = order.merchant_order_id || null;
+    const preference_id = order.preference_id || null;
     let api_status = null;
     let api_headers = {};
     try {
@@ -400,6 +408,9 @@ app.get("/ops/order-status/:id", async (req, res) => {
     res.json({
       db_status,
       updated_at,
+      payment_id,
+      merchant_order_id,
+      preference_id,
       last_webhook,
       api_status,
       api_headers,
