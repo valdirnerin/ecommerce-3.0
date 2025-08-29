@@ -553,10 +553,10 @@ async function processNotification(reqOrTopic, maybeId) {
     body.topic ||
     (typeof reqOrTopic === 'string' ? reqOrTopic : undefined);
   const rawId =
-    query.id ||
     body?.payment_id ||
     body?.data?.id ||
     body?.id ||
+    query.id ||
     (typeof reqOrTopic === 'string' ? maybeId : undefined) ||
     maybeId;
   const resource = query.resource || body?.resource;
