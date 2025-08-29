@@ -19,10 +19,22 @@ const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 const TRACE_REF = process.env.TRACE_REF;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const MP_ENV = process.env.MP_ENV || 'production';
-const SKIP_MP_PAYMENT_FETCH =
-  !ACCESS_TOKEN || NODE_ENV !== 'production'
-    ? envFlag('SKIP_MP_PAYMENT_FETCH')
-    : false;
+const rawSkip = envFlag('SKIP_MP_PAYMENT_FETCH');
+const hasToken = !!ACCESS_TOKEN;
+const effective_skip =
+  hasToken && (NODE_ENV === 'production' || MP_ENV === 'production')
+    ? false
+    : rawSkip;
+logger.info(
+  `mp-webhook flags ${JSON.stringify({
+    NODE_ENV,
+    MP_ENV,
+    raw_SKIP: process.env.SKIP_MP_PAYMENT_FETCH,
+    effective_skip,
+    has_token: hasToken,
+  })}`
+);
+const SKIP_MP_PAYMENT_FETCH = effective_skip;
 const ENABLE_MP_WEBHOOK_HEALTH = envFlag('ENABLE_MP_WEBHOOK_HEALTH');
 function traceRef(ref, step, info) {
   if (TRACE_REF && String(ref) === String(TRACE_REF)) {
@@ -87,9 +99,15 @@ async function upsertOrder({
   total,
   lastWebhook,
   items,
+  rawData,
 }) {
-  const identifier = prefId || externalRef;
-  if (!identifier) return;
+  let identifier =
+    prefId || externalRef || paymentId || merchantOrderId || null;
+  let createdStub = false;
+  if (!identifier) {
+    identifier = `stub_${Date.now()}`;
+    createdStub = true;
+  }
   const orders = await getOrders();
   const idx = orders.findIndex(
     (o) =>
@@ -100,11 +118,18 @@ async function upsertOrder({
   );
   let row;
   if (idx === -1) {
-    logger.warn('mp-webhook order_not_found', {
-      externalRef,
-      prefId,
-      paymentId,
-    });
+    if (createdStub) {
+      logger.warn('mp-webhook order_stub_created', {
+        paymentId,
+        merchantOrderId,
+      });
+    } else {
+      logger.warn('mp-webhook order_not_found', {
+        externalRef,
+        prefId,
+        paymentId,
+      });
+    }
     row = {
       id: identifier,
       external_reference: externalRef || prefId || identifier,
@@ -143,7 +168,12 @@ async function upsertOrder({
   const rowItems = row.productos || row.items || [];
   if (!Array.isArray(rowItems) || rowItems.length === 0) {
     await saveOrders(orders);
-    logger.warn('mp-webhook items_missing', { orderId: identifier, paymentId });
+    logger.warn('mp-webhook items_missing', {
+      orderId: identifier,
+      paymentId,
+      reason: 'no_items',
+      raw: rawData,
+    });
     return { stockDelta: 0, idempotent: false, itemsChanged: [] };
   }
 
@@ -214,12 +244,8 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     const statusRaw = p.status;
     const mapped = mapMpStatus(statusRaw);
     const prefId = p.preference_id || hints.prefId || null;
-    const externalRef =
-      p.additional_info?.external_reference ||
-      hints.externalRef ||
-      p.external_reference ||
-      prefId;
     const merchantOrderId = p.order?.id || hints.merchantOrderId || null;
+    let mo = null;
     let items = [];
     if (merchantOrderId) {
       try {
@@ -227,7 +253,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
           `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`,
           { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
         );
-        const mo = await moRes.json();
+        mo = await moRes.json();
         items = (mo.order_items || mo.items || []).map((it) => ({
           id: it.item?.id || it.id,
           product_id: it.item?.id || it.id,
@@ -243,6 +269,12 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
         });
       }
     }
+    const externalRef =
+      p.additional_info?.external_reference ||
+      mo?.external_reference ||
+      hints.externalRef ||
+      p.external_reference ||
+      prefId;
     if (!Array.isArray(items) || items.length === 0) {
       items = (p.additional_info?.items || p.order?.items || []).map((it) => ({
         id: it.id || it.sku || it.productId || it.product_id,
@@ -284,6 +316,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       total,
       lastWebhook,
       items,
+      rawData: { payment: p, merchant_order: mo },
     });
 
     const persistInfo = {
@@ -369,6 +402,7 @@ async function processNotification(reqOrTopic, maybeId) {
               statusRaw: 'pending',
               lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
               items: data.items || [],
+              rawData: { resource: data },
             });
             logger.info('mp-webhook merchant_order sin payment (pending)', {
               externalRef,
@@ -422,6 +456,7 @@ async function processNotification(reqOrTopic, maybeId) {
             statusRaw: 'pending',
             lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
             items: mo.items || [],
+            rawData: { merchant_order: mo },
           });
           logger.info('mp-webhook merchant_order sin payment (pending)', {
             externalRef,
