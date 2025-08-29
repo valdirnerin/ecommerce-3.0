@@ -395,14 +395,50 @@
       <section id="footerSection" class="admin-section" style="display: none">
         <h3>Footer</h3>
         <form id="footerForm" class="admin-form">
-          <div id="linksFields"></div>
-          <button type="button" id="addLink" class="button">Agregar link</button>
-          <div id="socialFields"></div>
-          <button type="button" id="addSocial" class="button">Agregar red</button>
-          <input type="text" name="phone" placeholder="Teléfono" />
-          <input type="email" name="email" placeholder="Email" />
-          <input type="text" name="location" placeholder="Ubicación" />
-          <textarea name="legal" placeholder="Texto legal" style="min-height:80px"></textarea>
+          <fieldset>
+            <legend>Identidad</legend>
+            <input type="text" name="brand_name" placeholder="Nombre de marca" required />
+            <select name="logo_variant">
+              <option value="light">Logo claro</option>
+              <option value="dark">Logo oscuro</option>
+            </select>
+            <input type="text" name="tagline" placeholder="Tagline" />
+          </fieldset>
+          <fieldset>
+            <legend>Navegación</legend>
+            <textarea name="nav1" placeholder="Texto|URL\n..." style="min-height:60px"></textarea>
+            <textarea name="nav2" placeholder="Texto|URL\n..." style="min-height:60px"></textarea>
+            <textarea name="nav3" placeholder="Texto|URL\n..." style="min-height:60px"></textarea>
+          </fieldset>
+          <fieldset>
+            <legend>Contacto</legend>
+            <input type="text" name="whatsapp_number" placeholder="WhatsApp (+5411...)" />
+            <input type="email" name="email" placeholder="Email" />
+            <input type="text" name="address" placeholder="Dirección" />
+            <input type="text" name="opening_hours" placeholder="Horarios" />
+          </fieldset>
+          <fieldset>
+            <legend>CTA inferior</legend>
+            <label><input type="checkbox" name="cta_enabled" /> Mostrar</label>
+            <input type="text" name="cta_prompt" placeholder="Texto del prompt" />
+            <input type="text" name="cta_button_text" placeholder="Texto del botón" />
+            <input type="text" name="cta_link" placeholder="Enlace" />
+          </fieldset>
+          <fieldset>
+            <legend>Legales</legend>
+            <input type="text" name="company_name" placeholder="Razón social" />
+            <input type="text" name="cuit" placeholder="CUIT" />
+            <input type="text" name="terms" placeholder="URL Términos" />
+            <input type="text" name="privacy" placeholder="URL Privacidad" />
+          </fieldset>
+          <fieldset>
+            <legend>Apariencia</legend>
+            <select name="theme">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+            <input type="text" name="accent" placeholder="#HEX opcional" />
+          </fieldset>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <button type="submit" class="button primary">Guardar</button>
           </div>
