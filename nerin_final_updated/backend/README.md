@@ -39,3 +39,21 @@ Esta actualización agrega persistencia básica de pedidos y soporte de seguimie
      -H 'Content-Type: application/json' \
      -d '{"email":"a@b.com","id":"<NRN>"}' | jq
    ```
+
+## Reconciliación de pagos
+
+Si un webhook final no llega, se puede reconciliar el estado y stock en forma
+idempotente:
+
+- Revisar las últimas 24 h:
+  ```bash
+  npm run mp:reconcile
+  ```
+- Reconciliar una orden específica por `payment_id` o `external_reference`:
+  ```bash
+  npm run mp:reconcile -- --payment 123456789
+  npm run mp:reconcile -- --order NRN-0001
+  ```
+
+El comando consulta la API de Mercado Pago y actualiza la orden aplicando o
+revirtiendo stock solo una vez.

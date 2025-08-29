@@ -11,6 +11,7 @@
     "verify:mp-prod": "node backend/scripts/mp_webhook_probe.js",
     "mp:replay": "node backend/scripts/mp_replay.js",
     "mp:self-probe": "node backend/scripts/mp_self_probe.js",
+    "mp:reconcile": "node backend/scripts/mp_reconcile.js",
     "device:qa": "node scripts/device-qa.js"
   },
   "dependencies": {

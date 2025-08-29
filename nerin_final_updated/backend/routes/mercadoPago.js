@@ -166,14 +166,17 @@ async function processPayment(id, hints = {}) {
       total,
     });
 
-    logger.info('mp-webhook OK', {
-      topic: 'payment',
-      paymentId: p.id,
-      externalRef,
-      prefId,
-      status: mapped,
-      stock_delta: stockDelta,
-    });
+    logger.info(
+      `mp-webhook OK ${JSON.stringify({
+        topic: 'payment',
+        paymentId: p.id,
+        externalRef,
+        prefId,
+        status: mapped,
+        stock_delta: stockDelta,
+        idempotent: stockDelta === 0,
+      })}`,
+    );
 
     return {
       mp_lookup_ok: true,
@@ -213,7 +216,9 @@ async function processNotification(reqOrTopic, maybeId) {
     maybeId;
   const resource = query.resource || body?.resource;
 
-  logger.info('mp-webhook recibido', { topic, id: rawId });
+  logger.info(
+    `mp-webhook recibido ${JSON.stringify({ topic, id: rawId })}`,
+  );
 
   try {
     if (resource) {
