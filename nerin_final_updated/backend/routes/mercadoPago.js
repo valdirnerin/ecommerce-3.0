@@ -16,10 +16,12 @@ const {
 const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 
 const TRACE_REF = process.env.TRACE_REF;
+const NODE_ENV = process.env.NODE_ENV || 'production';
+const MP_ENV = process.env.MP_ENV || 'production';
 const SKIP_MP_PAYMENT_FETCH =
   process.env.SKIP_MP_PAYMENT_FETCH === '1' &&
-  process.env.NODE_ENV !== 'production' &&
-  process.env.MP_ENV !== 'production';
+  NODE_ENV !== 'production' &&
+  MP_ENV !== 'production';
 function traceRef(ref, step, info) {
   if (TRACE_REF && String(ref) === String(TRACE_REF)) {
     logger.info(`trace ${step} ${JSON.stringify(info)}`);
@@ -93,42 +95,37 @@ async function upsertOrder({
       o.order_number === identifier ||
       String(o.preference_id) === String(identifier)
   );
-  if (idx !== -1) {
-    const row = orders[idx];
-    if (paymentId != null) row.payment_id = String(paymentId);
-    if (merchantOrderId != null)
-      row.merchant_order_id = String(merchantOrderId);
-    if (status) {
-      row.payment_status = status;
-      row.estado_pago = status;
-      row.status = status;
-    }
-    if (statusRaw) row.payment_status_raw = statusRaw;
-    if (total && !row.total) row.total = total;
-    if (!row.created_at) row.created_at = new Date().toISOString();
-    if (prefId != null) row.preference_id = prefId;
-    if (externalRef != null) row.external_reference = externalRef;
-    if (lastWebhook) row.last_mp_webhook = lastWebhook;
-    row.updated_at = new Date().toISOString();
-  } else {
-    const row = { id: externalRef || prefId };
-    if (prefId != null) row.preference_id = prefId;
-    if (externalRef != null) row.external_reference = externalRef;
-    row.payment_status = status || 'pendiente';
-    row.estado_pago = status || 'pendiente';
-    row.status = status || 'pendiente';
-    if (statusRaw) row.payment_status_raw = statusRaw;
-    if (paymentId != null) row.payment_id = String(paymentId);
-    if (merchantOrderId != null)
-      row.merchant_order_id = String(merchantOrderId);
-    row.total = total || 0;
-    row.created_at = new Date().toISOString();
-    row.updated_at = row.created_at;
-    if (lastWebhook) row.last_mp_webhook = lastWebhook;
-    orders.push(row);
+  if (idx === -1) {
+    logger.warn('mp-webhook order_not_found', {
+      externalRef,
+      prefId,
+      paymentId,
+    });
+    return { stockDelta: 0, idempotent: false, itemsChanged: [] };
+  }
+  const row = orders[idx];
+  if (paymentId != null) row.payment_id = String(paymentId);
+  if (merchantOrderId != null) row.merchant_order_id = String(merchantOrderId);
+  if (status) {
+    row.payment_status = status;
+    row.estado_pago = status;
+    row.status = status;
+  }
+  if (statusRaw) row.payment_status_raw = statusRaw;
+  if (total && !row.total) row.total = total;
+  if (!row.created_at) row.created_at = new Date().toISOString();
+  if (prefId != null) row.preference_id = prefId;
+  if (externalRef != null) row.external_reference = externalRef;
+  if (lastWebhook) row.last_mp_webhook = lastWebhook;
+  row.updated_at = new Date().toISOString();
+
+  const items = row.productos || row.items || [];
+  if (!Array.isArray(items) || items.length === 0) {
+    await saveOrders(orders);
+    logger.warn('mp-webhook items_missing', { orderId: identifier, paymentId });
+    return { stockDelta: 0, idempotent: false, itemsChanged: [] };
   }
 
-  const row = orders[idx !== -1 ? idx : orders.length - 1];
   const inventoryApplied = row.inventoryApplied || row.inventory_applied;
 
   await saveOrders(orders);
@@ -282,6 +279,12 @@ async function processNotification(reqOrTopic, maybeId) {
     maybeId;
   const resource = query.resource || body?.resource;
   const receivedAt = new Date().toISOString();
+
+  logger.debug('mp-webhook handler flags', {
+    MP_ENV,
+    SKIP_MP_PAYMENT_FETCH,
+    ENABLE_MP_WEBHOOK_HEALTH: process.env.ENABLE_MP_WEBHOOK_HEALTH === '1',
+  });
 
   logger.info(
     `mp-webhook recibido ${JSON.stringify({ topic, id: rawId })}`,
