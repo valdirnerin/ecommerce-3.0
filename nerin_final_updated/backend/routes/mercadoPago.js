@@ -36,6 +36,68 @@ logger.info(
 );
 const SKIP_MP_PAYMENT_FETCH = effective_skip;
 const ENABLE_MP_WEBHOOK_HEALTH = envFlag('ENABLE_MP_WEBHOOK_HEALTH');
+
+function normalize(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+let skuMap = {};
+try {
+  skuMap = require('../config/skuMap.json');
+} catch {}
+const skuMapNorm = Object.fromEntries(
+  Object.entries(skuMap).map(([k, v]) => [normalize(k), String(v)])
+);
+
+async function resolveItems(items) {
+  const products = await getProducts();
+  const matched = [];
+  const unmatched = [];
+  for (const it of items || []) {
+    const quantity = Number(it.quantity || it.qty || 0);
+    const unit_price = Number(it.unit_price || it.price || 0);
+    const title = it.title || it.name || '';
+    const rawId = it.id || it.product_id || it.productId || null;
+    const sku = it.sku || null;
+    let product = null;
+    if (rawId != null) {
+      product = products.find((p) => String(p.id) === String(rawId));
+    }
+    if (!product && sku) {
+      product = products.find((p) => normalize(p.sku) === normalize(sku));
+    }
+    if (!product) {
+      const mapped = skuMapNorm[normalize(title)];
+      if (mapped) {
+        product = products.find(
+          (p) =>
+            String(p.id) === String(mapped) ||
+            normalize(p.sku) === normalize(mapped)
+        );
+      }
+    }
+    if (!product && title) {
+      product = products.find((p) => normalize(p.name) === normalize(title));
+    }
+    if (product) {
+      matched.push({
+        productId: product.id,
+        sku: product.sku,
+        title,
+        quantity,
+        unit_price,
+      });
+    } else {
+      unmatched.push({ title, id: rawId || sku, reason: 'not_found' });
+    }
+  }
+  return { matched, unmatched };
+}
+
 function traceRef(ref, step, info) {
   if (TRACE_REF && String(ref) === String(TRACE_REF)) {
     logger.info(`trace ${step} ${JSON.stringify(info)}`);
@@ -181,6 +243,19 @@ async function upsertOrder({
     if (externalRef != null) row.external_reference = externalRef;
     if (lastWebhook) row.last_mp_webhook = lastWebhook;
   }
+  let matchResult = { matched: 0, unmatched: 0, details: [] };
+  if (Array.isArray(items) && items.length) {
+    const { matched, unmatched } = await resolveItems(items);
+    row.productos = matched;
+    row.items = matched;
+    row.unmatched_items = unmatched;
+    matchResult = {
+      matched: matched.length,
+      unmatched: unmatched.length,
+      details: unmatched,
+    };
+  }
+
   row.updated_at = new Date().toISOString();
 
   const rowItems = row.productos || row.items || [];
@@ -192,7 +267,23 @@ async function upsertOrder({
       reason: 'no_items',
       raw: rawData,
     });
-    return { stockDelta: 0, idempotent: false, itemsChanged: [], orderId: row.id, keyUsed };
+    logger.info(`match_result ${JSON.stringify(matchResult)}`);
+    logger.info(
+      `order_resolution ${JSON.stringify({
+        key_used: keyUsed,
+        orderId: row.id,
+        preferenceId: row.preference_id || prefId || null,
+        externalRef: row.external_reference || externalRef || null,
+      })}`,
+    );
+    return {
+      stockDelta: 0,
+      idempotent: false,
+      itemsChanged: [],
+      orderId: row.id,
+      keyUsed,
+      matchResult,
+    };
   }
 
   const inventoryApplied = row.inventoryApplied || row.inventory_applied;
@@ -209,7 +300,11 @@ async function upsertOrder({
       });
       if (res) {
         if (!res.alreadyApplied && res.totalQty) stockDelta -= res.totalQty;
-        itemsChanged = res.itemsChanged || [];
+        itemsChanged = (res.itemsChanged || []).map((it) => ({
+          productId: it.sku,
+          qty_before: it.before,
+          qty_after: it.after,
+        }));
         idempotent = res.alreadyApplied;
       }
     } else if (!inventoryApplied) {
@@ -230,7 +325,11 @@ async function upsertOrder({
         if (dbOrder && dbOrder.inventory_applied) {
           const res = await revertInventoryForOrder(dbOrder);
           if (res?.total) stockDelta += res.total;
-          itemsChanged = res?.items || [];
+          itemsChanged = (res?.items || []).map((it) => ({
+            productId: it.productId || it.sku,
+            qty_before: it.qty_before || it.before,
+            qty_after: it.qty_after || it.after,
+          }));
         }
       }
     } else if (inventoryApplied) {
@@ -250,6 +349,8 @@ async function upsertOrder({
   row.updated_at = new Date().toISOString();
   await saveOrders(orders);
 
+  logger.info(`match_result ${JSON.stringify(matchResult)}`);
+
   logger.info(
     `order_resolution ${JSON.stringify({
       key_used: keyUsed,
@@ -258,8 +359,14 @@ async function upsertOrder({
       externalRef: row.external_reference || externalRef || null,
     })}`,
   );
-
-  return { stockDelta, idempotent, itemsChanged, orderId: row.id, keyUsed };
+  return {
+    stockDelta,
+    idempotent,
+    itemsChanged,
+    orderId: row.id,
+    keyUsed,
+    matchResult,
+  };
 }
 
 async function processPayment(id, hints = {}, webhookInfo = null) {

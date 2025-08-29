@@ -48,12 +48,10 @@ function normalize(str) {
 }
 
 function matchProduct(products, item) {
-  const id = normalize(item.productId || item.id);
-  const sku = normalize(item.sku);
-  const title = normalize(item.title || item.name);
-  return (
-    products.find((p) => normalize(p.id) === id || normalize(p.sku) === sku) ||
-    products.find((p) => normalize(p.name) === title)
+  const id = item.productId || item.id;
+  const sku = item.sku;
+  return products.find(
+    (p) => String(p.id) === String(id) || normalize(p.sku) === normalize(sku)
   );
 }
 
@@ -124,7 +122,11 @@ function applyInventoryForOrder(order) {
       }
       prod.stock = after;
       total += qty;
-      logItems.push({ sku: prod.id || prod.sku, before, after, qty });
+      logItems.push({
+        productId: prod.id || prod.sku,
+        qty_before: before,
+        qty_after: after,
+      });
     });
     saveProducts(products);
     row.inventoryApplied = true;
@@ -172,7 +174,11 @@ function revertInventoryForOrder(order) {
       const after = before + qty;
       prod.stock = after;
       total += qty;
-      logItems.push({ sku: prod.id || prod.sku, before, after, qty });
+      logItems.push({
+        productId: prod.id || prod.sku,
+        qty_before: before,
+        qty_after: after,
+      });
     });
     saveProducts(products);
     row.inventoryApplied = false;
