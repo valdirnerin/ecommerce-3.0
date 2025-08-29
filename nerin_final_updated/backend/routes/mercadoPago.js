@@ -86,6 +86,7 @@ async function upsertOrder({
     if (status) {
       row.payment_status = status;
       row.estado_pago = status;
+      row.status = status;
     }
     if (statusRaw) row.payment_status_raw = statusRaw;
     if (total && !row.total) row.total = total;
@@ -98,6 +99,7 @@ async function upsertOrder({
     if (externalRef != null) row.external_reference = externalRef;
     row.payment_status = status || 'pendiente';
     row.estado_pago = status || 'pendiente';
+    row.status = status || 'pendiente';
     if (statusRaw) row.payment_status_raw = statusRaw;
     if (paymentId != null) row.payment_id = String(paymentId);
     row.total = total || 0;

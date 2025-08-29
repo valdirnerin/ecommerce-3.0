@@ -19,7 +19,9 @@
     const { tries = 120, interval = 1500 } = opts;
     for (let attempt = 0; attempt < tries; attempt++) {
       try {
-        const res = await fetch(`/api/orders/${encodeURIComponent(id)}/status`);
+        const res = await fetch(`/api/orders/${encodeURIComponent(id)}/status`, {
+          cache: 'no-store',
+        });
         if (res.ok) {
           const data = await res.json();
           const st = data.status;
