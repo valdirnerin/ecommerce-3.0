@@ -101,24 +101,41 @@ async function upsertOrder({
   items,
   rawData,
 }) {
-  let identifier =
-    prefId || externalRef || paymentId || merchantOrderId || null;
-  let createdStub = false;
-  if (!identifier) {
+  let keyUsed = null;
+  let identifier = null;
+  if (externalRef) {
+    identifier = externalRef;
+    keyUsed = 'external_reference';
+  } else if (prefId) {
+    identifier = prefId;
+    keyUsed = 'preference_id';
+  } else if (paymentId) {
+    identifier = String(paymentId);
+    keyUsed = 'payment_id';
+  } else if (merchantOrderId) {
+    identifier = String(merchantOrderId);
+    keyUsed = 'merchant_order_id';
+  } else {
     identifier = `stub_${Date.now()}`;
-    createdStub = true;
+    keyUsed = 'stub';
   }
   const orders = await getOrders();
-  const idx = orders.findIndex(
+  let idx = orders.findIndex(
     (o) =>
       o.id === identifier ||
       o.external_reference === identifier ||
       o.order_number === identifier ||
       String(o.preference_id) === String(identifier)
   );
+  if (idx === -1 && paymentId) {
+    idx = orders.findIndex((o) => String(o.payment_id) === String(paymentId));
+    if (idx !== -1) keyUsed = 'payment_id';
+  }
   let row;
+  let createdStub = false;
   if (idx === -1) {
-    if (createdStub) {
+    if (keyUsed === 'stub') {
+      createdStub = true;
       logger.warn('mp-webhook order_stub_created', {
         paymentId,
         merchantOrderId,
@@ -149,6 +166,7 @@ async function upsertOrder({
     orders.push(row);
   } else {
     row = orders[idx];
+    if (externalRef && row.id === String(paymentId)) row.id = externalRef;
     if (paymentId != null) row.payment_id = String(paymentId);
     if (merchantOrderId != null) row.merchant_order_id = String(merchantOrderId);
     if (status) {
@@ -169,16 +187,15 @@ async function upsertOrder({
   if (!Array.isArray(rowItems) || rowItems.length === 0) {
     await saveOrders(orders);
     logger.warn('mp-webhook items_missing', {
-      orderId: identifier,
+      orderId: row.id,
       paymentId,
       reason: 'no_items',
       raw: rawData,
     });
-    return { stockDelta: 0, idempotent: false, itemsChanged: [] };
+    return { stockDelta: 0, idempotent: false, itemsChanged: [], orderId: row.id, keyUsed };
   }
 
   const inventoryApplied = row.inventoryApplied || row.inventory_applied;
-
   await saveOrders(orders);
   let stockDelta = 0;
   let idempotent = false;
@@ -199,6 +216,9 @@ async function upsertOrder({
       const res = await applyInventoryForOrder(row);
       if (res?.total) stockDelta -= res.total;
       itemsChanged = res?.items || [];
+      row.inventoryApplied = true;
+      row.inventory_applied = true;
+      row.inventory_applied_at = new Date().toISOString();
     } else {
       idempotent = true;
     }
@@ -217,13 +237,29 @@ async function upsertOrder({
       const res = await revertInventoryForOrder(row);
       if (res?.total) stockDelta += res.total;
       itemsChanged = res?.items || [];
+      row.inventoryApplied = false;
+      row.inventory_applied = false;
     }
   }
 
   if (!idempotent && inventoryApplied && stockDelta === 0) {
     idempotent = true;
   }
-  return { stockDelta, idempotent, itemsChanged };
+
+  row.items_changed = itemsChanged;
+  row.updated_at = new Date().toISOString();
+  await saveOrders(orders);
+
+  logger.info(
+    `order_resolution ${JSON.stringify({
+      key_used: keyUsed,
+      orderId: row.id,
+      preferenceId: row.preference_id || prefId || null,
+      externalRef: row.external_reference || externalRef || null,
+    })}`,
+  );
+
+  return { stockDelta, idempotent, itemsChanged, orderId: row.id, keyUsed };
 }
 
 async function processPayment(id, hints = {}, webhookInfo = null) {
@@ -247,6 +283,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     const merchantOrderId = p.order?.id || hints.merchantOrderId || null;
     let mo = null;
     let items = [];
+    let itemsSource = 'none';
     if (merchantOrderId) {
       try {
         const moRes = await fetchFn(
@@ -254,14 +291,18 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
           { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
         );
         mo = await moRes.json();
-        items = (mo.order_items || mo.items || []).map((it) => ({
-          id: it.item?.id || it.id,
-          product_id: it.item?.id || it.id,
-          quantity: it.quantity || it.item?.quantity || it.qty || 0,
-          price: it.unit_price || it.item?.unit_price || it.price || 0,
-          title: it.item?.title || it.title,
-          sku: it.sku || it.item?.sku || it.item?.id || it.id,
-        }));
+        const moItems = mo.order_items || mo.items || [];
+        if (Array.isArray(moItems) && moItems.length) {
+          items = moItems.map((it) => ({
+            id: it.item?.id || it.id,
+            product_id: it.item?.id || it.id,
+            quantity: it.quantity || it.item?.quantity || it.qty || 0,
+            price: it.unit_price || it.item?.unit_price || it.price || 0,
+            title: it.item?.title || it.title,
+            sku: it.sku || it.item?.sku || it.item?.id || it.id,
+          }));
+          itemsSource = 'merchant_order';
+        }
       } catch (e) {
         logger.debug('mp-webhook merchant_order items fetch error', {
           merchantOrderId,
@@ -269,22 +310,55 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
         });
       }
     }
+    if (!items.length) {
+      const payItems = p.additional_info?.items || p.order?.items || [];
+      if (Array.isArray(payItems) && payItems.length) {
+        items = payItems.map((it) => ({
+          id: it.id || it.sku || it.productId || it.product_id,
+          product_id: it.product_id || it.productId || it.id || it.sku,
+          quantity: it.quantity || it.qty || 0,
+          price: it.unit_price || it.price || 0,
+          title: it.title || it.name,
+          sku: it.sku || it.id,
+        }));
+        itemsSource = 'payment';
+      }
+    }
+    if (!items.length && prefId) {
+      try {
+        const prefRes = await fetchFn(
+          `https://api.mercadopago.com/checkout/preferences/${prefId}`,
+          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
+        );
+        const pref = await prefRes.json();
+        const prefItems = pref.items || [];
+        if (Array.isArray(prefItems) && prefItems.length) {
+          items = prefItems.map((it) => ({
+            id: it.id || it.sku || it.productId || it.product_id,
+            product_id: it.product_id || it.productId || it.id || it.sku,
+            quantity: it.quantity || it.qty || 0,
+            price: it.unit_price || it.price || 0,
+            title: it.title || it.name,
+            sku: it.sku || it.id,
+          }));
+          itemsSource = 'preference';
+        }
+      } catch (e) {
+        logger.debug('mp-webhook preference items fetch error', {
+          prefId,
+          msg: e?.message,
+        });
+      }
+    }
+    if (!items.length) itemsSource = 'none';
+    logger.info(
+      `items_source ${JSON.stringify({ from: itemsSource, count: items.length })}`,
+    );
+
     const externalRef =
       p.additional_info?.external_reference ||
       mo?.external_reference ||
-      hints.externalRef ||
-      p.external_reference ||
       prefId;
-    if (!Array.isArray(items) || items.length === 0) {
-      items = (p.additional_info?.items || p.order?.items || []).map((it) => ({
-        id: it.id || it.sku || it.productId || it.product_id,
-        product_id: it.product_id || it.productId || it.id || it.sku,
-        quantity: it.quantity || it.qty || 0,
-        price: it.unit_price || it.price || 0,
-        title: it.title || it.name,
-        sku: it.sku || it.id,
-      }));
-    }
     const total = Number(
       p.transaction_amount ||
         p.transaction_details?.total_paid_amount ||
@@ -325,6 +399,15 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       idempotent,
     };
     traceRef(traceId, 'order_persisted', persistInfo);
+
+    logger.info(
+      `apply_stock ${JSON.stringify({
+        paymentId: p.id,
+        items_changed: itemsChanged,
+        stock_delta: stockDelta,
+        idempotent,
+      })}`,
+    );
 
     logger.info(
       `mp-webhook OK ${JSON.stringify({
@@ -372,11 +455,13 @@ async function processNotification(reqOrTopic, maybeId) {
   const resource = query.resource || body?.resource;
   const receivedAt = new Date().toISOString();
 
-  logger.debug('mp-webhook handler flags', {
-    MP_ENV,
-    ENABLE_MP_WEBHOOK_HEALTH,
-    skip_fetch: SKIP_MP_PAYMENT_FETCH,
-  });
+  logger.info(
+    `mp-webhook flags ${JSON.stringify({
+      effective_skip: SKIP_MP_PAYMENT_FETCH,
+      has_token: hasToken,
+      topic,
+    })}`,
+  );
 
   logger.info(
     `mp-webhook recibido ${JSON.stringify({ topic, id: rawId })}`,
