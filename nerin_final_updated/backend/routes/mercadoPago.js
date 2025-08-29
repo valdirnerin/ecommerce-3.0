@@ -9,6 +9,7 @@ const db = require('../db');
 const ordersRepo = require('../data/ordersRepo');
 const productsRepo = require('../data/productsRepo');
 const logger = require('../logger');
+const { envFlag } = require('../utils/envFlag');
 const {
   applyInventoryForOrder,
   revertInventoryForOrder,
@@ -19,9 +20,9 @@ const TRACE_REF = process.env.TRACE_REF;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const MP_ENV = process.env.MP_ENV || 'production';
 const SKIP_MP_PAYMENT_FETCH =
-  process.env.SKIP_MP_PAYMENT_FETCH === '1' &&
-  NODE_ENV !== 'production' &&
-  MP_ENV !== 'production';
+  envFlag('SKIP_MP_PAYMENT_FETCH') &&
+  (!ACCESS_TOKEN || NODE_ENV !== 'production' || MP_ENV !== 'production');
+const ENABLE_MP_WEBHOOK_HEALTH = envFlag('ENABLE_MP_WEBHOOK_HEALTH');
 function traceRef(ref, step, info) {
   if (TRACE_REF && String(ref) === String(TRACE_REF)) {
     logger.info(`trace ${step} ${JSON.stringify(info)}`);
@@ -84,6 +85,7 @@ async function upsertOrder({
   merchantOrderId,
   total,
   lastWebhook,
+  items,
 }) {
   const identifier = prefId || externalRef;
   if (!identifier) return;
@@ -95,32 +97,50 @@ async function upsertOrder({
       o.order_number === identifier ||
       String(o.preference_id) === String(identifier)
   );
+  let row;
   if (idx === -1) {
     logger.warn('mp-webhook order_not_found', {
       externalRef,
       prefId,
       paymentId,
     });
-    return { stockDelta: 0, idempotent: false, itemsChanged: [] };
+    row = {
+      id: identifier,
+      external_reference: externalRef || prefId || identifier,
+      preference_id: prefId,
+      payment_id: paymentId ? String(paymentId) : undefined,
+      merchant_order_id: merchantOrderId ? String(merchantOrderId) : undefined,
+      total,
+      productos: Array.isArray(items) ? items : [],
+      items: Array.isArray(items) ? items : [],
+      payment_status: status,
+      estado_pago: status,
+      status,
+      payment_status_raw: statusRaw,
+      created_at: new Date().toISOString(),
+      last_mp_webhook: lastWebhook,
+    };
+    orders.push(row);
+  } else {
+    row = orders[idx];
+    if (paymentId != null) row.payment_id = String(paymentId);
+    if (merchantOrderId != null) row.merchant_order_id = String(merchantOrderId);
+    if (status) {
+      row.payment_status = status;
+      row.estado_pago = status;
+      row.status = status;
+    }
+    if (statusRaw) row.payment_status_raw = statusRaw;
+    if (total && !row.total) row.total = total;
+    if (!row.created_at) row.created_at = new Date().toISOString();
+    if (prefId != null) row.preference_id = prefId;
+    if (externalRef != null) row.external_reference = externalRef;
+    if (lastWebhook) row.last_mp_webhook = lastWebhook;
   }
-  const row = orders[idx];
-  if (paymentId != null) row.payment_id = String(paymentId);
-  if (merchantOrderId != null) row.merchant_order_id = String(merchantOrderId);
-  if (status) {
-    row.payment_status = status;
-    row.estado_pago = status;
-    row.status = status;
-  }
-  if (statusRaw) row.payment_status_raw = statusRaw;
-  if (total && !row.total) row.total = total;
-  if (!row.created_at) row.created_at = new Date().toISOString();
-  if (prefId != null) row.preference_id = prefId;
-  if (externalRef != null) row.external_reference = externalRef;
-  if (lastWebhook) row.last_mp_webhook = lastWebhook;
   row.updated_at = new Date().toISOString();
 
-  const items = row.productos || row.items || [];
-  if (!Array.isArray(items) || items.length === 0) {
+  const rowItems = row.productos || row.items || [];
+  if (!Array.isArray(rowItems) || rowItems.length === 0) {
     await saveOrders(orders);
     logger.warn('mp-webhook items_missing', { orderId: identifier, paymentId });
     return { stockDelta: 0, idempotent: false, itemsChanged: [] };
@@ -192,9 +212,17 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     const p = await res.json();
     const statusRaw = p.status;
     const mapped = mapMpStatus(statusRaw);
-    const externalRef = p.external_reference || hints.externalRef || null;
     const prefId = p.preference_id || hints.prefId || null;
+    const externalRef =
+      p.additional_info?.external_reference ||
+      hints.externalRef ||
+      p.external_reference ||
+      prefId;
     const merchantOrderId = p.order?.id || hints.merchantOrderId || null;
+    const items =
+      p.additional_info?.items ||
+      p.order?.items ||
+      [];
     const total = Number(
       p.transaction_amount ||
         p.transaction_details?.total_paid_amount ||
@@ -225,6 +253,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       merchantOrderId,
       total,
       lastWebhook,
+      items,
     });
 
     const persistInfo = {
@@ -283,7 +312,7 @@ async function processNotification(reqOrTopic, maybeId) {
   logger.debug('mp-webhook handler flags', {
     MP_ENV,
     SKIP_MP_PAYMENT_FETCH,
-    ENABLE_MP_WEBHOOK_HEALTH: process.env.ENABLE_MP_WEBHOOK_HEALTH === '1',
+    ENABLE_MP_WEBHOOK_HEALTH,
   });
 
   logger.info(
@@ -309,6 +338,7 @@ async function processNotification(reqOrTopic, maybeId) {
               status: 'pendiente',
               statusRaw: 'pending',
               lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
+              items: data.items || [],
             });
             logger.info('mp-webhook merchant_order sin payment (pending)', {
               externalRef,
@@ -361,6 +391,7 @@ async function processNotification(reqOrTopic, maybeId) {
             status: 'pendiente',
             statusRaw: 'pending',
             lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
+            items: mo.items || [],
           });
           logger.info('mp-webhook merchant_order sin payment (pending)', {
             externalRef,
