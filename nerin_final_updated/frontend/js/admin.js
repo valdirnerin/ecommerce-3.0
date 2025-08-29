@@ -70,6 +70,8 @@ navButtons.forEach((btn) => {
       loadReturns();
     } else if (target === "configSection") {
       loadConfigForm();
+    } else if (target === "footerSection") {
+      loadFooter();
     } else if (target === "suppliersSection") {
       loadSuppliers();
     } else if (target === "purchaseOrdersSection") {
@@ -716,6 +718,72 @@ if (addSupplierForm) {
     } catch (err) {
       console.error(err);
       alert("Error de red");
+    }
+  });
+}
+
+if (footerForm) {
+  footerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const parseNav = (txt) =>
+      txt
+        .split(/\n+/)
+        .map((l) => {
+          const [text, url] = l.split('|').map((s) => s.trim());
+          return text && url ? { text, url } : null;
+        })
+        .filter(Boolean);
+    const payload = {
+      version: 1,
+      identity: {
+        brand_name: footerForm.brand_name.value.trim(),
+        logo_variant: footerForm.logo_variant.value,
+        tagline: footerForm.tagline.value.trim(),
+      },
+      navigation: [
+        parseNav(footerForm.nav1.value),
+        parseNav(footerForm.nav2.value),
+        parseNav(footerForm.nav3.value),
+      ],
+      contact: {
+        whatsapp_number: footerForm.whatsapp_number.value.trim(),
+        email: footerForm.email.value.trim(),
+        address: footerForm.address.value.trim(),
+        opening_hours: footerForm.opening_hours.value.trim(),
+      },
+      cta: {
+        enabled: footerForm.cta_enabled.checked,
+        prompt: footerForm.cta_prompt.value.trim(),
+        button_text: footerForm.cta_button_text.value.trim(),
+        cta_link: footerForm.cta_link.value.trim(),
+      },
+      legal: {
+        company_name: footerForm.company_name.value.trim(),
+        cuit: footerForm.cuit.value.trim(),
+        terms: footerForm.terms.value.trim(),
+        privacy: footerForm.privacy.value.trim(),
+      },
+      appearance: {
+        theme: footerForm.theme.value,
+        accent: footerForm.accent.value.trim(),
+      },
+    };
+    try {
+      const resp = await fetch('/api/admin/footer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok) {
+        alert('Footer actualizado');
+        loadFooter();
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        alert(data.error || 'Error al guardar');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error de red');
     }
   });
 }
@@ -1367,6 +1435,43 @@ const carriersTextarea = document.getElementById("configCarriers");
 const shippingTableBody = document.querySelector("#shippingTable tbody");
 const saveShippingBtn = document.getElementById("saveShippingBtn");
 const shippingAlert = document.getElementById("shippingAlert");
+const footerForm = document.getElementById("footerForm");
+
+async function loadFooter() {
+  if (!footerForm) return;
+  try {
+    const res = await fetch('/api/footer');
+    const data = await res.json();
+    footerForm.brand_name.value = data.identity.brand_name || '';
+    footerForm.logo_variant.value = data.identity.logo_variant || 'light';
+    footerForm.tagline.value = data.identity.tagline || '';
+    footerForm.nav1.value = (data.navigation[0] || [])
+      .map((l) => `${l.text}|${l.url}`)
+      .join('\n');
+    footerForm.nav2.value = (data.navigation[1] || [])
+      .map((l) => `${l.text}|${l.url}`)
+      .join('\n');
+    footerForm.nav3.value = (data.navigation[2] || [])
+      .map((l) => `${l.text}|${l.url}`)
+      .join('\n');
+    footerForm.whatsapp_number.value = data.contact.whatsapp_number || '';
+    footerForm.email.value = data.contact.email || '';
+    footerForm.address.value = data.contact.address || '';
+    footerForm.opening_hours.value = data.contact.opening_hours || '';
+    footerForm.cta_enabled.checked = !!data.cta.enabled;
+    footerForm.cta_prompt.value = data.cta.prompt || '';
+    footerForm.cta_button_text.value = data.cta.button_text || '';
+    footerForm.cta_link.value = data.cta.cta_link || '';
+    footerForm.company_name.value = data.legal.company_name || '';
+    footerForm.cuit.value = data.legal.cuit || '';
+    footerForm.terms.value = data.legal.terms || '';
+    footerForm.privacy.value = data.legal.privacy || '';
+    footerForm.theme.value = data.appearance.theme || 'light';
+    footerForm.accent.value = data.appearance.accent || '';
+  } catch (e) {
+    console.error('footer load', e);
+  }
+}
 
 /**
  * Carga los valores de configuración actuales y los muestra en el formulario.

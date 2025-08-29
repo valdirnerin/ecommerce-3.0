@@ -3,46 +3,85 @@
   window.__nerinFooter = true;
 
   const html = document.documentElement;
-  const markup = `
-    <div data-sticky-cta class="sticky-cta">
-      <span>¿Sos técnico o mayorista?</span>
-      <a href="/mayoristas" class="button primary">Acceso mayoristas</a>
-    </div>
-    <footer class="site-footer" role="contentinfo">
-      <div class="footer-top">
-        <div class="footer-brand">
-          <a href="/" class="footer-logo">
-            <img src="/assets/IMG_3086.png" alt="NERIN Parts" class="site-logo" />
-          </a>
-        </div>
-        <nav class="footer-nav" aria-label="Footer">
-          <ul class="footer-nav-list">
-            <li><a href="/shop.html">Tienda</a></li>
-            <li><a href="/product.html">Productos</a></li>
-            <li><a href="/mayoristas">Mayoristas</a></li>
-            <li><a href="#">Sobre nosotros</a></li>
-            <li><a href="/contact.html">Contacto</a></li>
-          </ul>
-        </nav>
-        <div class="footer-contact">
-          <ul class="footer-contact-list">
-            <li><a href="https://wa.me/5491100000000?text=Hola%20NERIN" target="_blank" rel="noopener">WhatsApp</a></li>
-            <li><a href="mailto:info@nerinparts.com.ar">info@nerinparts.com.ar</a></li>
-            <li><span>Dirección y horario próximamente</span></li>
-          </ul>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <small class="legal">Razón Social S.A. – CUIT 30-00000000-0 — <a href="/pages/terminos.html">Términos</a> · <a href="/pages/terminos.html">Privacidad</a></small>
-      </div>
-    </footer>
-    <a href="https://wa.me/5491100000000?text=Hola%20Nerin%20Parts" data-wa class="wa-fab" aria-label="Abrir WhatsApp" target="_blank" rel="noopener">
-      <img src="/assets/whatsapp.svg" alt="" aria-hidden="true" />
-    </a>`;
 
-  document.addEventListener('DOMContentLoaded', () => {
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  function buildMarkup(cfg) {
+    const nav = (cfg.navigation || [])
+      .map(
+        (col) =>
+          `<ul class="footer-nav-list">${col
+            .map((l) => `<li><a href="${l.url}">${escapeHtml(l.text)}</a></li>`)
+            .join('')}</ul>`
+      )
+      .join('');
+
+    const contactItems = [];
+    if (cfg.contact.whatsapp_number) {
+      const waLink = `https://wa.me/${cfg.contact.whatsapp_number.replace(/\D/g, '')}`;
+      contactItems.push(
+        `<li><a href="${waLink}" target="_blank" rel="noopener">WhatsApp</a></li>`
+      );
+    }
+    if (cfg.contact.email)
+      contactItems.push(
+        `<li><a href="mailto:${cfg.contact.email}">${escapeHtml(cfg.contact.email)}</a></li>`
+      );
+    if (cfg.contact.address)
+      contactItems.push(`<li><span>${escapeHtml(cfg.contact.address)}</span></li>`);
+    if (cfg.contact.opening_hours)
+      contactItems.push(`<li><span>${escapeHtml(cfg.contact.opening_hours)}</span></li>`);
+
+    const cta = cfg.cta.enabled
+      ? `<div data-sticky-cta class="sticky-cta"><span>${escapeHtml(
+          cfg.cta.prompt
+        )}</span><a href="${cfg.cta.cta_link}" class="button primary">${escapeHtml(
+          cfg.cta.button_text
+        )}</a></div>`
+      : '';
+
+    const legal = `<small class="legal">${escapeHtml(
+      cfg.legal.company_name
+    )} – CUIT ${escapeHtml(cfg.legal.cuit)} — <a href="${cfg.legal.terms}">Términos</a> · <a href="${cfg.legal.privacy}">Privacidad</a></small>`;
+
+    const waFab = cfg.contact.whatsapp_number
+      ? `<a href="https://wa.me/${cfg.contact.whatsapp_number.replace(
+          /\D/g,
+          ''
+        )}?text=Hola%20${encodeURIComponent(cfg.identity.brand_name)}" data-wa class="wa-fab" aria-label="Abrir WhatsApp" target="_blank" rel="noopener"><img src="/assets/whatsapp.svg" alt="" aria-hidden="true" /></a>`
+      : '';
+
+    return `${cta}<footer class="site-footer theme-${cfg.appearance.theme}" role="contentinfo"${
+      cfg.appearance.accent ? ` style="--accent:${cfg.appearance.accent}"` : ''
+    }><div class="footer-top"><div class="footer-brand"><a href="/" class="footer-logo"><img src="/assets/IMG_3086.png" alt="${escapeHtml(
+      cfg.identity.brand_name
+    )}" class="site-logo logo-${cfg.identity.logo_variant}" /></a>${
+      cfg.identity.tagline ? `<p>${escapeHtml(cfg.identity.tagline)}</p>` : ''
+    }</div><nav class="footer-nav" aria-label="Footer">${nav}</nav><div class="footer-contact"><ul class="footer-contact-list">${contactItems.join(
+      ''
+    )}</ul></div></div><div class="footer-bottom">${legal}</div></footer>${waFab}`;
+  }
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    let cfg;
+    try {
+      const res = await fetch('/api/footer');
+      cfg = await res.json();
+    } catch {
+      cfg = JSON.parse(JSON.stringify({
+        identity: { brand_name: 'NERIN PARTS', logo_variant: 'light', tagline: '' },
+        navigation: [[], [], []],
+        contact: { whatsapp_number: '', email: '', address: '', opening_hours: '' },
+        cta: { enabled: false, prompt: '', button_text: '', cta_link: '' },
+        legal: { company_name: '', cuit: '', terms: '#', privacy: '#' },
+        appearance: { theme: 'light', accent: '' },
+      }));
+    }
+
     const container = document.createElement('div');
-    container.innerHTML = markup;
+    container.innerHTML = buildMarkup(cfg);
     document.body.appendChild(container);
 
     const cta = document.querySelector('[data-sticky-cta]');

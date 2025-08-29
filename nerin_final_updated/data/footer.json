@@ -1,70 +1,47 @@
 {
-  "brand": "NERIN PARTS",
-  "slogan": "Samsung Service Pack Original",
-  "cta": {
-    "enabled": true,
-    "text": "¿Sos técnico o mayorista?",
-    "buttonLabel": "Acceso mayoristas",
-    "href": "/mayoristas"
+  "version": 1,
+  "identity": {
+    "brand_name": "NERIN PARTS",
+    "logo_variant": "light",
+    "tagline": "Samsung Service Pack Original"
   },
-  "columns": [
-    {"title": "Catálogo", "links": [
-      {"label":"Pantallas Service Pack","href":"/categorias/pantallas"},
-      {"label":"Baterías","href":"/categorias/baterias"},
-      {"label":"Módulos / Flex","href":"/categorias/modulos"}
-    ]},
-    {"title": "Información", "links": [
-      {"label":"Verificar originalidad","href":"/autenticidad"},
-      {"label":"Garantía y devoluciones","href":"/garantia"},
-      {"label":"Envíos","href":"/envios"}
-    ]},
-    {"title": "Cuenta", "links": [
-      {"label":"Mi cuenta","href":"/cuenta"},
-      {"label":"Mayoristas","href":"/mayoristas"},
-      {"label":"Soporte técnico","href":"/soporte"}
-    ]}
+  "navigation": [
+    [
+      {"text": "Pantallas Service Pack", "url": "/categorias/pantallas"},
+      {"text": "Baterías", "url": "/categorias/baterias"},
+      {"text": "Módulos / Flex", "url": "/categorias/modulos"}
+    ],
+    [
+      {"text": "Verificar originalidad", "url": "/autenticidad"},
+      {"text": "Garantía y devoluciones", "url": "/garantia"},
+      {"text": "Envíos", "url": "/envios"}
+    ],
+    [
+      {"text": "Mi cuenta", "url": "/cuenta"},
+      {"text": "Mayoristas", "url": "/mayoristas"},
+      {"text": "Soporte técnico", "url": "/soporte"}
+    ]
   ],
   "contact": {
-    "whatsapp": "+54 9 11 0000-0000",
+    "whatsapp_number": "+54 9 11 0000-0000",
     "email": "ventas@nerinparts.com.ar",
-    "address": "CABA, Argentina"
+    "address": "CABA, Argentina",
+    "opening_hours": ""
   },
-  "social": {
-    "instagram": "https://instagram.com/nerinparts",
-    "linkedin": "https://linkedin.com/company/nerinparts",
-    "youtube": ""
-  },
-  "badges": {
-    "mercadoPago": true,
-    "ssl": true,
-    "andreani": true,
-    "oca": true,
-    "dhl": false,
-    "authenticity": true
-  },
-  "newsletter": {
-    "enabled": false,
-    "placeholder": "Tu email para recibir ofertas",
-    "successMsg": "¡Listo! Te suscribiste."
+  "cta": {
+    "enabled": true,
+    "prompt": "¿Sos técnico o mayorista?",
+    "button_text": "Acceso mayoristas",
+    "cta_link": "/mayoristas"
   },
   "legal": {
+    "company_name": "NERIN PARTS",
     "cuit": "XX-XXXXXXXX-X",
-    "iibb": "Exento/Convenio",
     "terms": "/terminos",
     "privacy": "/privacidad"
   },
-  "show": {
-    "cta": true, "branding": true, "columns": true, "contact": true,
-    "social": true, "badges": true, "newsletter": false, "legal": true
-  },
-  "theme": {
-    "accentFrom": "#FFD54F",
-    "accentTo": "#FFC107",
-    "border": "rgba(255,255,255,.08)",
-    "bg": "#0B0B0C",
-    "fg": "#EDEDEF",
-    "muted": "#B8B8BC",
-    "accentBar": true,
-    "mode": "auto"
+  "appearance": {
+    "theme": "light",
+    "accent": "#FFD54F"
   }
 }
