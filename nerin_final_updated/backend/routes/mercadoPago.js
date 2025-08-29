@@ -69,6 +69,7 @@ async function upsertOrder({
   statusRaw,
   paymentId,
   total,
+  lastWebhook,
 }) {
   const identifier = prefId || externalRef;
   if (!identifier) return;
@@ -93,6 +94,8 @@ async function upsertOrder({
     if (!row.created_at) row.created_at = new Date().toISOString();
     if (prefId != null) row.preference_id = prefId;
     if (externalRef != null) row.external_reference = externalRef;
+    if (lastWebhook) row.last_mp_webhook = lastWebhook;
+    row.updated_at = new Date().toISOString();
   } else {
     const row = { id: externalRef || prefId };
     if (prefId != null) row.preference_id = prefId;
@@ -104,6 +107,8 @@ async function upsertOrder({
     if (paymentId != null) row.payment_id = String(paymentId);
     row.total = total || 0;
     row.created_at = new Date().toISOString();
+    row.updated_at = row.created_at;
+    if (lastWebhook) row.last_mp_webhook = lastWebhook;
     orders.push(row);
   }
 
@@ -143,7 +148,7 @@ async function upsertOrder({
   return { stockDelta };
 }
 
-async function processPayment(id, hints = {}) {
+async function processPayment(id, hints = {}, webhookInfo = null) {
   try {
     const res = await fetchFn(`https://api.mercadopago.com/v1/payments/${id}`, {
       headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
@@ -159,6 +164,12 @@ async function processPayment(id, hints = {}) {
         p.amount ||
         0
     );
+    const lastWebhook = {
+      topic: webhookInfo?.topic || 'payment',
+      id: webhookInfo?.id || p.id,
+      status: statusRaw,
+      at: webhookInfo?.at || new Date().toISOString(),
+    };
     const { stockDelta } = await upsertOrder({
       externalRef,
       prefId,
@@ -166,6 +177,7 @@ async function processPayment(id, hints = {}) {
       statusRaw,
       paymentId: p.id,
       total,
+      lastWebhook,
     });
 
     logger.info(
@@ -217,6 +229,7 @@ async function processNotification(reqOrTopic, maybeId) {
     (typeof reqOrTopic === 'string' ? maybeId : undefined) ||
     maybeId;
   const resource = query.resource || body?.resource;
+  const receivedAt = new Date().toISOString();
 
   logger.info(
     `mp-webhook recibido ${JSON.stringify({ topic, id: rawId })}`,
@@ -234,20 +247,30 @@ async function processNotification(reqOrTopic, maybeId) {
           const prefId = data.preference_id || null;
           const externalRef = data.external_reference || null;
           if (!paymentId) {
-            await upsertOrder({ externalRef, prefId, status: 'pending' });
+            await upsertOrder({
+              externalRef,
+              prefId,
+              status: 'pendiente',
+              statusRaw: 'pending',
+              lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
+            });
             logger.info('mp-webhook merchant_order sin payment (pending)', {
               externalRef,
               prefId,
             });
             return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
           }
-          return await processPayment(paymentId, { externalRef, prefId });
+          return await processPayment(paymentId, { externalRef, prefId }, { topic, id: paymentId, at: receivedAt });
         }
         if (data?.status && data?.external_reference) {
-          return await processPayment(data.id, {
-            externalRef: data.external_reference,
-            prefId: data.preference_id,
-          });
+          return await processPayment(
+            data.id,
+            {
+              externalRef: data.external_reference,
+              prefId: data.preference_id,
+            },
+            { topic, id: data.id, at: receivedAt },
+          );
         }
       } catch (e) {
         logger.warn('mp-webhook resource fetch omitido', {
@@ -270,14 +293,20 @@ async function processNotification(reqOrTopic, maybeId) {
         const prefId = mo?.preference_id || null;
         const externalRef = mo?.external_reference || null;
         if (!paymentId) {
-          await upsertOrder({ externalRef, prefId, status: 'pending' });
+          await upsertOrder({
+            externalRef,
+            prefId,
+            status: 'pendiente',
+            statusRaw: 'pending',
+            lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
+          });
           logger.info('mp-webhook merchant_order sin payment (pending)', {
             externalRef,
             prefId,
           });
           return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
         }
-        return await processPayment(paymentId, { externalRef, prefId });
+        return await processPayment(paymentId, { externalRef, prefId }, { topic, id: paymentId, at: receivedAt });
       } catch (e) {
         logger.info('mp-webhook merchant_order fetch omitido', {
           moId,
@@ -288,12 +317,12 @@ async function processNotification(reqOrTopic, maybeId) {
     }
 
     if (topic === 'payment' || /^[0-9]+$/.test(String(rawId))) {
-      return await processPayment(rawId);
+      return await processPayment(rawId, {}, { topic, id: rawId, at: receivedAt });
     }
   } catch (error) {
     logger.error(`mp-webhook error inesperado: ${error.message}`);
   }
 }
 
-module.exports = { processNotification };
+module.exports = { processNotification, processPayment };
 
