@@ -168,16 +168,21 @@ async function upsertOrder({
   if (externalRef) {
     identifier = externalRef;
     keyUsed = 'external_reference';
-  } else if (prefId) {
+  }
+  if (!identifier && prefId) {
     identifier = prefId;
     keyUsed = 'preference_id';
-  } else if (paymentId) {
+  }
+  if (!identifier && paymentId) {
     identifier = String(paymentId);
     keyUsed = 'payment_id';
-  } else if (merchantOrderId) {
+  }
+  if (!identifier && merchantOrderId) {
     identifier = String(merchantOrderId);
     keyUsed = 'merchant_order_id';
-  } else {
+  }
+  if (!identifier) {
+    // evitar stub si hay alguna referencia util (prefId/externalRef)
     identifier = `stub_${Date.now()}`;
     keyUsed = 'stub';
   }
@@ -466,6 +471,19 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       p.additional_info?.external_reference ||
       mo?.external_reference ||
       prefId;
+    if (!externalRef && !prefId) {
+      logger.info('mp-webhook sin externalRef ni prefId', {
+        paymentId: p?.id,
+        topic: webhookInfo?.topic,
+      });
+    }
+    if (itemsSource === 'none') {
+      logger.info('mp-webhook items_missing after all sources', {
+        paymentId: p?.id,
+        prefId,
+        externalRef,
+      });
+    }
     const total = Number(
       p.transaction_amount ||
         p.transaction_details?.total_paid_amount ||
@@ -552,6 +570,7 @@ async function processNotification(reqOrTopic, maybeId) {
     body.type ||
     body.topic ||
     (typeof reqOrTopic === 'string' ? reqOrTopic : undefined);
+  // Mercado Pago suele mandar payment_id o data.id; id puede ser del evento o merchant_order
   const rawId =
     body?.payment_id ||
     body?.data?.id ||
@@ -587,6 +606,9 @@ async function processNotification(reqOrTopic, maybeId) {
           const externalRef = data.external_reference || null;
           const merchantOrderId = data.id || null;
           if (!paymentId) {
+            if (!externalRef && !prefId) {
+              logger.info('mp-webhook sin externalRef ni prefId', { topic, id: rawId });
+            }
             await upsertOrder({
               externalRef,
               prefId,
@@ -641,6 +663,9 @@ async function processNotification(reqOrTopic, maybeId) {
         const externalRef = mo?.external_reference || null;
         const merchantOrderId = mo?.id || null;
         if (!paymentId) {
+          if (!externalRef && !prefId) {
+            logger.info('mp-webhook sin externalRef ni prefId', { topic, id: rawId });
+          }
           await upsertOrder({
             externalRef,
             prefId,
