@@ -59,12 +59,21 @@ router.post('/crear-preferencia', async (req, res) => {
     return res.status(400).json(payload);
   }
 
-  const items = carrito.map(({ titulo, precio, cantidad, currency_id }) => ({
-    title: String(titulo),
-    unit_price: Number(precio),
-    quantity: Number(cantidad),
-    currency_id: currency_id || 'ARS',
-  }));
+  const items = carrito.map(
+    ({ titulo, precio, cantidad, currency_id, id, sku }) => {
+      const it = {
+        title: String(titulo),
+        unit_price: Number(precio),
+        quantity: Number(cantidad),
+        currency_id: currency_id || 'ARS',
+      };
+      if (id || sku) {
+        it.id = id || sku;
+        it.sku = sku || id;
+      }
+      return it;
+    },
+  );
 
   const numeroOrden = generarNumeroOrden();
 
