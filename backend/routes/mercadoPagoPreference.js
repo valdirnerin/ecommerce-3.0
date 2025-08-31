@@ -70,6 +70,8 @@ router.post('/crear-preferencia', async (req, res) => {
       if (id || sku) {
         it.id = id || sku;
         it.sku = sku || id;
+      } else {
+        it.id = it.sku = String(titulo);
       }
       return it;
     },
@@ -77,7 +79,7 @@ router.post('/crear-preferencia', async (req, res) => {
 
   const numeroOrden = generarNumeroOrden();
 
-  const PUBLIC_URL = getPublicUrl(req);
+  const PUBLIC_URL = process.env.PUBLIC_URL || getPublicUrl(req);
   const body = {
     items,
     payer: { email: usuario.email },

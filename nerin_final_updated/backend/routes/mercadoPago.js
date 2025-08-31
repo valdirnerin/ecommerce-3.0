@@ -16,6 +16,11 @@ const {
 } = require('../services/inventory');
 const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 
+function safeTrunc(s, n = 800) {
+  const t = typeof s === 'string' ? s : JSON.stringify(s || '');
+  return t.length > n ? t.slice(0, n) + '…' : t;
+}
+
 const TRACE_REF = process.env.TRACE_REF;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const MP_ENV = process.env.MP_ENV || 'production';
@@ -181,8 +186,13 @@ async function upsertOrder({
     identifier = String(merchantOrderId);
     keyUsed = 'merchant_order_id';
   }
-  if (!identifier) {
-    // evitar stub si hay alguna referencia util (prefId/externalRef)
+  if (
+    !identifier &&
+    !externalRef &&
+    !prefId &&
+    !paymentId &&
+    !merchantOrderId
+  ) {
     identifier = `stub_${Date.now()}`;
     keyUsed = 'stub';
   }
@@ -385,10 +395,40 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     };
   }
   try {
-    const res = await fetchFn(`https://api.mercadopago.com/v1/payments/${id}`, {
+    const url = `https://api.mercadopago.com/v1/payments/${id}`;
+    const res = await fetchFn(url, {
       headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
     });
-    const p = await res.json();
+    const text = await res.text();
+    if (!res.ok) {
+      logger.error('mp-webhook payment fetch http', {
+        id,
+        status: res.status,
+        body: safeTrunc(text),
+        url,
+      });
+      return {
+        mp_lookup_ok: false,
+        status: null,
+        stockDelta: 0,
+        idempotent: false,
+      };
+    }
+    let p;
+    try {
+      p = JSON.parse(text);
+    } catch (e) {
+      logger.error('mp-webhook payment parse error', {
+        id,
+        body: safeTrunc(text),
+      });
+      return {
+        mp_lookup_ok: false,
+        status: null,
+        stockDelta: 0,
+        idempotent: false,
+      };
+    }
     const statusRaw = p.status;
     const mapped = mapMpStatus(statusRaw);
     const prefId = p.preference_id || hints.prefId || null;
@@ -402,18 +442,34 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
           `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`,
           { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
         );
-        mo = await moRes.json();
-        const moItems = mo.order_items || mo.items || [];
-        if (Array.isArray(moItems) && moItems.length) {
-          items = moItems.map((it) => ({
-            id: it.item?.id || it.id,
-            product_id: it.item?.id || it.id,
-            quantity: it.quantity || it.item?.quantity || it.qty || 0,
-            price: it.unit_price || it.item?.unit_price || it.price || 0,
-            title: it.item?.title || it.title,
-            sku: it.sku || it.item?.sku || it.item?.id || it.id,
-          }));
-          itemsSource = 'merchant_order';
+        const moText = await moRes.text();
+        if (!moRes.ok) {
+          logger.error('mp-webhook merchant_order fetch http', {
+            merchantOrderId,
+            status: moRes.status,
+            body: safeTrunc(moText),
+          });
+        } else {
+          try {
+            mo = JSON.parse(moText);
+            const moItems = mo.order_items || mo.items || [];
+            if (Array.isArray(moItems) && moItems.length) {
+              items = moItems.map((it) => ({
+                id: it.item?.id || it.id,
+                product_id: it.item?.id || it.id,
+                quantity: it.quantity || it.item?.quantity || it.qty || 0,
+                price: it.unit_price || it.item?.unit_price || it.price || 0,
+                title: it.item?.title || it.title,
+                sku: it.sku || it.item?.sku || it.item?.id || it.id,
+              }));
+              itemsSource = 'merchant_order';
+            }
+          } catch (e) {
+            logger.error('mp-webhook merchant_order parse error', {
+              merchantOrderId,
+              body: safeTrunc(moText),
+            });
+          }
         }
       } catch (e) {
         logger.debug('mp-webhook merchant_order items fetch error', {
@@ -442,18 +498,35 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
           `https://api.mercadopago.com/checkout/preferences/${prefId}`,
           { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
         );
-        const pref = await prefRes.json();
-        const prefItems = pref.items || [];
-        if (Array.isArray(prefItems) && prefItems.length) {
-          items = prefItems.map((it) => ({
-            id: it.id || it.sku || it.productId || it.product_id,
-            product_id: it.product_id || it.productId || it.id || it.sku,
-            quantity: it.quantity || it.qty || 0,
-            price: it.unit_price || it.price || 0,
-            title: it.title || it.name,
-            sku: it.sku || it.id,
-          }));
-          itemsSource = 'preference';
+        const prefText = await prefRes.text();
+        if (!prefRes.ok) {
+          logger.error('mp-webhook preference fetch http', {
+            prefId,
+            status: prefRes.status,
+            body: safeTrunc(prefText),
+          });
+        } else {
+          try {
+            const pref = JSON.parse(prefText);
+            const prefItems = pref.items || [];
+            if (Array.isArray(prefItems) && prefItems.length) {
+              items = prefItems.map((it) => ({
+                id: it.id || it.sku || it.productId || it.product_id,
+                product_id:
+                  it.product_id || it.productId || it.id || it.sku,
+                quantity: it.quantity || it.qty || 0,
+                price: it.unit_price || it.price || 0,
+                title: it.title || it.name,
+                sku: it.sku || it.id,
+              }));
+              itemsSource = 'preference';
+            }
+          } catch (e) {
+            logger.error('mp-webhook preference parse error', {
+              prefId,
+              body: safeTrunc(prefText),
+            });
+          }
         }
       } catch (e) {
         logger.debug('mp-webhook preference items fetch error', {
@@ -467,10 +540,11 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       `items_source ${JSON.stringify({ from: itemsSource, count: items.length })}`,
     );
 
-    const externalRef =
+    let externalRef =
       p.additional_info?.external_reference ||
       mo?.external_reference ||
-      prefId;
+      null;
+    if (!externalRef && prefId) externalRef = prefId;
     if (!externalRef && !prefId) {
       logger.info('mp-webhook sin externalRef ni prefId', {
         paymentId: p?.id,
@@ -581,6 +655,17 @@ async function processNotification(reqOrTopic, maybeId) {
   const resource = query.resource || body?.resource;
   const receivedAt = new Date().toISOString();
 
+  logger.info('mp-webhook inbound', {
+    topic,
+    rawId,
+    hasBody: !!(body && Object.keys(body).length),
+    hasQuery: !!(query && Object.keys(query).length),
+    headers: {
+      'x-idempotency-key': reqOrTopic?.headers?.['x-idempotency-key'],
+      'x-signature': reqOrTopic?.headers?.['x-signature'],
+    },
+  });
+
   logger.info(
     `mp-webhook flags ${JSON.stringify({
       effective_skip: SKIP_MP_PAYMENT_FETCH,
@@ -599,13 +684,42 @@ async function processNotification(reqOrTopic, maybeId) {
         const res = await fetchFn(resource, {
           headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
         });
-        const data = await res.json();
+        const text = await res.text();
+        if (!res.ok) {
+          logger.error('mp-webhook resource fetch http', {
+            resource,
+            status: res.status,
+            body: safeTrunc(text),
+          });
+          return {
+            mp_lookup_ok: false,
+            status: null,
+            stockDelta: 0,
+            idempotent: true,
+          };
+        }
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          logger.error('mp-webhook resource parse error', {
+            resource,
+            body: safeTrunc(text),
+          });
+          return {
+            mp_lookup_ok: false,
+            status: null,
+            stockDelta: 0,
+            idempotent: true,
+          };
+        }
         if (data?.payments) {
           const paymentId = data.payments?.[0]?.id || null;
           const prefId = data.preference_id || null;
-          const externalRef = data.external_reference || null;
+          let externalRef = data.external_reference || null;
           const merchantOrderId = data.id || null;
           if (!paymentId) {
+            if (!externalRef && prefId) externalRef = prefId;
             if (!externalRef && !prefId) {
               logger.info('mp-webhook sin externalRef ni prefId', { topic, id: rawId });
             }
@@ -657,12 +771,41 @@ async function processNotification(reqOrTopic, maybeId) {
           `https://api.mercadopago.com/merchant_orders/${moId}`,
           { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
         );
-        const mo = await res.json();
+        const text = await res.text();
+        if (!res.ok) {
+          logger.error('mp-webhook merchant_order fetch http', {
+            merchantOrderId: moId,
+            status: res.status,
+            body: safeTrunc(text),
+          });
+          return {
+            mp_lookup_ok: false,
+            status: null,
+            stockDelta: 0,
+            idempotent: true,
+          };
+        }
+        let mo;
+        try {
+          mo = JSON.parse(text);
+        } catch (e) {
+          logger.error('mp-webhook merchant_order parse error', {
+            merchantOrderId: moId,
+            body: safeTrunc(text),
+          });
+          return {
+            mp_lookup_ok: false,
+            status: null,
+            stockDelta: 0,
+            idempotent: true,
+          };
+        }
         const paymentId = mo?.payments?.[0]?.id || null;
         const prefId = mo?.preference_id || null;
-        const externalRef = mo?.external_reference || null;
+        let externalRef = mo?.external_reference || null;
         const merchantOrderId = mo?.id || null;
         if (!paymentId) {
+          if (!externalRef && prefId) externalRef = prefId;
           if (!externalRef && !prefId) {
             logger.info('mp-webhook sin externalRef ni prefId', { topic, id: rawId });
           }
