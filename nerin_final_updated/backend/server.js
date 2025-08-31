@@ -2443,6 +2443,34 @@ const server = http.createServer((req, res) => {
 
   // === Integración con Mercado Pago ===
   if (
+    pathname.startsWith('/api/debug/mp/payments/') &&
+    req.method === 'GET'
+  ) {
+    const id = decodeURIComponent(pathname.split('/').pop());
+    const url = `https://api.mercadopago.com/v1/payments/${id}`;
+    (async () => {
+      try {
+        const r = await fetchFn(url, {
+          headers: { Authorization: `Bearer ${MP_TOKEN}` },
+        });
+        const text = await r.text();
+        logger.info('mp-debug payment fetch', { id, status: r.status });
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = text;
+        }
+        sendJson(res, r.status, { status: r.status, body: parsed });
+      } catch (e) {
+        logger.error('mp-debug payment error', { id, msg: e?.message });
+        sendJson(res, 500, { error: 'fetch_failed' });
+      }
+    })();
+    return;
+  }
+
+  if (
     (pathname === "/api/mercadopago/preference" ||
       pathname === "/api/mercado-pago/crear-preferencia") &&
     req.method === "POST"
