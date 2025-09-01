@@ -72,6 +72,21 @@ logger.info(
   `Startup paths cwd=${process.cwd()} ordersRepo=${require.resolve("./data/ordersRepo")} ordersFile=${ordersFilePath}`
 );
 
+let legacy;
+try {
+  legacy = require.resolve('../../backend/data/ordersRepo');
+} catch {}
+logger.info('ordersRepo resolved', {
+  primary: require.resolve('./data/ordersRepo'),
+  legacy,
+});
+if (legacy && legacy !== require.resolve('./data/ordersRepo')) {
+  logger.warn('DUPLICATE ordersRepo detected', {
+    primary: require.resolve('./data/ordersRepo'),
+    legacy,
+  });
+}
+
 let autoElevateCount = 0;
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
@@ -290,11 +305,25 @@ app.get("/api/orders", async (req, res) => {
         transportista: o.transportista || o.carrier || "",
       };
     });
+    {
+      const { ORDERS_FILE } = ordersRepo.getPaths();
+      logger.info('admin_orders list', { ORDERS_FILE });
+    }
     res.json({ orders: rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "No se pudieron obtener los pedidos" });
   }
+});
+
+app.get('/api/debug/orders/paths', (_req, res) => {
+  const paths = ordersRepo.getPaths();
+  res.json({ cwd: process.cwd(), repo_file: paths.repo_file, paths });
+});
+
+app.get('/api/debug/orders/peek', async (_req, res) => {
+  const orders = await ordersRepo.getAll();
+  res.json({ count: orders?.length || 0, first: orders[0] || null });
 });
 
 async function getOrderStatus(id) {

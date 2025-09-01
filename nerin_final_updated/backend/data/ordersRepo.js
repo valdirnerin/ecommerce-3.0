@@ -2,15 +2,27 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const productsRepo = require('./productsRepo');
-const dataDir = require('../utils/dataDir');
+const logger = require('../logger');
 
-const filePath = path.join(dataDir, 'orders.json');
+const DATA_DIR_ABS = path.resolve(
+  process.env.DATA_DIR || path.resolve(__dirname, '../data'),
+);
+const ORDERS_FILE_ABS = path.join(DATA_DIR_ABS, 'orders.json');
+
+logger.info('ordersRepo init', {
+  repo_file: __filename,
+  cwd: process.cwd(),
+  DATA_DIR: DATA_DIR_ABS,
+  ORDERS_FILE: ORDERS_FILE_ABS,
+  exists: fs.existsSync(ORDERS_FILE_ABS),
+});
 
 async function getAll() {
+  logger.info('ordersRepo getAll', { file: ORDERS_FILE_ABS });
   const pool = db.getPool();
   if (!pool) {
     try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf8')).orders || [];
+      return JSON.parse(fs.readFileSync(ORDERS_FILE_ABS, 'utf8')).orders || [];
     } catch {
       return [];
     }
@@ -37,12 +49,16 @@ async function getById(id) {
 }
 
 async function saveAll(orders) {
+  logger.info('ordersRepo saveAll', {
+    file: ORDERS_FILE_ABS,
+    count: orders?.length ?? 0,
+  });
   const pool = db.getPool();
   if (!pool) {
     await fs.promises.writeFile(
-      filePath,
+      ORDERS_FILE_ABS,
       JSON.stringify({ orders }, null, 2),
-      'utf8'
+      'utf8',
     );
     return;
   }
@@ -56,7 +72,13 @@ async function saveAll(orders) {
            customer_email=EXCLUDED.customer_email,
            status=EXCLUDED.status,
            total=EXCLUDED.total`,
-        [o.id, o.created_at || new Date(), o.customer_email || null, o.status || 'pendiente', o.total || 0]
+        [
+          o.id,
+          o.created_at || new Date(),
+          o.customer_email || null,
+          o.status || 'pendiente',
+          o.total || 0,
+        ],
       );
     }
     await pool.query('COMMIT');
@@ -201,6 +223,10 @@ async function clearInventoryApplied(id) {
   await pool.query('UPDATE orders SET inventory_applied=false WHERE id=$1', [id]);
 }
 
+function getPaths() {
+  return { DATA_DIR: DATA_DIR_ABS, ORDERS_FILE: ORDERS_FILE_ABS, repo_file: __filename };
+}
+
 module.exports = {
   getAll,
   getById,
@@ -209,4 +235,5 @@ module.exports = {
   createOrder,
   markInventoryApplied,
   clearInventoryApplied,
+  getPaths,
 };

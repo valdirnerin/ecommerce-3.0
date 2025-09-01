@@ -114,7 +114,10 @@ function traceRef(ref, step, info) {
   }
 
   async function saveOrders(orders) {
-    return ordersRepo.saveAll(orders);
+    const r = await ordersRepo.saveAll(orders);
+    const { ORDERS_FILE } = ordersRepo.getPaths();
+    logger.info('order_persist_target', { ORDERS_FILE });
+    return r;
   }
 
 function productsPath() {
@@ -576,6 +579,10 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       items,
       rawData: { payment: p, merchant_order: mo },
     });
+    {
+      const { ORDERS_FILE } = ordersRepo.getPaths();
+      logger.info('order_persist_target', { ORDERS_FILE });
+    }
 
     const persistInfo = {
       status: mapped,
@@ -621,6 +628,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
 }
 
 async function processNotification(reqOrTopic, maybeId) {
+  logger.info('mp-webhook begin', { file: __filename });
   const body = reqOrTopic?.body || {};
   const query = reqOrTopic?.query || {};
   const topic =
@@ -717,6 +725,10 @@ async function processNotification(reqOrTopic, maybeId) {
               items: data.items || [],
               rawData: { resource: data },
             });
+            {
+              const { ORDERS_FILE } = ordersRepo.getPaths();
+              logger.info('order_persist_target', { ORDERS_FILE });
+            }
             logger.info('mp-webhook merchant_order sin payment (pending)', {
               externalRef,
               prefId,
@@ -803,6 +815,10 @@ async function processNotification(reqOrTopic, maybeId) {
             items: mo.items || [],
             rawData: { merchant_order: mo },
           });
+          {
+            const { ORDERS_FILE } = ordersRepo.getPaths();
+            logger.info('order_persist_target', { ORDERS_FILE });
+          }
           logger.info('mp-webhook merchant_order sin payment (pending)', {
             externalRef,
             prefId,
