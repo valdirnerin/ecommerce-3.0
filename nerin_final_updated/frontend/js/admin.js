@@ -967,8 +967,17 @@ if (orderStatusFilter) {
 
 async function loadOrders() {
   try {
-    const res = await fetch("/api/orders");
+    const url = "/api/orders";
+    console.info('admin-orders fetch', { url });
+    const res = await fetch(url);
     const data = await res.json();
+    console.info('admin-orders result', {
+      count: Array.isArray(data?.orders)
+        ? data.orders.length
+        : Array.isArray(data)
+        ? data.length
+        : null,
+    });
     ordersTableBody.innerHTML = "";
     const filter = document.getElementById("orderStatusFilter");
     const statusFilter = filter ? filter.value : "todos";
