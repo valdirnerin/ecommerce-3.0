@@ -65,6 +65,12 @@ const { processNotification, processPayment, traceRef } = require("./routes/merc
 const verifySignature = require("./middleware/verifySignature");
 const { mapMpStatus, MP_STATUS_MAP } = require("../frontend/js/mpStatusMap");
 const logger = require("./logger");
+const dataDir = require("./utils/dataDir");
+
+const ordersFilePath = path.join(dataDir, "orders.json");
+logger.info(
+  `Startup paths cwd=${process.cwd()} ordersRepo=${require.resolve("./data/ordersRepo")} ordersFile=${ordersFilePath}`
+);
 
 let autoElevateCount = 0;
 

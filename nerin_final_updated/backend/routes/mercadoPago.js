@@ -109,28 +109,13 @@ function traceRef(ref, step, info) {
   }
 }
 
-function ordersPath() {
-  return path.join(dataDir, 'orders.json');
-}
-
-async function getOrders() {
-  if (db.getPool()) return ordersRepo.getAll();
-  try {
-    const file = fs.readFileSync(ordersPath(), 'utf8');
-    return JSON.parse(file).orders || [];
-  } catch {
-    return [];
+  async function getOrders() {
+    return ordersRepo.getAll();
   }
-}
 
-async function saveOrders(orders) {
-  if (db.getPool()) return ordersRepo.saveAll(orders);
-  await fs.promises.writeFile(
-    ordersPath(),
-    JSON.stringify({ orders }, null, 2),
-    'utf8'
-  );
-}
+  async function saveOrders(orders) {
+    return ordersRepo.saveAll(orders);
+  }
 
 function productsPath() {
   return path.join(dataDir, 'products.json');
