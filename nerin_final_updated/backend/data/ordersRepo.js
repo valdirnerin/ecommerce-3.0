@@ -4,25 +4,25 @@ const db = require('../db');
 const productsRepo = require('./productsRepo');
 const logger = require('../logger');
 
-const DATA_DIR_ABS = path.resolve(
-  process.env.DATA_DIR || path.resolve(__dirname, '../data'),
-);
-const ORDERS_FILE_ABS = path.join(DATA_DIR_ABS, 'orders.json');
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(__dirname, '../data');
+const ORDERS_FILE = path.join(DATA_DIR, 'orders.json');
 
 logger.info('ordersRepo init', {
   repo_file: __filename,
   cwd: process.cwd(),
-  DATA_DIR: DATA_DIR_ABS,
-  ORDERS_FILE: ORDERS_FILE_ABS,
-  exists: fs.existsSync(ORDERS_FILE_ABS),
+  DATA_DIR,
+  ORDERS_FILE,
+  exists: fs.existsSync(ORDERS_FILE),
 });
 
 async function getAll() {
-  logger.info('ordersRepo getAll', { file: ORDERS_FILE_ABS });
+  logger.info('ordersRepo getAll', { file: ORDERS_FILE });
   const pool = db.getPool();
   if (!pool) {
     try {
-      return JSON.parse(fs.readFileSync(ORDERS_FILE_ABS, 'utf8')).orders || [];
+      return JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8')).orders || [];
     } catch {
       return [];
     }
@@ -50,13 +50,13 @@ async function getById(id) {
 
 async function saveAll(orders) {
   logger.info('ordersRepo saveAll', {
-    file: ORDERS_FILE_ABS,
-    count: orders?.length ?? 0,
+    file: ORDERS_FILE,
+    count: Array.isArray(orders) ? orders.length : null,
   });
   const pool = db.getPool();
   if (!pool) {
     await fs.promises.writeFile(
-      ORDERS_FILE_ABS,
+      ORDERS_FILE,
       JSON.stringify({ orders }, null, 2),
       'utf8',
     );
@@ -224,7 +224,7 @@ async function clearInventoryApplied(id) {
 }
 
 function getPaths() {
-  return { DATA_DIR: DATA_DIR_ABS, ORDERS_FILE: ORDERS_FILE_ABS, repo_file: __filename };
+  return { DATA_DIR, ORDERS_FILE, repo_file: __filename };
 }
 
 module.exports = {
