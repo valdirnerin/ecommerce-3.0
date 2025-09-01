@@ -16,11 +16,6 @@ const {
 } = require('../services/inventory');
 const { mapMpStatus } = require('../../frontend/js/mpStatusMap');
 
-function safeTrunc(s, n = 800) {
-  const t = typeof s === 'string' ? s : JSON.stringify(s || '');
-  return t.length > n ? t.slice(0, n) + '…' : t;
-}
-
 const TRACE_REF = process.env.TRACE_REF;
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const MP_ENV = process.env.MP_ENV || 'production';
@@ -392,8 +387,9 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
       logger.error('mp-webhook payment fetch http', {
         id,
         status: res.status,
-        body: safeTrunc(text),
         url,
+        token_tail: (ACCESS_TOKEN || '').slice(-6),
+        body: text?.slice(0, 800),
       });
       return {
         mp_lookup_ok: false,
@@ -408,7 +404,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     } catch (e) {
       logger.error('mp-webhook payment parse error', {
         id,
-        body: safeTrunc(text),
+        body: text?.slice(0, 800),
       });
       return {
         mp_lookup_ok: false,
@@ -426,16 +422,18 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     let itemsSource = 'none';
     if (merchantOrderId) {
       try {
-        const moRes = await fetchFn(
-          `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`,
-          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
-        );
+        const moUrl = `https://api.mercadopago.com/merchant_orders/${merchantOrderId}`;
+        const moRes = await fetchFn(moUrl, {
+          headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+        });
         const moText = await moRes.text();
         if (!moRes.ok) {
           logger.error('mp-webhook merchant_order fetch http', {
             merchantOrderId,
             status: moRes.status,
-            body: safeTrunc(moText),
+            url: moUrl,
+            token_tail: (ACCESS_TOKEN || '').slice(-6),
+            body: moText?.slice(0, 800),
           });
         } else {
           try {
@@ -455,7 +453,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
           } catch (e) {
             logger.error('mp-webhook merchant_order parse error', {
               merchantOrderId,
-              body: safeTrunc(moText),
+              body: moText?.slice(0, 800),
             });
           }
         }
@@ -482,16 +480,18 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
     }
     if (!items.length && prefId) {
       try {
-        const prefRes = await fetchFn(
-          `https://api.mercadopago.com/checkout/preferences/${prefId}`,
-          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
-        );
+        const prefUrl = `https://api.mercadopago.com/checkout/preferences/${prefId}`;
+        const prefRes = await fetchFn(prefUrl, {
+          headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+        });
         const prefText = await prefRes.text();
         if (!prefRes.ok) {
           logger.error('mp-webhook preference fetch http', {
             prefId,
             status: prefRes.status,
-            body: safeTrunc(prefText),
+            url: prefUrl,
+            token_tail: (ACCESS_TOKEN || '').slice(-6),
+            body: prefText?.slice(0, 800),
           });
         } else {
           try {
@@ -512,7 +512,7 @@ async function processPayment(id, hints = {}, webhookInfo = null) {
           } catch (e) {
             logger.error('mp-webhook preference parse error', {
               prefId,
-              body: safeTrunc(prefText),
+              body: prefText?.slice(0, 800),
             });
           }
         }
@@ -682,7 +682,7 @@ async function processNotification(reqOrTopic, maybeId) {
           logger.error('mp-webhook resource fetch http', {
             resource,
             status: res.status,
-            body: safeTrunc(text),
+            body: text?.slice(0, 800),
           });
           return {
             mp_lookup_ok: false,
@@ -697,7 +697,7 @@ async function processNotification(reqOrTopic, maybeId) {
         } catch (e) {
           logger.error('mp-webhook resource parse error', {
             resource,
-            body: safeTrunc(text),
+            body: text?.slice(0, 800),
           });
           return {
             mp_lookup_ok: false,
@@ -764,16 +764,18 @@ async function processNotification(reqOrTopic, maybeId) {
     if (topic === 'merchant_order') {
       const moId = Number(rawId) || rawId;
       try {
-        const res = await fetchFn(
-          `https://api.mercadopago.com/merchant_orders/${moId}`,
-          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
-        );
+        const url = `https://api.mercadopago.com/merchant_orders/${moId}`;
+        const res = await fetchFn(url, {
+          headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+        });
         const text = await res.text();
         if (!res.ok) {
           logger.error('mp-webhook merchant_order fetch http', {
             merchantOrderId: moId,
             status: res.status,
-            body: safeTrunc(text),
+            url,
+            token_tail: (ACCESS_TOKEN || '').slice(-6),
+            body: text?.slice(0, 800),
           });
           return {
             mp_lookup_ok: false,
@@ -788,7 +790,7 @@ async function processNotification(reqOrTopic, maybeId) {
         } catch (e) {
           logger.error('mp-webhook merchant_order parse error', {
             merchantOrderId: moId,
-            body: safeTrunc(text),
+            body: text?.slice(0, 800),
           });
           return {
             mp_lookup_ok: false,
@@ -798,30 +800,41 @@ async function processNotification(reqOrTopic, maybeId) {
           };
         }
         const paymentId = mo?.payments?.[0]?.id || null;
-        const prefId = mo?.preference_id || null;
-        let externalRef = mo?.external_reference || null;
+        const externalRef = mo?.external_reference || null;
+        const prefId = mo?.preference_id || mo?.preference?.id || null;
         const merchantOrderId = mo?.id || null;
         if (!paymentId) {
-          if (!externalRef && prefId) externalRef = prefId;
-          if (!externalRef && !prefId) {
-            logger.info('mp-webhook sin externalRef ni prefId', { topic, id: rawId });
+          let items = Array.isArray(mo?.items)
+            ? mo.items.map((it) => ({
+                id: it.id || it.sku || it.title,
+                sku: it.sku || it.id || it.title,
+                title: it.title,
+                quantity: it.quantity || 0,
+                price: it.unit_price || it.total_amount || 0,
+              }))
+            : [];
+          if (!externalRef && prefId) {
+            logger.info(
+              'mp-webhook merchant_order without external_reference, using prefId as externalRef',
+              { prefId },
+            );
           }
           await upsertOrder({
-            externalRef,
+            externalRef: externalRef || prefId || null,
             prefId,
             status: 'pendiente',
             statusRaw: 'pending',
             lastWebhook: { topic, id: rawId, status: 'pending', at: receivedAt },
-            items: mo.items || [],
+            items,
             rawData: { merchant_order: mo },
           });
           {
             const { ORDERS_FILE } = ordersRepo.getPaths();
             logger.info('order_persist_target', { ORDERS_FILE });
           }
-          logger.info('mp-webhook merchant_order sin payment (pending)', {
-            externalRef,
-            prefId,
+          logger.info('mp-webhook merchant_order persisted pending', {
+            usedRef: externalRef || prefId || null,
+            items_count: items.length,
           });
           return { mp_lookup_ok: true, status: 'pendiente', stockDelta: 0, idempotent: true };
         }
