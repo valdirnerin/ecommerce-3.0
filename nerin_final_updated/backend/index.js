@@ -606,6 +606,151 @@ const USERS = [
   },
 ];
 
+// === RUTAS ADICIONALES PARA PANEL DE ADMINISTRACIÓN ===
+
+// Clientes: devolver todos los clientes y actualizar saldo/límite
+const clientsRepo = require("./data/clientsRepo");
+app.get("/api/clients", async (_req, res) => {
+  try {
+    const clients = await clientsRepo.getAll();
+    res.json({ clients });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "No se pudieron obtener los clientes" });
+  }
+});
+app.put("/api/clients/:email", async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email);
+    const update = req.body || {};
+    const clients = await clientsRepo.getAll();
+    const idx = clients.findIndex((c) => c.email === email);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    clients[idx] = { ...clients[idx], ...update };
+    // guardamos de nuevo sobrescribiendo el archivo JSON
+    const fs = require("fs/promises");
+    const path = require("path");
+    const filePath = path.join(process.env.DATA_DIR || require('./utils/dataDir'), "clients.json");
+    await fs.writeFile(filePath, JSON.stringify({ clients }, null, 2), "utf8");
+    res.json({ success: true, client: clients[idx] });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: "Solicitud inválida" });
+  }
+});
+
+// Métricas básicas: pedidos totales, ventas por mes y top productos
+app.get("/api/metrics", async (_req, res) => {
+  try {
+    const orders = await ordersRepo.getAll();
+    const salesByMonth = {};
+    const productTotals = {};
+    orders.forEach((order) => {
+      const date = new Date(order.created_at || order.fecha || order.date);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      (order.productos || order.items || []).forEach((item) => {
+        const qty = Number(item.quantity || item.qty || 0);
+        const price = Number(item.price || item.unit_price || 0);
+        salesByMonth[key] = (salesByMonth[key] || 0) + qty * price;
+        productTotals[item.name || item.title || ""] =
+          (productTotals[item.name || item.title || ""] || 0) + qty;
+      });
+    });
+    const topProducts = Object.entries(productTotals)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, quantity]) => ({ name, quantity }));
+    res.json({
+      metrics: {
+        totalOrders: orders.length,
+        salesByMonth,
+        topProducts,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "No se pudieron calcular las métricas" });
+  }
+});
+
+// Devoluciones: devolver todas o filtrar por email; actualizar estado
+const fsPromises = require("fs/promises");
+const returnsFile = require("path").join(process.env.DATA_DIR || require('./utils/dataDir'), "returns.json");
+app.get("/api/returns", async (req, res) => {
+  try {
+    const raw = await fsPromises.readFile(returnsFile, "utf8");
+    const returns = JSON.parse(raw).returns || [];
+    if (req.query.email) {
+      const filtered = returns.filter((r) => r.customerEmail === req.query.email);
+      return res.json({ returns: filtered });
+    }
+    res.json({ returns });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "No se pudieron obtener las devoluciones" });
+  }
+});
+app.put("/api/returns/:id", async (req, res) => {
+  try {
+    const retId = req.params.id;
+    const update = req.body || {};
+    const raw = await fsPromises.readFile(returnsFile, "utf8");
+    const data = JSON.parse(raw);
+    const list = data.returns || [];
+    const idx = list.findIndex((r) => r.id === retId);
+    if (idx === -1) return res.status(404).json({ error: "Devolución no encontrada" });
+    list[idx] = { ...list[idx], ...update };
+    await fsPromises.writeFile(returnsFile, JSON.stringify({ returns: list }, null, 2), "utf8");
+    res.json({ success: true, returnRequest: list[idx] });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: "Solicitud inválida" });
+  }
+});
+
+// Configuración general: leer y guardar config.json
+const configFile = require("path").join(process.env.DATA_DIR || require('./utils/dataDir'), "config.json");
+app.get("/api/config", async (_req, res) => {
+  try {
+    const raw = await fsPromises.readFile(configFile, "utf8");
+    const cfg = JSON.parse(raw);
+    res.json(cfg);
+  } catch {
+    // Si no existe, devolvemos objeto vacío
+    res.json({});
+  }
+});
+app.put("/api/config", async (req, res) => {
+  try {
+    const update = req.body || {};
+    let cfg = {};
+    try {
+      const raw = await fsPromises.readFile(configFile, "utf8");
+      cfg = JSON.parse(raw);
+    } catch {}
+    const newCfg = { ...cfg, ...update };
+    await fsPromises.writeFile(configFile, JSON.stringify(newCfg, null, 2), "utf8");
+    res.json(newCfg);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: "Solicitud inválida" });
+  }
+});
+
+// Tabla de envíos: devolver shipping.json (provincia y costo)
+const shippingFile = require("path").join(process.env.DATA_DIR || require('./utils/dataDir'), "shipping.json");
+app.get("/api/shipping-table", async (_req, res) => {
+  try {
+    const raw = await fsPromises.readFile(shippingFile, "utf8");
+    const data = JSON.parse(raw);
+    res.json({ costos: data.costos || [] });
+  } catch {
+    res.status(404).json({ error: "No se encontró la tabla de envíos" });
+  }
+});
+
 // API: login de usuario
 app.post("/api/login", (req, res) => {
   const { email, password } = req.body;
