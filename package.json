@@ -1,10 +1,10 @@
 {
   "name": "ecommerce-3.0",
   "version": "1.0.0",
-  "main": "nerin_final_updated/backend/index.js",
+  "main": "apps/backend/server.js",
   "scripts": {
-    "start": "node nerin_final_updated/backend/index.js",
-    "test": "jest",
+    "start": "node apps/backend/server.js",
+    "test": "jest apps/backend",
     "list:webhooks": "node scripts/listMpWebhooks.js",
     "mp:trace": "node scripts/mpTrace.js"
   },
