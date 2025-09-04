@@ -65,13 +65,13 @@ app.get('/pending', (req, res) => {
 
 app.get('/estado-pedido/:id', (_req, res) => {
   res.sendFile(
-    path.join(__dirname, '../../legacy/frontend_orig/estado-pedido.html')
+    path.join(__dirname, '../frontend/estado-pedido.html')
   );
 });
 
 app.get('/confirmacion/:id', (_req, res) => {
   res.sendFile(
-    path.join(__dirname, '../../legacy/frontend_orig/confirmacion.html')
+    path.join(__dirname, '../frontend/confirmacion.html')
   );
 });
 
@@ -160,12 +160,12 @@ app.use('/api', (req, res) => {
 });
 
 app.use(
-  express.static(path.join(__dirname, '../../legacy/frontend_orig'))
+  express.static(path.join(__dirname, '../frontend'))
 );
 
 app.get('*', (_req, res) => {
   res.sendFile(
-    path.join(__dirname, '../../legacy/frontend_orig/index.html')
+    path.join(__dirname, '../frontend/index.html')
   );
 });
 

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirmar datos</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;background:#f5f5f5;margin:0;padding:20px;}
+    .box{max-width:600px;margin:0 auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+    button{padding:10px 20px;font-size:16px;cursor:pointer;margin-right:10px;}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Confirmá tus datos</h1>
+    <div id="info"></div>
+    <button id="editar">Editar datos</button>
+    <button id="btnPagar">Confirmar y pagar</button>
+  </div>
+  <script src="config.js"></script>
+  <script>
+  const infoEl = document.getElementById('info');
+  const btnEditar = document.getElementById('editar');
+  const btnPagar = document.getElementById('btnPagar');
+  const saved = JSON.parse(localStorage.getItem('userInfo')||'null');
+  if(!saved){
+    window.location.href = 'checkout.html';
+  } else {
+    const parts = [];
+    if(saved.nombre) parts.push(`<p><strong>Nombre:</strong> ${saved.nombre} ${saved.apellido||''}</p>`);
+    if(saved.email) parts.push(`<p><strong>Email:</strong> ${saved.email}</p>`);
+    if(saved.telefono) parts.push(`<p><strong>Teléfono:</strong> ${saved.telefono}</p>`);
+    if(saved.direccion){
+      parts.push(`<p><strong>Dirección:</strong> ${saved.direccion}, ${saved.localidad}, ${saved.provincia} (${saved.cp})</p>`);
+      parts.push(`<p><strong>Método de envío:</strong> ${saved.metodo||''}</p>`);
+    }
+    infoEl.innerHTML = parts.join('');
+  }
+
+  const producto = {titulo:'Producto de ejemplo', precio:100, cantidad:1};
+
+  btnEditar.addEventListener('click', ()=>{
+    window.location.href = 'checkout.html';
+  });
+
+  btnPagar.addEventListener('click', async ()=>{
+    if(!saved || !saved.email){
+      window.location.href = 'checkout.html';
+      return;
+    }
+    try {
+      const cart = [{ name: producto.titulo, price: producto.precio, quantity: producto.cantidad }];
+      const customer = { email: saved.email };
+      const carritoBackend = cart.map(({ name, price, quantity }) => ({
+        titulo: name,
+        precio: price,
+        cantidad: quantity,
+      }));
+      console.log('🔥 Enviando preferencia MP', { carritoBackend, customer });
+      const res = await fetch('/api/mercado-pago/crear-preferencia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carrito: carritoBackend, usuario: customer }),
+      });
+      const { init_point } = await res.json();
+      window.location.href = init_point;
+    } catch (err) {
+      console.error('❌ Error fetch MP', err);
+    }
+  });
+  </script>
+</body>
+</html>
