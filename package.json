@@ -4,7 +4,7 @@
   "main": "apps/backend/server.js",
   "scripts": {
     "start": "node apps/backend/server.js",
-    "test": "jest apps/backend",
+    "test": "jest apps/backend apps/frontend",
     "list:webhooks": "node scripts/listMpWebhooks.js",
     "mp:trace": "node scripts/mpTrace.js"
   },

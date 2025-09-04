@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administración de pedidos</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:20px;}
+    table{width:100%;border-collapse:collapse;margin-top:20px;}
+    th,td{border:1px solid #ccc;padding:8px;text-align:left;}
+    button{padding:6px 12px;cursor:pointer;}
+  </style>
+</head>
+<body>
+  <h1>Pedidos pendientes de pago</h1>
+  <table id="tabla">
+    <thead>
+      <tr><th>Número</th><th>Email</th><th>Total</th><th>Estado</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+<script src="config.js"></script>
+<script>
+async function cargar(){
+  const res = await fetch(`${API_BASE_URL}/api/orders/pending`, { mode: 'cors' });
+  const datos = await res.json();
+  const tbody = document.querySelector('#tabla tbody');
+  tbody.innerHTML = '';
+  datos.forEach(o=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${o.order_number}</td><td>${o.user_email||''}</td><td>${o.total_amount}</td><td>${o.payment_status}</td><td><button data-id="${o.order_number}">Marcar como pagado</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+document.addEventListener('click', async (e)=>{
+  if(e.target.dataset && e.target.dataset.id){
+    const id = e.target.dataset.id;
+    await fetch(`${API_BASE_URL}/api/orders/`+id+`/mark-paid`, {mode:'cors', method:'POST'});
+    cargar();
+  }
+});
+
+cargar();
+</script>
+</body>
+</html>
