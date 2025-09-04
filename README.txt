@@ -9,14 +9,14 @@ INSTRUCCIONES RÁPIDAS
    ```
 
 2. Las credenciales de Mercado Pago ya están definidas en
-   `legacy/frontend_orig/config.js` y en un archivo `.env` en la raíz.
+   `apps/frontend/config.js` y en un archivo `.env` en la raíz.
    Si necesitás otras, editá esos archivos.
 
-3. Abrí `legacy/frontend_orig/index.html` en tu navegador y presioná el botón
+3. Abrí `apps/frontend/index.html` en tu navegador y presioná el botón
    para pagar.
 
 El backend quedará disponible en `http://localhost:3000` y podés cambiar los
-datos del producto directamente en `legacy/frontend_orig/index.html`.
+datos del producto directamente en `apps/frontend/index.html`.
 
 VARIABLES DE ENTORNO
 -------------------
