@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:20px;background:#f5f5f5;}
+    .step{display:none;max-width:600px;margin:0 auto;background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.1);} 
+    .step.active{display:block;}
+    .progress{margin-bottom:20px;font-weight:600;text-align:center;}
+    label{display:block;margin-bottom:6px;}
+    input,select{width:100%;padding:8px;margin-bottom:12px;}
+    button{padding:10px 20px;font-size:16px;cursor:pointer;}
+  </style>
+</head>
+<body>
+<div id="step1" class="step active">
+  <div class="progress" id="progress1">[1️⃣ Datos] → [2️⃣ Envío] → [3️⃣ Pago]</div>
+  <label><input type="radio" name="tipo" value="cuenta" id="optCuenta" checked> Tengo cuenta</label>
+  <label><input type="radio" name="tipo" value="invitado" id="optInvitado"> Comprar como invitado</label>
+  <div id="guestFields" style="display:none;">
+    <label>Nombre<input type="text" id="nombre" required></label>
+    <label>Apellido<input type="text" id="apellido" required></label>
+    <label>Email<input type="email" id="email" required></label>
+    <label>Teléfono<input type="tel" id="telefono" required></label>
+  </div>
+  <button id="continue1">Continuar</button>
+</div>
+<div id="step2" class="step">
+  <div class="progress" id="progress2">[1️⃣ Datos] → [2️⃣ Envío] → [3️⃣ Pago]</div>
+  <label>Provincia
+    <select id="provincia" required>
+      <option value="" disabled selected>Seleccione</option>
+      <option>CABA</option>
+      <option>Buenos Aires</option>
+      <option>Córdoba</option>
+      <option>Santa Fe</option>
+      <option>Otras</option>
+    </select>
+  </label>
+  <label>Localidad<input type="text" id="localidad" required></label>
+  <label>Dirección<input type="text" id="direccion" required></label>
+  <label>Código Postal<input type="text" id="cp" required></label>
+  <label>Método de envío
+    <select id="metodo" required>
+      <option value="">Seleccione</option>
+      <option value="oca">OCA</option>
+      <option value="correo">Correo Argentino</option>
+    </select>
+  </label>
+  <p id="costoEnvio"></p>
+  <button id="continue2">Continuar</button>
+</div>
+<div id="step3" class="step">
+  <div class="progress" id="progress3">[1️⃣ Datos] → [2️⃣ Envío] → [3️⃣ Pago]</div>
+  <div id="resumen"></div>
+  <h3>Método de pago</h3>
+  <label><input type="radio" name="pago" value="mp" checked> Mercado Pago</label>
+  <label><input type="radio" name="pago" value="transferencia"> Transferencia bancaria</label>
+  <label><input type="radio" name="pago" value="efectivo"> Efectivo al retirar</label>
+  <div id="metodoInfo" style="margin:10px 0;"></div>
+  <button id="confirmar">Confirmar y pagar</button>
+</div>
+<script src="config.js"></script>
+<script src="https://sdk.mercadopago.com/js/v2" data-public-key="APP_USR-c28b783a-54c0-4e39-80d3-f8c7dae2b645"></script>
+<script src="checkout.js"></script>
+</body>
+</html>
