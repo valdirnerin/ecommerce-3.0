@@ -1,7 +1,12 @@
 node_modules/
 package-lock.json
-nerin_final_updated/node_modules/
-nerin_final_updated/package-lock.json
-nerin_final_updated/.env
-nerin_final_updated/qa/
-frontend/config.js
+legacy/nerin_orig/node_modules/
+legacy/nerin_orig/package-lock.json
+legacy/nerin_orig/.env
+legacy/nerin_orig/qa/
+legacy/frontend_orig/config.js
+
+legacy/backend_orig/.env
+apps/backend/.env
+
+apps/frontend/config.js

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Estado del Pedido</title>
+</head>
+<body>
+  <h1 id="message">Procesando pago...</h1>
+  <p id="step">Paso 2 de 3</p>
+  <p id="orderNumber" style="display:none"></p>
+  <script src="config.js"></script>
+  <script>
+    const orderId = window.location.pathname.split('/').pop();
+    const messageEl = document.getElementById('message');
+    const stepEl = document.getElementById('step');
+    const orderNumberEl = document.getElementById('orderNumber');
+
+    async function checkStatus() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/orders/${orderId}/status`, {mode:'cors'});
+        const data = await res.json();
+        const status = data.status;
+        if (data.numeroOrden) {
+          orderNumberEl.style.display = 'block';
+          orderNumberEl.textContent = `Número de pedido: ${data.numeroOrden}`;
+        }
+        if (status === 'approved' || status === 'aprobado') {
+          messageEl.textContent = 'Pago aprobado';
+          stepEl.textContent = 'Paso 3 de 3';
+          clearInterval(interval);
+        } else if (status === 'rejected' || status === 'rechazado') {
+          messageEl.textContent = 'Pago rechazado';
+          stepEl.textContent = 'Paso 3 de 3';
+          clearInterval(interval);
+        } else {
+          messageEl.textContent = `Pago ${status}`;
+          stepEl.textContent = 'Paso 2 de 3';
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    const interval = setInterval(checkStatus, 5000);
+    checkStatus();
+  </script>
+</body>
+</html>

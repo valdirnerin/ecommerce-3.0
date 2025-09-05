@@ -1,25 +1,31 @@
 INSTRUCCIONES RÁPIDAS
 =====================
 
-1. Entrá en la carpeta `backend`:
+El repositorio ahora mantiene los módulos históricos en `legacy/` y
+comienza a unificarse en `apps/`. El backend activo se encuentra en
+`apps/backend`.
+
+1. Entrá en la carpeta `apps/backend`:
 
    ```bash
-   cd backend
+   cd apps/backend
    ```
 
-2. Las credenciales de Mercado Pago ya están definidas en `frontend/config.js`
-   y `backend/.env`. Si necesitás otras, editá esos archivos. Instalá las
-   dependencias y ejecutá el servidor:
+2. Las credenciales de Mercado Pago ya están definidas en
+   `apps/frontend/config.js` y `apps/backend/.env`. Si necesitás
+   otras, editá esos archivos. Instalá las dependencias y ejecutá el
+   servidor:
 
    ```bash
    npm install
    node server.js
    ```
 
-3. Abrí `frontend/index.html` en tu navegador y presioná el botón para pagar.
+3. Abrí `apps/frontend/index.html` en tu navegador y presioná el
+   botón para pagar.
 
 El backend quedará disponible en `http://localhost:3000` y podés cambiar los
-datos del producto directamente en `frontend/index.html`.
+datos del producto directamente en `apps/frontend/index.html`.
 
 VARIABLES DE ENTORNO
 -------------------
