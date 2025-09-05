@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node apps/backend/server.js",
     "test": "jest apps",
+    "build": "echo 'No build step necessary'",
     "list:webhooks": "node scripts/listMpWebhooks.js",
     "mp:trace": "node scripts/mpTrace.js",
     "nerin:start": "node apps/nerin/backend/index.js",
