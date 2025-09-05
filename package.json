@@ -6,7 +6,16 @@
     "start": "node apps/backend/server.js",
     "test": "jest apps",
     "list:webhooks": "node scripts/listMpWebhooks.js",
-    "mp:trace": "node scripts/mpTrace.js"
+    "mp:trace": "node scripts/mpTrace.js",
+    "nerin:start": "node apps/nerin/backend/index.js",
+    "cleanup": "node apps/nerin/backend/scripts/cleanup.js",
+    "verify:overrides": "node apps/nerin/backend/scripts/verifyOverrides.js",
+    "verify:mp-webhook": "node apps/nerin/backend/scripts/mp_webhook_probe.js",
+    "verify:mp-prod": "node apps/nerin/backend/scripts/mp_webhook_probe.js",
+    "mp:replay": "node apps/nerin/backend/scripts/mp_replay.js",
+    "mp:self-probe": "node apps/nerin/backend/scripts/mp_self_probe.js",
+    "mp:reconcile": "node apps/nerin/backend/scripts/mp_reconcile.js",
+    "device:qa": "node apps/nerin/scripts/device-qa.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -18,10 +27,17 @@
     "mercadopago": "^2.8.0",
     "pg": "^8.11.3",
     "winston": "^3.10.0",
-    "nodemailer": "^6.9.11"
+    "nodemailer": "^6.9.11",
+    "afip.ts": "^3.2.2",
+    "cookie-parser": "^1.4.6",
+    "multer": "^2.0.0",
+    "resend": "^4.7.0",
+    "rotating-file-stream": "^3.0.3"
   },
   "devDependencies": {
     "jest": "^30.0.5",
-    "supertest": "^7.1.4"
+    "supertest": "^7.1.4",
+    "prettier": "^3.6.2",
+    "playwright": "^1.55.0"
   }
 }

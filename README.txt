@@ -15,6 +15,14 @@ INSTRUCCIONES RÁPIDAS
 3. Abrí `apps/frontend/index.html` en tu navegador y presioná el botón
    para pagar.
 
+4. Para ejecutar el módulo ERP + E‑commerce de NERIN:
+
+   ```bash
+   npm run nerin:start
+   ```
+
+   Luego abrí `apps/nerin/frontend/index.html` en tu navegador.
+
 El backend quedará disponible en `http://localhost:3000` y podés cambiar los
 datos del producto directamente en `apps/frontend/index.html`.
 
