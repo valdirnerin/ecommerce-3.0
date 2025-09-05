@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "identity": {
+    "brand_name": "NERIN PARTS",
+    "logo_variant": "light",
+    "tagline": "Samsung Service Pack Original"
+  },
+  "navigation": [
+    [
+      {"text": "Pantallas Service Pack", "url": "/categorias/pantallas"},
+      {"text": "Baterías", "url": "/categorias/baterias"},
+      {"text": "Módulos / Flex", "url": "/categorias/modulos"}
+    ],
+    [
+      {"text": "Verificar originalidad", "url": "/autenticidad"},
+      {"text": "Garantía y devoluciones", "url": "/garantia"},
+      {"text": "Envíos", "url": "/envios"}
+    ],
+    [
+      {"text": "Mi cuenta", "url": "/cuenta"},
+      {"text": "Mayoristas", "url": "/mayoristas"},
+      {"text": "Soporte técnico", "url": "/soporte"}
+    ]
+  ],
+  "contact": {
+    "whatsapp_number": "+54 9 11 0000-0000",
+    "email": "ventas@nerinparts.com.ar",
+    "address": "CABA, Argentina",
+    "opening_hours": ""
+  },
+  "cta": {
+    "enabled": true,
+    "prompt": "¿Sos técnico o mayorista?",
+    "button_text": "Acceso mayoristas",
+    "cta_link": "/mayoristas"
+  },
+  "legal": {
+    "company_name": "NERIN PARTS",
+    "cuit": "XX-XXXXXXXX-X",
+    "terms": "/terminos",
+    "privacy": "/privacidad"
+  },
+  "appearance": {
+    "theme": "light",
+    "accent": "#FFD54F"
+  }
+}

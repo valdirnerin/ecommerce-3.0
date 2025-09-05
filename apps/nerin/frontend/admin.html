@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Panel de Administración – NERIN</title>
+        <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+      <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="/components/footer.css?v=nerin-footer-1">
+  <link rel="stylesheet" href="/css/overrides.css?v=nerin-20250826-1459">
+  </head>
+  <body class="hide-cta">
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+        <!-- Selector de idioma -->
+        <select
+          id="langSelect"
+          style="
+            margin-left: 1rem;
+            padding: 0.2rem;
+            border: 1px solid var(--color-border);
+            border-radius: var(--radius);
+          "
+        >
+          <option value="es">ES</option>
+          <option value="en">EN</option>
+        </select>
+      </div>
+    </header>
+    <main class="container admin-container">
+      <h2 data-i18n="admin.title">Panel de administración</h2>
+      <p data-i18n="admin.subtitle">
+        Gestiona productos, pedidos, clientes y métricas desde aquí.
+      </p>
+      <div class="admin-nav">
+        <button
+          data-target="productsSection"
+          class="active"
+          data-i18n="nav.products"
+        >
+          Productos
+        </button>
+        <button data-target="ordersSection" data-i18n="nav.orders">
+          Pedidos
+        </button>
+        <button data-target="clientsSection" data-i18n="nav.clients">
+          Clientes
+        </button>
+        <button data-target="metricsSection" data-i18n="nav.metrics">
+          Métricas
+        </button>
+        <button data-target="returnsSection" data-i18n="nav.returns">
+          Devoluciones
+        </button>
+        <button data-target="configSection" data-i18n="nav.config">
+          Configuración
+        </button>
+        <button data-target="footerSection">Footer</button>
+        <button data-target="shippingSection" data-i18n="nav.shipping">
+          Envíos
+        </button>
+        <button data-target="suppliersSection" data-i18n="nav.suppliers">
+          Proveedores
+        </button>
+        <button data-target="purchaseOrdersSection" data-i18n="nav.purchase">
+          Órdenes de compra
+        </button>
+        <button data-target="analyticsSection" data-i18n="nav.analytics">
+          Analíticas
+        </button>
+      </div>
+      <section id="productsSection" class="admin-section">
+        <h3>Gestión de productos</h3>
+        <div class="table-wrapper">
+          <table class="admin-table" id="productsTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllProducts" /></th>
+                <th>SKU</th>
+                <th>Nombre</th>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Categoría</th>
+                <th>Subcategoría</th>
+                <th>Tags</th>
+                <th>Stock</th>
+                <th>Mín. Stock</th>
+                <th>Precio (Min.)</th>
+                <th>Precio (May.)</th>
+                <th>Visibilidad</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="product-actions">
+          <button id="openProductModal" class="button primary">
+            Agregar producto
+          </button>
+          <div class="bulk-actions">
+            <select id="bulkActionSelect">
+              <option value="">Acción masiva…</option>
+              <option value="delete">Eliminar</option>
+              <option value="vis-public">Hacer público</option>
+              <option value="vis-private">Hacer privado</option>
+              <option value="vis-draft">Marcar borrador</option>
+              <option value="price-inc">Aumentar precios %</option>
+              <option value="price-dec">Disminuir precios %</option>
+            </select>
+            <input
+              type="number"
+              id="bulkValue"
+              placeholder="%"
+              style="display: none"
+            />
+            <button id="applyBulkBtn" class="button">Aplicar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Modal reutilizable para agregar/editar producto -->
+      <div id="productModal" class="modal hidden">
+        <div class="modal-content">
+          <h4 id="modalTitle">Agregar producto</h4>
+          <form id="productForm" class="admin-form form-grid">
+            <input type="hidden" name="id" />
+            <input type="text" id="productSku" name="sku" placeholder="SKU" required />
+            <input type="text" id="productName" name="name" placeholder="Nombre" required />
+            <input type="text" id="productBrand" name="brand" placeholder="Marca" />
+            <input type="text" id="productModel" name="model" placeholder="Modelo" />
+            <select id="productCategory" name="category"></select>
+            <select id="productSubcategory" name="subcategory"></select>
+            <div class="tags-field">
+              <input
+                type="text"
+                id="productTags"
+                name="tags"
+                placeholder="Tags (coma separados)"
+              />
+              <div id="tagsPreview" class="tags-preview"></div>
+            </div>
+            <input
+              type="number"
+              id="productStock"
+              name="stock"
+              placeholder="Stock actual"
+              min="0"
+            />
+            <input
+              type="number"
+              id="productMinStock"
+              name="min_stock"
+              placeholder="Stock mínimo"
+              min="0"
+            />
+            <input
+              type="number"
+              id="productPriceMinorista"
+              name="price_minorista"
+              placeholder="Precio minorista"
+              min="0"
+              step="0.01"
+            />
+            <input
+              type="number"
+              id="productPriceMayorista"
+              name="price_mayorista"
+              placeholder="Precio mayorista"
+              min="0"
+              step="0.01"
+            />
+            <input
+              type="number"
+              id="productCost"
+              name="cost"
+              placeholder="Costo"
+              min="0"
+              step="0.01"
+            />
+            <select id="productSupplier" name="supplier_id"></select>
+            <input
+              type="text"
+              id="productSlug"
+              name="slug"
+              placeholder="Slug"
+            />
+            <input
+              type="text"
+              id="productMetaTitle"
+              name="meta_title"
+              placeholder="Meta título"
+            />
+            <textarea
+              id="productMetaDesc"
+              name="meta_description"
+              placeholder="Meta descripción"
+              rows="2"
+            ></textarea>
+            <input
+              type="text"
+              id="productDimensions"
+              name="dimensions"
+              placeholder="Dimensiones (L×A×C cm)"
+            />
+            <input
+              type="number"
+              id="productWeight"
+              name="weight"
+              placeholder="Peso (g)"
+              min="0"
+            />
+            <input type="text" id="productColor" name="color" placeholder="Color" />
+            <select id="productVisibility" name="visibility">
+              <option value="public">Público</option>
+              <option value="private">Privado</option>
+              <option value="draft">Borrador</option>
+            </select>
+            <input
+              type="file"
+              id="productImages"
+              name="images"
+              accept=".jpg,.jpeg,.png"
+            />
+            <div id="imagePreview" class="image-preview"></div>
+            <div class="seo-preview" id="seoPreview">
+              <p id="seoSlugPreview"></p>
+              <h5 id="seoTitlePreview"></h5>
+              <p id="seoDescPreview"></p>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="button primary" id="saveProductBtn">
+                Guardar
+              </button>
+              <button type="button" class="button danger" id="deleteProductBtn">
+                Eliminar
+              </button>
+              <button
+                type="button"
+                class="button secondary"
+                id="duplicateProductBtn"
+              >
+                Duplicar producto
+              </button>
+              <button type="button" class="button" id="closeModalBtn">
+                Cerrar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <section id="ordersSection" class="admin-section" style="display: none">
+        <h3>Gestión de pedidos</h3>
+        <label for="orderStatusFilter">Filtrar por pago:</label>
+        <select id="orderStatusFilter">
+          <option value="todos">Todos</option>
+          <option value="aprobado">Aprobado</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="rechazado">Rechazado</option>
+        </select>
+        <div class="table-wrapper">
+          <table class="admin-table" id="ordersTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Teléfono</th>
+                <th>Dirección</th>
+                <th>Provincia de envío</th>
+                <th>Costo de envío</th>
+                <th>Productos</th>
+                <th>Total</th>
+                <th>Pago</th>
+                <th>Envío</th>
+                <th>Seguimiento</th>
+                <th>Transportista</th>
+                <th>Factura</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="clientsSection" class="admin-section" style="display: none">
+        <h3>Clientes</h3>
+        <p>
+          Listado de clientes con su saldo y límite de crédito. Puedes registrar
+          pagos para reducir su deuda.
+        </p>
+        <div class="table-wrapper">
+          <table class="admin-table" id="clientsTable">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Nombre</th>
+                <th>Saldo</th>
+                <th>Límite</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="metricsSection" class="admin-section" style="display: none">
+        <h3>Métricas</h3>
+        <div id="metricsContent"></div>
+        <canvas id="salesChartCanvas" height="200"></canvas>
+      </section>
+
+      <!-- Sección de devoluciones -->
+      <section id="returnsSection" class="admin-section" style="display: none">
+        <h3>Devoluciones</h3>
+        <p>
+          Gestiona las solicitudes de devolución enviadas por los clientes.
+          Puedes aprobar o rechazar cada solicitud.
+        </p>
+        <div class="table-wrapper">
+          <table class="admin-table" id="returnsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Pedido</th>
+                <th>Cliente</th>
+                <th>Fecha</th>
+                <th>Motivo</th>
+                <th>Estado</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Sección de configuración general -->
+      <section id="configSection" class="admin-section" style="display: none">
+        <h3>Configuración</h3>
+        <p>
+          Actualiza parámetros globales como identificadores de Google
+          Analytics, Meta Pixel, número de WhatsApp y la lista de transportistas
+          disponibles para los envíos.
+        </p>
+        <form id="configForm" class="admin-form">
+          <input
+            type="text"
+            id="configGAId"
+            placeholder="Google Analytics ID (p.ej. G-XXXXXXX)"
+          />
+          <input type="text" id="configMetaId" placeholder="Meta Pixel ID" />
+          <input
+            type="text"
+            id="configWhatsApp"
+            placeholder="Número de WhatsApp (sin signos)"
+          />
+          <textarea
+            id="configCarriers"
+            placeholder="Transportistas por defecto (uno por línea)"
+            style="
+              width: 100%;
+              min-height: 80px;
+              padding: 0.4rem;
+              border: 1px solid var(--color-border);
+              border-radius: var(--radius);
+            "
+          ></textarea>
+          <button type="submit" class="button primary">
+            Guardar configuración
+          </button>
+        </form>
+      </section>
+
+      <!-- Editor de footer -->
+      <section id="footerSection" class="admin-section" style="display: none">
+        <h3>Footer</h3>
+        <form id="footerForm" class="admin-form">
+          <fieldset>
+            <legend>Identidad</legend>
+            <input type="text" name="brand_name" placeholder="Nombre de marca" required />
+            <select name="logo_variant">
+              <option value="light">Logo claro</option>
+              <option value="dark">Logo oscuro</option>
+            </select>
+            <input type="text" name="tagline" placeholder="Tagline" />
+          </fieldset>
+          <fieldset>
+            <legend>Navegación</legend>
+            <textarea name="nav1" placeholder="Texto|URL\n..." style="min-height:60px"></textarea>
+            <textarea name="nav2" placeholder="Texto|URL\n..." style="min-height:60px"></textarea>
+            <textarea name="nav3" placeholder="Texto|URL\n..." style="min-height:60px"></textarea>
+          </fieldset>
+          <fieldset>
+            <legend>Contacto</legend>
+            <input type="text" name="whatsapp_number" placeholder="WhatsApp (+5411...)" />
+            <input type="email" name="email" placeholder="Email" />
+            <input type="text" name="address" placeholder="Dirección" />
+            <input type="text" name="opening_hours" placeholder="Horarios" />
+          </fieldset>
+          <fieldset>
+            <legend>CTA inferior</legend>
+            <label><input type="checkbox" name="cta_enabled" /> Mostrar</label>
+            <input type="text" name="cta_prompt" placeholder="Texto del prompt" />
+            <input type="text" name="cta_button_text" placeholder="Texto del botón" />
+            <input type="text" name="cta_link" placeholder="Enlace" />
+          </fieldset>
+          <fieldset>
+            <legend>Legales</legend>
+            <input type="text" name="company_name" placeholder="Razón social" />
+            <input type="text" name="cuit" placeholder="CUIT" />
+            <input type="text" name="terms" placeholder="URL Términos" />
+            <input type="text" name="privacy" placeholder="URL Privacidad" />
+          </fieldset>
+          <fieldset>
+            <legend>Apariencia</legend>
+            <select name="theme">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+            <input type="text" name="accent" placeholder="#HEX opcional" />
+          </fieldset>
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button type="submit" class="button primary">Guardar</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Gestión de costos de envío -->
+      <section id="shippingSection" class="admin-section" style="display: none">
+        <h3>Costos de envío</h3>
+        <div id="shippingAlert" class="alert" style="display: none"></div>
+        <div class="table-wrapper">
+          <table class="admin-table" id="shippingTable">
+            <thead>
+              <tr>
+                <th>Provincia</th>
+                <th>Costo ($)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button id="saveShippingBtn" class="button primary">
+          Guardar cambios
+        </button>
+      </section>
+
+      <!-- Sección de proveedores -->
+      <section
+        id="suppliersSection"
+        class="admin-section"
+        style="display: none"
+      >
+        <h3>Gestión de proveedores</h3>
+        <p>
+          Registra y administra los socios comerciales que suministran los
+          productos. Aquí puedes crear, editar o eliminar proveedores.
+        </p>
+        <div class="table-wrapper">
+          <table class="admin-table" id="suppliersTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Contacto</th>
+                <th>Email</th>
+                <th>Teléfono</th>
+                <th>Dirección</th>
+                <th>Términos</th>
+                <th>Valoración</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <h4>Agregar proveedor</h4>
+        <form id="addSupplierForm" class="admin-form">
+          <input type="text" id="supName" placeholder="Nombre" required />
+          <input type="text" id="supContact" placeholder="Contacto" required />
+          <input type="email" id="supEmail" placeholder="Correo electrónico" />
+          <input type="text" id="supPhone" placeholder="Teléfono" />
+          <input type="text" id="supAddress" placeholder="Dirección" />
+          <input type="text" id="supTerms" placeholder="Condiciones de pago" />
+          <input
+            type="number"
+            id="supRating"
+            placeholder="Valoración (0–5)"
+            step="0.1"
+            min="0"
+            max="5"
+          />
+          <button type="submit" class="button primary">
+            Agregar proveedor
+          </button>
+        </form>
+      </section>
+
+      <!-- Sección de órdenes de compra -->
+      <section
+        id="purchaseOrdersSection"
+        class="admin-section"
+        style="display: none"
+      >
+        <h3>Órdenes de compra</h3>
+        <p>
+          Genera solicitudes de compra a tus proveedores cuando necesites
+          reponer stock. Cambia el estado a <em>recibido</em> para actualizar
+          automáticamente el inventario.
+        </p>
+        <div class="table-wrapper">
+          <table class="admin-table" id="purchaseOrdersTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Proveedor</th>
+                <th>Ítems</th>
+                <th>Estado</th>
+                <th>Fecha estimada</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <h4>Crear orden de compra</h4>
+        <form id="addPurchaseOrderForm" class="admin-form">
+          <select id="poSupplierSelect" required>
+            <option value="">Seleccionar proveedor</option>
+          </select>
+          <div id="poItemsContainer" class="po-items-container">
+            <!-- Se agregarán inputs dinámicamente -->
+          </div>
+          <button type="button" id="addPoItemBtn" class="button">
+            Añadir ítem
+          </button>
+          <input
+            type="date"
+            id="poEta"
+            placeholder="Fecha estimada de recepción"
+          />
+          <button type="submit" class="button primary">Crear orden</button>
+        </form>
+      </section>
+
+      <!-- Sección de analíticas avanzadas -->
+      <section
+        id="analyticsSection"
+        class="admin-section"
+        style="display: none"
+      >
+        <h3>Analíticas detalladas</h3>
+        <p>
+          Consulta estadísticas avanzadas sobre tus ventas, categorías,
+          devoluciones y clientes. Estas métricas te ayudan a tomar decisiones
+          informadas.
+        </p>
+        <div id="analytics-dashboard"></div>
+      </section>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="module" src="/js/admin.js"></script>
+    <script defer src="/components/footer.js?v=nerin-footer-1"></script>
+        <!-- Configuración y analíticas globales -->
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/config.js"></script>
+    <!-- Traducciones -->
+    <script type="module" src="/js/lang.js"></script>
+  </body>
+</html>
