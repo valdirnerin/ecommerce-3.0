@@ -1,9 +1,12 @@
 # Frontend
 
-Migrated from `legacy/frontend_orig` to `apps/frontend` as part of the unified apps structure.
+Interfaz web estática para interactuar con el backend y Mercado Pago. Migrado desde `legacy/frontend_orig` a `apps/frontend` como parte de la estructura unificada.
 
-Static HTML/JS assets served by the backend.
+## Uso
 
-## Development
-
-Open `index.html` directly or run `npm start` from the repo root and access `http://localhost:3000`.
+1. Configurá las claves públicas en `config.js`.
+2. Levantá el backend desde la raíz del proyecto:
+   ```bash
+   npm start
+   ```
+3. Abrí `index.html` en tu navegador.

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pago rechazado</title>
+    <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="css/success.css" />
+    <link rel="stylesheet" href="/components/footer.css?v=nerin-footer-1">
+  <link rel="stylesheet" href="/css/overrides.css?v=nerin-20250826-1459">
+</head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      <article class="receipt" aria-live="polite">
+        <div class="icon-hero failure" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M18 6L6 18" />
+            <path d="M6 6l12 12" />
+          </svg>
+        </div>
+        <h1>Pago rechazado</h1>
+        <p class="date" id="fecha"></p>
+        <div class="receipt-card">
+          <p>Tu pago no pudo procesarse. Podés intentar nuevamente o comunicarte con nosotros.</p>
+        </div>
+        <div class="receipt-actions">
+          <a class="button primary" href="/checkout.html">Reintentar</a>
+          <a class="button secondary" id="whatsLink" target="_blank">Contactar por WhatsApp</a>
+        </div>
+      </article>
+    </main>
+    <script type="module" src="/js/config.js"></script>
+    <script>
+      document.getElementById('fecha').textContent = new Date().toLocaleString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      document.addEventListener('DOMContentLoaded', () => {
+        const cfg = window.NERIN_CONFIG || {};
+        const wa = document.getElementById('whatsLink');
+        if (wa) {
+          const phone = (cfg.whatsappNumber || '').replace(/[^0-9]/g, '');
+          wa.href = phone ? `https://wa.me/${phone}` : '#';
+        }
+      });
+    </script>
+  <script defer src="/components/footer.js?v=nerin-footer-1"></script>
+</body>
+</html>

@@ -1,0 +1,123 @@
+/*
+  Footer spacing tokens – single source of truth for FAB/CTA/footer offsets.
+  --safe-area     : device bottom inset from iOS/Android safe-area env var.
+  --bottom-inset  : runtime inset set by footer.js based on CTA height,
+                    footer overlap and safe-area. Consumed by main padding
+                    and floating UI to avoid collisions.
+  --z-float       : z-index used by floating elements (CTA/FAB) to keep
+                    layering consistent across pages.
+*/
+:root {
+  --safe-area: env(safe-area-inset-bottom, 0px);
+  --bottom-inset: var(--safe-area);
+  --z-float: 1000;
+}
+
+main {
+  padding-bottom: var(--bottom-inset);
+}
+
+.hide-cta .sticky-cta {
+  display: none;
+}
+
+.sticky-cta {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--safe-area);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #fff;
+  border-top: 1px solid #ddd;
+  z-index: var(--z-float);
+  transition: transform 0.3s ease;
+  overflow-anchor: none;
+}
+
+.sticky-cta.is-hidden {
+  transform: translateY(100%);
+}
+
+.site-footer {
+  background: var(--color-secondary);
+  color: #fff;
+  padding: 2rem 1rem;
+  font-size: 0.875rem;
+}
+
+.site-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.site-footer a:hover,
+.site-footer a:focus {
+  text-decoration: underline;
+}
+
+.footer-top {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.footer-brand {
+  display: flex;
+  align-items: center;
+}
+
+.footer-nav-list,
+.footer-contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.footer-logo {
+  display: inline-block;
+}
+
+.footer-bottom {
+  margin-top: 2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  padding-top: 1rem;
+  text-align: center;
+  font-size: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .footer-top {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}
+
+.wa-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + var(--bottom-inset));
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #25d366;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  z-index: var(--z-float);
+  overflow-anchor: none;
+}
+
+.wa-fab img {
+  width: 28px;
+  height: 28px;
+}

@@ -5,8 +5,5 @@ legacy/nerin_orig/package-lock.json
 legacy/nerin_orig/.env
 legacy/nerin_orig/qa/
 legacy/frontend_orig/config.js
-
 legacy/backend_orig/.env
 apps/backend/.env
-
-apps/frontend/config.js

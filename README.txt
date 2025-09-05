@@ -1,28 +1,26 @@
 INSTRUCCIONES RÁPIDAS
 =====================
 
-El repositorio ahora mantiene los módulos históricos en `legacy/` y
-comienza a unificarse en `apps/`. El backend activo se encuentra en
-`apps/backend`.
+El repositorio mantiene los módulos históricos en `legacy/` y la versión unificada en `apps/`. El backend activo se encuentra en `apps/backend`.
 
-1. Entrá en la carpeta `apps/backend`:
-
-   ```bash
-   cd apps/backend
-   ```
-
-2. Las credenciales de Mercado Pago ya están definidas en
-   `apps/frontend/config.js` y `apps/backend/.env`. Si necesitás
-   otras, editá esos archivos. Instalá las dependencias y ejecutá el
-   servidor:
+1. Instalá las dependencias del proyecto y levantá el backend desde la raíz:
 
    ```bash
    npm install
-   node server.js
+   npm start
    ```
 
-3. Abrí `apps/frontend/index.html` en tu navegador y presioná el
-   botón para pagar.
+2. Las credenciales de Mercado Pago ya están definidas en `apps/frontend/config.js` y `apps/backend/.env`. Si necesitás otras, editá esos archivos.
+
+3. Abrí `apps/frontend/index.html` en tu navegador y presioná el botón para pagar.
+
+4. Para ejecutar el módulo ERP + E‑commerce de NERIN:
+
+   ```bash
+   npm run nerin:start
+   ```
+
+   Luego abrí `apps/nerin/frontend/index.html` en tu navegador.
 
 El backend quedará disponible en `http://localhost:3000` y podés cambiar los
 datos del producto directamente en `apps/frontend/index.html`.
@@ -67,4 +65,3 @@ Si desplegás la aplicación en Render, configurá la siguiente regla de routing
 ```
 
 El frontend realiza los `fetch` utilizando rutas relativas (por ejemplo, `fetch('/api/productos')`), por lo que las peticiones a `/api/...` serán reenviadas al backend mediante la regla anterior.
-

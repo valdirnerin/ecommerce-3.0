@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>NERIN Repuestos – Pantallas originales</title>
+        <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+      <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="/components/footer.css?v=nerin-footer-1">
+  <link rel="stylesheet" href="/css/overrides.css?v=nerin-20250826-1459">
+</head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main>
+    <section class="hero">
+      <div class="content">
+        <h1>Pantallas Samsung Originales con Garantía</h1>
+        <p>
+          Venta mayorista y minorista con envío inmediato en todo el país.
+          Asesoramiento real por WhatsApp. Stock propio en Argentina.
+        </p>
+        <div class="buttons">
+          <a href="/shop.html" class="button primary">Ver catálogo</a>
+          <a href="/login.html" class="button secondary">Ingresar</a>
+        </div>
+      </div>
+    </section>
+    <section class="container">
+      <h2>¿Por qué elegir NERIN?</h2>
+      <p>
+        En NERIN nos dedicamos a la venta de repuestos originales Samsung
+        Service Pack, con atención personalizada y entregas rápidas en todo el
+        país. Confiá en nosotros para obtener calidad real, sin intermediarios.
+      </p>
+      <ul class="benefits-list">
+        <li>🛡️ Pantallas 100% originales Service Pack</li>
+        <li>🚚 Envío en 24 hs dentro de CABA</li>
+        <li>🛠️ Garantía de funcionamiento técnico</li>
+        <li>📦 Stock propio en Argentina</li>
+        <li>💬 Atención directa por WhatsApp</li>
+        <li>💳 Transferencia, Mercado Pago o efectivo</li>
+      </ul>
+    </section>
+
+    <section class="container">
+      <h2>Productos Destacados</h2>
+      <div id="featuredGrid" class="product-grid"></div>
+    </section>
+
+    <section class="container">
+      <h2>¿Quiénes somos?</h2>
+      <p>
+        Somos NERIN Repuestos, una empresa argentina enfocada exclusivamente en
+        pantallas Samsung originales. Vendemos tanto a técnicos como a usuarios
+        finales. Sabemos lo que necesitás y trabajamos para darte velocidad,
+        confianza y calidad verdadera.
+      </p>
+    </section>
+
+    <section id="contacto" class="container">
+      <h2>Contactanos rápido</h2>
+      <form id="contactForm" class="contact-form">
+        <div>
+          <label for="contactName">Nombre y apellido</label>
+          <input type="text" id="contactName" required />
+        </div>
+        <div>
+          <label for="contactPhone">WhatsApp</label>
+          <input type="tel" id="contactPhone" required />
+        </div>
+        <div>
+          <label for="contactModel">Modelo buscado</label>
+          <input type="text" id="contactModel" required />
+        </div>
+        <div>
+          <label for="contactType">Soy</label>
+          <select id="contactType" required>
+            <option value="" disabled selected>Elegí una opción</option>
+            <option value="tecnico">Técnico</option>
+            <option value="revendedor">Mayorista</option>
+            <option value="particular">Particular</option>
+          </select>
+        </div>
+        <button type="submit" class="button primary">Solicitar cotización</button>
+        <p class="form-msg" aria-live="polite"></p>
+      </form>
+    </section>
+    </main>
+    <!-- Configuración y analíticas -->
+    <script type="module" src="/js/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/config.js"></script>
+  <script defer src="/components/footer.js?v=nerin-footer-1"></script>
+</body>
+</html>

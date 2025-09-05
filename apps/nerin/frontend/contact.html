@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Contacto – NERIN</title>
+        <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+      <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="/components/footer.css">
+  <link rel="stylesheet" href="/css/overrides.css?v=nerin-20250826-1459">
+</head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html" class="active">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      <h2>Contactanos</h2>
+      <form id="contactForm" class="login-container">
+        <input type="text" id="contactName" placeholder="Nombre y apellido" />
+        <input type="tel" id="contactPhone" placeholder="WhatsApp" />
+        <input type="text" id="contactModel" placeholder="Modelo buscado" />
+        <select id="contactType">
+          <option value="tecnico">Técnico</option>
+          <option value="revendedor">Revendedor</option>
+          <option value="particular">Particular</option>
+        </select>
+        <button type="submit" class="button primary">
+          Solicitar cotización
+        </button>
+      </form>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/index.js"></script>
+    <script type="module" src="/js/config.js"></script>
+  <script defer src="/components/footer.js"></script>
+</body>
+</html>

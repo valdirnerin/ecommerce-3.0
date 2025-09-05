@@ -64,11 +64,15 @@ app.get('/pending', (req, res) => {
 });
 
 app.get('/estado-pedido/:id', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/estado-pedido.html'));
+  res.sendFile(
+    path.join(__dirname, '../frontend/estado-pedido.html')
+  );
 });
 
 app.get('/confirmacion/:id', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/confirmacion.html'));
+  res.sendFile(
+    path.join(__dirname, '../frontend/confirmacion.html')
+  );
 });
 
 app.use((req, res, next) => {
@@ -155,10 +159,14 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(
+  express.static(path.join(__dirname, '../frontend'))
+);
 
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/index.html'));
+  res.sendFile(
+    path.join(__dirname, '../frontend/index.html')
+  );
 });
 
 const PORT = process.env.PORT || 3000;
