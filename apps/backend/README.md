@@ -1,6 +1,5 @@
 # Backend
 
-Servidor Express que expone las API necesarias para el flujo de pago.
 
 ## Desarrollo
 

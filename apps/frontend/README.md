@@ -1,7 +1,5 @@
 # Frontend
 
-Interfaz web estática para interactuar con el backend y Mercado Pago.
-
 ## Uso
 
 1. Configurá las claves públicas en `config.js`.
