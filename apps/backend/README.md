@@ -1,6 +1,5 @@
 # Backend
 
-Servidor Express que expone las API necesarias para el flujo de pago. Migrado desde `legacy/backend_orig` a `apps/backend` como parte de la estructura unificada.
 
 ## Desarrollo
 

@@ -1,7 +1,5 @@
 # Frontend
 
-Interfaz web estática para interactuar con el backend y Mercado Pago. Migrado desde `legacy/frontend_orig` a `apps/frontend` como parte de la estructura unificada.
-
 ## Uso
 
 1. Configurá las claves públicas en `config.js`.
@@ -10,3 +8,4 @@ Interfaz web estática para interactuar con el backend y Mercado Pago. Migrado d
    npm start
    ```
 3. Abrí `index.html` en tu navegador.
+

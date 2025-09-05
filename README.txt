@@ -9,10 +9,6 @@ El repositorio mantiene los módulos históricos en `legacy/` y la versión unif
    npm start
    ```
 
-2. Las credenciales de Mercado Pago ya están definidas en `apps/frontend/config.js` y `apps/backend/.env`. Si necesitás otras, editá esos archivos.
-
-3. Abrí `apps/frontend/index.html` en tu navegador y presioná el botón para pagar.
-
 4. Para ejecutar el módulo ERP + E‑commerce de NERIN:
 
    ```bash
