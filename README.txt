@@ -1,6 +1,5 @@
 INSTRUCCIONES RÁPIDAS
 =====================
-
 El repositorio mantiene los módulos históricos en `legacy/` y la versión unificada en `apps/`. El backend activo se encuentra en `apps/backend`.
 
 1. Instalá las dependencias del proyecto y levantá el backend desde la raíz:
