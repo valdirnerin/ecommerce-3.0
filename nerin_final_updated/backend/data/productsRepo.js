@@ -7,6 +7,7 @@ const filePath = path.join(dataDir, 'products.json');
 
 async function getAll() {
   const pool = db.getPool();
+  // Si no hay conexión a la base, leemos desde disco
   if (!pool) {
     try {
       return JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
@@ -14,10 +15,25 @@ async function getAll() {
       return [];
     }
   }
-  const { rows } = await pool.query(
-    'SELECT id, name, price, stock, image_url, metadata, updated_at FROM products ORDER BY id'
-  );
-  return rows;
+  // Intentar leer columna image_url. Si falla, capturamos y probamos con image
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, price, stock, COALESCE(image_url, image) AS image, metadata, updated_at FROM products ORDER BY id'
+    );
+    return rows.map((r) => {
+      // Normalizar el campo de imagen a `image`
+      if (r.image_url && !r.image) r.image = r.image_url;
+      return r;
+    });
+  } catch (e) {
+    // Si la consulta falla (por ejemplo, la columna no existe), hacemos fallback a disco
+    console.error('DB product query failed', e.message);
+    try {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 async function getById(id) {
@@ -26,11 +42,19 @@ async function getById(id) {
     const prods = await getAll();
     return prods.find((p) => String(p.id) === String(id)) || null;
   }
-  const { rows } = await pool.query(
-    'SELECT id, name, price, stock, image_url, metadata, updated_at FROM products WHERE id=$1',
-    [id]
-  );
-  return rows[0] || null;
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, price, stock, COALESCE(image_url, image) AS image, metadata, updated_at FROM products WHERE id=$1',
+      [id]
+    );
+    const prod = rows[0] || null;
+    if (prod && prod.image_url && !prod.image) prod.image = prod.image_url;
+    return prod;
+  } catch (e) {
+    console.error('DB product query failed', e.message);
+    const prods = await getAll();
+    return prods.find((p) => String(p.id) === String(id)) || null;
+  }
 }
 
 async function saveAll(products) {
@@ -42,6 +66,8 @@ async function saveAll(products) {
   await pool.query('BEGIN');
   try {
     for (const p of products) {
+      // Determinar la ruta de imagen adecuada
+      const img = p.image_url || p.image || null;
       await pool.query(
         `INSERT INTO products (id, name, price, stock, image_url, metadata)
          VALUES ($1,$2,$3,$4,$5,$6)
@@ -52,7 +78,7 @@ async function saveAll(products) {
            image_url=EXCLUDED.image_url,
            metadata=EXCLUDED.metadata,
            updated_at=now()`,
-        [p.id, p.name, p.price, p.stock, p.image_url, p.metadata || null]
+        [p.id, p.name, p.price, p.stock, img, p.metadata || null]
       );
     }
     await pool.query('COMMIT');
