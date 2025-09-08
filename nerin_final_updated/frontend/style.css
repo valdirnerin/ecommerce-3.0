@@ -292,8 +292,9 @@ nav a:hover {
   font-size: 0.8rem;
 }
 #whatsapp-button img {
-  width: 28px;
-  height: 28px;
+  /* Fuerza el tamaño del ícono para evitar que el SVG se muestre gigante en producción */
+  width: 28px !important;
+  height: 28px !important;
 }
 
 /* Estilos tienda */
