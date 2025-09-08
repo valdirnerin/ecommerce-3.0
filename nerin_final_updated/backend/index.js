@@ -252,20 +252,34 @@ app.get("/api/orders", async (req, res) => {
   try {
     const status = (req.query.payment_status || "all").toLowerCase();
     let orders = await getOrders();
+
+    // Si se pasa un email como query, filtrar y devolver pedidos completos para ese usuario
+    if (req.query.email) {
+      const email = String(req.query.email).toLowerCase();
+      orders = orders.filter((o) => {
+        const uEmail =
+          (o.customer_email || o.user_email || o.cliente?.email || o.cliente?.correo || "").toLowerCase();
+        return uEmail === email;
+      });
+      return res.json({ orders });
+    }
+
+    // Filtro por estado de pago para uso administrativo
     if (["pending", "approved", "rejected"].includes(status)) {
       orders = orders.filter((o) => {
         const ps = String(o.payment_status || o.estado_pago || "pending").toLowerCase();
         return ps === status;
       });
     }
+    // Construir filas simplificadas para el panel admin
     const rows = orders.map((o) => ({
       order_number: o.order_number || o.id || o.external_reference || "",
       date: o.fecha || o.date || o.created_at || "",
       client: o.cliente?.nombre || o.cliente?.name || "",
-      phone: o.cliente?.telefono || "",
+      phone: o.cliente?.telefono || o.cliente?.phone || "",
       shipping_province: o.provincia_envio || "",
       payment_status: o.payment_status || o.estado_pago || "pending",
-      total: o.total || 0,
+      total: o.total || o.total_amount || 0,
     }));
     res.json({ orders: rows });
   } catch (err) {
