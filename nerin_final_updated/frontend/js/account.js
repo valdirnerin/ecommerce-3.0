@@ -27,7 +27,8 @@ async function initAccount() {
   try {
     const [clientsRes, ordersRes] = await Promise.all([
       fetch("/api/clients"),
-      fetch("/api/orders"),
+      // Pasar el email en la query para obtener los pedidos completos del usuario
+      fetch(`/api/orders?email=${encodeURIComponent(email)}`),
     ]);
     if (clientsRes.ok) {
       const { clients } = await clientsRes.json();
@@ -35,7 +36,8 @@ async function initAccount() {
     }
       if (ordersRes.ok) {
         const data = await ordersRes.json();
-        orders = data.orders.filter((o) => o.user_email === email);
+        // La API devuelve pedidos completos para este usuario
+        orders = Array.isArray(data.orders) ? data.orders : [];
       }
   } catch (err) {
     console.error(err);
@@ -64,7 +66,10 @@ async function initAccount() {
   accountInfoDiv.innerHTML = infoHtml;
 
   // Calcular estado de fidelización
-  const totalSpent = orders.reduce((t, o) => t + (o.total_amount || o.total || 0), 0);
+  const totalSpent = orders.reduce((t, o) => {
+    const val = o.total_amount || o.total || o.total_amount_before_discount || 0;
+    return t + Number(val);
+  }, 0);
   const orderCount = orders.length;
   let level = "Nuevo";
   let progress = 0;
@@ -140,9 +145,12 @@ async function initAccount() {
   // Métricas personales
   const metricsDiv = document.getElementById("metricsInfo");
   if (orders.length) {
-    const highest = orders.reduce((m, o) => (o.total > m ? o.total : m), 0);
-    metricsDiv.textContent = `Compra más cara: $${highest.toLocaleString(
-      "es-AR",
+    const highest = orders.reduce((m, o) => {
+      const val = o.total_amount || o.total || o.total_amount_before_discount || 0;
+      return val > m ? val : m;
+    }, 0);
+    metricsDiv.textContent = `Compra más cara: $${Number(highest).toLocaleString(
+      'es-AR',
     )}. Total de pedidos: ${orderCount}`;
   } else {
     metricsDiv.textContent = "Sin métricas todavía.";
@@ -178,47 +186,56 @@ async function renderOrders(orders, email, invoiceList) {
   }
   for (const order of orders) {
     const tr = document.createElement("tr");
+    // Permitir distintos formatos de pedido (campo id, order_number, etc.) y total (total_amount, total)
+    const numero = order.order_number || order.id || order.external_reference || '';
+    const fecha = order.created_at || order.date || order.fecha || null;
+    const items = order.productos || order.items || [];
+    const shippingStatus = order.shipping_status || order.envio_estado || 'pendiente';
+    const transportista = order.transportista || order.carrier || '';
+    const totalVal = order.total_amount || order.total || order.total_amount_before_discount || 0;
     tr.innerHTML = `
-      <td>${order.order_number}</td>
-      <td>${new Date(order.created_at).toLocaleString("es-AR")}</td>
-      <td>${(order.productos || order.items || [])
-        .map((it) => `${it.name} x${it.quantity}`)
-        .join(", ")}</td>
-      <td><span class="status-badge status-${
-        order.shipping_status
-      }">${order.shipping_status}</span></td>
-      <td>${order.transportista || ""}</td>
-      <td>$${(order.total_amount || order.total).toLocaleString("es-AR")}</td>
+      <td>${numero}</td>
+      <td>${fecha ? new Date(fecha).toLocaleString('es-AR') : ''}</td>
+      <td>${items
+        .map((it) => `${it.name || it.product_name || ''} x${it.quantity || it.qty || 0}`)
+        .join(', ')}</td>
+      <td><span class="status-badge status-${shippingStatus}">${shippingStatus}</span></td>
+      <td>${transportista}</td>
+      <td>$${Number(totalVal).toLocaleString('es-AR')}</td>
       <td><button class="invoice-btn">Factura</button></td>
       <td></td>`;
     const actionsTd = tr.lastElementChild;
     const invoiceBtn = tr.querySelector(".invoice-btn");
-    invoiceBtn.addEventListener("click", async () => {
+    const handleInvoice = async () => {
+      // Usar id de pedido flexible
+      const oid = numero;
       try {
-        const resp = await fetch(`/api/invoices/${order.order_number}`, {
-          method: "POST",
+        const resp = await fetch(`/api/invoices/${encodeURIComponent(oid)}`, {
+          method: 'POST',
         });
         if (resp.ok) {
-            window.open(`/invoice.html?orderId=${order.order_number}`, "_blank");
+          window.open(`/invoice.html?orderId=${encodeURIComponent(oid)}`, '_blank');
         } else {
           const errData = await resp.json().catch(() => ({}));
-          alert(errData.error || "Error al obtener factura");
+          alert(errData.error || 'Error al obtener factura');
         }
       } catch (_) {
-        alert("Error al abrir factura");
+        alert('Error al abrir factura');
       }
-    });
+    };
+    invoiceBtn.addEventListener('click', handleInvoice);
     // Verificar si existe factura para listar en Archivos
     try {
-          const resp = await fetch(`/api/invoices/${order.order_number}`);
+      const oid = numero;
+      const resp = await fetch(`/api/invoices/${encodeURIComponent(oid)}`);
       if (resp.ok) {
-        invoiceBtn.textContent = "Ver factura";
+        invoiceBtn.textContent = 'Ver factura';
         const { invoice } = await resp.json();
-        const li = document.createElement("li");
-        const link = document.createElement("a");
-          link.href = `/invoice.html?orderId=${order.order_number}`;
-          link.textContent = `Factura ${invoice.id}`;
-        link.target = "_blank";
+        const li = document.createElement('li');
+        const link = document.createElement('a');
+        link.href = `/invoice.html?orderId=${encodeURIComponent(oid)}`;
+        link.textContent = `Factura ${invoice.id}`;
+        link.target = '_blank';
         li.appendChild(link);
         invoiceList.appendChild(li);
       }
