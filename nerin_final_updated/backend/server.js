@@ -507,7 +507,10 @@ function normalizeOrder(o) {
     phone,
     address,
     province,
+    // El costo de envío se expone tanto como "shipping_cost" (en inglés) como
+    // "costo_envio" (en español) para compatibilidad con el frontend existente.
     shipping_cost: shippingCost,
+    costo_envio: shippingCost,
     items_summary: itemsSummary,
     total_amount: total,
     total,
@@ -1401,17 +1404,41 @@ const server = http.createServer((req, res) => {
   }
 
   // API: obtener lista de pedidos
+  // Soporta filtros por estado de pago (payment_status), búsqueda genérica (q),
+  // y paginación mediante limit y offset. Devuelve la propiedad total con el
+  // número total de filas antes de paginar.
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
       const status = (parsedUrl.query.payment_status || "all").toLowerCase();
+      const q = String(parsedUrl.query.q || "").trim().toLowerCase();
+      const limit = Math.max(1, parseInt(parsedUrl.query.limit || "100", 10) || 100);
+      const offset = Math.max(0, parseInt(parsedUrl.query.offset || "0", 10) || 0);
+
+      // Cargar y normalizar pedidos
       let orders = getOrders();
+      // Filtrar por estado de pago
       if (["pendiente", "pagado", "rechazado"].includes(status)) {
         orders = orders.filter(
           (o) => mapPaymentStatus(o.payment_status || o.estado_pago) === status,
         );
       }
-      const rows = orders.map((o) => normalizeOrder(o));
-      return sendJson(res, 200, { orders: rows });
+      // Convertir a objetos normalizados
+      let rows = orders.map((o) => normalizeOrder(o));
+      // Filtrar por texto libre si existe
+      if (q) {
+        const needle = q.toLowerCase();
+        rows = rows.filter((row) => {
+          try {
+            return JSON.stringify(row).toLowerCase().includes(needle);
+          } catch {
+            return false;
+          }
+        });
+      }
+      const total = rows.length;
+      // Aplicar paginación
+      const sliced = rows.slice(offset, offset + limit);
+      return sendJson(res, 200, { orders: sliced, total });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, {
@@ -1583,7 +1610,12 @@ const server = http.createServer((req, res) => {
       try {
         const update = JSON.parse(body || "{}");
         const orders = getOrders();
-        const index = orders.findIndex((o) => o.id === id);
+        const index = orders.findIndex(
+          (o) =>
+            o.id === id ||
+            o.order_number === id ||
+            o.external_reference === id,
+        );
         if (index === -1) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
         }
