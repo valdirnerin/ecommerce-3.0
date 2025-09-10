@@ -14,6 +14,19 @@ const fs = require("fs");
 const path = require("path");
 const url = require("url");
 const dataDir = require("./utils/dataDir");
+
+// === Directorios persistentes para archivos subidos ===
+// Facturas y comprobantes de pago se guardan en INVOICES_DIR
+// Imágenes de productos se guardan en PRODUCT_UPLOADS_DIR
+const INVOICES_DIR = path.join(dataDir, 'invoices');
+const PRODUCT_UPLOADS_DIR = path.join(dataDir, 'uploads', 'products');
+// Crear directorios si no existen (modo persistente)
+try {
+  fs.mkdirSync(INVOICES_DIR, { recursive: true });
+  fs.mkdirSync(PRODUCT_UPLOADS_DIR, { recursive: true });
+} catch (e) {
+  // En entornos donde no haya permisos, los directorios se crearán al primer uso
+}
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
@@ -822,7 +835,8 @@ function sendOrderShippedEmail(order) {
 }
 
 // Configuración de subida de imágenes de productos
-const productImagesDir = path.join(__dirname, "../assets/uploads/products");
+// Las imágenes se guardan en PRODUCT_UPLOADS_DIR para que persistan entre deploys
+const productImagesDir = PRODUCT_UPLOADS_DIR;
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
@@ -1905,7 +1919,7 @@ const server = http.createServer((req, res) => {
           return sendJson(res, 400, { error: "Falta archivo" });
         }
         const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const dir = path.join(__dirname, "../assets/invoices");
+        const dir = INVOICES_DIR;
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const filePath = path.join(dir, `${orderId}-${Date.now()}-${safeName}`);
         fs.writeFileSync(filePath, Buffer.from(data, "base64"));
@@ -2785,6 +2799,67 @@ const server = http.createServer((req, res) => {
       path.join(__dirname, "../frontend/seguimiento.html"),
       res,
     );
+  }
+
+  // === Archivos estáticos persistentes ===
+  // 1) Facturas de pedidos (PDF/XML) guardadas en el disco persistente.
+  //    La ruta pública es /assets/invoices/<nombre de archivo>. Se sirve
+  //    directamente desde INVOICES_DIR para que los archivos sobrevivan a
+  //    desplegues. Se controla que el path esté dentro del directorio.
+  if (pathname.startsWith("/assets/invoices/") && req.method === "GET") {
+    const file = decodeURIComponent(pathname.replace("/assets/invoices/", ""));
+    const abs = path.join(INVOICES_DIR, file);
+    // Validar que la ruta no salga del directorio de facturas
+    if (!abs.startsWith(INVOICES_DIR)) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    fs.stat(abs, (err, stats) => {
+      if (err || !stats.isFile()) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Access-Control-Allow-Origin": ORIGIN,
+      });
+      fs.createReadStream(abs).pipe(res);
+    });
+    return;
+  }
+
+  // 2) Imágenes de productos subidas por el administrador.
+  //    La ruta pública es /assets/uploads/products/<nombre de imagen>.
+  //    Estas imágenes se guardan en PRODUCT_UPLOADS_DIR para persistir entre
+  //    despliegues. Se calcula el tipo MIME básico según la extensión.
+  if (pathname.startsWith("/assets/uploads/products/") && req.method === "GET") {
+    const file = decodeURIComponent(pathname.replace("/assets/uploads/products/", ""));
+    const abs = path.join(PRODUCT_UPLOADS_DIR, file);
+    if (!abs.startsWith(PRODUCT_UPLOADS_DIR)) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    fs.stat(abs, (err, stats) => {
+      if (err || !stats.isFile()) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
+        return;
+      }
+      const ext = path.extname(abs).toLowerCase();
+      const mime = ext === ".jpg" || ext === ".jpeg" ? "image/jpeg"
+        : ext === ".png" ? "image/png"
+        : "application/octet-stream";
+      res.writeHead(200, {
+        "Content-Type": mime,
+        "Access-Control-Allow-Origin": ORIGIN,
+        "Cache-Control": "public, max-age=86400",
+      });
+      fs.createReadStream(abs).pipe(res);
+    });
+    return;
   }
 
   // Servir componentes del frontend: /components/* -> /frontend/components/*
