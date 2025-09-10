@@ -1,36 +1,34 @@
+// nerin_final_updated/backend/utils/dataDir.js
 const path = require('path');
 const fs = require('fs');
 
-/*
- * Determina la ruta base para almacenar datos persistentes.  
- *
- * - Si la variable de entorno DATA_DIR está definida, se utiliza esa ruta.
- * - Si existe la carpeta `/var/data` (por ejemplo, en Render al montar un disco persistente),
- *   se usa `/var/data/nerin` como directorio por defecto. Render monta discos en /var/data.
- * - En entornos de desarrollo local donde `/var/data` no existe, se usa la carpeta
- *   `data` dentro del proyecto. Esta última es efímera en servicios como Render,
- *   por lo que se recomienda montar un disco para producción.
- */
+// 1) Si definiste DATA_DIR en Render, usamos eso
+const ENV_DIR = process.env.DATA_DIR;
 
-// Ruta definida por la variable de entorno, si existe
-const envDir = process.env.DATA_DIR;
+// 2) Si tenés el disco montado en /var/nerin-data (lo que muestra tu log), usamos ahí.
+//    Si en tu servicio lo montaste en /var/data, también lo detectamos y preferimos /var/data/nerin.
+const CANDIDATES = [
+  '/var/nerin-data',        // como muestra tu error/log
+  '/var/data/nerin',        // patrón recomendado
+  '/var/data'               // disco genérico
+];
 
-// Ruta por defecto en Render si hay disco montado en /var/data
-const renderVarData = '/var/data';
-const hasVarData = fs.existsSync(renderVarData);
-const defaultOnRender = path.join(renderVarData, 'nerin');
-
-// Ruta local para desarrollo: carpeta data en el repositorio
-const localDir = path.join(__dirname, '..', '..', 'data');
-
-// Elegir la mejor ruta disponible
-const DATA_DIR = envDir || (hasVarData ? defaultOnRender : localDir);
-
-// Asegurar que el directorio existe
-try {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-} catch (err) {
-  // Ignorar errores de creación; fallará al escribir si hay un problema real
+let RENDER_DIR = null;
+for (const c of CANDIDATES) {
+  try { if (fs.existsSync(c)) { RENDER_DIR = c; break; } } catch {}
 }
 
-module.exports = DATA_DIR;
+// 3) Fallback local (dev): carpeta data dentro del repo
+const LOCAL_DIR = path.join(__dirname, '..', '..', 'data');
+
+// DATA_DIR final: prioridad ENV > RENDER > LOCAL
+const BASE = ENV_DIR || RENDER_DIR || LOCAL_DIR;
+
+// Asegurar que exista
+try { fs.mkdirSync(BASE, { recursive: true }); } catch {}
+
+// API
+module.exports = {
+  DATA_DIR: BASE,
+  dataPath: (file) => path.join(BASE, file),
+};
