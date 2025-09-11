@@ -13,7 +13,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
-const dataDir = require("./utils/dataDir");
+const { DATA_DIR: dataDir } = require("./utils/dataDir");
 
 // === Directorios persistentes para archivos subidos ===
 // Facturas y comprobantes de pago se guardan en INVOICES_DIR
@@ -703,13 +703,21 @@ function readFooter() {
     const txt = fs.readFileSync(FOOTER_FILE, "utf8");
     return JSON.parse(txt);
   } catch {
-    fs.writeFileSync(FOOTER_FILE, JSON.stringify(DEFAULT_FOOTER, null, 2));
+    try {
+      fs.writeFileSync(FOOTER_FILE, JSON.stringify(DEFAULT_FOOTER, null, 2));
+    } catch (e) {
+      console.error("Cannot write default footer", e);
+    }
     return { ...DEFAULT_FOOTER };
   }
 }
 
 function saveFooter(cfg) {
-  fs.writeFileSync(FOOTER_FILE, JSON.stringify(cfg, null, 2));
+  try {
+    fs.writeFileSync(FOOTER_FILE, JSON.stringify(cfg, null, 2));
+  } catch (e) {
+    console.error("Cannot save footer", e);
+  }
 }
 
 function normalizeFooter(data) {

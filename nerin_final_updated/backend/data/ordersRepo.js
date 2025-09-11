@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const productsRepo = require('./productsRepo');
-const dataDir = require('../utils/dataDir');
+const { DATA_DIR: dataDir } = require('../utils/dataDir');
 
 const filePath = path.join(dataDir, 'orders.json');
 

@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const dataDir = require('../utils/dataDir');
+const { DATA_DIR: dataDir } = require('../utils/dataDir');
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
 const fetchFn =
   globalThis.fetch ||
