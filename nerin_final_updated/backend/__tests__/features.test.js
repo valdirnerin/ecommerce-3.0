@@ -1,6 +1,6 @@
 const path = require('path');
 const request = require('supertest');
-const dataDir = require('../utils/dataDir');
+const { DATA_DIR: dataDir } = require('../utils/dataDir');
 
 jest.mock('../emailValidator');
 jest.mock('afip.ts', () => ({ Afip: class {} }), { virtual: true });

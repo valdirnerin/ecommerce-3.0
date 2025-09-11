@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const dataDir = require('../utils/dataDir');
+const { DATA_DIR: dataDir } = require('../utils/dataDir');
 
 const logger = {
   info: console.log,
