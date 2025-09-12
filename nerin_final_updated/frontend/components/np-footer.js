@@ -154,7 +154,11 @@
 
       let remote = {};
       try {
-        const res = await fetch("/api/footer", { cache: "no-store" });
+        const base =
+          (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) ||
+          window.API_BASE_URL ||
+          "";
+        const res = await fetch(`${base}/api/footer`, { cache: "no-store" });
         remote = await res.json();
       } catch (e) {
         console.warn("[NP-FOOTER] /api/footer failed", e);

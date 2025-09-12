@@ -12,6 +12,10 @@ async function loadConfig() {
     const cfg = await res.json();
     // Exponer a nivel global
     window.NERIN_CONFIG = cfg;
+    // Permitir que otros módulos conozcan la URL base del backend si está definida
+    if (cfg.apiBase) {
+      window.API_BASE_URL = cfg.apiBase;
+    }
     // Actualizar enlace de WhatsApp flotante si existe
     if (cfg.whatsappNumber) {
       const waBtn = document.querySelector("#whatsapp-button a");

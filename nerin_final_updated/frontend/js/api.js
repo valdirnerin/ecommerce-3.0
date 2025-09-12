@@ -6,9 +6,13 @@
  * en localStorage.
  */
 
-// Base URL del backend. Cuando se despliegue en producción, ajustar según
-// corresponda. Para desarrollo local suele ser la misma URL de origen.
-const API_BASE = "";
+// Base URL del backend. Permite ser configurada desde el servidor a través
+// de `window.NERIN_CONFIG.apiBase` o por una variable global `API_BASE_URL`.
+// Si no se define, se usa la misma URL de origen del frontend.
+const API_BASE =
+  (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) ||
+  window.API_BASE_URL ||
+  "";
 
 // Obtener la lista de productos desde el backend
 export async function fetchProducts() {
