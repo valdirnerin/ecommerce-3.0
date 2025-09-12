@@ -8,5 +8,6 @@
   "afipCert": "",
   "afipKey": "",
   "resendApiKey": "",
-  "publicUrl": ""
+  "publicUrl": "",
+  "apiBase": ""
 }
