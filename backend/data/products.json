@@ -1,0 +1,22 @@
+{
+  "products": [
+    {
+      "id": "1",
+      "name": "Pantalla iPhone 12",
+      "price": 25000,
+      "image": "/assets/product1.png"
+    },
+    {
+      "id": "2",
+      "name": "Pantalla Samsung S21",
+      "price": 23000,
+      "image": "/assets/product2.png"
+    },
+    {
+      "id": "3",
+      "name": "Pantalla Xiaomi Mi 11",
+      "price": 21000,
+      "image": "/assets/product3.png"
+    }
+  ]
+}

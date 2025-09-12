@@ -27,6 +27,23 @@ const BASE = ENV_DIR || RENDER_DIR || LOCAL_DIR;
 // Asegurar que exista
 try { fs.mkdirSync(BASE, { recursive: true }); } catch {}
 
+// Si estamos usando un directorio distinto al local y faltan datos,
+// copiar el contenido de la carpeta de ejemplo para evitar errores.
+if (BASE !== LOCAL_DIR) {
+  try {
+    const sample = path.join(BASE, 'products.json');
+    if (!fs.existsSync(sample)) {
+      for (const f of fs.readdirSync(LOCAL_DIR)) {
+        const src = path.join(LOCAL_DIR, f);
+        const dest = path.join(BASE, f);
+        if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+      }
+    }
+  } catch (e) {
+    console.error('cannot seed data dir', e);
+  }
+}
+
 // API
 module.exports = {
   DATA_DIR: BASE,

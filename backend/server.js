@@ -1,4 +1,3 @@
-// Minor change to trigger redeploy
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -12,6 +11,7 @@ const webhookRoutes = require('./routes/mercadoPago');
 const mercadoPagoPreferenceRoutes = require('./routes/mercadoPagoPreference');
 const orderRoutes = require('./routes/orders');
 const shippingRoutes = require('./routes/shipping');
+const productRoutes = require('./routes/products');
 const { getShippingCost } = require('./utils/shippingCosts');
 const verifyEmail = require('./emailValidator');
 const sendEmail = require('./utils/sendEmail');
@@ -150,6 +150,7 @@ app.use('/api/webhooks/mp', webhookRoutes);
 app.use('/api/orders', orderRoutes);
 // Specific Mercado Pago routes before generic /api routes
 app.use('/api/mercado-pago', mercadoPagoPreferenceRoutes);
+app.use('/api', productRoutes);
 app.use('/api', shippingRoutes);
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' });
