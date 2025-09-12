@@ -16,12 +16,15 @@ const url = require("url");
 const { DATA_DIR: dataDir } = require("./utils/dataDir");
 
 // === Directorios persistentes para archivos subidos ===
-// Facturas y comprobantes de pago se guardan en INVOICES_DIR
-// Imágenes de productos se guardan en PRODUCT_UPLOADS_DIR
+// UPLOADS_DIR guarda archivos genéricos
+// INVOICES_DIR guarda facturas y comprobantes
+// PRODUCT_UPLOADS_DIR guarda imágenes de productos
+const UPLOADS_DIR = path.join(dataDir, 'uploads');
 const INVOICES_DIR = path.join(dataDir, 'invoices');
-const PRODUCT_UPLOADS_DIR = path.join(dataDir, 'uploads', 'products');
+const PRODUCT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'products');
 // Crear directorios si no existen (modo persistente)
 try {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   fs.mkdirSync(INVOICES_DIR, { recursive: true });
   fs.mkdirSync(PRODUCT_UPLOADS_DIR, { recursive: true });
 } catch (e) {
@@ -865,6 +868,21 @@ const upload = multer({
   },
 });
 
+// Subida genérica de archivos al directorio UPLOADS_DIR
+const generalUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+      cb(null, UPLOADS_DIR);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
 function serveStatic(filePath, res, headers = {}) {
   const ext = path.extname(filePath).toLowerCase();
@@ -1023,6 +1041,22 @@ const server = http.createServer((req, res) => {
         file: fileName,
         path: urlBase,
       });
+    });
+    return;
+  }
+
+  // API: subida genérica de archivos
+  // Ruta: /api/upload (POST)
+  if (pathname === "/api/upload" && req.method === "POST") {
+    generalUpload.single("file")(req, res, (err) => {
+      if (err) {
+        console.error(err);
+        return sendJson(res, 400, { error: err.message });
+      }
+      if (!req.file) {
+        return sendJson(res, 400, { error: "No se recibió archivo" });
+      }
+      return sendJson(res, 201, { filename: req.file.filename });
     });
     return;
   }
@@ -2838,7 +2872,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 2) Imágenes de productos subidas por el administrador.
+  // 2) Archivos subidos de forma genérica.
+  //    Se acceden vía /uploads/<nombre>. Se sirven desde UPLOADS_DIR.
+  if (pathname.startsWith("/uploads/") && req.method === "GET") {
+    const file = decodeURIComponent(pathname.replace("/uploads/", ""));
+    const abs = path.join(UPLOADS_DIR, file);
+    if (!abs.startsWith(UPLOADS_DIR)) {
+      res.writeHead(403, { "Content-Type": "text/plain" });
+      res.end("Forbidden");
+      return;
+    }
+    fs.stat(abs, (err, stats) => {
+      if (err || !stats.isFile()) {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Access-Control-Allow-Origin": ORIGIN,
+      });
+      fs.createReadStream(abs).pipe(res);
+    });
+    return;
+  }
+
+  // 3) Imágenes de productos subidas por el administrador.
   //    La ruta pública es /assets/uploads/products/<nombre de imagen>.
   //    Estas imágenes se guardan en PRODUCT_UPLOADS_DIR para persistir entre
   //    despliegues. Se calcula el tipo MIME básico según la extensión.
