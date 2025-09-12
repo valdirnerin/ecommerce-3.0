@@ -8,15 +8,20 @@
 
 // Base URL del backend. Permite ser configurada desde el servidor a través
 // de `window.NERIN_CONFIG.apiBase` o por una variable global `API_BASE_URL`.
-// Si no se define, se usa la misma URL de origen del frontend.
-const API_BASE =
-  (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) ||
-  window.API_BASE_URL ||
-  "";
+// Al evaluarse en tiempo de ejecución siempre reflejará la última
+// configuración disponible, aun cuando config.js cargue después que este
+// módulo.
+function getApiBase() {
+  return (
+    (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) ||
+    window.API_BASE_URL ||
+    ""
+  );
+}
 
 // Obtener la lista de productos desde el backend
 export async function fetchProducts() {
-  const res = await fetch(`${API_BASE}/api/products`);
+  const res = await fetch(`${getApiBase()}/api/products`);
   if (!res.ok) {
     throw new Error("No se pudieron obtener los productos");
   }
@@ -26,7 +31,7 @@ export async function fetchProducts() {
 
 // Iniciar sesión. Devuelve objeto con success, token y role
 export async function login(email, password) {
-  const res = await fetch(`${API_BASE}/api/login`, {
+  const res = await fetch(`${getApiBase()}/api/login`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
