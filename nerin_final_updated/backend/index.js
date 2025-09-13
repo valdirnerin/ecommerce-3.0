@@ -210,7 +210,7 @@ app.post("/api/orders", async (req, res) => {
           },
           auto_return: "approved",
           external_reference: id,
-          notification_url: `https://nerinparts.com.ar/api/webhooks/mp`,
+          notification_url: `${PUBLIC_URL}/api/webhooks/mp`,
         };
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;
