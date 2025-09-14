@@ -20,7 +20,8 @@ jest.mock('fs', () => {
   };
 });
 
-const server = require('../server');
+const { createServer } = require('../server');
+const server = createServer();
 
 afterAll((done) => {
   if (server.listening) server.close(done);
