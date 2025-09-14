@@ -53,7 +53,8 @@ describe('Ecommerce features', () => {
     fs.writeFileSync(configPath, '{}');
     fs.writeFileSync(uploadsPath, JSON.stringify({ uploads: [{ orderId: 'ORDER123', fileName: 'fact.pdf' }] }));
     process.env.MP_ACCESS_TOKEN = '';
-    server = require('../server');
+    const { createServer } = require('../server');
+    server = createServer();
   });
 
   afterAll((done) => {
