@@ -13,7 +13,49 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
-const { DATA_DIR: dataDir } = require("./utils/dataDir");
+const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
+
+// ENV > utils/dataDir > fallback local
+const DATA_DIR = process.env.DATA_DIR || dataDir || path.join(__dirname, 'data');
+const BASE_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
+const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
+
+let _cache = { t: 0, data: null };
+async function loadProducts() {
+  const now = Date.now();
+  if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
+  const p = typeof dataPath === 'function'
+    ? dataPath('products.json')
+    : path.join(DATA_DIR, 'products.json');
+  try {
+    const json = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const arr = Array.isArray(json?.products) ? json.products : json;
+    _cache = { t: now, data: arr };
+    return arr;
+  } catch {
+    _cache = { t: now, data: [] };
+    return _cache.data;
+  }
+}
+
+function esc(s = '') {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Escapa JSON para contexto <script> evitando cierre e inyección
+function safeJsonForScript(obj) {
+  return JSON.stringify(obj)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 
 // === Directorios persistentes para archivos subidos ===
 // UPLOADS_DIR guarda archivos genéricos
@@ -64,10 +106,6 @@ const ORIGIN = process.env.PUBLIC_URL || "*";
 const fetchFn =
   globalThis.fetch ||
   ((...a) => import("node-fetch").then(({ default: f }) => f(...a)));
-
-function dataPath(file) {
-  return path.join(dataDir, file);
-}
 
 const FOOTER_FILE = dataPath("footer.json");
 const DEFAULT_FOOTER = {
@@ -909,7 +947,7 @@ function serveStatic(filePath, res, headers = {}) {
 }
 
 // Crear servidor HTTP
-const server = http.createServer((req, res) => {
+async function requestHandler(req, res) {
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
 
@@ -2929,6 +2967,85 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // SSR de productos
+  if (pathname.startsWith("/p/") && req.method === "GET") {
+    // Decodificar slug con guardas para evitar URIError (e.g. /p/%E0)
+    let raw = pathname.slice(3);
+    if (raw.endsWith("/")) raw = raw.slice(0, -1);
+    let slug;
+    try {
+      slug = decodeURIComponent(raw);
+    } catch (e) {
+      const html = '<!DOCTYPE html><html lang="es"><head>' +
+        '<meta charset="utf-8"><meta name="robots" content="noindex">' +
+        '<title>Solicitud inválida</title></head>' +
+        '<body><h1>Solicitud inválida</h1></body></html>';
+      res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(html);
+      return;
+    }
+    const products = await loadProducts();
+    const product = Array.isArray(products)
+      ? products.find((p) => p.slug === slug)
+      : null;
+    if (!product) {
+      const html =
+        "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\"><title>Producto no encontrado</title></head><body><h1>Producto no encontrado</h1></body></html>";
+      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(html);
+      return;
+    }
+    const name = product.name || "";
+    const desc =
+      product.meta_description || product.description || `Compra ${name}`;
+    const canonical = `${BASE_URL}/p/${slug}`;
+    const image = product.image
+      ? new URL(product.image, BASE_URL).href
+      : null;
+    const ld = {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      name,
+      ...(product.description ? { description: product.description } : {}),
+      ...(product.sku ? { sku: product.sku } : {}),
+      ...(product.mpn ? { mpn: product.mpn } : {}),
+      ...(product.gtin13 ? { gtin13: product.gtin13 } : {}),
+      brand: { "@type": "Brand", name: product.brand || "Samsung" },
+      offers: {
+        "@type": "Offer",
+        priceCurrency: "ARS",
+        price:
+          product.price ||
+          product.price_minorista ||
+          product.price_mayorista ||
+          0,
+        availability: "https://schema.org/InStock",
+        url: canonical,
+      },
+    };
+    const head = [
+      '<meta charset="utf-8">',
+      `<title>${esc(name)}</title>`,
+      `<meta name="description" content="${esc(desc)}">`,
+      `<link rel="canonical" href="${esc(canonical)}">`,
+      `<meta property="og:title" content="${esc(name)}">`,
+      `<meta property="og:description" content="${esc(desc)}">`,
+      `<meta property="og:url" content="${esc(canonical)}">`,
+      '<meta property="og:type" content="product">',
+      image ? `<meta property="og:image" content="${esc(image)}">` : "",
+      `<script type="application/ld+json">${safeJsonForScript(ld)}</script>`,
+    ]
+      .filter(Boolean)
+      .join("");
+    const body = `<h1>${esc(name)}</h1><div>Precio: $${esc(
+      product.price || product.price_minorista || product.price_mayorista || ""
+    )}</div><div>${product.stock > 0 ? "En stock" : "Sin stock"}</div>`;
+    const html = `<!DOCTYPE html><html lang="es"><head>${head}</head><body>${body}</body></html>`;
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+
   // Servir componentes del frontend: /components/* -> /frontend/components/*
   if (pathname.startsWith("/components/") && req.method === "GET") {
     const compPath = path.join(__dirname, "..", "frontend", pathname.slice(1));
@@ -2970,12 +3087,17 @@ const server = http.createServer((req, res) => {
     }
     serveStatic(filePath, res);
   });
-});
+}
+
+function createServer() {
+  return http.createServer(requestHandler);
+}
+
+module.exports = { createServer };
 
 if (require.main === module) {
+  const server = createServer();
   server.listen(APP_PORT, () => {
     console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
   });
-} else {
-  module.exports = server;
 }
