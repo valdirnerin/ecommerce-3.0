@@ -519,11 +519,23 @@ function saveOrderItems(items) {
   );
 }
 
+const NORMALIZE_STATUS = {
+  approved: "approved",
+  aprobado: "approved",
+  pagado: "approved",
+  paid: "approved",
+  pending: "pending",
+  pendiente: "pending",
+  in_process: "pending",
+  inprocess: "pending",
+  rejected: "rejected",
+  rechazado: "rejected",
+};
+
 function mapPaymentStatus(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "approved" || s === "aprobado" || s === "pagado") return "pagado";
-  if (s === "rejected" || s === "rechazado") return "rechazado";
-  return "pendiente";
+  if (!status) return "pending";
+  const key = String(status).toLowerCase();
+  return NORMALIZE_STATUS[key] || "pending";
 }
 
 function normalizeOrder(o) {
@@ -600,12 +612,9 @@ function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(
-    order.estado_pago || order.payment_status || "",
-  ).toLowerCase();
-  let status = "pending";
-  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
-  else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+  const status = mapPaymentStatus(
+    order.estado_pago || order.payment_status || order.status || "",
+  );
   return {
     status,
     numeroOrden:
@@ -1503,7 +1512,7 @@ async function requestHandler(req, res) {
   // número total de filas antes de paginar.
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
-      const status = (parsedUrl.query.payment_status || "all").toLowerCase();
+      const statusParam = (parsedUrl.query.payment_status || "all").toLowerCase();
       const q = String(parsedUrl.query.q || "").trim().toLowerCase();
       const limit = Math.max(1, parseInt(parsedUrl.query.limit || "100", 10) || 100);
       const offset = Math.max(0, parseInt(parsedUrl.query.offset || "0", 10) || 0);
@@ -1511,9 +1520,10 @@ async function requestHandler(req, res) {
       // Cargar y normalizar pedidos
       let orders = getOrders();
       // Filtrar por estado de pago
-      if (["pendiente", "pagado", "rechazado"].includes(status)) {
+      const statusFilter = NORMALIZE_STATUS[statusParam];
+      if (["pending", "approved", "rejected"].includes(statusFilter)) {
         orders = orders.filter(
-          (o) => mapPaymentStatus(o.payment_status || o.estado_pago) === status,
+          (o) => mapPaymentStatus(o.payment_status || o.estado_pago) === statusFilter,
         );
       }
       // Convertir a objetos normalizados
@@ -2624,8 +2634,20 @@ async function requestHandler(req, res) {
             row.external_reference = numeroOrden;
             row.order_number = row.order_number || numeroOrden;
             row.user_email = usuario?.email || row.user_email || null;
-            row.payment_status = mapPaymentStatus(row.payment_status);
-            row.estado_pago = mapPaymentStatus(row.estado_pago);
+            const normalizedStatus = mapPaymentStatus(
+              row.payment_status || row.estado_pago,
+            );
+            row.payment_status = normalizedStatus;
+            if (!row.estado_pago) {
+              row.estado_pago =
+                normalizedStatus === "approved"
+                  ? "pagado"
+                  : normalizedStatus === "pending"
+                  ? "pendiente"
+                  : normalizedStatus === "rejected"
+                  ? "rechazado"
+                  : normalizedStatus;
+            }
             row.estado_envio = row.estado_envio || "pendiente";
             row.shipping_status =
               row.shipping_status || row.estado_envio || "pendiente";
@@ -2759,31 +2781,12 @@ async function requestHandler(req, res) {
   }
 
   if (
-    (pathname === "/api/mercado-pago/webhook" ||
-      pathname === "/api/webhooks/mp") &&
-    req.method === "POST"
+    pathname === "/api/mercado-pago/webhook" ||
+    pathname === "/api/webhooks/mp"
   ) {
-    parseBody(req).then(() => {
-      try {
-        req.body = validateWebhook(req.body);
-      } catch (e) {
-        res.writeHead(400, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": ORIGIN,
-        });
-        res.end(JSON.stringify({ error: "Invalid payload" }));
-        return;
-      }
+    req.query = parsedUrl.query || {};
 
-      const topic = parsedUrl.query.topic || req.body.topic;
-      const id =
-        parsedUrl.query.id ||
-        req.body.id ||
-        req.body.payment_id ||
-        (req.body.data && req.body.data.id);
-
-      console.log("mp-webhook recibido:", { topic, id });
-
+    const acknowledge = () => {
       res.writeHead(200, {
         "Access-Control-Allow-Origin": ORIGIN,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -2791,15 +2794,61 @@ async function requestHandler(req, res) {
           "Accept, Content-Type, Authorization, X-Requested-With",
       });
       res.end();
+    };
 
-      if (!id) {
-        console.warn("id requerido");
-        return;
+    const scheduleProcessing = () => {
+      setImmediate(() => {
+        Promise.resolve(processNotification(req)).catch((err) => {
+          console.error("mp-webhook process fail", err?.message);
+        });
+      });
+    };
+
+    if (req.method === "POST") {
+      parseBody(req).then(() => {
+        if (!req.body || typeof req.body !== "object") {
+          req.body = {};
+        }
+        try {
+          req.body = validateWebhook(req.body);
+        } catch (e) {
+          res.writeHead(400, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": ORIGIN,
+          });
+          res.end(JSON.stringify({ error: "Invalid payload" }));
+          return;
+        }
+
+        const topic = req.query.topic || req.body.topic || req.body.type || null;
+        const id =
+          req.query.id ||
+          req.body.id ||
+          req.body.payment_id ||
+          (req.body.data && req.body.data.id) ||
+          null;
+
+        console.log("mp-webhook recibido:", { topic, id });
+
+        acknowledge();
+        scheduleProcessing();
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      req.body = {};
+      const topic = req.query.topic || null;
+      let id = req.query.id || null;
+      if (!id && req.query.resource) {
+        const parts = String(req.query.resource).split("/");
+        id = parts[parts.length - 1] || null;
       }
-
-      setImmediate(() => processNotification(topic, id));
-    });
-    return;
+      console.log("mp-webhook recibido:", { topic, id });
+      acknowledge();
+      scheduleProcessing();
+      return;
+    }
   }
 
   if (pathname === "/api/webhooks/mp/test" && req.method === "POST") {
