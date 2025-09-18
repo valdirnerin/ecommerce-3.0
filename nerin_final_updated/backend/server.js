@@ -14,6 +14,11 @@ const fs = require("fs");
 const path = require("path");
 const url = require("url");
 const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
+const {
+  STATUS_ES_TO_CODE,
+  mapPaymentStatusCode,
+  localizePaymentStatus,
+} = require("./utils/paymentStatus");
 
 // ENV > utils/dataDir > fallback local
 const DATA_DIR = process.env.DATA_DIR || dataDir || path.join(__dirname, 'data');
@@ -246,10 +251,13 @@ async function mpWebhookRelay(req, res, parsedUrl) {
       if (idx !== -1) {
         const row = orders[idx];
         row.payment_id = paymentId || row.payment_id;
-        row.payment_status = status || row.payment_status;
-        row.estado_pago = status || row.estado_pago;
+        const normalizedStatus = mapPaymentStatusCode(status);
+        row.payment_status_code = normalizedStatus;
+        const localizedStatus = localizePaymentStatus(status);
+        row.payment_status = localizedStatus;
+        row.estado_pago = localizedStatus;
         if (
-          status === "approved" &&
+          normalizedStatus === "approved" &&
           !row.inventoryApplied &&
           !row.inventory_applied
         ) {
@@ -269,7 +277,7 @@ async function mpWebhookRelay(req, res, parsedUrl) {
           console.log(`inventory applied for ${row.id || row.order_number}`);
         }
         if (
-          status === "rejected" &&
+          normalizedStatus === "rejected" &&
           (row.inventoryApplied || row.inventory_applied)
         ) {
           // TODO: revertir stock si el pago fue rechazado luego de aprobarse
@@ -519,13 +527,6 @@ function saveOrderItems(items) {
   );
 }
 
-function mapPaymentStatus(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "approved" || s === "aprobado" || s === "pagado") return "pagado";
-  if (s === "rejected" || s === "rechazado") return "rechazado";
-  return "pendiente";
-}
-
 function normalizeOrder(o) {
   const orderNum = o.order_number || o.id || o.external_reference || "";
   const created = o.created_at || o.fecha || o.date || "";
@@ -547,7 +548,9 @@ function normalizeOrder(o) {
     )
     .join(", ");
   const total = Number(o.total || o.total_amount || 0);
-  const payment = mapPaymentStatus(o.payment_status || o.estado_pago);
+  const statusSource = o.payment_status || o.estado_pago || o.payment_status_code;
+  const paymentCode = mapPaymentStatusCode(statusSource);
+  const payment = localizePaymentStatus(statusSource);
   const shipping = o.shipping_status || o.estado_envio || "pendiente";
   const tracking = o.tracking || o.seguimiento || "";
   const carrier = o.carrier || o.transportista || "";
@@ -568,6 +571,8 @@ function normalizeOrder(o) {
     items_summary: itemsSummary,
     total_amount: total,
     total,
+    payment_status_code: paymentCode,
+    paymentStatusCode: paymentCode,
     payment_status: payment,
     paymentStatus: payment,
     shipping_status: shipping,
@@ -600,12 +605,9 @@ function getOrderStatus(id) {
     console.log("status: pending (no row yet)");
     return { status: "pending", numeroOrden: null };
   }
-  const raw = String(
-    order.estado_pago || order.payment_status || "",
-  ).toLowerCase();
-  let status = "pending";
-  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
-  else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
+  const status = mapPaymentStatusCode(
+    order.estado_pago || order.payment_status || order.payment_status_code || order.status || "",
+  );
   return {
     status,
     numeroOrden:
@@ -1224,13 +1226,17 @@ async function requestHandler(req, res) {
           total += item.price * item.quantity;
         });
         // Registrar pedido con posible información del cliente
+        const pendingCode = mapPaymentStatusCode("pending");
+        const pendingLabel = localizePaymentStatus("pending");
         const orderEntry = {
           id: orderId,
           external_reference: orderId,
           date: new Date().toISOString(),
           // Clonar items para no mutar las cantidades al actualizar inventario
           items: cart.map((it) => ({ ...it })),
-          estado_pago: "pendiente",
+          estado_pago: pendingLabel,
+          payment_status: pendingLabel,
+          payment_status_code: pendingCode,
           total,
           inventoryApplied: false,
         };
@@ -1413,6 +1419,8 @@ async function requestHandler(req, res) {
         const itemsSummary = items
           .map((it) => `${it.name} x${it.quantity}`)
           .join(", ");
+        const pendingCode = mapPaymentStatusCode("pending");
+        const pendingLabel = localizePaymentStatus("pending");
         const baseOrder = {
           id: orderId,
           order_number: orderId,
@@ -1421,8 +1429,9 @@ async function requestHandler(req, res) {
           productos: items,
           provincia_envio: provincia,
           costo_envio: shippingCost,
-          estado_pago: "pendiente",
-          payment_status: "pendiente",
+          estado_pago: pendingLabel,
+          payment_status: pendingLabel,
+          payment_status_code: pendingCode,
           estado_envio: "pendiente",
           shipping_status: "pendiente",
           metodo_envio: data.metodo_envio || "Correo Argentino",
@@ -1503,7 +1512,7 @@ async function requestHandler(req, res) {
   // número total de filas antes de paginar.
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
-      const status = (parsedUrl.query.payment_status || "all").toLowerCase();
+      const statusParam = (parsedUrl.query.payment_status || "all").toLowerCase();
       const q = String(parsedUrl.query.q || "").trim().toLowerCase();
       const limit = Math.max(1, parseInt(parsedUrl.query.limit || "100", 10) || 100);
       const offset = Math.max(0, parseInt(parsedUrl.query.offset || "0", 10) || 0);
@@ -1511,9 +1520,20 @@ async function requestHandler(req, res) {
       // Cargar y normalizar pedidos
       let orders = getOrders();
       // Filtrar por estado de pago
-      if (["pendiente", "pagado", "rechazado"].includes(status)) {
+      const statusFilter =
+        statusParam === "all" ? null : mapPaymentStatusCode(statusParam);
+      const isRecognized =
+        statusParam !== "all" &&
+        (STATUS_ES_TO_CODE[statusParam] ||
+          statusParam === "approved" ||
+          statusParam === "pending" ||
+          statusParam === "rejected");
+      if (isRecognized && ["pending", "approved", "rejected"].includes(statusFilter)) {
         orders = orders.filter(
-          (o) => mapPaymentStatus(o.payment_status || o.estado_pago) === status,
+          (o) =>
+            mapPaymentStatusCode(
+              o.payment_status || o.estado_pago || o.payment_status_code,
+            ) === statusFilter,
         );
       }
       // Convertir a objetos normalizados
@@ -1714,7 +1734,20 @@ async function requestHandler(req, res) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
         }
         const prev = { ...orders[index] };
-        orders[index] = { ...orders[index], ...update };
+        const incomingStatus =
+          update.payment_status ??
+          update.estado_pago ??
+          update.payment_status_code ??
+          null;
+        const next = { ...orders[index], ...update };
+        if (incomingStatus != null) {
+          const normalized = mapPaymentStatusCode(incomingStatus);
+          const localized = localizePaymentStatus(incomingStatus);
+          next.payment_status_code = normalized;
+          next.payment_status = localized;
+          next.estado_pago = localized;
+        }
+        orders[index] = next;
         saveOrders(orders);
         if (
           update.estado_envio &&
@@ -2594,13 +2627,16 @@ async function requestHandler(req, res) {
             (o) => o.id === numeroOrden || o.external_reference === numeroOrden,
           );
           if (idx === -1) {
+            const pendingCode = mapPaymentStatusCode("pending");
+            const pendingLabel = localizePaymentStatus("pending");
             orders.push({
               id: numeroOrden,
               order_number: numeroOrden,
               external_reference: numeroOrden,
               preference_id: prefId,
-              payment_status: "pendiente",
-              estado_pago: "pendiente",
+              payment_status: pendingLabel,
+              payment_status_code: pendingCode,
+              estado_pago: pendingLabel,
               estado_envio: "pendiente",
               shipping_status: "pendiente",
               user_email: usuario?.email || null,
@@ -2624,8 +2660,15 @@ async function requestHandler(req, res) {
             row.external_reference = numeroOrden;
             row.order_number = row.order_number || numeroOrden;
             row.user_email = usuario?.email || row.user_email || null;
-            row.payment_status = mapPaymentStatus(row.payment_status);
-            row.estado_pago = mapPaymentStatus(row.estado_pago);
+            const statusSource =
+              row.payment_status || row.estado_pago || row.payment_status_code;
+            const normalizedStatus = mapPaymentStatusCode(statusSource);
+            row.payment_status_code = normalizedStatus;
+            const localizedStatus = localizePaymentStatus(statusSource);
+            row.payment_status = localizedStatus;
+            row.estado_pago = localizePaymentStatus(
+              row.estado_pago || statusSource || normalizedStatus,
+            );
             row.estado_envio = row.estado_envio || "pendiente";
             row.shipping_status =
               row.shipping_status || row.estado_envio || "pendiente";
@@ -2759,31 +2802,12 @@ async function requestHandler(req, res) {
   }
 
   if (
-    (pathname === "/api/mercado-pago/webhook" ||
-      pathname === "/api/webhooks/mp") &&
-    req.method === "POST"
+    pathname === "/api/mercado-pago/webhook" ||
+    pathname === "/api/webhooks/mp"
   ) {
-    parseBody(req).then(() => {
-      try {
-        req.body = validateWebhook(req.body);
-      } catch (e) {
-        res.writeHead(400, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": ORIGIN,
-        });
-        res.end(JSON.stringify({ error: "Invalid payload" }));
-        return;
-      }
+    req.query = parsedUrl.query || {};
 
-      const topic = parsedUrl.query.topic || req.body.topic;
-      const id =
-        parsedUrl.query.id ||
-        req.body.id ||
-        req.body.payment_id ||
-        (req.body.data && req.body.data.id);
-
-      console.log("mp-webhook recibido:", { topic, id });
-
+    const acknowledge = () => {
       res.writeHead(200, {
         "Access-Control-Allow-Origin": ORIGIN,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -2791,15 +2815,61 @@ async function requestHandler(req, res) {
           "Accept, Content-Type, Authorization, X-Requested-With",
       });
       res.end();
+    };
 
-      if (!id) {
-        console.warn("id requerido");
-        return;
+    const scheduleProcessing = () => {
+      setImmediate(() => {
+        Promise.resolve(processNotification(req)).catch((err) => {
+          console.error("mp-webhook process fail", err?.message);
+        });
+      });
+    };
+
+    if (req.method === "POST") {
+      parseBody(req).then(() => {
+        if (!req.body || typeof req.body !== "object") {
+          req.body = {};
+        }
+        try {
+          req.body = validateWebhook(req.body);
+        } catch (e) {
+          res.writeHead(400, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": ORIGIN,
+          });
+          res.end(JSON.stringify({ error: "Invalid payload" }));
+          return;
+        }
+
+        const topic = req.query.topic || req.body.topic || req.body.type || null;
+        const id =
+          req.query.id ||
+          req.body.id ||
+          req.body.payment_id ||
+          (req.body.data && req.body.data.id) ||
+          null;
+
+        console.log("mp-webhook recibido:", { topic, id });
+
+        acknowledge();
+        scheduleProcessing();
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      req.body = {};
+      const topic = req.query.topic || null;
+      let id = req.query.id || null;
+      if (!id && req.query.resource) {
+        const parts = String(req.query.resource).split("/");
+        id = parts[parts.length - 1] || null;
       }
-
-      setImmediate(() => processNotification(topic, id));
-    });
-    return;
+      console.log("mp-webhook recibido:", { topic, id });
+      acknowledge();
+      scheduleProcessing();
+      return;
+    }
   }
 
   if (pathname === "/api/webhooks/mp/test" && req.method === "POST") {
