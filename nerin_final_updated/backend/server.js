@@ -2759,31 +2759,12 @@ async function requestHandler(req, res) {
   }
 
   if (
-    (pathname === "/api/mercado-pago/webhook" ||
-      pathname === "/api/webhooks/mp") &&
-    req.method === "POST"
+    pathname === "/api/mercado-pago/webhook" ||
+    pathname === "/api/webhooks/mp"
   ) {
-    parseBody(req).then(() => {
-      try {
-        req.body = validateWebhook(req.body);
-      } catch (e) {
-        res.writeHead(400, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": ORIGIN,
-        });
-        res.end(JSON.stringify({ error: "Invalid payload" }));
-        return;
-      }
+    req.query = parsedUrl.query || {};
 
-      const topic = parsedUrl.query.topic || req.body.topic;
-      const id =
-        parsedUrl.query.id ||
-        req.body.id ||
-        req.body.payment_id ||
-        (req.body.data && req.body.data.id);
-
-      console.log("mp-webhook recibido:", { topic, id });
-
+    const acknowledge = () => {
       res.writeHead(200, {
         "Access-Control-Allow-Origin": ORIGIN,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -2791,15 +2772,61 @@ async function requestHandler(req, res) {
           "Accept, Content-Type, Authorization, X-Requested-With",
       });
       res.end();
+    };
 
-      if (!id) {
-        console.warn("id requerido");
-        return;
+    const scheduleProcessing = () => {
+      setImmediate(() => {
+        Promise.resolve(processNotification(req)).catch((err) => {
+          console.error("mp-webhook process fail", err?.message);
+        });
+      });
+    };
+
+    if (req.method === "POST") {
+      parseBody(req).then(() => {
+        if (!req.body || typeof req.body !== "object") {
+          req.body = {};
+        }
+        try {
+          req.body = validateWebhook(req.body);
+        } catch (e) {
+          res.writeHead(400, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": ORIGIN,
+          });
+          res.end(JSON.stringify({ error: "Invalid payload" }));
+          return;
+        }
+
+        const topic = req.query.topic || req.body.topic || req.body.type || null;
+        const id =
+          req.query.id ||
+          req.body.id ||
+          req.body.payment_id ||
+          (req.body.data && req.body.data.id) ||
+          null;
+
+        console.log("mp-webhook recibido:", { topic, id });
+
+        acknowledge();
+        scheduleProcessing();
+      });
+      return;
+    }
+
+    if (req.method === "GET") {
+      req.body = {};
+      const topic = req.query.topic || null;
+      let id = req.query.id || null;
+      if (!id && req.query.resource) {
+        const parts = String(req.query.resource).split("/");
+        id = parts[parts.length - 1] || null;
       }
-
-      setImmediate(() => processNotification(topic, id));
-    });
-    return;
+      console.log("mp-webhook recibido:", { topic, id });
+      acknowledge();
+      scheduleProcessing();
+      return;
+    }
   }
 
   if (pathname === "/api/webhooks/mp/test" && req.method === "POST") {
