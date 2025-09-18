@@ -62,7 +62,39 @@ async function saveAll(orders) {
   }
 }
 
+// Devuelve siempre un array de líneas; acepta 'items' o 'productos'.
+function normalizeItems(order = {}) {
+  const it = Array.isArray(order.items) ? order.items : null;
+  if (it && it.length) return it;
+  const prods = Array.isArray(order.productos) ? order.productos : [];
+  return prods
+    .map((p) => ({
+      id: p.id ?? p.product_id ?? p.codigo ?? undefined,
+      sku: p.sku ?? p.codigo ?? undefined,
+      name: p.name ?? p.titulo ?? p.descripcion ?? '',
+      qty: Number(p.qty ?? p.cantidad ?? p.cant ?? 1),
+      price: Number(p.price ?? p.precio ?? 0),
+      total:
+        Number(
+          p.total ??
+            Number(p.price ?? p.precio ?? 0) *
+              Number(p.qty ?? p.cantidad ?? p.cant ?? 1)
+        ),
+    }))
+    .filter((x) => x.qty > 0);
+}
+
+function validateOrder(order) {
+  const lines = normalizeItems(order);
+  if (!order || lines.length === 0) throw new Error('ORDER_WITHOUT_ITEMS');
+}
+
 async function create(order) {
+  if (!Array.isArray(order.items) || order.items.length === 0) {
+    const lines = normalizeItems(order);
+    if (lines.length) order.items = lines;
+  }
+  validateOrder(order);
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
@@ -88,6 +120,201 @@ async function create(order) {
     await pool.query('ROLLBACK');
     throw e;
   }
+}
+
+async function update(order) {
+  if (!Array.isArray(order.items) || order.items.length === 0) {
+    const lines = normalizeItems(order);
+    if (lines.length) order.items = lines;
+  }
+  validateOrder(order);
+  const pool = db.getPool();
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((o) => String(o.id) === String(order.id));
+    if (idx === -1) throw new Error('ORDER_NOT_FOUND');
+    const items = Array.isArray(order.items)
+      ? order.items.map((it) => ({ ...it }))
+      : [];
+    const next = { ...orders[idx], ...order, items };
+    orders[idx] = next;
+    await saveAll(orders);
+    return next;
+  }
+  await pool.query('BEGIN');
+  try {
+    await pool.query(
+      'UPDATE orders SET customer_email=$2, status=$3, total=$4 WHERE id=$1',
+      [order.id, order.customer_email || null, order.status || 'pendiente', order.total || 0]
+    );
+    await pool.query('DELETE FROM order_items WHERE order_id=$1', [order.id]);
+    for (const it of order.items) {
+      const pid = it.product_id || it.id || it.productId;
+      const qty = Number(it.qty || it.quantity || it.cantidad || 0);
+      if (!pid || !qty) continue;
+      const price = Number(it.price || it.unit_price || 0);
+      await pool.query(
+        'INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1,$2,$3,$4)',
+        [order.id, pid, qty, price]
+      );
+    }
+    await pool.query('COMMIT');
+    return order;
+  } catch (e) {
+    await pool.query('ROLLBACK');
+    throw e;
+  }
+}
+
+function normalizeKey(value) {
+  if (value == null) return null;
+  const str = String(value).trim();
+  return str ? str : null;
+}
+
+function orderMatches(order, candidate) {
+  if (!order || !candidate) return false;
+  const values = [
+    order.id,
+    order.order_id,
+    order.orderId,
+    order.order_number,
+    order.orderNumber,
+    order.external_reference,
+    order.externalReference,
+    order.preference_id,
+    order.preferenceId,
+    order.payment_id,
+    order.paymentId,
+    order.metadata?.order_id,
+  ];
+  return values.some((val) => normalizeKey(val) === candidate);
+}
+
+async function findByKey(key, identifiers = {}) {
+  const candidates = new Set();
+  const keys = [
+    key,
+    identifiers.payment_id,
+    identifiers.preference_id,
+    identifiers.external_reference,
+  ];
+  for (const value of keys) {
+    const normalized = normalizeKey(value);
+    if (normalized) candidates.add(normalized);
+  }
+  if (!candidates.size) return null;
+
+  const pool = db.getPool();
+  if (!pool) {
+    const orders = await getAll();
+    for (const candidate of candidates) {
+      const match = orders.find((o) => orderMatches(o, candidate));
+      if (match) return match;
+    }
+    return null;
+  }
+
+  for (const candidate of candidates) {
+    const found = await getById(candidate);
+    if (found) return found;
+  }
+  return null;
+}
+
+function computeOrderTotal(order) {
+  const total = Number(order?.total);
+  if (!Number.isFinite(total) || total <= 0) {
+    if (Array.isArray(order?.items)) {
+      return order.items.reduce((acc, it) => {
+        const price = Number(it.price || it.unit_price || 0);
+        const qty = Number(it.qty || it.quantity || it.cantidad || 0);
+        return acc + price * qty;
+      }, 0);
+    }
+    return 0;
+  }
+  return total;
+}
+
+function getOrderCurrency(order) {
+  if (!order) return null;
+  const itemWithCurrency = Array.isArray(order.items)
+    ? order.items.find((it) => it.currency || it.currency_id)
+    : null;
+  return (
+    order.currency ||
+    order.currency_id ||
+    order.currencyId ||
+    order.moneda ||
+    order.paid_currency ||
+    (itemWithCurrency ? itemWithCurrency.currency || itemWithCurrency.currency_id : null)
+  );
+}
+
+async function upsertByPayment({
+  payment_id,
+  preference_id,
+  external_reference,
+  patch = {},
+  amount,
+  currency,
+}) {
+  const normalizedPaymentId = normalizeKey(payment_id);
+  const normalizedPreferenceId = normalizeKey(preference_id);
+  const normalizedExternalRef = normalizeKey(external_reference);
+  const key = normalizedPaymentId || normalizedPreferenceId || normalizedExternalRef;
+  if (!key) return null;
+
+  const existing = await findByKey(key, {
+    payment_id: normalizedPaymentId,
+    preference_id: normalizedPreferenceId,
+    external_reference: normalizedExternalRef,
+  });
+  if (!existing) return null;
+
+  if (
+    normalizedPaymentId &&
+    existing.payment_id &&
+    normalizeKey(existing.payment_id) === normalizedPaymentId
+  ) {
+    return existing;
+  }
+
+  if (typeof amount === 'number' && Number.isFinite(amount)) {
+    const total = computeOrderTotal(existing);
+    if (Number.isFinite(total) && Math.abs(total - amount) > 0.01) {
+      const err = new Error('AMOUNT_MISMATCH');
+      err.code = 'AMOUNT_MISMATCH';
+      throw err;
+    }
+  }
+
+  if (currency) {
+    const orderCurrency = getOrderCurrency(existing);
+    if (orderCurrency && String(orderCurrency) !== String(currency)) {
+      const err = new Error('CURRENCY_MISMATCH');
+      err.code = 'CURRENCY_MISMATCH';
+      throw err;
+    }
+  }
+
+  const merged = {
+    ...existing,
+    ...patch,
+  };
+  if (normalizedPaymentId) merged.payment_id = normalizedPaymentId;
+  if (normalizedPreferenceId) merged.preference_id = normalizedPreferenceId;
+  if (normalizedExternalRef) {
+    merged.external_reference = normalizedExternalRef;
+    if (!merged.id) merged.id = normalizedExternalRef;
+  }
+  if (!Array.isArray(merged.items) || merged.items.length === 0) {
+    const lines = normalizeItems(existing);
+    if (lines.length) merged.items = lines;
+  }
+
+  return update(merged);
 }
 
 async function createOrder({ id, customer_email, items }) {
@@ -189,7 +416,9 @@ module.exports = {
   getById,
   saveAll,
   create,
+  update,
   createOrder,
   markInventoryApplied,
   clearInventoryApplied,
+  upsertByPayment,
 };
