@@ -307,7 +307,7 @@ async function getOrderStatus(id) {
   }
   const raw = String(order.status || order.estado_pago || order.payment_status || "").toLowerCase();
   let status = "pending";
-  if (["approved", "aprobado", "pagado"].includes(raw)) status = "approved";
+  if (["approved", "aprobado", "pagado", "paid"].includes(raw)) status = "approved";
   else if (["rejected", "rechazado"].includes(raw)) status = "rejected";
   return {
     status,
