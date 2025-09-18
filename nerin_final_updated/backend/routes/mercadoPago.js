@@ -1,285 +1,245 @@
-const fs = require('fs');
-const path = require('path');
-const { DATA_DIR: dataDir } = require('../utils/dataDir');
+const db = require('../db');
+const ordersRepo = require('../data/ordersRepo');
+
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
 const fetchFn =
   globalThis.fetch ||
-  ((...a) => import('node-fetch').then(({ default: f }) => f(...a)));
-const db = require('../db');
-const ordersRepo = require('../data/ordersRepo');
-const productsRepo = require('../data/productsRepo');
+  ((...args) => import('node-fetch').then(({ default: f }) => f(...args)));
 
 const logger = {
-  info: console.log,
-  warn: console.warn,
-  error: console.error,
+  info: (...args) => console.log(...args),
+  warn: (...args) => console.warn(...args),
+  error: (...args) => console.error(...args),
 };
-const {
-  applyInventoryForOrder,
-  revertInventoryForOrder,
-} = require('../services/inventory');
 
-function mapStatus(mpStatus) {
-  const s = String(mpStatus || '').toLowerCase();
-  if (s === 'approved') return 'pagado';
-  if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(s))
-    return 'rechazado';
-  return 'pendiente';
-}
+const VALID_ACTIONS = new Set(['payment.created', 'payment.updated']);
 
-function ordersPath() {
-  return path.join(dataDir, 'orders.json');
-}
-
-async function getOrders() {
-  if (db.getPool()) return ordersRepo.getAll();
-  try {
-    const file = fs.readFileSync(ordersPath(), 'utf8');
-    return JSON.parse(file).orders || [];
-  } catch {
-    return [];
+function getMpClient() {
+  if (!ACCESS_TOKEN) {
+    throw new Error('MP_ACCESS_TOKEN not configured');
   }
+  return {
+    payment: {
+      findById: async (id) => {
+        const res = await fetchFn(`https://api.mercadopago.com/v1/payments/${id}`, {
+          headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
+        });
+        if (!res.ok) {
+          const error = new Error(`payment fetch failed (${res.status})`);
+          error.status = res.status;
+          throw error;
+        }
+        return res.json();
+      },
+    },
+  };
 }
 
-async function saveOrders(orders) {
-  if (db.getPool()) return ordersRepo.saveAll(orders);
-  fs.writeFileSync(ordersPath(), JSON.stringify({ orders }, null, 2), 'utf8');
+function normalizePaymentResponse(res) {
+  if (res && res.body && typeof res.body === 'object') return res.body;
+  return res;
 }
 
-function productsPath() {
-  return path.join(dataDir, 'products.json');
+function extractAmount(payment) {
+  if (!payment) return null;
+  const rawAmount =
+    payment.transaction_amount ??
+    payment.transaction_details?.total_paid_amount ??
+    payment.amount ??
+    null;
+  if (rawAmount == null) return null;
+  const amount = Number(rawAmount);
+  return Number.isFinite(amount) ? amount : null;
 }
 
-async function getProducts() {
-  if (db.getPool()) return productsRepo.getAll();
-  try {
-    const file = fs.readFileSync(productsPath(), 'utf8');
-    return JSON.parse(file).products || [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveProducts(products) {
-  if (db.getPool()) return productsRepo.saveAll(products);
-  fs.writeFileSync(
-    productsPath(),
-    JSON.stringify({ products }, null, 2),
-    'utf8'
+function extractCurrency(payment) {
+  if (!payment) return null;
+  return (
+    payment.currency_id ||
+    payment.currency ||
+    payment.transaction_details?.currency_id ||
+    null
   );
 }
 
+function extractPaymentEvent(req = {}) {
+  const b = req.body || {};
+  const q = req.query || {};
+  const type = b.type || b.topic || q.type || q.topic || null;
+  const action = b.action || b.event || null;
+  let id =
+    (b.data && (b.data.id || b.data.payment_id)) ||
+    b.payment_id ||
+    b.id ||
+    q.id ||
+    null;
+  if (!id && q.resource) {
+    const parts = String(q.resource).split('/');
+    id = parts[parts.length - 1] || null;
+  }
+  return { type, action, id };
+}
 
-async function upsertOrder({
-  externalRef,
-  prefId,
-  status,
-  statusRaw,
-  paymentId,
-  total,
-}) {
-  const identifier = prefId || externalRef;
-  if (!identifier) return;
-  const orders = await getOrders();
-  const idx = orders.findIndex(
-    (o) =>
-      o.id === identifier ||
-      o.external_reference === identifier ||
-      o.order_number === identifier ||
-      String(o.preference_id) === String(identifier)
-  );
-  if (idx !== -1) {
-    const row = orders[idx];
-    if (paymentId != null) row.payment_id = String(paymentId);
-    if (status) {
-      row.payment_status = status;
-      row.estado_pago = status;
-    }
-    if (statusRaw) row.payment_status_raw = statusRaw;
-    if (total && !row.total) row.total = total;
-    if (!row.created_at) row.created_at = new Date().toISOString();
-    if (prefId != null) row.preference_id = prefId;
-    if (externalRef != null) row.external_reference = externalRef;
-  } else {
-    const row = { id: externalRef || prefId };
-    if (prefId != null) row.preference_id = prefId;
-    if (externalRef != null) row.external_reference = externalRef;
-    row.payment_status = status || 'pendiente';
-    row.estado_pago = status || 'pendiente';
-    if (statusRaw) row.payment_status_raw = statusRaw;
-    if (paymentId != null) row.payment_id = String(paymentId);
-    row.total = total || 0;
-    row.created_at = new Date().toISOString();
-    orders.push(row);
+async function handlePayment(paymentId, hints = {}) {
+  if (!paymentId) return 'ignored';
+  let payment;
+  try {
+    const client = getMpClient();
+    const res = await client.payment.findById(paymentId);
+    payment = normalizePaymentResponse(res);
+  } catch (error) {
+    logger.warn('mp-webhook payment fetch failed', {
+      paymentId,
+      msg: error?.message,
+    });
+    return 'error';
   }
 
-  const row = orders[idx !== -1 ? idx : orders.length - 1];
-  const inventoryApplied = row.inventoryApplied || row.inventory_applied;
+  if (!payment || payment.status !== 'approved') {
+    logger.info('mp-webhook ignored (status)', {
+      paymentId,
+      status: payment?.status,
+    });
+    return 'ignored';
+  }
 
-  await saveOrders(orders);
+  const amount = extractAmount(payment);
+  const currency = extractCurrency(payment);
+  const reference =
+    payment.external_reference ||
+    hints.external_reference ||
+    payment.metadata?.order_id ||
+    null;
+  const preferenceId = payment.preference_id || hints.preference_id || null;
 
-  if (statusRaw === 'approved') {
-    if (db.getPool()) {
-      await ordersRepo.createOrder({
-        id: row.external_reference || row.id,
-        customer_email: row.cliente?.email || null,
-        items: row.productos || row.items || [],
+  try {
+    const updated = await ordersRepo.upsertByPayment({
+      payment_id: paymentId,
+      preference_id: preferenceId,
+      external_reference: reference,
+      amount,
+      currency,
+      patch: {
+        status: 'paid',
+        payment_status: 'approved',
+        estado_pago: 'pagado',
+        paid_at: new Date().toISOString(),
+        paid_amount: amount,
+        paid_currency: currency,
+        mp_payment: { id: paymentId, status: payment.status },
+      },
+    });
+    if (!updated) {
+      logger.warn('mp-webhook order not found', {
+        paymentId,
+        reference,
+        preferenceId,
       });
-    } else if (!inventoryApplied) {
-      await applyInventoryForOrder(row);
+      return 'no-order';
     }
-  } else if (['rejected', 'cancelled', 'refunded', 'charged_back'].includes(statusRaw)) {
-    if (db.getPool()) {
-      const oid = row.external_reference || row.id;
-      if (oid) {
-        const dbOrder = await ordersRepo.getById(oid);
-        if (dbOrder && dbOrder.inventory_applied) {
-          await revertInventoryForOrder(dbOrder);
+
+    // En modo archivo, asegurarnos de aplicar inventario si aún no se hizo.
+    if (!db.getPool()) {
+      const inventoryApplied =
+        updated.inventoryApplied === true ||
+        updated.inventory_applied === true;
+      if (!inventoryApplied && Array.isArray(updated.items) && updated.items.length) {
+        try {
+          const { applyInventoryForOrder } = require('../services/inventory');
+          await applyInventoryForOrder(updated);
+        } catch (err) {
+          logger.error('mp-webhook inventory apply failed', {
+            paymentId,
+            msg: err?.message,
+          });
         }
       }
-    } else if (inventoryApplied) {
-      await revertInventoryForOrder(row);
     }
+
+    logger.info('mp-webhook order updated', {
+      paymentId,
+      reference,
+      preferenceId,
+    });
+    return 'ok';
+  } catch (error) {
+    if (error && error.code === 'AMOUNT_MISMATCH') {
+      logger.warn('mp-webhook amount mismatch', {
+        paymentId,
+        amount,
+      });
+      return 'amount-mismatch';
+    }
+    if (error && error.code === 'CURRENCY_MISMATCH') {
+      logger.warn('mp-webhook currency mismatch', {
+        paymentId,
+        currency,
+      });
+      return 'currency-mismatch';
+    }
+    if (error && error.message === 'ORDER_WITHOUT_ITEMS') {
+      logger.warn('mp-webhook missing items', { paymentId });
+      return 'no-order';
+    }
+    logger.error('mp-webhook unexpected error', {
+      paymentId,
+      msg: error?.message,
+    });
+    throw error;
   }
 }
 
-async function processPayment(id, hints = {}) {
-  try {
-    const res = await fetchFn(`https://api.mercadopago.com/v1/payments/${id}`, {
-      headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
-    });
-    const p = await res.json();
-    const statusRaw = p.status;
-    const mapped = mapStatus(statusRaw);
-    const externalRef = p.external_reference || hints.externalRef || null;
-    const prefId = p.preference_id || hints.prefId || null;
-    const total = Number(
-      p.transaction_amount ||
-        p.transaction_details?.total_paid_amount ||
-        p.amount ||
-        0
-    );
-
-    await upsertOrder({
-      externalRef,
-      prefId,
-      status: mapped,
-      statusRaw,
-      paymentId: p.id,
-      total,
-    });
-
-    logger.info('mp-webhook OK', {
-      topic: 'payment',
-      paymentId: p.id,
-      externalRef,
-      prefId,
-      status: mapped,
-    });
-  } catch (e) {
-    logger.warn('mp-webhook payment fetch omitido', {
-      paymentId: id,
-      msg: e?.message,
-    });
-  }
+function extractFromBody(body = {}, query = {}) {
+  const { type, action, id } = extractPaymentEvent({ body, query });
+  const data = body.data || {};
+  const paymentId =
+    id ||
+    data.id ||
+    data.payment_id ||
+    body.payment_id ||
+    body.id ||
+    query.id ||
+    null;
+  const external_reference = data.external_reference || body.external_reference || null;
+  const preference_id = data.preference_id || body.preference_id || null;
+  return { type, action, paymentId, external_reference, preference_id };
 }
 
 async function processNotification(reqOrTopic, maybeId) {
-  const body = reqOrTopic?.body || {};
-  const query = reqOrTopic?.query || {};
-  const topic =
-    query.topic ||
-    query.type ||
-    body.type ||
-    body.topic ||
-    (typeof reqOrTopic === 'string' ? reqOrTopic : undefined);
-  const rawId =
-    query.id ||
-    body?.payment_id ||
-    body?.data?.id ||
-    body?.id ||
-    (typeof reqOrTopic === 'string' ? maybeId : undefined) ||
-    maybeId;
-  const resource = query.resource || body?.resource;
-
-  logger.info('mp-webhook recibido', { topic, id: rawId });
-
-  try {
-    if (resource) {
-      try {
-        const res = await fetchFn(resource, {
-          headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
-        });
-        const data = await res.json();
-        if (data?.payments) {
-          const paymentId = data.payments?.[0]?.id || null;
-          const prefId = data.preference_id || null;
-          const externalRef = data.external_reference || null;
-          if (!paymentId) {
-            await upsertOrder({ externalRef, prefId, status: 'pending' });
-            logger.info('mp-webhook merchant_order sin payment (pending)', {
-              externalRef,
-              prefId,
-            });
-            return;
-          }
-          await processPayment(paymentId, { externalRef, prefId });
-          return;
-        }
-        if (data?.status && data?.external_reference) {
-          await processPayment(data.id, {
-            externalRef: data.external_reference,
-            prefId: data.preference_id,
-          });
-          return;
-        }
-      } catch (e) {
-        logger.warn('mp-webhook resource fetch omitido', {
-          resource,
-          msg: e?.message,
-        });
-        return;
-      }
+  if (reqOrTopic && typeof reqOrTopic === 'object' && 'body' in reqOrTopic) {
+    const { body = {}, query = {} } = reqOrTopic;
+    const { type, action, paymentId, external_reference, preference_id } =
+      extractFromBody(body, query);
+    if (type !== 'payment') {
+      logger.info('mp-webhook ignored', { type, action });
+      return 'ignored';
     }
-
-    if (topic === 'merchant_order') {
-      const moId = Number(rawId) || rawId;
-      try {
-        const res = await fetchFn(
-          `https://api.mercadopago.com/merchant_orders/${moId}`,
-          { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } }
-        );
-        const mo = await res.json();
-        const paymentId = mo?.payments?.[0]?.id || null;
-        const prefId = mo?.preference_id || null;
-        const externalRef = mo?.external_reference || null;
-        if (!paymentId) {
-          await upsertOrder({ externalRef, prefId, status: 'pending' });
-          logger.info('mp-webhook merchant_order sin payment (pending)', {
-            externalRef,
-            prefId,
-          });
-          return;
-        }
-        await processPayment(paymentId, { externalRef, prefId });
-        return;
-      } catch (e) {
-        logger.info('mp-webhook merchant_order fetch omitido', {
-          moId,
-          msg: e?.message,
-        });
-        return;
-      }
+    const effectiveAction = action || 'payment.updated';
+    if (!VALID_ACTIONS.has(effectiveAction)) {
+      logger.info('mp-webhook ignored', { type, action: effectiveAction });
+      return 'ignored';
     }
-
-    if (topic === 'payment' || /^[0-9]+$/.test(String(rawId))) {
-      await processPayment(rawId);
-      return;
+    if (!paymentId) {
+      logger.warn('mp-webhook missing payment id');
+      return 'ignored';
     }
-  } catch (error) {
-    logger.error(`mp-webhook error inesperado: ${error.message}`);
+    return handlePayment(paymentId, {
+      external_reference,
+      preference_id,
+    });
   }
+
+  const topic = typeof reqOrTopic === 'string' ? reqOrTopic : null;
+  const paymentId = maybeId || (topic && /^[0-9]+$/.test(topic) ? topic : null);
+  if (topic && topic !== 'payment') {
+    logger.info('mp-webhook ignored legacy call', { topic });
+    return 'ignored';
+  }
+  if (!paymentId) {
+    logger.warn('mp-webhook legacy call without id');
+    return 'ignored';
+  }
+  return handlePayment(paymentId);
 }
 
-module.exports = { processNotification };
-
+module.exports = { processNotification, getMpClient };
