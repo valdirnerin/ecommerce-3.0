@@ -3,6 +3,7 @@ const path = require('path');
 const db = require('../db');
 const productsRepo = require('./productsRepo');
 const { DATA_DIR: dataDir } = require('../utils/dataDir');
+const { mapPaymentStatusCode } = require('../utils/paymentStatus');
 
 const filePath = path.join(dataDir, 'orders.json');
 
@@ -84,38 +85,215 @@ function normalizeItems(order = {}) {
     .filter((x) => x.qty > 0);
 }
 
+function firstNonEmpty(values = []) {
+  for (const value of values) {
+    const normalized = normalizeKey(value);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function normalizeCustomer(order = {}) {
+  const existing =
+    order && typeof order.customer === 'object' && order.customer
+      ? { ...order.customer }
+      : {};
+  const checkoutCustomer =
+    (order && order.cliente) ||
+    (order && order.customer_info) ||
+    (order && order.checkout && order.checkout.customer) ||
+    order?.usuario ||
+    {};
+
+  const nombreCompuesto =
+    checkoutCustomer &&
+    [checkoutCustomer.nombre, checkoutCustomer.apellido]
+      .filter((p) => normalizeKey(p))
+      .join(' ');
+
+  const name = firstNonEmpty([
+    existing.name,
+    checkoutCustomer?.name,
+    nombreCompuesto,
+    checkoutCustomer?.nombre,
+    order?.customer_name,
+    order?.client_name,
+    order?.name,
+  ]);
+  const email = firstNonEmpty([
+    existing.email,
+    checkoutCustomer?.email,
+    checkoutCustomer?.mail,
+    checkoutCustomer?.correo,
+    order?.customer_email,
+    order?.user_email,
+    order?.email,
+  ]);
+  const phone = firstNonEmpty([
+    existing.phone,
+    checkoutCustomer?.phone,
+    checkoutCustomer?.telefono,
+    checkoutCustomer?.tel,
+    checkoutCustomer?.mobile,
+    order?.customer_phone,
+    order?.telefono,
+    order?.phone,
+  ]);
+
+  const result = { ...existing };
+  if (name) result.name = name;
+  if (email) result.email = email;
+  if (phone) result.phone = phone;
+
+  return Object.keys(result).length ? result : null;
+}
+
+function normalizeAddress(order = {}) {
+  const existing =
+    order && typeof order.shipping_address === 'object' && order.shipping_address
+      ? { ...order.shipping_address }
+      : {};
+  const customerAddress = order?.cliente?.direccion || {};
+  const customerFlat = order?.cliente || {};
+  const combinedCustomer = {
+    ...customerAddress,
+    calle: customerAddress.calle || customerFlat.calle,
+    numero: customerAddress.numero || customerFlat.numero,
+    localidad: customerAddress.localidad || customerFlat.localidad,
+    provincia: customerAddress.provincia || customerFlat.provincia,
+    cp: customerAddress.cp || customerFlat.cp,
+    notas: customerAddress.notas || customerFlat.notas,
+  };
+  const checkoutAddress = order?.shipping || order?.envio || order?.address || {};
+  const userAddress = order?.usuario || {};
+  const rawCustomer = order?.customer || {};
+
+  const street = firstNonEmpty([
+    existing.street,
+    checkoutAddress?.street,
+    checkoutAddress?.calle,
+    combinedCustomer.calle,
+    userAddress?.calle,
+    rawCustomer?.calle,
+    order?.calle,
+  ]);
+  const number = firstNonEmpty([
+    existing.number,
+    checkoutAddress?.number,
+    checkoutAddress?.numero,
+    combinedCustomer.numero,
+    userAddress?.numero,
+    rawCustomer?.numero,
+    order?.numero,
+  ]);
+  const city = firstNonEmpty([
+    existing.city,
+    checkoutAddress?.city,
+    checkoutAddress?.localidad,
+    combinedCustomer.localidad,
+    userAddress?.localidad,
+    rawCustomer?.localidad,
+    order?.city,
+    order?.localidad,
+  ]);
+  const province = firstNonEmpty([
+    existing.province,
+    checkoutAddress?.province,
+    checkoutAddress?.provincia,
+    combinedCustomer.provincia,
+    userAddress?.provincia,
+    rawCustomer?.provincia,
+    order?.province,
+    order?.provincia_envio,
+  ]);
+  const zip = firstNonEmpty([
+    existing.zip,
+    checkoutAddress?.zip,
+    checkoutAddress?.cp,
+    checkoutAddress?.postal_code,
+    combinedCustomer.cp,
+    userAddress?.cp,
+    rawCustomer?.cp,
+    order?.zip,
+    order?.cp,
+    order?.codigo_postal,
+  ]);
+  const notes = firstNonEmpty([
+    existing.notes,
+    checkoutAddress?.notes,
+    checkoutAddress?.comentarios,
+    combinedCustomer.notas,
+    userAddress?.notas,
+    rawCustomer?.notas,
+    order?.shipping_notes,
+    order?.comentarios,
+    order?.notas,
+  ]);
+
+  const result = { ...existing };
+  if (street) result.street = street;
+  if (number) result.number = number;
+  if (city) result.city = city;
+  if (province) result.province = province;
+  if (zip) result.zip = zip;
+  if (notes) result.notes = notes;
+
+  return Object.keys(result).length ? result : null;
+}
+
 function validateOrder(order) {
   const lines = normalizeItems(order);
   if (!order || lines.length === 0) throw new Error('ORDER_WITHOUT_ITEMS');
 }
 
 async function create(order) {
-  if (!Array.isArray(order.items) || order.items.length === 0) {
-    const lines = normalizeItems(order);
-    if (lines.length) order.items = lines;
+  const draft = { ...order };
+  if (!Array.isArray(draft.items) || draft.items.length === 0) {
+    const lines = normalizeItems(draft);
+    if (lines.length) draft.items = lines;
   }
-  validateOrder(order);
+  validateOrder(draft);
+
+  const normalizedCustomer = normalizeCustomer(draft);
+  if (normalizedCustomer) {
+    draft.customer = { ...(draft.customer || {}), ...normalizedCustomer };
+  }
+  const normalizedAddress = normalizeAddress(draft);
+  if (normalizedAddress) {
+    draft.shipping_address = {
+      ...(draft.shipping_address || {}),
+      ...normalizedAddress,
+    };
+  }
+  if (!draft.created_at) {
+    draft.created_at = new Date().toISOString();
+  }
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
-    orders.push(order);
+    orders.push(draft);
     await saveAll(orders);
-    return order;
+    return draft;
   }
   await pool.query('BEGIN');
   try {
     await pool.query(
       'INSERT INTO orders (id, created_at, customer_email, status, total) VALUES ($1, now(), $2, $3, $4)',
-      [order.id, order.customer_email || null, order.status || 'pendiente', order.total || 0]
+      [
+        draft.id,
+        draft.customer_email || draft.customer?.email || null,
+        draft.status || 'pendiente',
+        draft.total || 0,
+      ]
     );
-    for (const it of order.items || []) {
+    for (const it of draft.items || []) {
       await pool.query(
         'INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1,$2,$3,$4)',
-        [order.id, it.product_id, it.qty, it.price]
+        [draft.id, it.product_id, it.qty, it.price]
       );
     }
     await pool.query('COMMIT');
-    return order;
+    return draft;
   } catch (e) {
     await pool.query('ROLLBACK');
     throw e;
@@ -123,20 +301,45 @@ async function create(order) {
 }
 
 async function update(order) {
-  if (!Array.isArray(order.items) || order.items.length === 0) {
-    const lines = normalizeItems(order);
-    if (lines.length) order.items = lines;
+  const draft = { ...order };
+  if (!Array.isArray(draft.items) || draft.items.length === 0) {
+    const lines = normalizeItems(draft);
+    if (lines.length) draft.items = lines;
   }
-  validateOrder(order);
+  validateOrder(draft);
+
+  const normalizedCustomer = normalizeCustomer(draft);
+  if (normalizedCustomer) {
+    draft.customer = { ...(draft.customer || {}), ...normalizedCustomer };
+  }
+  const normalizedAddress = normalizeAddress(draft);
+  if (normalizedAddress) {
+    draft.shipping_address = {
+      ...(draft.shipping_address || {}),
+      ...normalizedAddress,
+    };
+  }
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
-    const idx = orders.findIndex((o) => String(o.id) === String(order.id));
+    const idx = orders.findIndex((o) => String(o.id) === String(draft.id));
     if (idx === -1) throw new Error('ORDER_NOT_FOUND');
-    const items = Array.isArray(order.items)
-      ? order.items.map((it) => ({ ...it }))
+    const items = Array.isArray(draft.items)
+      ? draft.items.map((it) => ({ ...it }))
       : [];
-    const next = { ...orders[idx], ...order, items };
+    const next = {
+      ...orders[idx],
+      ...draft,
+      customer: {
+        ...(orders[idx].customer || {}),
+        ...(draft.customer || {}),
+      },
+      shipping_address: {
+        ...(orders[idx].shipping_address || {}),
+        ...(draft.shipping_address || {}),
+      },
+      items,
+    };
     orders[idx] = next;
     await saveAll(orders);
     return next;
@@ -145,25 +348,143 @@ async function update(order) {
   try {
     await pool.query(
       'UPDATE orders SET customer_email=$2, status=$3, total=$4 WHERE id=$1',
-      [order.id, order.customer_email || null, order.status || 'pendiente', order.total || 0]
+      [
+        draft.id,
+        draft.customer_email || draft.customer?.email || null,
+        draft.status || 'pendiente',
+        draft.total || 0,
+      ]
     );
-    await pool.query('DELETE FROM order_items WHERE order_id=$1', [order.id]);
-    for (const it of order.items) {
+    await pool.query('DELETE FROM order_items WHERE order_id=$1', [draft.id]);
+    for (const it of draft.items) {
       const pid = it.product_id || it.id || it.productId;
       const qty = Number(it.qty || it.quantity || it.cantidad || 0);
       if (!pid || !qty) continue;
       const price = Number(it.price || it.unit_price || 0);
       await pool.query(
         'INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1,$2,$3,$4)',
-        [order.id, pid, qty, price]
+        [draft.id, pid, qty, price]
       );
     }
     await pool.query('COMMIT');
-    return order;
+    return draft;
   } catch (e) {
     await pool.query('ROLLBACK');
     throw e;
   }
+}
+
+function parseLocalDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = String(dateStr)
+    .trim()
+    .split('-')
+    .map((p) => Number.parseInt(p, 10));
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function getOrderDate(order = {}) {
+  const candidates = [order.created_at, order.fecha, order.date, order.createdAt];
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
+function matchesStatus(order, status) {
+  if (!status) return true;
+  const target = String(status).toLowerCase();
+  const normalizedTarget = mapPaymentStatusCode(target);
+  const candidates = [
+    order.status,
+    order.payment_status,
+    order.estado_pago,
+    order.payment_status_code,
+  ]
+    .map((val) => normalizeKey(val))
+    .filter(Boolean);
+  if (candidates.some((val) => String(val).toLowerCase() === target)) return true;
+  const mapped = candidates.map((val) => mapPaymentStatusCode(val));
+  return mapped.some((val) => val === normalizedTarget);
+}
+
+function matchesQuery(order, q) {
+  const needle = normalizeKey(q);
+  if (!needle) return true;
+  const lcNeedle = needle.toLowerCase();
+  const customer = normalizeCustomer(order) || {};
+  const haystack = [
+    order.number,
+    order.order_number,
+    order.external_reference,
+    order.id,
+    customer.name,
+    customer.email,
+    customer.phone,
+  ];
+  return haystack
+    .filter((val) => val != null)
+    .map((val) => String(val).toLowerCase())
+    .some((val) => val.includes(lcNeedle));
+}
+
+async function list({ date, status, q, includeDeleted = false } = {}) {
+  const baseDate = parseLocalDate(date) || new Date();
+  const start = new Date(
+    baseDate.getFullYear(),
+    baseDate.getMonth(),
+    baseDate.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+  const end = new Date(start.getTime());
+  end.setDate(end.getDate() + 1);
+  const orders = await getAll();
+  return orders
+    .filter((order) => {
+      if (!includeDeleted && order.deleted_at) return false;
+      const orderDate = getOrderDate(order);
+      if (!orderDate) return false;
+      if (orderDate < start || orderDate >= end) return false;
+      if (!matchesStatus(order, status)) return false;
+      if (!matchesQuery(order, q)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const dateA = getOrderDate(a);
+      const dateB = getOrderDate(b);
+      return (dateB ? dateB.getTime() : 0) - (dateA ? dateA.getTime() : 0);
+    });
+}
+
+async function findById(id) {
+  if (!id) return null;
+  const orders = await getAll();
+  return (
+    orders.find((order) => String(order.id) === String(id)) ||
+    null
+  );
+}
+
+async function softDelete(id) {
+  if (!id) return false;
+  const pool = db.getPool();
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((order) => String(order.id) === String(id));
+    if (idx === -1) return false;
+    const deletedAt = new Date().toISOString();
+    orders[idx] = { ...orders[idx], deleted_at: deletedAt };
+    await saveAll(orders);
+    return true;
+  }
+  await pool.query('UPDATE orders SET deleted_at = now() WHERE id=$1', [id]);
+  return true;
 }
 
 function normalizeKey(value) {
@@ -434,10 +755,16 @@ module.exports = {
   saveAll,
   create,
   update,
+  list,
+  findById,
+  softDelete,
   createOrder,
   markInventoryApplied,
   clearInventoryApplied,
   upsertByPayment,
   findByPaymentIdentifiers,
   getNormalizedItems,
+  normalizeItems,
+  normalizeCustomer,
+  normalizeAddress,
 };

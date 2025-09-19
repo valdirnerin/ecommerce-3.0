@@ -84,10 +84,12 @@ describe('Orders API payment status localization', () => {
   test('GET /api/orders returns spanish payment_status and normalized code', async () => {
     const res = await request(server).get('/api/orders');
     expect(res.status).toBe(200);
-    expect(res.body.orders).toHaveLength(1);
-    const order = res.body.orders[0];
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.items).toHaveLength(1);
+    const order = res.body.items[0];
     expect(order.payment_status).toBe('pagado');
     expect(order.payment_status_code).toBe('approved');
+    expect(res.body.summary).toMatchObject({ total: 1, paid: 1 });
   });
 
   test('GET /api/orders/:id normalizes legacy "paid" values', async () => {
