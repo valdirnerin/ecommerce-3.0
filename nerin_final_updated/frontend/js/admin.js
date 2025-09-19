@@ -60,7 +60,7 @@ navButtons.forEach((btn) => {
     if (target === "productsSection") {
       loadProducts();
     } else if (target === "ordersSection") {
-      loadOrders();
+      OrdersUI.init();
     } else if (target === "clientsSection") {
       loadClients();
     } else if (target === "metricsSection") {
@@ -888,214 +888,577 @@ async function loadAnalytics() {
 }
 
 // ------------ Pedidos ------------
-const ordersTableBody = document.querySelector("#ordersTable tbody");
-const orderStatusFilter = document.getElementById("orderStatusFilter");
-if (orderStatusFilter) {
-  orderStatusFilter.addEventListener("change", () => {
-    loadOrders();
-  });
-}
+const OrdersUI = (() => {
+  const pageSize = 100;
+  const elements = {};
+  const state = {
+    date: formatInputDate(new Date()),
+    status: "all",
+    q: "",
+    includeDeleted: false,
+    page: 1,
+    selectedId: null,
+    detail: null,
+  };
+  let cache = { items: [], summary: null };
+  let initialized = false;
+  let searchTimer;
 
-async function loadOrders() {
-  try {
-    const res = await fetch("/api/orders");
-    const data = await res.json();
-    ordersTableBody.innerHTML = "";
-    const filter = document.getElementById("orderStatusFilter");
-    const statusFilter = filter ? filter.value : "todos";
-    data.orders
-      .filter((o) =>
-        statusFilter === "todos" ? true : o.payment_status === statusFilter,
-      )
-      .forEach(async (order) => {
-        const tr = document.createElement("tr");
-        // Resumen de items
-        const itemsText = (order.productos || order.items || [])
-          .map((it) => `${it.name} x${it.quantity}`)
-          .join(", ");
-        const cliente = order.cliente || {};
-        const direccion = cliente.direccion || {};
-        const dirText = direccion.calle
-          ? `${direccion.calle} ${direccion.numero || ""}, ${direccion.localidad || ""}, ${
-              direccion.provincia || ""
-            } ${direccion.cp || ""}`
-          : "";
-        // Crear celdas manualmente para añadir listeners
-        const idTd = document.createElement("td");
-        idTd.textContent = order.order_number;
-        const dateTd = document.createElement("td");
-        dateTd.textContent = new Date(order.created_at).toLocaleString("es-AR");
-        const nameTd = document.createElement("td");
-        nameTd.textContent = cliente.nombre || "";
-        const phoneTd = document.createElement("td");
-        phoneTd.textContent = cliente.telefono || "";
-        const addressTd = document.createElement("td");
-        addressTd.textContent = dirText;
-        const provTd = document.createElement("td");
-        provTd.textContent = order.provincia_envio || "";
-        const costoTd = document.createElement("td");
-        costoTd.textContent = `$${(order.costo_envio || 0).toLocaleString("es-AR")}`;
-        const itemsTd = document.createElement("td");
-        itemsTd.textContent = itemsText;
-        const totalTd = document.createElement("td");
-        totalTd.textContent = `$${order.total_amount.toLocaleString("es-AR")}`;
-        const statusTd = document.createElement("td");
-        const statusSelect = document.createElement("select");
-        ["pendiente", "en proceso", "pagado", "rechazado"].forEach((st) => {
-          const opt = document.createElement("option");
-          opt.value = st;
-          opt.textContent = st;
-          statusSelect.appendChild(opt);
-        });
-        statusSelect.value = order.payment_status;
-        statusTd.appendChild(statusSelect);
-        const trackingTd = document.createElement("td");
-        const trackingInput = document.createElement("input");
-        trackingInput.type = "text";
-        trackingInput.value = order.seguimiento || "";
-        trackingInput.placeholder = "Nº";
-        trackingTd.appendChild(trackingInput);
-        const carrierTd = document.createElement("td");
-        const carrierInput = document.createElement("input");
-        carrierInput.type = "text";
-        carrierInput.value = order.transportista || "";
-        carrierInput.placeholder = "Empresa";
-        carrierTd.appendChild(carrierInput);
-        const envioTd = document.createElement("td");
-        const envioSelect = document.createElement("select");
-        ["pendiente", "en preparación", "enviado", "entregado"].forEach(
-          (st) => {
-            const opt = document.createElement("option");
-            opt.value = st;
-            opt.textContent = st;
-            if (order.shipping_status === st) opt.selected = true;
-            envioSelect.appendChild(opt);
-          },
-        );
-        envioTd.appendChild(envioSelect);
-        const invoiceTd = document.createElement("td");
-        const invoiceStatus = document.createElement("span");
-        invoiceStatus.className = "invoice-status";
-        invoiceTd.appendChild(invoiceStatus);
-        const invoiceBtn = document.createElement("button");
-        invoiceBtn.className = "invoice-btn";
-        invoiceTd.appendChild(invoiceBtn);
-        const fileInput = document.createElement("input");
-        fileInput.type = "file";
-        fileInput.accept = ".pdf,.xml";
-        fileInput.style.display = "none";
-        invoiceTd.appendChild(fileInput);
-        const fileNameSpan = document.createElement("div");
-        fileNameSpan.className = "invoice-name";
-        invoiceTd.appendChild(fileNameSpan);
-        const actionTd = document.createElement("td");
-        const saveBtn = document.createElement("button");
-        saveBtn.className = "save-order-btn";
-        saveBtn.textContent = "Guardar";
-        actionTd.appendChild(saveBtn);
-        tr.appendChild(idTd);
-        tr.appendChild(dateTd);
-        tr.appendChild(nameTd);
-        tr.appendChild(phoneTd);
-        tr.appendChild(addressTd);
-        tr.appendChild(provTd);
-        tr.appendChild(costoTd);
-        tr.appendChild(itemsTd);
-        tr.appendChild(totalTd);
-        tr.appendChild(statusTd);
-        tr.appendChild(envioTd);
-        tr.appendChild(trackingTd);
-        tr.appendChild(carrierTd);
-        tr.appendChild(invoiceTd);
-        tr.appendChild(actionTd);
-        // Listener para guardar cambios de estado y envío
-        saveBtn.addEventListener("click", async () => {
-          const newPago = statusSelect.value;
-          const newEnvio = envioSelect.value;
-          const trackingVal = trackingInput.value.trim();
-          const carrierVal = carrierInput.value.trim();
-          const resp = await fetch(`/api/orders/${order.order_number}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              estado_pago: newPago,
-              payment_status: newPago,
-              estado_envio: newEnvio,
-              shipping_status: newEnvio,
-              seguimiento: trackingVal,
-              tracking_code: trackingVal,
-              transportista: carrierVal,
-              carrier: carrierVal,
-            }),
-          });
-          if (resp.ok) {
-            alert("Pedido actualizado");
-            loadOrders();
-          } else {
-            alert("Error al actualizar el pedido");
-          }
-        });
-        async function updateInvoiceUI() {
-          try {
-            const invRes = await fetch(
-              `/api/invoice-files/${order.order_number}`,
-            );
-            if (invRes.ok) {
-              const data = await invRes.json();
-              invoiceBtn.textContent = "Ver factura";
-              invoiceStatus.textContent = "Factura cargada";
-              invoiceStatus.className = "invoice-status loaded";
-              fileNameSpan.textContent = data.fileName;
-              invoiceBtn.onclick = () => {
-                window.open(data.url, "_blank");
-              };
-            } else {
-              invoiceBtn.textContent = "Cargar factura";
-              fileNameSpan.textContent = "";
-              const pending = order.payment_status === "pagado";
-              invoiceStatus.textContent = pending ? "Pendiente" : "No emitida";
-              invoiceStatus.className =
-                "invoice-status " + (pending ? "pending" : "none");
-              invoiceBtn.onclick = () => fileInput.click();
-            }
-          } catch (_) {
-            invoiceBtn.textContent = "Cargar factura";
-            invoiceStatus.textContent = "Pendiente";
-            invoiceStatus.className = "invoice-status pending";
-            invoiceBtn.onclick = () => fileInput.click();
-          }
-        }
-        fileInput.addEventListener("change", () => {
-          const file = fileInput.files[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = async () => {
-            const base64 = reader.result.split(",")[1];
-            const resp = await fetch(
-              `/api/invoice-files/${order.order_number}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileName: file.name, data: base64 }),
-              },
-            );
-            if (resp.ok) {
-              await updateInvoiceUI();
-            } else {
-              alert("Error al subir factura");
-            }
-          };
-          reader.readAsDataURL(file);
-        });
-        updateInvoiceUI();
-        ordersTableBody.appendChild(tr);
-      });
-  } catch (err) {
-    console.error(err);
-    ordersTableBody.innerHTML =
-      '<tr><td colspan="5">No se pudieron cargar los pedidos</td></tr>';
+  function formatInputDate(date) {
+    const d = date instanceof Date ? date : new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
   }
-}
+
+  function getIdentifier(order = {}) {
+    return (
+      order.id ||
+      order.order_number ||
+      order.number ||
+      order.external_reference ||
+      null
+    );
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function displayValue(value) {
+    if (value == null) return "—";
+    const str = String(value).trim();
+    return str ? escapeHtml(str) : "—";
+  }
+
+  function ensureElements() {
+    if (elements.tableBody) return true;
+    elements.banner = document.getElementById("ordersBanner");
+    elements.date = document.getElementById("ordersDate");
+    elements.todayBtn = document.getElementById("ordersTodayBtn");
+    elements.status = document.getElementById("ordersStatus");
+    elements.search = document.getElementById("ordersSearch");
+    elements.includeDeleted = document.getElementById("ordersIncludeDeleted");
+    elements.tableBody = document.querySelector("#ordersTable tbody");
+    elements.pagination = document.getElementById("ordersPagination");
+    elements.detail = document.getElementById("orderDetail");
+    return (
+      !!elements.banner &&
+      !!elements.date &&
+      !!elements.status &&
+      !!elements.tableBody &&
+      !!elements.pagination &&
+      !!elements.detail
+    );
+  }
+
+  function formatCurrency(value) {
+    const number = Number(value || 0);
+    return new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+      minimumFractionDigits: 2,
+    }).format(number);
+  }
+
+  function parseDateString(value) {
+    if (!value) return null;
+    if (typeof value === "string" && value.includes("-")) {
+      const [y, m, d] = value.split("-").map((part) => Number(part));
+      if ([y, m, d].some((part) => Number.isNaN(part))) return null;
+      return new Date(y, m - 1, d);
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatDateTime(value) {
+    const date = parseDateString(value);
+    if (!date) return "—";
+    return date.toLocaleString("es-AR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  }
+
+  function formatLongDate(value) {
+    const date = parseDateString(value);
+    if (!date) return "";
+    return new Intl.DateTimeFormat("es-AR", { dateStyle: "full" }).format(date);
+  }
+
+  function mapAddress(order = {}) {
+    const shipping = order.shipping_address || {};
+    const cliente = order.customer || order.cliente || {};
+    const direccion = cliente.direccion || {};
+    const street =
+      shipping.street ||
+      direccion.calle ||
+      cliente.calle ||
+      order.address ||
+      "";
+    const number = shipping.number || direccion.numero || cliente.numero || "";
+    const city = shipping.city || direccion.localidad || cliente.localidad || "";
+    const province =
+      shipping.province || direccion.provincia || cliente.provincia || "";
+    const zip = shipping.zip || direccion.cp || cliente.cp || "";
+    const parts = [];
+    const streetLine = [street, number].filter(Boolean).join(" ");
+    if (streetLine) parts.push(streetLine.trim());
+    const cityLine = [city, province].filter(Boolean).join(", ");
+    if (cityLine) parts.push(cityLine.trim());
+    if (zip) parts.push(`CP ${zip}`);
+    return {
+      summary: parts.join(" – "),
+      details: { street, number, city, province, zip },
+    };
+  }
+
+  function bindEvents() {
+    if (elements.date) {
+      elements.date.value = state.date;
+      elements.date.addEventListener("change", () => {
+        state.date = elements.date.value || formatInputDate(new Date());
+        state.page = 1;
+        refresh();
+      });
+    }
+    if (elements.todayBtn) {
+      elements.todayBtn.addEventListener("click", () => {
+        state.date = formatInputDate(new Date());
+        if (elements.date) elements.date.value = state.date;
+        state.page = 1;
+        refresh();
+      });
+    }
+    if (elements.status) {
+      elements.status.value = state.status;
+      elements.status.addEventListener("change", () => {
+        state.status = elements.status.value || "all";
+        state.page = 1;
+        refresh();
+      });
+    }
+    if (elements.includeDeleted) {
+      elements.includeDeleted.checked = state.includeDeleted;
+      elements.includeDeleted.addEventListener("change", () => {
+        state.includeDeleted = elements.includeDeleted.checked;
+        state.page = 1;
+        refresh();
+      });
+    }
+    if (elements.search) {
+      elements.search.value = state.q;
+      elements.search.addEventListener("input", () => {
+        const value = elements.search.value.trim();
+        window.clearTimeout(searchTimer);
+        searchTimer = window.setTimeout(() => {
+          state.q = value;
+          state.page = 1;
+          refresh();
+        }, 250);
+      });
+    }
+  }
+
+  function syncSelection() {
+    if (!state.selectedId) return;
+    const exists = cache.items.some(
+      (order) => getIdentifier(order) === state.selectedId,
+    );
+    if (!exists) {
+      state.selectedId = null;
+      state.detail = null;
+    }
+  }
+
+  function renderBanner() {
+    if (!elements.banner) return;
+    if (!cache.summary) {
+      elements.banner.textContent = "";
+      return;
+    }
+    const summaryDate = cache.summary.date || state.date;
+    const longDate = formatLongDate(summaryDate) || summaryDate;
+    const total = cache.summary.total ?? cache.items.length;
+    const paid = cache.summary.paid ?? 0;
+    const pending = cache.summary.pending ?? 0;
+    elements.banner.textContent = `¡Buen día! Hoy es ${longDate}. Pedidos: ${total} • Pagados: ${paid} • Pendientes: ${pending}`;
+  }
+
+  function renderPagination() {
+    if (!elements.pagination) return;
+    const total = cache.items.length;
+    if (total <= pageSize) {
+      elements.pagination.innerHTML = "";
+      return;
+    }
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    if (state.page > pageCount) state.page = pageCount;
+    const fragment = document.createDocumentFragment();
+    const prevBtn = document.createElement("button");
+    prevBtn.textContent = "Anterior";
+    prevBtn.disabled = state.page <= 1;
+    prevBtn.addEventListener("click", () => {
+      if (state.page > 1) {
+        state.page -= 1;
+        renderTable();
+        renderPagination();
+      }
+    });
+    const nextBtn = document.createElement("button");
+    nextBtn.textContent = "Siguiente";
+    nextBtn.disabled = state.page >= pageCount;
+    nextBtn.addEventListener("click", () => {
+      if (state.page < pageCount) {
+        state.page += 1;
+        renderTable();
+        renderPagination();
+      }
+    });
+    const info = document.createElement("span");
+    info.textContent = `Página ${state.page} de ${pageCount} (${total} pedidos)`;
+    fragment.appendChild(prevBtn);
+    fragment.appendChild(info);
+    fragment.appendChild(nextBtn);
+    elements.pagination.innerHTML = "";
+    elements.pagination.appendChild(fragment);
+  }
+
+  function renderTable() {
+    if (!elements.tableBody) return;
+    elements.tableBody.innerHTML = "";
+    const total = cache.items.length;
+    if (total === 0) {
+      elements.tableBody.innerHTML =
+        '<tr><td colspan="9">No hay pedidos para la fecha seleccionada.</td></tr>';
+      return;
+    }
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    if (state.page > pageCount) state.page = pageCount;
+    const start = (state.page - 1) * pageSize;
+    const pageItems = cache.items.slice(start, start + pageSize);
+    pageItems.forEach((order) => {
+      const tr = document.createElement("tr");
+      const identifier = getIdentifier(order);
+      if (identifier && identifier === state.selectedId) {
+        tr.classList.add("is-selected");
+      }
+      if (order.deleted_at) {
+        tr.classList.add("order-row--deleted");
+      }
+      const numberTd = document.createElement("td");
+      numberTd.textContent = identifier || "—";
+      if (order.deleted_at) {
+        const badge = document.createElement("span");
+        badge.className = "order-badge";
+        badge.textContent = "Eliminado";
+        numberTd.appendChild(badge);
+      }
+      const dateTd = document.createElement("td");
+      dateTd.textContent = formatDateTime(order.created_at);
+      const customer = order.customer || order.cliente || {};
+      const nameTd = document.createElement("td");
+      nameTd.textContent = customer.name || customer.nombre || "—";
+      const phoneTd = document.createElement("td");
+      phoneTd.textContent = customer.phone || customer.telefono || "—";
+      const addressTd = document.createElement("td");
+      const addressInfo = mapAddress(order);
+      addressTd.textContent = addressInfo.summary || "—";
+      const itemsTd = document.createElement("td");
+      const summary = order.items_summary || order.items_count || "";
+      itemsTd.textContent =
+        typeof summary === "number" ? `${summary} ítems` : summary || "—";
+      const totalTd = document.createElement("td");
+      const totals = order.totals || {};
+      const grandTotal =
+        totals.grand_total ||
+        totals.total ||
+        order.total ||
+        order.total_amount ||
+        0;
+      totalTd.textContent = formatCurrency(grandTotal);
+      const paymentTd = document.createElement("td");
+      paymentTd.textContent = order.payment_status || "—";
+      const actionsTd = document.createElement("td");
+      actionsTd.className = "order-actions";
+
+      const viewBtn = document.createElement("button");
+      viewBtn.textContent = "Ver";
+      viewBtn.addEventListener("click", () => {
+        selectOrder(order);
+      });
+      actionsTd.appendChild(viewBtn);
+
+      if (!order.deleted_at) {
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "button danger";
+        deleteBtn.textContent = "Borrar";
+        deleteBtn.addEventListener("click", () => {
+          handleDelete(order);
+        });
+        actionsTd.appendChild(deleteBtn);
+      } else {
+        const restoreBtn = document.createElement("button");
+        restoreBtn.className = "button secondary";
+        restoreBtn.textContent = "Restaurar";
+        restoreBtn.addEventListener("click", () => {
+          handleRestore(order);
+        });
+        actionsTd.appendChild(restoreBtn);
+      }
+
+      tr.appendChild(numberTd);
+      tr.appendChild(dateTd);
+      tr.appendChild(nameTd);
+      tr.appendChild(phoneTd);
+      tr.appendChild(addressTd);
+      tr.appendChild(itemsTd);
+      tr.appendChild(totalTd);
+      tr.appendChild(paymentTd);
+      tr.appendChild(actionsTd);
+      elements.tableBody.appendChild(tr);
+    });
+  }
+
+  function renderDetail() {
+    if (!elements.detail) return;
+    if (!state.selectedId) {
+      elements.detail.innerHTML =
+        "<p>Seleccioná un pedido para ver el detalle.</p>";
+      return;
+    }
+    const detail = state.detail;
+    if (!detail || getIdentifier(detail) !== state.selectedId) {
+      elements.detail.innerHTML = "<p>Cargando detalle…</p>";
+      return;
+    }
+    const customer = detail.customer || detail.cliente || {};
+    const addressInfo = mapAddress(detail);
+    const shipping = addressInfo.details;
+    const status = detail.payment_status || detail.estado_pago || "";
+    const shippingStatus = detail.shipping_status || detail.estado_envio || "";
+    const created = formatDateTime(detail.created_at || detail.fecha);
+    const totals = detail.totals || {};
+    const grandTotal =
+      totals.grand_total ||
+      totals.total ||
+      detail.total ||
+      detail.total_amount ||
+      0;
+    const items = Array.isArray(detail.items) ? detail.items : [];
+    const itemsHtml = items
+      .map((item) => {
+        const qty = item.quantity || item.qty || 0;
+        const price = item.price || item.unit_price || 0;
+        const label =
+          item.name ||
+          item.title ||
+          item.descripcion ||
+          item.product_id ||
+          item.sku ||
+          "Producto";
+        const lineTotal = formatCurrency(Number(price) * Number(qty || 0));
+        return `<li>${escapeHtml(label)} ×${escapeHtml(
+          String(qty),
+        )} – ${escapeHtml(lineTotal)}</li>`;
+      })
+      .join("");
+    const deletedBadge = detail.deleted_at
+      ? '<span class="order-badge">Eliminado</span>'
+      : "";
+    elements.detail.innerHTML = `
+      <h4>Pedido ${displayValue(detail.order_number || detail.id || "")} ${deletedBadge}</h4>
+      <div class="detail-grid">
+        <dl>
+          <dt>Cliente</dt>
+          <dd>${displayValue(customer.name || customer.nombre)}</dd>
+        </dl>
+        <dl>
+          <dt>Email</dt>
+          <dd>${displayValue(customer.email)}</dd>
+        </dl>
+        <dl>
+          <dt>Teléfono</dt>
+          <dd>${displayValue(customer.phone || customer.telefono)}</dd>
+        </dl>
+        <dl>
+          <dt>Dirección de envío</dt>
+          <dd>${displayValue(addressInfo.summary)}</dd>
+        </dl>
+        <dl>
+          <dt>Código postal</dt>
+          <dd>${displayValue(shipping.zip)}</dd>
+        </dl>
+        <dl>
+          <dt>Pago</dt>
+          <dd>${displayValue(status)}</dd>
+        </dl>
+        <dl>
+          <dt>Envío</dt>
+          <dd>${displayValue(shippingStatus)}</dd>
+        </dl>
+        <dl>
+          <dt>Creado</dt>
+          <dd>${displayValue(created)}</dd>
+        </dl>
+        <dl>
+          <dt>Total</dt>
+          <dd>${escapeHtml(formatCurrency(grandTotal))}</dd>
+        </dl>
+      </div>
+      <div class="order-items">
+        <h5>Ítems</h5>
+        <ul class="order-items-list">${
+          itemsHtml || "<li>No se registraron ítems.</li>"
+        }</ul>
+      </div>
+    `;
+  }
+
+  async function loadDetail(identifier) {
+    if (!identifier) return;
+    try {
+      const res = await fetch(
+        `/api/orders/${encodeURIComponent(String(identifier))}`,
+      );
+      if (!res.ok) throw new Error("No se pudo obtener el detalle");
+      const data = await res.json();
+      if (data && data.order) {
+        state.detail = data.order;
+      } else {
+        state.detail = null;
+      }
+    } catch (err) {
+      console.error(err);
+      state.detail = null;
+      elements.detail.innerHTML =
+        "<p>No se pudo cargar el detalle del pedido.</p>";
+      return;
+    }
+    renderDetail();
+  }
+
+  function selectOrder(order) {
+    const identifier = getIdentifier(order);
+    if (!identifier) return;
+    state.selectedId = identifier;
+    state.detail = null;
+    renderTable();
+    renderDetail();
+    loadDetail(identifier);
+  }
+
+  async function handleDelete(order) {
+    const identifier = getIdentifier(order);
+    if (!identifier) return;
+    const confirmed = window.confirm(
+      "¿Seguro que querés eliminar este pedido? Podrás restaurarlo luego.",
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(
+        `/api/orders/${encodeURIComponent(String(identifier))}`,
+        { method: "DELETE" },
+      );
+      if (res.ok || res.status === 204) {
+        await refresh();
+      } else {
+        alert("No se pudo eliminar el pedido.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar el pedido.");
+    }
+  }
+
+  async function handleRestore(order) {
+    const identifier = getIdentifier(order);
+    if (!identifier) return;
+    try {
+      const res = await fetch(
+        `/api/orders/${encodeURIComponent(String(identifier))}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deleted_at: null }),
+        },
+      );
+      if (res.ok) {
+        await refresh();
+      } else {
+        alert("No se pudo restaurar el pedido.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error al restaurar el pedido.");
+    }
+  }
+
+  async function refresh() {
+    if (!ensureElements()) return;
+    if (!initialized) {
+      bindEvents();
+      initialized = true;
+    }
+    if (elements.banner) {
+      elements.banner.textContent = "Cargando pedidos…";
+    }
+    if (elements.tableBody) {
+      elements.tableBody.innerHTML =
+        '<tr><td colspan="9">Cargando pedidos…</td></tr>';
+    }
+    try {
+      const params = new URLSearchParams();
+      if (state.date) params.set("date", state.date);
+      if (state.status && state.status !== "all") {
+        params.set("status", state.status);
+      }
+      if (state.q) params.set("q", state.q);
+      if (state.includeDeleted) params.set("includeDeleted", "1");
+      const res = await fetch(`/api/orders?${params.toString()}`);
+      if (!res.ok) throw new Error("No se pudieron cargar los pedidos");
+      const data = await res.json();
+      cache = {
+        items: Array.isArray(data.items) ? data.items : [],
+        summary: data.summary || null,
+      };
+      syncSelection();
+      renderBanner();
+      renderTable();
+      renderPagination();
+      renderDetail();
+    } catch (err) {
+      console.error(err);
+      cache = { items: [], summary: null };
+      if (elements.tableBody) {
+        elements.tableBody.innerHTML =
+          '<tr><td colspan="9">No se pudieron cargar los pedidos.</td></tr>';
+      }
+      if (elements.pagination) elements.pagination.innerHTML = "";
+      renderBanner();
+      renderDetail();
+    }
+  }
+
+  return {
+    init: () => {
+      if (!ensureElements()) return;
+      if (!initialized) {
+        bindEvents();
+        initialized = true;
+      }
+      refresh();
+    },
+    refresh,
+  };
+})();
 
 // ------------ Clientes ------------
 const clientsTableBody = document.querySelector("#clientsTable tbody");

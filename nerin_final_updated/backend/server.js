@@ -1627,6 +1627,19 @@ async function requestHandler(req, res) {
           0,
         );
         const totals = computeTotalsSnapshot(order);
+        const itemsSummary = normalizedItems
+          .map((it) => {
+            const name =
+              it.name ||
+              it.title ||
+              it.descripcion ||
+              it.product_id ||
+              it.sku ||
+              "item";
+            const qty = it.qty || it.quantity || 0;
+            return `${name} x${qty}`;
+          })
+          .join(", ");
         const paymentCode = mapPaymentStatusCode(
           normalized.payment_status_code ||
             normalized.payment_status ||
@@ -1671,6 +1684,7 @@ async function requestHandler(req, res) {
             ...totals,
             grand_total: totals.grand_total,
           },
+          items_summary: itemsSummary,
           payment_status: paymentStatus,
           payment_status_code: paymentCode,
           status: statusValue,
@@ -1749,7 +1763,28 @@ async function requestHandler(req, res) {
           o.id === id || o.order_number === id || o.external_reference === id,
       );
       if (!order) return sendJson(res, 404, { error: "Pedido no encontrado" });
-      return sendJson(res, 200, { order: normalizeOrder(order) });
+      const normalized = normalizeOrder(order);
+      const customer =
+        ordersRepo.normalizeCustomer(order) ||
+        normalized.customer ||
+        normalized.cliente ||
+        order.customer ||
+        order.cliente ||
+        null;
+      const shippingAddress =
+        ordersRepo.normalizeAddress(order) ||
+        normalized.shipping_address ||
+        order.shipping_address ||
+        null;
+      const items = ordersRepo.getNormalizedItems(order);
+      return sendJson(res, 200, {
+        order: {
+          ...normalized,
+          customer,
+          shipping_address: shippingAddress,
+          items,
+        },
+      });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al obtener pedido" });
@@ -1868,7 +1903,7 @@ async function requestHandler(req, res) {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const update = JSON.parse(body || "{}");
         const orders = getOrders();
@@ -1880,6 +1915,27 @@ async function requestHandler(req, res) {
         );
         if (index === -1) {
           return sendJson(res, 404, { error: "Pedido no encontrado" });
+        }
+        if (
+          Object.prototype.hasOwnProperty.call(update, "deleted_at") &&
+          update.deleted_at === null
+        ) {
+          try {
+            const identifier =
+              orders[index].id || orders[index].order_number || id;
+            await ordersRepo.restore(identifier);
+            orders[index] = { ...orders[index], deleted_at: null };
+            saveOrders(orders);
+            return sendJson(res, 200, {
+              success: true,
+              order: orders[index],
+            });
+          } catch (restoreErr) {
+            console.error(restoreErr);
+            return sendJson(res, 500, {
+              error: "No se pudo restaurar el pedido",
+            });
+          }
         }
         const prev = { ...orders[index] };
         const incomingStatus =
