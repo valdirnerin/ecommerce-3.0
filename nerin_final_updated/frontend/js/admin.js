@@ -912,6 +912,15 @@ const OrdersUI = (() => {
     return `${year}-${month}-${day}`;
   }
 
+  function toYmd(value) {
+    if (typeof value !== "string") return value;
+    const match = /^([0-9]{2})\/([0-9]{2})\/([0-9]{4})$/.exec(value.trim());
+    if (match) {
+      return `${match[3]}-${match[2]}-${match[1]}`;
+    }
+    return value;
+  }
+
   function getIdentifier(order = {}) {
     return (
       order.id ||
@@ -1415,19 +1424,49 @@ const OrdersUI = (() => {
         '<tr><td colspan="9">Cargando pedidos…</td></tr>';
     }
     try {
-      const params = new URLSearchParams();
-      if (state.date) params.set("date", state.date);
-      if (state.status && state.status !== "all") {
-        params.set("status", state.status);
+      const dateParam = state.date ? toYmd(state.date) : "";
+      const status = state.status || "all";
+      const q = state.q || "";
+      const includeDeleted = state.includeDeleted;
+      const url = `/api/orders?date=${dateParam}&status=${status}&q=${encodeURIComponent(
+        q,
+      )}${includeDeleted ? "&includeDeleted=1" : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        let body;
+        try {
+          body = await res.json();
+        } catch (jsonErr) {
+          try {
+            body = await res.text();
+          } catch (textErr) {
+            body = jsonErr?.message || "";
+          }
+        }
+        const error = new Error("orders-load-failed");
+        error.status = res.status;
+        error.body = body;
+        error.url = url;
+        throw error;
       }
-      if (state.q) params.set("q", state.q);
-      if (state.includeDeleted) params.set("includeDeleted", "1");
-      const res = await fetch(`/api/orders?${params.toString()}`);
-      if (!res.ok) throw new Error("No se pudieron cargar los pedidos");
       const data = await res.json();
+      const rows = data.orders || data.items || [];
+      const total =
+        typeof data.total === "number"
+          ? data.total
+          : data.summary?.total ?? rows.length;
+      const summarySource =
+        data.summary && typeof data.summary === "object" ? data.summary : {};
+      const summary = {
+        ...summarySource,
+        total,
+      };
+      if (!summary.date) {
+        summary.date = dateParam || state.date;
+      }
       cache = {
-        items: Array.isArray(data.items) ? data.items : [],
-        summary: data.summary || null,
+        items: Array.isArray(rows) ? rows : [],
+        summary,
       };
       syncSelection();
       renderBanner();
@@ -1435,7 +1474,13 @@ const OrdersUI = (() => {
       renderPagination();
       renderDetail();
     } catch (err) {
-      console.error(err);
+      const status = typeof err?.status === "number" ? err.status : "NETWORK";
+      const body = err?.body ?? err?.message ?? String(err ?? "");
+      const url = err?.url ||
+        `/api/orders?date=${state.date || ""}&status=${state.status || ""}&q=${encodeURIComponent(
+          state.q || "",
+        )}${state.includeDeleted ? "&includeDeleted=1" : ""}`;
+      console.error("orders-load-failed", { url, status, body });
       cache = { items: [], summary: null };
       if (elements.tableBody) {
         elements.tableBody.innerHTML =

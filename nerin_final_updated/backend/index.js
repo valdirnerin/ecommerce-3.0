@@ -248,9 +248,41 @@ app.post("/api/orders", async (req, res) => {
   }
 });
 
+function normalizeQueryDate(value) {
+  if (!value) return null;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  const match = /^([0-9]{2})\/([0-9]{2})\/([0-9]{4})$/.exec(trimmed);
+  if (match) {
+    return `${match[3]}-${match[2]}-${match[1]}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function todayYmd() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 app.get("/api/orders", async (req, res) => {
   try {
-    const status = (req.query.payment_status || "all").toLowerCase();
+    const statusParam =
+      req.query.status ?? req.query.payment_status ?? "all";
+    const status = String(statusParam).toLowerCase();
+    const normalizedDate = normalizeQueryDate(req.query.date);
+    const summaryDate = normalizedDate || todayYmd();
     let orders = await getOrders();
 
     // Si se pasa un email como query, filtrar y devolver pedidos completos para ese usuario
@@ -261,7 +293,13 @@ app.get("/api/orders", async (req, res) => {
           (o.customer_email || o.user_email || o.cliente?.email || o.cliente?.correo || "").toLowerCase();
         return uEmail === email;
       });
-      return res.json({ orders });
+      const totalEmail = orders.length;
+      return res.json({
+        orders,
+        total: totalEmail,
+        items: orders,
+        summary: { date: summaryDate, total: totalEmail },
+      });
     }
 
     // Filtro por estado de pago para uso administrativo
@@ -281,7 +319,32 @@ app.get("/api/orders", async (req, res) => {
       payment_status: o.payment_status || o.estado_pago || "pending",
       total: o.total || o.total_amount || 0,
     }));
-    res.json({ orders: rows });
+    const total = rows.length;
+    let paid = 0;
+    let pending = 0;
+    orders.forEach((order) => {
+      const rawStatus = String(
+        order.payment_status || order.estado_pago || "",
+      ).toLowerCase();
+      if (["approved", "aprobado", "pagado", "paid"].includes(rawStatus)) {
+        paid += 1;
+      } else if (
+        [
+          "pending",
+          "pendiente",
+          "pendiente_pago",
+          "pendiente_pago_local",
+          "pendiente_transferencia",
+          "in_process",
+        ].includes(rawStatus)
+      ) {
+        pending += 1;
+      }
+    });
+    const summary = { date: summaryDate, total };
+    if (paid) summary.paid = paid;
+    if (pending) summary.pending = pending;
+    res.json({ orders: rows, total, items: rows, summary });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "No se pudieron obtener los pedidos" });
