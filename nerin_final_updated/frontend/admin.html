@@ -12,6 +12,123 @@
       href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
     />
       <link rel="stylesheet" href="style.css?v=mobfix-1" />
+    <style>
+      .orders-banner {
+        background: var(--color-surface, #f6f6f6);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        font-weight: 500;
+      }
+      .orders-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-end;
+        margin-bottom: 1rem;
+      }
+      .orders-filters .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        min-width: 180px;
+      }
+      .orders-filters label {
+        font-weight: 600;
+      }
+      .filter-inline {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      .filter-inline input[type="date"] {
+        flex: 1 1 auto;
+      }
+      .filter-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+      }
+      .orders-pagination {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+      }
+      .orders-pagination button {
+        padding: 0.35rem 0.75rem;
+      }
+      .order-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .order-actions button,
+      .order-actions .button {
+        padding: 0.35rem 0.75rem;
+      }
+      .order-detail {
+        margin-top: 1.5rem;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        padding: 1.25rem;
+        background: var(--color-surface, #fff);
+      }
+      .order-detail h4 {
+        margin-top: 0;
+        margin-bottom: 0.75rem;
+      }
+      .order-detail .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 0.75rem 1.25rem;
+      }
+      #ordersTable tr.is-selected {
+        outline: 2px solid var(--color-primary, #2563eb);
+        outline-offset: -2px;
+      }
+      .order-detail dl {
+        margin: 0;
+      }
+      .order-detail dt {
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+      }
+      .order-detail dd {
+        margin: 0;
+        color: var(--color-text-muted, #555);
+      }
+      .order-items-list {
+        margin-top: 1rem;
+        padding-left: 1.25rem;
+      }
+      .order-row--deleted {
+        opacity: 0.55;
+      }
+      .order-badge {
+        display: inline-block;
+        margin-left: 0.5rem;
+        padding: 0.15rem 0.4rem;
+        border-radius: 999px;
+        background: #fee2e2;
+        color: #b91c1c;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+      @media (max-width: 768px) {
+        .orders-filters {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        .orders-pagination {
+          justify-content: center;
+        }
+      }
+    </style>
   </head>
   <body>
     <header>
@@ -267,38 +384,58 @@
       </div>
 
       <section id="ordersSection" class="admin-section" style="display: none">
-        <h3>Gestión de pedidos</h3>
-        <label for="orderStatusFilter">Filtrar por pago:</label>
-        <select id="orderStatusFilter">
-          <option value="todos">Todos</option>
-          <option value="pagado">Pagado</option>
-          <option value="pendiente">Pendiente</option>
-          <option value="rechazado">Rechazado</option>
-        </select>
+        <div id="ordersBanner" class="orders-banner"></div>
+        <div id="ordersFilters" class="orders-filters">
+          <div class="filter-group">
+            <label for="ordersDate">Fecha</label>
+            <div class="filter-inline">
+              <input type="date" id="ordersDate" />
+              <button type="button" id="ordersTodayBtn" class="button secondary">
+                Solo hoy
+              </button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <label for="ordersStatus">Estado</label>
+            <select id="ordersStatus">
+              <option value="all">Todos</option>
+              <option value="pagado">Pagado</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="rechazado">Rechazado</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="ordersSearch">Buscar</label>
+            <input
+              type="search"
+              id="ordersSearch"
+              placeholder="Cliente, teléfono o número"
+            />
+          </div>
+          <label class="filter-toggle">
+            <input type="checkbox" id="ordersIncludeDeleted" /> Mostrar eliminados
+          </label>
+        </div>
         <div class="table-wrapper">
           <table class="admin-table" id="ordersTable">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Fecha</th>
+                <th>Nº</th>
+                <th>Fecha / Hora</th>
                 <th>Cliente</th>
                 <th>Teléfono</th>
                 <th>Dirección</th>
-                <th>Provincia de envío</th>
-                <th>Costo de envío</th>
-                <th>Productos</th>
+                <th>Ítems</th>
                 <th>Total</th>
                 <th>Pago</th>
-                <th>Envío</th>
-                <th>Seguimiento</th>
-                <th>Transportista</th>
-                <th>Factura</th>
-                <th>Acción</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
+          <div id="ordersPagination" class="orders-pagination"></div>
         </div>
+        <div id="orderDetail" class="order-detail"></div>
       </section>
       <section id="clientsSection" class="admin-section" style="display: none">
         <h3>Clientes</h3>

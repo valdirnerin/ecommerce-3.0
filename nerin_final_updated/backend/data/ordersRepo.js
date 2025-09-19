@@ -476,14 +476,45 @@ async function softDelete(id) {
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
-    const idx = orders.findIndex((order) => String(order.id) === String(id));
+    const idx = orders.findIndex(
+      (order) =>
+        String(order.id) === String(id) ||
+        String(order.order_number) === String(id) ||
+        String(order.external_reference) === String(id),
+    );
     if (idx === -1) return false;
     const deletedAt = new Date().toISOString();
     orders[idx] = { ...orders[idx], deleted_at: deletedAt };
     await saveAll(orders);
     return true;
   }
-  await pool.query('UPDATE orders SET deleted_at = now() WHERE id=$1', [id]);
+  await pool.query(
+    'UPDATE orders SET deleted_at = now() WHERE id=$1 OR order_number=$1 OR external_reference=$1',
+    [id],
+  );
+  return true;
+}
+
+async function restore(id) {
+  if (!id) return false;
+  const pool = db.getPool();
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex(
+      (order) =>
+        String(order.id) === String(id) ||
+        String(order.order_number) === String(id) ||
+        String(order.external_reference) === String(id),
+    );
+    if (idx === -1) return false;
+    orders[idx] = { ...orders[idx], deleted_at: null };
+    await saveAll(orders);
+    return true;
+  }
+  await pool.query(
+    'UPDATE orders SET deleted_at = null WHERE id=$1 OR order_number=$1 OR external_reference=$1',
+    [id],
+  );
   return true;
 }
 
@@ -758,6 +789,7 @@ module.exports = {
   list,
   findById,
   softDelete,
+  restore,
   createOrder,
   markInventoryApplied,
   clearInventoryApplied,
