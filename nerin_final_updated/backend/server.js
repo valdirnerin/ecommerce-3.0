@@ -19,6 +19,7 @@ const {
   mapPaymentStatusCode,
   localizePaymentStatus,
 } = require("./utils/paymentStatus");
+const ordersRepo = require("./data/ordersRepo");
 
 // ENV > utils/dataDir > fallback local
 const DATA_DIR = process.env.DATA_DIR || dataDir || path.join(__dirname, 'data');
@@ -581,6 +582,72 @@ function normalizeOrder(o) {
     carrier,
     productos: items,
     cliente,
+  };
+}
+
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function firstFiniteNumber(values, fallback = 0) {
+  for (const value of values) {
+    if (value == null) continue;
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+  return fallback;
+}
+
+function computeTotalsSnapshot(order = {}) {
+  const totals =
+    order && typeof order.totals === "object" && order.totals
+      ? { ...order.totals }
+      : {};
+  const normalizedItems = ordersRepo.getNormalizedItems(order);
+  const itemsTotal = firstFiniteNumber(
+    [
+      totals.items_total,
+      totals.subtotal,
+      order.items_total,
+      order.subtotal,
+    ],
+    normalizedItems.reduce(
+      (acc, it) =>
+        acc + Number(it.total || Number(it.price || 0) * Number(it.qty || 0)),
+      0,
+    ),
+  );
+  const shippingTotal = firstFiniteNumber(
+    [
+      totals.shipping_total,
+      totals.shipping,
+      order.shipping_total,
+      order.shipping_cost,
+      order.costo_envio,
+      order.envio?.costo,
+      order.customer?.costo,
+      order.customer?.costo_envio,
+    ],
+    0,
+  );
+  const grandTotal = firstFiniteNumber(
+    [
+      totals.grand_total,
+      totals.total,
+      order.total,
+      order.total_amount,
+      itemsTotal + shippingTotal,
+    ],
+    itemsTotal + shippingTotal,
+  );
+  return {
+    ...totals,
+    items_total: itemsTotal,
+    shipping_total: shippingTotal,
+    grand_total: grandTotal,
   };
 }
 
@@ -1512,47 +1579,106 @@ async function requestHandler(req, res) {
   // número total de filas antes de paginar.
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
-      const statusParam = (parsedUrl.query.payment_status || "all").toLowerCase();
-      const q = String(parsedUrl.query.q || "").trim().toLowerCase();
-      const limit = Math.max(1, parseInt(parsedUrl.query.limit || "100", 10) || 100);
-      const offset = Math.max(0, parseInt(parsedUrl.query.offset || "0", 10) || 0);
+      const query = parsedUrl.query || {};
+      const includeDeleted =
+        query.includeDeleted === "1" || String(query.includeDeleted).toLowerCase() === "true";
+      const q = typeof query.q === "string" ? query.q : "";
+      const statusParam =
+        typeof query.status === "string"
+          ? query.status
+          : typeof query.payment_status === "string"
+          ? query.payment_status
+          : "";
+      const dateParam =
+        typeof query.date === "string" && query.date.trim()
+          ? query.date.trim()
+          : null;
+      const filterDate = dateParam || formatLocalDate(new Date());
 
-      // Cargar y normalizar pedidos
-      let orders = getOrders();
-      // Filtrar por estado de pago
-      const statusFilter =
-        statusParam === "all" ? null : mapPaymentStatusCode(statusParam);
-      const isRecognized =
-        statusParam !== "all" &&
-        (STATUS_ES_TO_CODE[statusParam] ||
-          statusParam === "approved" ||
-          statusParam === "pending" ||
-          statusParam === "rejected");
-      if (isRecognized && ["pending", "approved", "rejected"].includes(statusFilter)) {
-        orders = orders.filter(
-          (o) =>
-            mapPaymentStatusCode(
-              o.payment_status || o.estado_pago || o.payment_status_code,
-            ) === statusFilter,
+      const orders = await ordersRepo.list({
+        date: filterDate,
+        status: statusParam,
+        q,
+        includeDeleted,
+      });
+
+      const summary = {
+        date: filterDate,
+        total: orders.length,
+        paid: 0,
+        pending: 0,
+        canceled: 0,
+      };
+
+      const items = orders.map((order) => {
+        const normalized = normalizeOrder(order);
+        const customer =
+          ordersRepo.normalizeCustomer(order) ||
+          normalized.customer ||
+          order.customer ||
+          null;
+        const shippingAddress =
+          ordersRepo.normalizeAddress(order) ||
+          order.shipping_address ||
+          null;
+        const normalizedItems = ordersRepo.getNormalizedItems(order);
+        const units = normalizedItems.reduce(
+          (acc, it) => acc + Number(it.qty || it.quantity || 0),
+          0,
         );
-      }
-      // Convertir a objetos normalizados
-      let rows = orders.map((o) => normalizeOrder(o));
-      // Filtrar por texto libre si existe
-      if (q) {
-        const needle = q.toLowerCase();
-        rows = rows.filter((row) => {
-          try {
-            return JSON.stringify(row).toLowerCase().includes(needle);
-          } catch {
-            return false;
-          }
-        });
-      }
-      const total = rows.length;
-      // Aplicar paginación
-      const sliced = rows.slice(offset, offset + limit);
-      return sendJson(res, 200, { orders: sliced, total });
+        const totals = computeTotalsSnapshot(order);
+        const paymentCode = mapPaymentStatusCode(
+          normalized.payment_status_code ||
+            normalized.payment_status ||
+            order.payment_status ||
+            order.estado_pago ||
+            order.status,
+        );
+        if (paymentCode === "approved") summary.paid += 1;
+        else if (paymentCode === "rejected") summary.canceled += 1;
+        else summary.pending += 1;
+        const paymentStatus = localizePaymentStatus(
+          normalized.payment_status ||
+            order.payment_status ||
+            order.estado_pago ||
+            paymentCode,
+        );
+        const statusValue =
+          order.status ||
+          normalized.status ||
+          normalized.shipping_status ||
+          order.shipping_status ||
+          order.estado_envio ||
+          paymentStatus;
+        return {
+          id: normalized.id || order.id,
+          number:
+            normalized.order_number ||
+            order.order_number ||
+            order.id ||
+            order.external_reference ||
+            "",
+          created_at:
+            normalized.created_at ||
+            order.created_at ||
+            order.fecha ||
+            order.date ||
+            null,
+          customer: customer || null,
+          shipping_address: shippingAddress || null,
+          items_count: units > 0 ? units : normalizedItems.length,
+          totals: {
+            ...totals,
+            grand_total: totals.grand_total,
+          },
+          payment_status: paymentStatus,
+          payment_status_code: paymentCode,
+          status: statusValue,
+          deleted_at: order.deleted_at || null,
+        };
+      });
+
+      return sendJson(res, 200, { summary, items });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, {
@@ -1574,6 +1700,28 @@ async function requestHandler(req, res) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al obtener estado" });
     }
+  }
+
+  if (pathname.startsWith("/api/orders/") && req.method === "DELETE") {
+    const parts = pathname.split("/").filter(Boolean);
+    const orderId = parts[2];
+    if (!orderId) {
+      return sendJson(res, 404, { error: "Pedido no encontrado" });
+    }
+    try {
+      await ordersRepo.softDelete(orderId);
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": ORIGIN,
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers":
+          "Accept, Content-Type, Authorization, X-Requested-With",
+      });
+      res.end();
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "No se pudo eliminar el pedido" });
+    }
+    return;
   }
 
   // API: obtener estado de una orden
