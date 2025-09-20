@@ -16,21 +16,46 @@ let lastEtag = null;
 const PAYMENT_CANCEL_CODES = new Set(['rejected', 'charged_back', 'refunded']);
 const POLL_INTERVAL_MS = 15000;
 
-const STEP_LABELS = [
-  'Pedido recibido',
-  'Pago acreditado',
-  'Preparando el pedido',
-  'Enviado',
-  'Entregado',
+const ORDER_STEPS = [
+  {
+    label: 'Pedido recibido',
+    icon:
+      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M9 3.5h6"/><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5V6h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1V4.5A1.5 1.5 0 0 1 9.5 3z"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>',
+  },
+  {
+    label: 'Pago acreditado',
+    icon:
+      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="7.5"/><path d="M9.5 12.5l2.1 2.3 4.4-5.3"/></svg>',
+  },
+  {
+    label: 'Preparando el pedido',
+    icon:
+      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M6 8.5 12 5l6 3.5v7l-6 3.5-6-3.5z"/><path d="M12 5v14"/><path d="M6 8.5l6 3.5 6-3.5"/></svg>',
+  },
+  {
+    label: 'Enviado',
+    icon:
+      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 8h9v6H5.75"/><path d="M12 11h4.2l2.8 3v4h-3"/><circle cx="7.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/><path d="M9.5 17.5h5"/></svg>',
+  },
+  {
+    label: 'Entregado',
+    icon:
+      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M7 4v16"/><path d="M7 5.5h9l-2 3 2 3H7"/></svg>',
+  },
 ];
 
-const STEP_ICONS = {
-  done:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"></circle><path d="M9 12.5l2 2 4-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
-  current:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>',
-  todo:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle></svg>',
+const STATUS_PATTERNS = [
+  { step: 5, tests: [/entreg/, /deliv/, /finaliz/, /complet/] },
+  { step: 4, tests: [/enviad/, /despach/, /shipp/, /camino/, /parti/, /salio/] },
+  { step: 3, tests: [/prepar/, /alist/, /armand/, /process/, /ready/, /listo/] },
+  { step: 2, tests: [/aprob/, /pagad/, /acred/, /approv/, /paid/, /cobrad/, /credit/] },
+  { step: 1, tests: [/recib/, /pendi/, /pedido/, /orden/, /received/, /generad/, /cread/, /cancel/] },
+];
+
+const SHIPPING_NEGATIONS = {
+  3: /\b(?:no|sin)\s+(?:prepar|alist|arm)/,
+  4: /\b(?:no|sin)\s+(?:envi|despach)/,
+  5: /\b(?:no|sin)\s+(?:entreg|recib)/,
 };
 
 function normalizeStatusValue(value) {
@@ -42,90 +67,98 @@ function normalizeStatusValue(value) {
     .trim();
 }
 
-function computeSteps(order = {}) {
-  const steps = STEP_LABELS.map((label) => ({ label, state: 'todo' }));
-  if (!steps.length) return steps;
+function resolveStepFromStatus(value, type = 'generic') {
+  const normalized = normalizeStatusValue(value);
+  if (!normalized) return 0;
+  const cleaned = normalized.replace(/\s+/g, ' ');
+  if (!cleaned) return 0;
 
-  steps[0].state = 'done';
+  const negations = type === 'shipping' ? SHIPPING_NEGATIONS : null;
+  for (const { step, tests } of STATUS_PATTERNS) {
+    if (negations && negations[step] && negations[step].test(cleaned)) {
+      continue;
+    }
+    if (tests.some((pattern) => pattern.test(cleaned))) {
+      return step;
+    }
+  }
+  return 0;
+}
 
-  const payValue = normalizeStatusValue(
-    order.payment_status ||
-      order.estado_pago ||
-      order.payment_status_code ||
-      order.status ||
-      '',
-  );
-  const shipSource =
-    order.shipping_status ||
-    order.estado_envio ||
-    order.shipping_status_label ||
-    order.shipping_status_code ||
-    '';
-  const shipValue = normalizeStatusValue(shipSource);
-  const payCode = getPaymentCode(order);
-  const shipCode = getShippingCode(order);
+function buildOrderStepper() {
+  const list = document.createElement('ol');
+  list.className = 'order-progress';
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Progreso del pedido');
+  ORDER_STEPS.forEach((step, index) => {
+    const item = document.createElement('li');
+    item.className = 'order-step';
+    item.dataset.step = String(index + 1);
 
-  const isPaid =
-    payCode === 'approved' ||
-    payValue === 'pagado' ||
-    payValue === 'approved' ||
-    payValue === 'aprobado';
+    const icon = document.createElement('span');
+    icon.className = 'order-step__icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = step.icon;
 
-  const shipString = shipValue || '';
-  const denyShipped = /\bno\s+enviado\b|\bsin\s+envi/.test(shipString);
-  const denyDelivered = /\bno\s+entregado\b|\bsin\s+entreg/.test(
-    shipString,
-  );
-  const denyPreparing = /\bno\s+prepar|\bsin\s+prepar/.test(shipString);
-  const isPreparing =
-    (shipCode === 'preparing' ||
-      shipString === 'en preparacion' ||
-      shipString === 'preparando' ||
-      shipString.includes('prepar')) &&
-    !denyPreparing;
-  let isShipped =
-    shipCode === 'shipped' ||
-    shipString === 'enviado' ||
-    shipString === 'envio' ||
-    shipString === 'enviando' ||
-    shipString.includes(' enviado');
-  if (denyShipped) isShipped = false;
-  let isDelivered =
-    shipCode === 'delivered' ||
-    shipString === 'entregado' ||
-    shipString === 'entregada' ||
-    shipString.includes('entregado');
-  if (denyDelivered) isDelivered = false;
+    const label = document.createElement('span');
+    label.className = 'order-step__label';
+    label.textContent = step.label;
 
-  if (isDelivered) {
-    steps[1].state = 'done';
-    steps[2].state = 'done';
-    steps[3].state = 'done';
-    steps[4].state = 'done';
-    return steps;
+    item.append(icon, label);
+    list.appendChild(item);
+  });
+  return list;
+}
+
+function renderOrderSteps(statuses = {}, target = progressContainer) {
+  const container = target || document.getElementById('orderProgress');
+  if (!container) return null;
+
+  let list = container.classList?.contains('order-progress')
+    ? container
+    : container.querySelector('.order-progress');
+
+  if (!list) {
+    list = buildOrderStepper();
+    if (container !== list) {
+      container.innerHTML = '';
+      container.appendChild(list);
+    }
   }
 
-  if (isShipped) {
-    steps[1].state = 'done';
-    steps[2].state = 'done';
-    steps[3].state = 'done';
-    steps[4].state = 'current';
-    return steps;
+  const paymentStep = resolveStepFromStatus(statuses.paymentStatus, 'payment');
+  const shippingStep = resolveStepFromStatus(statuses.shippingStatus, 'shipping');
+  const activeStep = Math.max(paymentStep, shippingStep, 1);
+  const total = ORDER_STEPS.length;
+  const clampedStep = Math.min(Math.max(activeStep, 1), total);
+  const activeIndex = clampedStep - 1;
+  const progressRatio = total > 1 ? activeIndex / (total - 1) : 0;
+
+  list.style.setProperty('--progress', progressRatio.toFixed(4));
+  list.dataset.activeStep = String(clampedStep);
+  list.dataset.steps = String(total);
+
+  Array.from(list.children).forEach((item, index) => {
+    item.classList.toggle('is-done', index < activeIndex);
+    item.classList.toggle('is-current', index === activeIndex);
+    if (index === activeIndex) {
+      item.setAttribute('aria-current', 'step');
+    } else {
+      item.removeAttribute('aria-current');
+    }
+  });
+
+  if (container !== list) {
+    container.style.display = 'block';
   }
 
-  if (isPreparing) {
-    steps[1].state = 'done';
-    steps[2].state = 'current';
-    return steps;
-  }
-
-  if (isPaid) {
-    steps[1].state = 'done';
-    return steps;
-  }
-
-  steps[1].state = 'current';
-  return steps;
+  return {
+    list,
+    activeStep: clampedStep,
+    paymentStep,
+    shippingStep,
+    progress: progressRatio,
+  };
 }
 
 function updateWhatsAppLink() {
@@ -228,56 +261,42 @@ function showAlert(message) {
 
 function renderOrderProgress(order = {}) {
   if (!progressContainer) return;
-  const steps = computeSteps(order);
-  if (!steps.length) {
+
+  const paymentStatus =
+    order.payment_status ||
+    order.estado_pago ||
+    order.payment_status_code ||
+    order.status ||
+    '';
+  const shippingStatus =
+    order.shipping_status ||
+    order.estado_envio ||
+    order.shipping_status_label ||
+    order.shipping_status_code ||
+    '';
+
+  const stepInfo = renderOrderSteps(
+    { paymentStatus, shippingStatus },
+    progressContainer,
+  );
+
+  if (!stepInfo) {
     progressContainer.style.display = 'none';
     progressContainer.innerHTML = '';
+    hideAlert();
     return;
   }
-  const markup = `
-    <ol class="order-progress" role="list" aria-label="Estado del pedido">
-      ${steps
-        .map(
-          (step, index) => `
-            <li class="step ${step.state}" data-step="${index + 1}">
-              <span class="icon" aria-hidden="true">${
-                STEP_ICONS[step.state] || STEP_ICONS.todo
-              }</span>
-              <span class="label">${step.label}</span>
-            </li>
-          `,
-        )
-        .join('')}
-    </ol>
-  `;
-  progressContainer.innerHTML = markup;
-  const list = progressContainer.querySelector('.order-progress');
-  if (!list) return;
-  const currentIndex = steps.findIndex((step) => step.state === 'current');
-  const lastDoneIndex = steps.reduce(
-    (acc, step, idx) => (step.state === 'done' ? idx : acc),
-    -1,
-  );
-  const progressIndex = Math.max(currentIndex, lastDoneIndex, 0);
-  const progressValue =
-    steps.length > 1 ? (progressIndex / (steps.length - 1)) * 100 : 0;
-  list.style.setProperty('--progress', `${progressValue}%`);
-  list.querySelectorAll('.step').forEach((li, idx) => {
-    const state = steps[idx]?.state || 'todo';
-    li.dataset.state = state;
-    li.classList.remove('done', 'current', 'todo');
-    li.classList.add(state);
-    if (state === 'current') li.setAttribute('aria-current', 'step');
-    else li.removeAttribute('aria-current');
-  });
-  progressContainer.style.display = 'block';
 
   const shippingCode = getShippingCode(order);
   const paymentCode = getPaymentCode(order);
   let alertMessage = '';
-  if (shippingCode === 'canceled') alertMessage = 'Pedido cancelado';
+  if (shippingCode === 'canceled' || shippingCode === 'cancelled') {
+    alertMessage = 'Pedido cancelado';
+  }
   if (PAYMENT_CANCEL_CODES.has(paymentCode)) {
-    alertMessage = alertMessage ? `${alertMessage} / Pago revertido` : 'Pago revertido';
+    alertMessage = alertMessage
+      ? `${alertMessage} / Pago revertido`
+      : 'Pago revertido';
   }
   if (alertMessage) showAlert(alertMessage);
   else hideAlert();
@@ -432,6 +451,10 @@ async function fetchOrder(email, id) {
     console.error(e);
     summaryEl.textContent = 'Error al buscar el pedido.';
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.renderOrderSteps = renderOrderSteps;
 }
 
 form.addEventListener('submit', (ev) => {
