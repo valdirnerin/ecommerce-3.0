@@ -19,7 +19,35 @@ const {
   mapPaymentStatusCode,
   localizePaymentStatus,
 } = require("./utils/paymentStatus");
+const {
+  mapShippingStatusCode,
+  localizeShippingStatus,
+} = require("./utils/shippingStatus");
 const ordersRepo = require("./data/ordersRepo");
+
+let buildInfo = {};
+try {
+  const infoPath = path.join(__dirname, "../frontend/build-info.json");
+  buildInfo = JSON.parse(fs.readFileSync(infoPath, "utf8"));
+} catch (err) {
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.NODE_ENV !== "test"
+  ) {
+    console.warn("build-info.json no disponible", err?.message || err);
+  }
+}
+
+const BUILD_ID =
+  process.env.BUILD_ID ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.RENDER_GIT_COMMIT ||
+  process.env.GIT_COMMIT_SHA ||
+  process.env.HEROKU_RELEASE_VERSION ||
+  (typeof buildInfo === "object" && buildInfo !== null && buildInfo.build
+    ? buildInfo.build
+    : null) ||
+  "dev";
 
 // ENV > utils/dataDir > fallback local
 const DATA_DIR = process.env.DATA_DIR || dataDir || path.join(__dirname, 'data');
@@ -1041,6 +1069,10 @@ async function requestHandler(req, res) {
     return res.end();
   }
 
+  if (pathname === "/api/version" && req.method === "GET") {
+    return sendJson(res, 200, { build: BUILD_ID });
+  }
+
   if (pathname === "/health/db") {
     (async () => {
       const pool = db.getPool();
@@ -1951,12 +1983,56 @@ async function requestHandler(req, res) {
           next.payment_status = localized;
           next.estado_pago = localized;
         }
+        const incomingShippingStatus =
+          update.shipping_status ??
+          update.shippingStatus ??
+          update.estado_envio ??
+          null;
+        if (incomingShippingStatus != null) {
+          const shippingCode = mapShippingStatusCode(incomingShippingStatus);
+          const shippingLabel = localizeShippingStatus(incomingShippingStatus);
+          next.shipping_status = shippingCode;
+          next.shippingStatus = shippingCode;
+          next.shipping_status_code = shippingCode;
+          next.estado_envio = shippingLabel;
+          next.shipping_status_label = shippingLabel;
+        }
+        if (Object.prototype.hasOwnProperty.call(update, "tracking")) {
+          const trackingValue =
+            update.tracking == null
+              ? ""
+              : String(update.tracking).trim();
+          next.tracking = trackingValue;
+          next.seguimiento = trackingValue;
+        }
+        if (Object.prototype.hasOwnProperty.call(update, "carrier")) {
+          const carrierValue =
+            update.carrier == null ? "" : String(update.carrier).trim();
+          next.carrier = carrierValue;
+          next.transportista = carrierValue;
+        }
+        if (Object.prototype.hasOwnProperty.call(update, "shipping_note")) {
+          const noteValue =
+            update.shipping_note == null
+              ? ""
+              : String(update.shipping_note).trim();
+          next.shipping_note = noteValue;
+          next.shippingNote = noteValue;
+          next.nota_envio = noteValue;
+          next.notas_envio = noteValue;
+        }
         orders[index] = next;
         saveOrders(orders);
+        const prevShippingCode = mapShippingStatusCode(
+          prev.shipping_status ?? prev.estado_envio ?? null,
+        );
+        const nextShippingCode = mapShippingStatusCode(
+          next.shipping_status ?? next.estado_envio ?? null,
+        );
         if (
-          update.estado_envio &&
-          update.estado_envio === "enviado" &&
-          prev.estado_envio !== "enviado"
+          incomingShippingStatus != null &&
+          nextShippingCode === "shipped" &&
+          prevShippingCode !== "shipped"
         ) {
           sendOrderShippedEmail(orders[index]);
         }
