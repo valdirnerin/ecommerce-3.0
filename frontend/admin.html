@@ -1,47 +1,489 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Administración de pedidos</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;padding:20px;}
-    table{width:100%;border-collapse:collapse;margin-top:20px;}
-    th,td{border:1px solid #ccc;padding:8px;text-align:left;}
-    button{padding:6px 12px;cursor:pointer;}
-  </style>
-</head>
-<body>
-  <h1>Pedidos pendientes de pago</h1>
-  <table id="tabla">
-    <thead>
-      <tr><th>Número</th><th>Email</th><th>Total</th><th>Estado</th><th></th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-<script src="config.js"></script>
-<script>
-async function cargar(){
-  const res = await fetch(`${API_BASE_URL}/api/orders/pending`, { mode: 'cors' });
-  const datos = await res.json();
-  const tbody = document.querySelector('#tabla tbody');
-  tbody.innerHTML = '';
-  datos.forEach(o=>{
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${o.order_number}</td><td>${o.user_email||''}</td><td>${o.total_amount}</td><td>${o.payment_status}</td><td><button data-id="${o.order_number}">Marcar como pagado</button></td>`;
-    tbody.appendChild(tr);
-  });
-}
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Administración de pedidos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f5f5f7;
+        --surface: #ffffff;
+        --border: #d8dce1;
+        --text: #111827;
+        --text-muted: #4b5563;
+        --accent: #2563eb;
+        --accent-soft: rgba(37, 99, 235, 0.08);
+        --danger: #dc2626;
+      }
 
-document.addEventListener('click', async (e)=>{
-  if(e.target.dataset && e.target.dataset.id){
-    const id = e.target.dataset.id;
-    await fetch(`${API_BASE_URL}/api/orders/`+id+`/mark-paid`, {mode:'cors', method:'POST'});
-    cargar();
-  }
-});
+      * {
+        box-sizing: border-box;
+      }
 
-cargar();
-</script>
-</body>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont,
+          'Segoe UI', sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 1.5rem;
+      }
+
+      h1 {
+        margin-top: 0;
+        font-size: 1.75rem;
+      }
+
+      .admin-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+        gap: 1.5rem;
+        align-items: flex-start;
+      }
+
+      .orders-panel,
+      .order-detail {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+      }
+
+      .orders-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-end;
+        margin-bottom: 1.5rem;
+      }
+
+      .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        min-width: 180px;
+      }
+
+      label {
+        font-weight: 600;
+        font-size: 0.85rem;
+      }
+
+      input,
+      select,
+      textarea {
+        font: inherit;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        padding: 0.45rem 0.65rem;
+        background: #fff;
+      }
+
+      textarea {
+        min-height: 90px;
+        resize: vertical;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+      }
+
+      thead {
+        background: #f9fafb;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 0.65rem 0.85rem;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.9rem;
+      }
+
+      tbody tr {
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+
+      tbody tr:hover {
+        background: var(--accent-soft);
+      }
+
+      tbody tr.is-selected {
+        background: rgba(37, 99, 235, 0.14);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .badge.is-paid {
+        background: rgba(34, 197, 94, 0.16);
+        color: #047857;
+      }
+
+      .badge.is-pending {
+        background: rgba(245, 158, 11, 0.16);
+        color: #b45309;
+      }
+
+      .badge.is-rejected {
+        background: rgba(239, 68, 68, 0.16);
+        color: #b91c1c;
+      }
+
+      .badge.is-cancelled {
+        background: rgba(239, 68, 68, 0.16);
+        color: #b91c1c;
+      }
+
+      .badge.is-shipped {
+        background: rgba(59, 130, 246, 0.16);
+        color: #1d4ed8;
+      }
+
+      .badge.is-delivered {
+        background: rgba(16, 185, 129, 0.16);
+        color: #047857;
+      }
+
+      .orders-summary {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+
+      .summary-card {
+        flex: 1 1 160px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        padding: 1rem;
+        background: #fff;
+      }
+
+      .summary-card strong {
+        display: block;
+        font-size: 1.35rem;
+        margin-bottom: 0.4rem;
+      }
+
+      .order-detail {
+        position: sticky;
+        top: 1.5rem;
+      }
+
+      .order-detail.hidden {
+        display: none;
+      }
+
+      .order-detail h2 {
+        margin-top: 0;
+        margin-bottom: 1rem;
+      }
+
+      .order-detail-section {
+        margin-bottom: 1.25rem;
+      }
+
+      .order-detail-section h3 {
+        margin-bottom: 0.5rem;
+        font-size: 1rem;
+      }
+
+      .order-detail-section p {
+        margin: 0.25rem 0;
+        color: var(--text-muted);
+      }
+
+      dl {
+        margin: 0;
+      }
+
+      dt {
+        font-weight: 600;
+        margin-top: 0.35rem;
+      }
+
+      dd {
+        margin: 0.1rem 0 0.35rem;
+        color: var(--text-muted);
+      }
+
+      .order-items {
+        border-top: 1px solid var(--border);
+        padding-top: 1rem;
+      }
+
+      .order-items ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .order-items li {
+        padding: 0.35rem 0;
+        border-bottom: 1px dashed rgba(148, 163, 184, 0.4);
+      }
+
+      .form-actions {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+      }
+
+      button.primary {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 999px;
+        padding: 0.55rem 1.5rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      button.primary:disabled {
+        opacity: 0.6;
+        cursor: wait;
+      }
+
+      button.primary:not(:disabled):hover {
+        transform: translateY(-1px);
+        box-shadow: 0 12px 20px rgba(37, 99, 235, 0.2);
+      }
+
+      .status-text {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      .empty-state,
+      .error-state {
+        padding: 1.5rem;
+        text-align: center;
+        color: var(--text-muted);
+      }
+
+      @media (max-width: 1024px) {
+        body {
+          padding: 1rem;
+        }
+
+        .admin-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .order-detail {
+          position: static;
+        }
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0f172a;
+          --surface: #111827;
+          --border: #1f2937;
+          --text: #f8fafc;
+          --text-muted: #cbd5f5;
+          --accent-soft: rgba(96, 165, 250, 0.12);
+        }
+
+        body {
+          background: var(--bg);
+          color: var(--text);
+        }
+
+        input,
+        select,
+        textarea {
+          background: rgba(15, 23, 42, 0.8);
+          color: var(--text);
+        }
+
+        thead {
+          background: rgba(148, 163, 184, 0.08);
+        }
+
+        .summary-card {
+          background: rgba(15, 23, 42, 0.85);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Administración de pedidos</h1>
+    <p class="status-text" id="ordersFetchStatus"></p>
+    <div class="admin-layout">
+      <section class="orders-panel">
+        <div class="orders-filters">
+          <div class="filter-group">
+            <label for="ordersDate">Fecha</label>
+            <input type="date" id="ordersDate" />
+          </div>
+          <div class="filter-group">
+            <label for="ordersStatus">Estado de pago</label>
+            <select id="ordersStatus">
+              <option value="">Todos</option>
+              <option value="paid">Pagado</option>
+              <option value="pending">Pendiente</option>
+              <option value="canceled">Rechazado / Cancelado</option>
+            </select>
+          </div>
+          <div class="filter-group" style="flex: 1 1 220px; min-width: 220px">
+            <label for="ordersSearch">Buscar</label>
+            <input
+              type="search"
+              id="ordersSearch"
+              placeholder="Buscar por número, cliente, email o destino"
+            />
+          </div>
+          <div class="filter-group">
+            <label>&nbsp;</label>
+            <button type="button" class="primary" id="ordersRefreshBtn">
+              Actualizar
+            </button>
+          </div>
+        </div>
+        <div class="orders-summary" id="ordersSummary"></div>
+        <div class="table-wrapper">
+          <table id="ordersTable">
+            <thead>
+              <tr>
+                <th>Número</th>
+                <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Total</th>
+                <th>Pago</th>
+                <th>Envío</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+              <tr>
+                <td colspan="6" class="empty-state">
+                  Cargando pedidos...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <aside class="order-detail hidden" id="orderDetail">
+        <h2>Detalle del pedido</h2>
+        <div class="order-detail-section">
+          <h3>Resumen</h3>
+          <p><strong>Número:</strong> <span id="detailOrderNumber">—</span></p>
+          <p><strong>Creado:</strong> <span id="detailCreatedAt">—</span></p>
+          <p><strong>Total:</strong> <span id="detailTotal">—</span></p>
+        </div>
+        <div class="order-detail-section">
+          <h3>Cliente</h3>
+          <dl>
+            <dt>Nombre</dt>
+            <dd id="detailCustomerName">—</dd>
+            <dt>Email</dt>
+            <dd id="detailCustomerEmail">—</dd>
+            <dt>Teléfono</dt>
+            <dd id="detailCustomerPhone">—</dd>
+          </dl>
+        </div>
+        <div class="order-detail-section">
+          <h3>Envío</h3>
+          <dl>
+            <dt>Dirección</dt>
+            <dd id="detailShippingAddress">—</dd>
+            <dt>Método</dt>
+            <dd id="detailShippingMethod">—</dd>
+          </dl>
+        </div>
+        <div class="order-items">
+          <h3>Productos</h3>
+          <ul id="detailItemsList"></ul>
+        </div>
+        <form id="orderEditForm">
+          <div class="order-detail-section">
+            <h3>Editar estado</h3>
+            <label for="orderPaymentStatus">Estado de pago</label>
+            <select id="orderPaymentStatus">
+              <option value="approved">Pagado</option>
+              <option value="pending">Pendiente</option>
+              <option value="rejected">Rechazado</option>
+            </select>
+          </div>
+          <div class="order-detail-section">
+            <label for="orderShippingStatus">Estado de envío</label>
+            <select id="orderShippingStatus">
+              <option value="preparing">En preparación</option>
+              <option value="shipped">Enviado</option>
+              <option value="delivered">Entregado</option>
+              <option value="cancelled">Cancelado</option>
+            </select>
+          </div>
+          <div class="order-detail-section">
+            <label for="orderTracking">Seguimiento</label>
+            <input type="text" id="orderTracking" placeholder="Código de seguimiento" />
+          </div>
+          <div class="order-detail-section">
+            <label for="orderCarrier">Transporte</label>
+            <input type="text" id="orderCarrier" placeholder="Correo, transporte, etc." />
+          </div>
+          <div class="order-detail-section">
+            <label for="orderShippingNote">Notas de envío</label>
+            <textarea id="orderShippingNote" placeholder="Notas visibles para el equipo"></textarea>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary" id="orderSaveBtn">Guardar cambios</button>
+            <span class="status-text" id="orderSaveStatus"></span>
+          </div>
+        </form>
+      </aside>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+      (async () => {
+        let buildId = 'dev';
+        try {
+          const response = await fetch('/api/version', { cache: 'no-store' });
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.build) {
+              buildId = data.build;
+            }
+          }
+        } catch (error) {
+          console.warn('No se pudo obtener la versión del backend', error);
+        }
+        window.__ADMIN_BUILD__ = buildId;
+        const script = document.createElement('script');
+        script.src = `js/admin.js?v=${encodeURIComponent(buildId)}`;
+        script.dataset.build = buildId;
+        document.body.appendChild(script);
+      })();
+    </script>
+  </body>
 </html>
