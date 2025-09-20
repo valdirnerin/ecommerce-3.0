@@ -14,8 +14,16 @@ CREATE TABLE IF NOT EXISTS orders (
   customer_email TEXT,
   status TEXT,
   total NUMERIC,
-  inventory_applied BOOLEAN DEFAULT false
+  inventory_applied BOOLEAN DEFAULT false,
+  invoice_status TEXT,
+  invoices JSONB DEFAULT '[]'::jsonb
 );
+
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS invoice_status TEXT;
+
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS invoices JSONB DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS order_items (
   id BIGSERIAL PRIMARY KEY,

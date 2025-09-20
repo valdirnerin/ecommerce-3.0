@@ -1464,6 +1464,57 @@ const OrdersUI = (() => {
         )} – ${escapeHtml(lineTotal)}</li>`;
       })
       .join("");
+    const invoiceEntries = Array.isArray(detail.invoices)
+      ? detail.invoices.filter(Boolean)
+      : [];
+    if (!invoiceEntries.length && detail.invoice_url) {
+      invoiceEntries.push({
+        url: detail.invoice_url,
+        filename: detail.invoice_filename || null,
+        uploaded_at:
+          detail.invoice_uploaded_at ||
+          detail.invoice_date ||
+          detail.updated_at ||
+          detail.created_at ||
+          null,
+      });
+    }
+    const visibleInvoices = invoiceEntries.filter(
+      (inv) => inv && !inv.deleted_at && inv.url,
+    );
+    const invoiceItemsHtml = visibleInvoices.length
+      ? `<ul class="invoice-list">${visibleInvoices
+          .map((inv, idx) => {
+            const label =
+              inv.original_name ||
+              inv.filename ||
+              `Factura ${idx + 1}`;
+            const uploadedAt =
+              inv.uploaded_at &&
+              !Number.isNaN(new Date(inv.uploaded_at).getTime())
+                ? new Date(inv.uploaded_at).toLocaleDateString('es-AR')
+                : '';
+            const viewLink = `<a href="${escapeHtml(
+              inv.url,
+            )}" target="_blank" rel="noopener" class="button secondary">Ver</a>`;
+            const deleteButton =
+              allowOrderEditing && inv.filename
+                ? `<button type="button" class="button danger" data-invoice-delete="${escapeHtml(
+                    inv.filename,
+                  )}">Eliminar</button>`
+                : '';
+            const meta = uploadedAt
+              ? ` <small>(${escapeHtml(uploadedAt)})</small>`
+              : '';
+            return `<li><span>${escapeHtml(label)}${meta}</span> ${viewLink}${
+              deleteButton ? ` ${deleteButton}` : ''
+            }</li>`;
+          })
+          .join('')}</ul>`
+      : '<p><em>Factura pendiente</em></p>';
+    const invoiceUploadHtml = allowOrderEditing
+      ? `<div class="invoice-upload"><input type="file" data-invoice-file accept="application/pdf" /><button type="button" class="button secondary upload-invoice-btn">Subir factura (PDF)</button></div>`
+      : '';
     const paymentOptionsHtml = PAYMENT_STATUS_OPTIONS.map((option) => {
       const selected = option.value === paymentCode ? " selected" : "";
       return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(
@@ -1571,21 +1622,27 @@ const OrdersUI = (() => {
         <dl>
           <dt>Creado</dt>
           <dd>${displayValue(created)}</dd>
-        </dl>
-        <dl>
-          <dt>Total</dt>
-          <dd>${escapeHtml(formatCurrency(grandTotal))}</dd>
-        </dl>
-      </div>
-      ${editSection}
-      <div class="order-items">
-        <h5>Ítems</h5>
-        <ul class="order-items-list">${
-          itemsHtml || "<li>No se registraron ítems.</li>"
-        }</ul>
+      </dl>
+      <dl>
+        <dt>Total</dt>
+        <dd>${escapeHtml(formatCurrency(grandTotal))}</dd>
+      </dl>
+    </div>
+    ${editSection}
+    <div class="order-invoices">
+      <h5>Facturas</h5>
+      ${invoiceItemsHtml}
+      ${invoiceUploadHtml}
+    </div>
+    <div class="order-items">
+      <h5>Ítems</h5>
+      <ul class="order-items-list">${
+        itemsHtml || "<li>No se registraron ítems.</li>"
+      }</ul>
       </div>
     `;
     if (allowOrderEditing) {
+      const identifierToUpdate = identifier;
       const saveBtn = elements.detail.querySelector(".save-order-btn");
       if (saveBtn) {
         const paymentSelect = elements.detail.querySelector(
@@ -1604,7 +1661,6 @@ const OrdersUI = (() => {
           '[data-order-field="shipping-note"]',
         );
         saveBtn.addEventListener("click", async () => {
-          const identifierToUpdate = identifier;
           if (!identifierToUpdate) return;
           const patch = {
             payment_status:
@@ -1651,6 +1707,82 @@ const OrdersUI = (() => {
           }
         });
       }
+      const invoiceUploadInput = elements.detail.querySelector(
+        '[data-invoice-file]',
+      );
+      const invoiceUploadBtn = elements.detail.querySelector(
+        '.upload-invoice-btn',
+      );
+      if (invoiceUploadBtn && invoiceUploadInput && identifierToUpdate) {
+        invoiceUploadBtn.addEventListener('click', async () => {
+          if (!invoiceUploadInput.files || !invoiceUploadInput.files.length) {
+            alert('Seleccioná un archivo PDF.');
+            return;
+          }
+          const file = invoiceUploadInput.files[0];
+          const isPdf =
+            file.type === 'application/pdf' ||
+            file.name.toLowerCase().endsWith('.pdf');
+          if (!isPdf) {
+            alert('El archivo debe ser un PDF.');
+            return;
+          }
+          const formData = new FormData();
+          formData.append('file', file);
+          const originalText = invoiceUploadBtn.textContent;
+          invoiceUploadBtn.disabled = true;
+          invoiceUploadBtn.textContent = 'Subiendo…';
+          try {
+            const res = await fetch(
+              `/api/orders/${encodeURIComponent(String(identifierToUpdate))}/invoices`,
+              {
+                method: 'POST',
+                body: formData,
+              },
+            );
+            if (!res.ok) throw new Error(`invoice-upload:${res.status}`);
+            await loadDetail(identifierToUpdate);
+          } catch (err) {
+            console.error(err);
+            alert('No se pudo subir la factura. Intentalo nuevamente.');
+          } finally {
+            invoiceUploadBtn.disabled = false;
+            invoiceUploadBtn.textContent = originalText;
+            invoiceUploadInput.value = '';
+          }
+        });
+      }
+      const invoiceDeleteButtons = elements.detail.querySelectorAll(
+        '[data-invoice-delete]',
+      );
+      invoiceDeleteButtons.forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const fileName = btn.getAttribute('data-invoice-delete');
+          if (!fileName || !identifierToUpdate) return;
+          const confirmed = window.confirm(
+            '¿Seguro que querés eliminar esta factura?',
+          );
+          if (!confirmed) return;
+          const originalLabel = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = 'Eliminando…';
+          try {
+            const res = await fetch(
+              `/api/orders/${encodeURIComponent(String(identifierToUpdate))}/invoices/${encodeURIComponent(
+                fileName,
+              )}`,
+              { method: 'DELETE' },
+            );
+            if (!res.ok) throw new Error(`invoice-delete:${res.status}`);
+            await loadDetail(identifierToUpdate);
+          } catch (err) {
+            console.error(err);
+            alert('No se pudo eliminar la factura.');
+            btn.disabled = false;
+            btn.textContent = originalLabel;
+          }
+        });
+      });
     }
   }
 

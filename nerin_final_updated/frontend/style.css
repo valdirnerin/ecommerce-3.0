@@ -1329,7 +1329,7 @@ footer .legal {
 .order-progress {
   --c-done: #16a34a;
   --c-current: #2563eb;
-  --c-todo: #cbd5e1;
+  --c-todo: #9ca3af;
   --c-text: #0f172a;
   --progress: 0%;
   display: flex;
@@ -1376,6 +1376,7 @@ footer .legal {
   place-items: center;
   background: #fff;
   border: 2px solid var(--c-todo);
+  color: var(--c-todo);
   margin: 0 auto 6px;
   position: relative;
 }
@@ -1394,21 +1395,27 @@ footer .legal {
   color: var(--c-text);
 }
 
-.order-progress .step[data-state="done"] .icon {
+.order-progress .step[data-state="done"] .icon,
+.order-progress .step.done .icon {
   border-color: var(--c-done);
   background: var(--c-done);
+  color: var(--c-done);
 }
 
-.order-progress .step[data-state="done"] .icon svg {
+.order-progress .step[data-state="done"] .icon svg,
+.order-progress .step.done .icon svg {
   stroke: #fff;
 }
 
-.order-progress .step[data-state="current"] .icon {
+.order-progress .step[data-state="current"] .icon,
+.order-progress .step.current .icon {
   border-color: var(--c-current);
+  color: var(--c-current);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--c-current) 20%, transparent);
 }
 
-.order-progress .step[data-state="current"] .icon::after {
+.order-progress .step[data-state="current"] .icon::after,
+.order-progress .step.current .icon::after {
   content: "";
   position: absolute;
   inset: -6px;
@@ -1431,12 +1438,21 @@ footer .legal {
   }
 }
 
-.order-progress .step[data-state="current"] .icon svg {
+.order-progress .step[data-state="current"] .icon svg,
+.order-progress .step.current .icon svg {
   stroke: var(--c-current);
 }
 
-.order-progress .step[data-state="todo"] .icon {
+.order-progress .step[data-state="todo"] .icon,
+.order-progress .step.todo .icon {
   background: #fff;
+  color: var(--c-todo);
+}
+
+.order-progress .step[data-state="current"] .label,
+.order-progress .step.current .label {
+  color: var(--c-current);
+  font-weight: 600;
 }
 
 @media (max-width: 520px) {
