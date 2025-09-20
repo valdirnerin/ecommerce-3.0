@@ -13,6 +13,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
+const crypto = require("crypto");
 const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
 const {
   STATUS_ES_TO_CODE,
@@ -22,6 +23,7 @@ const {
 const {
   mapShippingStatusCode,
   localizeShippingStatus,
+  normalizeShipping,
 } = require("./utils/shippingStatus");
 const ordersRepo = require("./data/ordersRepo");
 
@@ -580,9 +582,56 @@ function normalizeOrder(o) {
   const statusSource = o.payment_status || o.estado_pago || o.payment_status_code;
   const paymentCode = mapPaymentStatusCode(statusSource);
   const payment = localizePaymentStatus(statusSource);
-  const shipping = o.shipping_status || o.estado_envio || "pendiente";
+  const shippingSource =
+    o.shipping_status_code ||
+    o.shippingStatusCode ||
+    o.shipping_status ||
+    o.shippingStatus ||
+    o.estado_envio ||
+    o.estadoEnvio ||
+    (o.envio && (o.envio.estado || o.envio.status));
+  let shippingCode = normalizeShipping(shippingSource);
+  if (!shippingCode) {
+    shippingCode =
+      normalizeShipping(o.shipping_status) ||
+      normalizeShipping(o.estado_envio) ||
+      "received";
+  }
+  if (shippingCode === "cancelled") shippingCode = "canceled";
+  const shippingLabelCandidates = [
+    o.shipping_status_label,
+    o.estado_envio,
+    o.shipping_status,
+    o.shippingStatus,
+  ];
+  const firstNonEmptyLabel = shippingLabelCandidates.find((value) => {
+    if (value == null) return false;
+    const str = String(value).trim();
+    return str !== "";
+  });
+  let shippingLabel = firstNonEmptyLabel ? String(firstNonEmptyLabel).trim() : "";
+  const shippingLabelLc = shippingLabel.toLowerCase();
+  if (
+    !shippingLabel ||
+    ["received", "preparing", "shipped", "delivered", "canceled", "cancelled"].includes(
+      shippingLabelLc,
+    )
+  ) {
+    shippingLabel = localizeShippingStatus(shippingCode);
+  }
   const tracking = o.tracking || o.seguimiento || "";
   const carrier = o.carrier || o.transportista || "";
+  const updatedAt =
+    o.updated_at ||
+    o.updatedAt ||
+    o.updated ||
+    o.modified_at ||
+    o.modifiedAt ||
+    o.modified ||
+    o.estado_actualizado ||
+    o.fecha_actualizacion ||
+    o.last_updated ||
+    null;
   return {
     ...o,
     order_number: orderNum,
@@ -604,10 +653,17 @@ function normalizeOrder(o) {
     paymentStatusCode: paymentCode,
     payment_status: payment,
     paymentStatus: payment,
-    shipping_status: shipping,
-    shippingStatus: shipping,
+    estado_pago: payment,
+    shipping_status_code: shippingCode,
+    shippingStatusCode: shippingCode,
+    shipping_status: shippingLabel,
+    shippingStatus: shippingLabel,
+    estado_envio: shippingLabel,
+    shipping_status_label: shippingLabel,
     tracking,
     carrier,
+    updated_at: updatedAt,
+    updatedAt,
     productos: items,
     cliente,
   };
@@ -800,16 +856,26 @@ function getNextInvoiceNumber() {
 }
 
 // Helper para enviar respuestas JSON con CORS y cabeceras básicas
-function sendJson(res, statusCode, data) {
-  const json = JSON.stringify(data);
-  res.writeHead(statusCode, {
+function buildBaseHeaders(extra = {}) {
+  return {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
       "Accept, Content-Type, Authorization, X-Requested-With",
-  });
+    ...extra,
+  };
+}
+
+function sendJson(res, statusCode, data, extraHeaders = {}) {
+  const json = JSON.stringify(data);
+  res.writeHead(statusCode, buildBaseHeaders(extraHeaders));
   res.end(json);
+}
+
+function sendStatus(res, statusCode, extraHeaders = {}) {
+  res.writeHead(statusCode, buildBaseHeaders(extraHeaders));
+  res.end();
 }
 
 // Enviar email de confirmación cuando un pedido se marca como pagado
@@ -1809,14 +1875,44 @@ async function requestHandler(req, res) {
         order.shipping_address ||
         null;
       const items = ordersRepo.getNormalizedItems(order);
-      return sendJson(res, 200, {
-        order: {
-          ...normalized,
-          customer,
-          shipping_address: shippingAddress,
-          items,
-        },
+      const responseOrder = {
+        ...normalized,
+        customer,
+        shipping_address: shippingAddress,
+        items,
+      };
+      const etagSource = JSON.stringify({
+        updated:
+          responseOrder.updated_at ||
+          responseOrder.updatedAt ||
+          responseOrder.updated ||
+          responseOrder.fecha_actualizacion ||
+          responseOrder.created_at ||
+          responseOrder.createdAt ||
+          responseOrder.fecha ||
+          null,
+        payment: responseOrder.payment_status_code || null,
+        shipping: responseOrder.shipping_status_code || null,
+        tracking: responseOrder.tracking || null,
+        shippingNote: responseOrder.shipping_note || responseOrder.nota_envio || null,
       });
+      const etag = `"${crypto.createHash("sha1").update(etagSource).digest("hex")}"`;
+      const cacheHeaders = {
+        "Cache-Control": "no-store, must-revalidate",
+        ETag: etag,
+      };
+      const incomingEtag = req.headers["if-none-match"];
+      if (incomingEtag && incomingEtag === etag) {
+        return sendStatus(res, 304, cacheHeaders);
+      }
+      return sendJson(
+        res,
+        200,
+        {
+          order: responseOrder,
+        },
+        cacheHeaders,
+      );
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al obtener pedido" });
