@@ -202,7 +202,7 @@ function computeSummary(orders, dateIso) {
 
 function normalizeStatusFilter(value) {
   const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized || normalized === 'all') return 'all';
+  if (!normalized || normalized === 'all' || normalized === 'todos') return 'all';
   if (
     normalized === 'pagado' ||
     normalized === 'paid' ||

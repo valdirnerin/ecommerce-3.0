@@ -902,9 +902,130 @@ const OrdersUI = (() => {
     selectedId: null,
     detail: null,
   };
+  const allowOrderEditing =
+    typeof window !== "undefined" &&
+    window.location &&
+    typeof window.location.pathname === "string" &&
+    window.location.pathname.includes("admin.html");
+  const PAYMENT_STATUS_OPTIONS = [
+    { value: "approved", label: "Pagado" },
+    { value: "pending", label: "Pendiente" },
+    { value: "rejected", label: "Rechazado" },
+  ];
+  const PAYMENT_STATUS_CODE_MAP = {
+    pagado: "approved",
+    pago: "approved",
+    pagada: "approved",
+    approved: "approved",
+    paid: "approved",
+    acreditado: "approved",
+    accredited: "approved",
+    pending: "pending",
+    pendiente: "pending",
+    "in_process": "pending",
+    "in process": "pending",
+    proceso: "pending",
+    rechazado: "rejected",
+    rechazada: "rejected",
+    rejected: "rejected",
+    cancelado: "rejected",
+    cancelled: "rejected",
+    canceled: "rejected",
+    refunded: "rejected",
+    refund: "rejected",
+    devuelto: "rejected",
+  };
+  const PAYMENT_STATUS_LABELS = {
+    approved: "Pagado",
+    pending: "Pendiente",
+    rejected: "Rechazado",
+  };
+  const SHIPPING_STATUS_OPTIONS = [
+    { value: "preparing", label: "En preparación" },
+    { value: "shipped", label: "Enviado" },
+    { value: "delivered", label: "Entregado" },
+    { value: "cancelled", label: "Cancelado" },
+  ];
+  const SHIPPING_STATUS_CODE_MAP = {
+    pendiente: "preparing",
+    pending: "preparing",
+    preparando: "preparing",
+    "en preparación": "preparing",
+    "en preparacion": "preparing",
+    preparacion: "preparing",
+    preparing: "preparing",
+    listo: "preparing",
+    ready: "preparing",
+    enviado: "shipped",
+    envio: "shipped",
+    shipped: "shipped",
+    despachado: "shipped",
+    entregado: "delivered",
+    entregada: "delivered",
+    delivered: "delivered",
+    finalizado: "delivered",
+    cancelado: "cancelled",
+    cancelled: "cancelled",
+    canceled: "cancelled",
+  };
+  const SHIPPING_STATUS_LABELS = {
+    preparing: "En preparación",
+    shipped: "Enviado",
+    delivered: "Entregado",
+    cancelled: "Cancelado",
+  };
+  const ORDER_STATUS_QUERY_MAP = {
+    todos: "",
+    all: "",
+    pagado: "approved",
+    pendiente: "pending",
+    rechazado: "rejected",
+    cancelado: "cancelled",
+    cancelled: "cancelled",
+    canceled: "cancelled",
+    approved: "approved",
+    pending: "pending",
+    rejected: "rejected",
+  };
   let cache = { items: [], summary: null };
   let initialized = false;
   let searchTimer;
+
+  function mapPaymentStatusCodeForUi(status) {
+    if (!status && status !== 0) return "pending";
+    const key = String(status).trim().toLowerCase();
+    if (PAYMENT_STATUS_CODE_MAP[key]) return PAYMENT_STATUS_CODE_MAP[key];
+    if (key === "approved" || key === "pending" || key === "rejected") {
+      return key;
+    }
+    return "pending";
+  }
+
+  function localizePaymentStatus(status) {
+    const code = mapPaymentStatusCodeForUi(status);
+    return PAYMENT_STATUS_LABELS[code] || (status ? String(status) : "");
+  }
+
+  function mapShippingStatusCodeForUi(status) {
+    if (!status && status !== 0) return "preparing";
+    const key = String(status).trim().toLowerCase();
+    if (SHIPPING_STATUS_CODE_MAP[key]) return SHIPPING_STATUS_CODE_MAP[key];
+    if (
+      key === "preparing" ||
+      key === "shipped" ||
+      key === "delivered" ||
+      key === "cancelled" ||
+      key === "canceled"
+    ) {
+      return key === "canceled" ? "cancelled" : key;
+    }
+    return "preparing";
+  }
+
+  function localizeShippingStatus(status) {
+    const code = mapShippingStatusCodeForUi(status);
+    return SHIPPING_STATUS_LABELS[code] || (status ? String(status) : "");
+  }
 
   function formatInputDate(date) {
     const d = date instanceof Date ? date : new Date(date);
@@ -1196,7 +1317,13 @@ const OrdersUI = (() => {
         0;
       totalTd.textContent = formatCurrency(grandTotal);
       const paymentTd = document.createElement("td");
-      paymentTd.textContent = order.payment_status || "—";
+      const paymentLabel = localizePaymentStatus(
+        order.payment_status ||
+          order.payment_status_code ||
+          order.status ||
+          "",
+      );
+      paymentTd.textContent = paymentLabel ? paymentLabel : "—";
       const actionsTd = document.createElement("td");
       actionsTd.className = "order-actions";
 
@@ -1250,11 +1377,26 @@ const OrdersUI = (() => {
       elements.detail.innerHTML = "<p>Cargando detalle…</p>";
       return;
     }
+    const identifier = getIdentifier(detail) || state.selectedId;
     const customer = detail.customer || detail.cliente || {};
     const addressInfo = mapAddress(detail);
     const shipping = addressInfo.details;
-    const status = detail.payment_status || detail.estado_pago || "";
-    const shippingStatus = detail.shipping_status || detail.estado_envio || "";
+    const paymentSource =
+      detail.payment_status_code ||
+      detail.payment_status ||
+      detail.estado_pago ||
+      detail.status ||
+      "";
+    const paymentCode = mapPaymentStatusCodeForUi(paymentSource);
+    const paymentLabel = localizePaymentStatus(paymentSource);
+    const shippingSource =
+      detail.shipping_status ||
+      detail.estado_envio ||
+      detail.shippingStatus ||
+      detail.envio_estado ||
+      "";
+    const shippingCode = mapShippingStatusCodeForUi(shippingSource);
+    const shippingLabel = localizeShippingStatus(shippingSource);
     const created = formatDateTime(detail.created_at || detail.fecha);
     const totals = detail.totals || {};
     const grandTotal =
@@ -1263,6 +1405,25 @@ const OrdersUI = (() => {
       detail.total ||
       detail.total_amount ||
       0;
+    const trackingValue =
+      detail.tracking ||
+      detail.tracking_number ||
+      detail.seguimiento ||
+      detail.numero_seguimiento ||
+      "";
+    const carrierValue =
+      detail.carrier ||
+      detail.transportista ||
+      detail.shipping_carrier ||
+      "";
+    const shippingNoteValue =
+      detail.shipping_note ||
+      detail.shipping_notes ||
+      detail.shippingNote ||
+      detail.nota_envio ||
+      detail.nota ||
+      detail.note ||
+      "";
     const items = Array.isArray(detail.items) ? detail.items : [];
     const itemsHtml = items
       .map((item) => {
@@ -1281,11 +1442,69 @@ const OrdersUI = (() => {
         )} – ${escapeHtml(lineTotal)}</li>`;
       })
       .join("");
+    const paymentOptionsHtml = PAYMENT_STATUS_OPTIONS.map((option) => {
+      const selected = option.value === paymentCode ? " selected" : "";
+      return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(
+        option.label,
+      )}</option>`;
+    }).join("");
+    const shippingOptionsHtml = SHIPPING_STATUS_OPTIONS.map((option) => {
+      const selected = option.value === shippingCode ? " selected" : "";
+      return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(
+        option.label,
+      )}</option>`;
+    }).join("");
     const deletedBadge = detail.deleted_at
       ? '<span class="order-badge">Eliminado</span>'
       : "";
+    const editSection = allowOrderEditing
+      ? `
+      <div class="order-edit">
+        <h5>Actualizar pedido</h5>
+        <div class="order-edit-grid">
+          <label>
+            <span>Estado de pago</span>
+            <select data-order-field="payment-status">
+              ${paymentOptionsHtml}
+            </select>
+          </label>
+          <label>
+            <span>Estado de envío</span>
+            <select data-order-field="shipping-status">
+              ${shippingOptionsHtml}
+            </select>
+          </label>
+          <label>
+            <span>Nº de seguimiento</span>
+            <input
+              type="text"
+              data-order-field="tracking"
+              value="${escapeHtml(trackingValue)}"
+              placeholder="Opcional"
+            />
+          </label>
+          <label>
+            <span>Transportista</span>
+            <input
+              type="text"
+              data-order-field="carrier"
+              value="${escapeHtml(carrierValue)}"
+              placeholder="Opcional"
+            />
+          </label>
+          <label class="order-edit-notes">
+            <span>Notas de envío</span>
+            <textarea
+              data-order-field="shipping-note"
+              placeholder="Opcional">${escapeHtml(shippingNoteValue)}</textarea>
+          </label>
+        </div>
+        <button type="button" class="button primary save-order-btn">Guardar</button>
+      </div>
+    `
+      : "";
     elements.detail.innerHTML = `
-      <h4>Pedido ${displayValue(detail.order_number || detail.id || "")} ${deletedBadge}</h4>
+      <h4>Pedido ${displayValue(identifier)} ${deletedBadge}</h4>
       <div class="detail-grid">
         <dl>
           <dt>Cliente</dt>
@@ -1309,11 +1528,23 @@ const OrdersUI = (() => {
         </dl>
         <dl>
           <dt>Pago</dt>
-          <dd>${displayValue(status)}</dd>
+          <dd>${displayValue(paymentLabel)}</dd>
         </dl>
         <dl>
           <dt>Envío</dt>
-          <dd>${displayValue(shippingStatus)}</dd>
+          <dd>${displayValue(shippingLabel)}</dd>
+        </dl>
+        <dl>
+          <dt>Tracking</dt>
+          <dd>${displayValue(trackingValue)}</dd>
+        </dl>
+        <dl>
+          <dt>Transportista</dt>
+          <dd>${displayValue(carrierValue)}</dd>
+        </dl>
+        <dl>
+          <dt>Notas de envío</dt>
+          <dd>${displayValue(shippingNoteValue)}</dd>
         </dl>
         <dl>
           <dt>Creado</dt>
@@ -1324,6 +1555,7 @@ const OrdersUI = (() => {
           <dd>${escapeHtml(formatCurrency(grandTotal))}</dd>
         </dl>
       </div>
+      ${editSection}
       <div class="order-items">
         <h5>Ítems</h5>
         <ul class="order-items-list">${
@@ -1331,6 +1563,73 @@ const OrdersUI = (() => {
         }</ul>
       </div>
     `;
+    if (allowOrderEditing) {
+      const saveBtn = elements.detail.querySelector(".save-order-btn");
+      if (saveBtn) {
+        const paymentSelect = elements.detail.querySelector(
+          '[data-order-field="payment-status"]',
+        );
+        const shippingSelect = elements.detail.querySelector(
+          '[data-order-field="shipping-status"]',
+        );
+        const trackingInput = elements.detail.querySelector(
+          '[data-order-field="tracking"]',
+        );
+        const carrierInput = elements.detail.querySelector(
+          '[data-order-field="carrier"]',
+        );
+        const noteInput = elements.detail.querySelector(
+          '[data-order-field="shipping-note"]',
+        );
+        saveBtn.addEventListener("click", async () => {
+          const identifierToUpdate = identifier;
+          if (!identifierToUpdate) return;
+          const patch = {
+            payment_status:
+              (paymentSelect && paymentSelect.value) || paymentCode || "pending",
+            shipping_status:
+              (shippingSelect && shippingSelect.value) ||
+              shippingCode ||
+              "preparing",
+            tracking:
+              trackingInput && trackingInput.value.trim()
+                ? trackingInput.value.trim()
+                : null,
+            carrier:
+              carrierInput && carrierInput.value.trim()
+                ? carrierInput.value.trim()
+                : null,
+            shipping_note:
+              noteInput && noteInput.value.trim()
+                ? noteInput.value.trim()
+                : null,
+          };
+          const originalText = saveBtn.textContent;
+          saveBtn.disabled = true;
+          saveBtn.textContent = "Guardando…";
+          try {
+            const res = await fetch(
+              `/api/orders/${encodeURIComponent(String(identifierToUpdate))}`,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(patch),
+              },
+            );
+            if (!res.ok) {
+              throw new Error(`save-order-failed:${res.status}`);
+            }
+            await refresh();
+            await loadDetail(identifierToUpdate);
+          } catch (err) {
+            console.error(err);
+            alert("No se pudo guardar el pedido. Intentalo de nuevo.");
+            saveBtn.disabled = false;
+            saveBtn.textContent = originalText;
+          }
+        });
+      }
+    }
   }
 
   async function loadDetail(identifier) {
@@ -1430,12 +1729,16 @@ const OrdersUI = (() => {
     try {
       const rawDate = elements.date ? elements.date.value || "" : "";
       const dateParam = toYmd(rawDate || state.date || "");
-      const status = state.status || "all";
+      const statusValue = state.status || "todos";
+      const statusParam = ORDER_STATUS_QUERY_MAP[statusValue] ?? "";
       const q = state.q || "";
       const includeDeleted = state.includeDeleted;
+      const statusQuery = statusParam
+        ? `&status=${encodeURIComponent(statusParam)}`
+        : "";
       const url = `/api/orders?date=${encodeURIComponent(
         dateParam,
-      )}&status=${status}&q=${encodeURIComponent(q)}${includeDeleted ? "&includeDeleted=1" : ""}`;
+      )}${statusQuery}&q=${encodeURIComponent(q)}${includeDeleted ? "&includeDeleted=1" : ""}`;
       console.info("orders-fetch:url", url);
       res = await fetch(url);
       if (!res.ok) {
