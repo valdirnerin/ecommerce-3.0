@@ -9,6 +9,8 @@
 import { getUserRole, logout } from "./api.js";
 import { renderAnalyticsDashboard } from "./analytics.js";
 
+console.info("admin-js-version", "20240926-01");
+
 // Verificar rol de administrador o vendedor
 const currentRole = getUserRole();
 if (currentRole !== "admin" && currentRole !== "vendedor") {
@@ -1146,7 +1148,7 @@ const OrdersUI = (() => {
     const total = cache.items.length;
     if (total === 0) {
       elements.tableBody.innerHTML =
-        '<tr><td colspan="9">No hay pedidos para la fecha seleccionada.</td></tr>';
+        '<tr><td colspan="9">No hay pedidos para la fecha elegida.</td></tr>';
       return;
     }
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -1423,33 +1425,61 @@ const OrdersUI = (() => {
       elements.tableBody.innerHTML =
         '<tr><td colspan="9">Cargando pedidos…</td></tr>';
     }
+    let res;
+    let responseBodyText = "";
     try {
-      const dateParam = state.date ? toYmd(state.date) : "";
+      const rawDate = elements.date ? elements.date.value || "" : "";
+      const dateParam = toYmd(rawDate || state.date || "");
       const status = state.status || "all";
       const q = state.q || "";
       const includeDeleted = state.includeDeleted;
-      const url = `/api/orders?date=${dateParam}&status=${status}&q=${encodeURIComponent(
-        q,
-      )}${includeDeleted ? "&includeDeleted=1" : ""}`;
-      const res = await fetch(url);
+      const url = `/api/orders?date=${encodeURIComponent(
+        dateParam,
+      )}&status=${status}&q=${encodeURIComponent(q)}${includeDeleted ? "&includeDeleted=1" : ""}`;
+      console.info("orders-fetch:url", url);
+      res = await fetch(url);
       if (!res.ok) {
-        let body;
-        try {
-          body = await res.json();
-        } catch (jsonErr) {
+        if (typeof res.text === "function") {
           try {
-            body = await res.text();
+            responseBodyText = await res.text();
           } catch (textErr) {
-            body = jsonErr?.message || "";
+            responseBodyText = textErr?.message || "";
           }
         }
+        console.error("orders-load-failed", {
+          status: res?.status,
+          body: responseBodyText,
+        });
         const error = new Error("orders-load-failed");
         error.status = res.status;
-        error.body = body;
+        error.body = responseBodyText;
         error.url = url;
+        error.__ordersLogged = true;
         throw error;
       }
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        responseBodyText = jsonErr?.message || "json-parse-error";
+        console.error("orders-load-failed", {
+          status: res?.status,
+          body: responseBodyText,
+        });
+        const error = new Error("orders-load-failed");
+        error.status = res?.status;
+        error.body = responseBodyText;
+        error.url = url;
+        error.__ordersLogged = true;
+        throw error;
+      }
+      console.info("orders-response:keys", Object.keys(data || {}));
+      console.info("orders-response:counts", {
+        orders: Array.isArray(data?.orders) ? data.orders.length : null,
+        items: Array.isArray(data?.items) ? data.items.length : null,
+        summary: data?.summary,
+        total: data?.total ?? data?.summary?.total ?? null,
+      });
       const rows = data.orders || data.items || [];
       const total =
         typeof data.total === "number"
@@ -1474,13 +1504,21 @@ const OrdersUI = (() => {
       renderPagination();
       renderDetail();
     } catch (err) {
-      const status = typeof err?.status === "number" ? err.status : "NETWORK";
-      const body = err?.body ?? err?.message ?? String(err ?? "");
-      const url = err?.url ||
-        `/api/orders?date=${state.date || ""}&status=${state.status || ""}&q=${encodeURIComponent(
-          state.q || "",
-        )}${state.includeDeleted ? "&includeDeleted=1" : ""}`;
-      console.error("orders-load-failed", { url, status, body });
+      if (!err?.__ordersLogged) {
+        let body = err?.body ?? err?.message ?? "";
+        if (!body && res && typeof res.text === "function" && !res.bodyUsed) {
+          try {
+            body = await res.text();
+          } catch (textErr) {
+            body = textErr?.message || "";
+          }
+        }
+        if (!body) body = responseBodyText || "";
+        console.error("orders-load-failed", {
+          status: res?.status,
+          body,
+        });
+      }
       cache = { items: [], summary: null };
       if (elements.tableBody) {
         elements.tableBody.innerHTML =
