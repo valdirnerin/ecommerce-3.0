@@ -11,13 +11,14 @@ async function getAll() {
   const pool = db.getPool();
   if (!pool) {
     try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf8')).orders || [];
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8')).orders || [];
+      return data.map((order) => ensureInvoiceStructure(order));
     } catch {
       return [];
     }
   }
   const { rows } = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-  return rows;
+  return rows.map((order) => ensureInvoiceStructure(order));
 }
 
 async function getById(id) {
@@ -34,26 +35,38 @@ async function getById(id) {
     [id]
   );
   order.items = items.rows;
-  return order;
+  return ensureInvoiceStructure(order);
 }
 
 async function saveAll(orders) {
   const pool = db.getPool();
   if (!pool) {
-    fs.writeFileSync(filePath, JSON.stringify({ orders }, null, 2), 'utf8');
+    const sanitized = orders.map((order) => ensureInvoiceStructure(order));
+    fs.writeFileSync(filePath, JSON.stringify({ orders: sanitized }, null, 2), 'utf8');
     return;
   }
   await pool.query('BEGIN');
   try {
-    for (const o of orders) {
+    for (const original of orders) {
+      const o = ensureInvoiceStructure(original);
       await pool.query(
-        `INSERT INTO orders (id, created_at, customer_email, status, total)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO orders (id, created_at, customer_email, status, total, invoice_status, invoices)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (id) DO UPDATE SET
            customer_email=EXCLUDED.customer_email,
            status=EXCLUDED.status,
-           total=EXCLUDED.total`,
-        [o.id, o.created_at || new Date(), o.customer_email || null, o.status || 'pendiente', o.total || 0]
+           total=EXCLUDED.total,
+           invoice_status=COALESCE(EXCLUDED.invoice_status, orders.invoice_status),
+           invoices=COALESCE(EXCLUDED.invoices, orders.invoices)` ,
+        [
+          o.id,
+          o.created_at || new Date(),
+          o.customer_email || null,
+          o.status || 'pendiente',
+          o.total || 0,
+          o.invoice_status || null,
+          JSON.stringify(o.invoices || []),
+        ]
       );
     }
     await pool.query('COMMIT');
@@ -241,6 +254,94 @@ function normalizeAddress(order = {}) {
   return Object.keys(result).length ? result : null;
 }
 
+function sanitizeInvoiceRecord(entry = {}) {
+  if (!entry || typeof entry !== 'object') return null;
+  const record = {};
+  if (entry.filename != null) {
+    const name = String(entry.filename).trim();
+    if (name) record.filename = name;
+  }
+  if (entry.url != null) {
+    const url = String(entry.url).trim();
+    if (url) record.url = url;
+  }
+  const uploadedSource =
+    entry.uploaded_at ||
+    entry.uploadedAt ||
+    entry.created_at ||
+    entry.fecha ||
+    entry.date ||
+    null;
+  if (uploadedSource) {
+    const uploadedDate = new Date(uploadedSource);
+    if (!Number.isNaN(uploadedDate.getTime())) {
+      record.uploaded_at = uploadedDate.toISOString();
+    }
+  }
+  if (!record.uploaded_at) {
+    record.uploaded_at = new Date().toISOString();
+  }
+  const originalName = entry.original_name || entry.originalName;
+  if (originalName) {
+    const name = String(originalName).trim();
+    if (name) record.original_name = name;
+  }
+  const deletedSource = entry.deleted_at || entry.deletedAt || null;
+  if (deletedSource) {
+    const deletedDate = new Date(deletedSource);
+    if (!Number.isNaN(deletedDate.getTime())) {
+      record.deleted_at = deletedDate.toISOString();
+    }
+  }
+  if (!record.filename && !record.url) return null;
+  return record;
+}
+
+function normalizeInvoicesList(value) {
+  if (!value && value !== 0) return [];
+  let raw = [];
+  if (Array.isArray(value)) {
+    raw = value;
+  } else if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) raw = parsed;
+      else if (parsed && typeof parsed === 'object') raw = [parsed];
+    } catch {
+      raw = [];
+    }
+  } else if (typeof value === 'object') {
+    raw = [value];
+  }
+  return raw
+    .map((entry) => sanitizeInvoiceRecord(entry))
+    .filter(Boolean);
+}
+
+function ensureInvoiceStructure(order) {
+  if (!order || typeof order !== 'object') return order;
+  const draft = { ...order };
+  const invoices = normalizeInvoicesList(order.invoices);
+  if (!invoices.length) {
+    const fallback = sanitizeInvoiceRecord({
+      filename: order.invoice_filename || order.invoiceFilename,
+      url: order.invoice_url || order.invoiceUrl,
+      uploaded_at:
+        order.invoice_uploaded_at ||
+        order.invoiceUploadedAt ||
+        order.invoice_date ||
+        order.invoiceDate,
+    });
+    if (fallback) invoices.push(fallback);
+  }
+  draft.invoices = invoices;
+  const status = normalizeKey(order.invoice_status || order.invoiceStatus);
+  if (status) draft.invoice_status = status;
+  else if (invoices.some((inv) => !inv.deleted_at)) draft.invoice_status = 'emitida';
+  else draft.invoice_status = null;
+  return draft;
+}
+
 function validateOrder(order) {
   const lines = normalizeItems(order);
   if (!order || lines.length === 0) throw new Error('ORDER_WITHOUT_ITEMS');
@@ -265,25 +366,30 @@ async function create(order) {
       ...normalizedAddress,
     };
   }
+  const invoiceData = ensureInvoiceStructure(draft);
+  draft.invoices = invoiceData.invoices;
+  draft.invoice_status = invoiceData.invoice_status;
   if (!draft.created_at) {
     draft.created_at = new Date().toISOString();
   }
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
-    orders.push(draft);
+    orders.push({ ...draft });
     await saveAll(orders);
     return draft;
   }
   await pool.query('BEGIN');
   try {
     await pool.query(
-      'INSERT INTO orders (id, created_at, customer_email, status, total) VALUES ($1, now(), $2, $3, $4)',
+      'INSERT INTO orders (id, created_at, customer_email, status, total, invoice_status, invoices) VALUES ($1, now(), $2, $3, $4, $5, $6)',
       [
         draft.id,
         draft.customer_email || draft.customer?.email || null,
         draft.status || 'pendiente',
         draft.total || 0,
+        draft.invoice_status || null,
+        JSON.stringify(draft.invoices || []),
       ]
     );
     for (const it of draft.items || []) {
@@ -319,6 +425,9 @@ async function update(order) {
       ...normalizedAddress,
     };
   }
+  const invoiceData = ensureInvoiceStructure(draft);
+  draft.invoices = invoiceData.invoices;
+  draft.invoice_status = invoiceData.invoice_status;
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
@@ -347,12 +456,14 @@ async function update(order) {
   await pool.query('BEGIN');
   try {
     await pool.query(
-      'UPDATE orders SET customer_email=$2, status=$3, total=$4 WHERE id=$1',
+      'UPDATE orders SET customer_email=$2, status=$3, total=$4, invoice_status=$5, invoices=$6 WHERE id=$1',
       [
         draft.id,
         draft.customer_email || draft.customer?.email || null,
         draft.status || 'pendiente',
         draft.total || 0,
+        draft.invoice_status || null,
+        JSON.stringify(draft.invoices || []),
       ]
     );
     await pool.query('DELETE FROM order_items WHERE order_id=$1', [draft.id]);
@@ -686,6 +797,79 @@ function getNormalizedItems(order = {}) {
   return normalizeItems(order);
 }
 
+async function appendInvoice(orderId, invoice = {}) {
+  const id = normalizeKey(orderId);
+  if (!id) throw new Error('ORDER_ID_REQUIRED');
+  const record = sanitizeInvoiceRecord(invoice);
+  if (!record) {
+    const err = new Error('INVALID_INVOICE');
+    err.code = 'INVALID_INVOICE';
+    throw err;
+  }
+  const order = await getById(id);
+  if (!order) {
+    const err = new Error('ORDER_NOT_FOUND');
+    err.code = 'ORDER_NOT_FOUND';
+    throw err;
+  }
+  const current = normalizeInvoicesList(order.invoices);
+  const filtered = record.filename
+    ? current.filter((inv) => normalizeKey(inv.filename) !== normalizeKey(record.filename))
+    : current;
+  filtered.push(record);
+  const next = {
+    ...order,
+    invoices: filtered,
+    invoice_status: 'emitida',
+  };
+  return update(next);
+}
+
+async function listInvoices(orderId, { includeDeleted = false } = {}) {
+  const id = normalizeKey(orderId);
+  if (!id) return [];
+  const order = await getById(id);
+  if (!order) {
+    const err = new Error('ORDER_NOT_FOUND');
+    err.code = 'ORDER_NOT_FOUND';
+    throw err;
+  }
+  const invoices = normalizeInvoicesList(order.invoices);
+  if (includeDeleted) return invoices;
+  return invoices.filter((inv) => !inv.deleted_at);
+}
+
+async function softDeleteInvoice(orderId, filename) {
+  const id = normalizeKey(orderId);
+  const target = normalizeKey(filename);
+  if (!id || !target) throw new Error('INVOICE_NOT_FOUND');
+  const order = await getById(id);
+  if (!order) {
+    const err = new Error('ORDER_NOT_FOUND');
+    err.code = 'ORDER_NOT_FOUND';
+    throw err;
+  }
+  const invoices = normalizeInvoicesList(order.invoices);
+  let changed = false;
+  const nextInvoices = invoices.map((inv) => {
+    if (normalizeKey(inv.filename) === target && !inv.deleted_at) {
+      changed = true;
+      return { ...inv, deleted_at: new Date().toISOString() };
+    }
+    return inv;
+  });
+  if (!changed) {
+    const err = new Error('INVOICE_NOT_FOUND');
+    err.code = 'INVOICE_NOT_FOUND';
+    throw err;
+  }
+  const next = { ...order, invoices: nextInvoices };
+  if (!nextInvoices.some((inv) => !inv.deleted_at)) {
+    next.invoice_status = 'pendiente';
+  }
+  return update(next);
+}
+
 async function createOrder({ id, customer_email, items }) {
   const pool = db.getPool();
   const total = (items || []).reduce(
@@ -799,4 +983,7 @@ module.exports = {
   normalizeItems,
   normalizeCustomer,
   normalizeAddress,
+  appendInvoice,
+  listInvoices,
+  softDeleteInvoice,
 };

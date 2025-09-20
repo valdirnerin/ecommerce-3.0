@@ -632,6 +632,14 @@ function normalizeOrder(o) {
     o.fecha_actualizacion ||
     o.last_updated ||
     null;
+  const invoicesRaw = Array.isArray(o.invoices) ? o.invoices : [];
+  const invoices = invoicesRaw
+    .map((inv) => ({ ...inv }))
+    .filter((inv) => inv && !inv.deleted_at);
+  const invoiceStatus =
+    o.invoice_status ||
+    o.invoiceStatus ||
+    (invoices.length ? 'emitida' : null);
   return {
     ...o,
     order_number: orderNum,
@@ -666,6 +674,8 @@ function normalizeOrder(o) {
     updatedAt,
     productos: items,
     cliente,
+    invoices,
+    invoice_status: invoiceStatus,
   };
 }
 
@@ -733,6 +743,22 @@ function computeTotalsSnapshot(order = {}) {
     shipping_total: shippingTotal,
     grand_total: grandTotal,
   };
+}
+
+function normalizeStatusFilter(value) {
+  if (value == null) return '';
+  const key = String(value).trim().toLowerCase();
+  if (!key || key === 'all' || key === 'todos') return '';
+  if (key === 'pagado' || key === 'aprobado' || key === 'approved' || key === 'paid') {
+    return 'approved';
+  }
+  if (key === 'pendiente' || key === 'pending' || key === 'in_process' || key === 'in process') {
+    return 'pending';
+  }
+  if (key === 'rechazado' || key === 'rejected' || key === 'cancelado' || key === 'cancelled' || key === 'canceled') {
+    return 'rejected';
+  }
+  return key;
 }
 
 function getOrderStatus(id) {
@@ -1082,6 +1108,33 @@ const generalUpload = multer({
     },
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const invoiceUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(INVOICES_DIR, { recursive: true });
+      cb(null, INVOICES_DIR);
+    },
+    filename: (req, file, cb) => {
+      const baseId =
+        (req && req.orderId && String(req.orderId)) ||
+        (file && file.fieldname) ||
+        'invoice';
+      const sanitized = baseId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || 'invoice';
+      const stamp = Date.now();
+      cb(null, `${sanitized}-${stamp}.pdf`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    if (file.mimetype === 'application/pdf' || ext === '.pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos PDF'));
+    }
+  },
 });
 
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
@@ -1692,10 +1745,11 @@ async function requestHandler(req, res) {
           ? query.date.trim()
           : null;
       const filterDate = dateParam || formatLocalDate(new Date());
+      const normalizedStatus = normalizeStatusFilter(statusParam);
 
       const orders = await ordersRepo.list({
         date: filterDate,
-        status: statusParam,
+        status: normalizedStatus,
         q,
         includeDeleted,
       });
@@ -1852,7 +1906,12 @@ async function requestHandler(req, res) {
   }
 
   // API: obtener una orden por ID
-  if (pathname.startsWith("/api/orders/") && req.method === "GET") {
+  if (
+    pathname.startsWith("/api/orders/") &&
+    req.method === "GET" &&
+    !pathname.endsWith("/invoices") &&
+    !pathname.includes("/invoices/")
+  ) {
     const id = pathname.split("/").pop();
     try {
       const orders = getOrders();
@@ -2325,125 +2384,128 @@ async function requestHandler(req, res) {
     return;
   }
 
-  // API: crear factura para un pedido
-  // Ruta: /api/invoices/{orderId}
-  if (pathname.startsWith("/api/invoices/") && req.method === "POST") {
-    const orderId = decodeURIComponent(pathname.split("/").pop());
-    try {
-      const orders = getOrders();
-      const order = orders.find((o) => o.id === orderId);
-      if (!order) {
-        return sendJson(res, 404, { error: "Pedido no encontrado" });
-      }
-      // Buscar si ya existe factura para este pedido
-      let invoices = getInvoices();
-      let existing = invoices.find((inv) => inv.orderId === orderId);
-      if (existing) {
-        return sendJson(res, 200, { invoice: existing });
-      }
-      // Determinar tipo de factura según condición fiscal del cliente
-      let type = "B";
-      let clientInfo = null;
-      if (order.cliente && order.cliente.email) {
-        const clients = getClients();
-        const client = clients.find((c) => c.email === order.cliente.email);
-        if (client) {
-          clientInfo = { ...client };
-          if (
-            client.condicion_iva &&
-            client.condicion_iva.toLowerCase().includes("responsable")
-          ) {
-            type = "A";
-          }
-        }
-      }
-      const invoiceNumber = getNextInvoiceNumber();
-      const invoice = {
-        id: invoiceNumber,
-        orderId,
-        date: new Date().toISOString(),
-        type,
-        client: clientInfo,
-        items: order.productos,
-        total: order.total,
-      };
-      invoices.push(invoice);
-      saveInvoices(invoices);
-      return sendJson(res, 201, { invoice });
-    } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, { error: "No se pudo crear la factura" });
+  if (
+    pathname.startsWith("/api/orders/") &&
+    pathname.endsWith("/invoices") &&
+    req.method === "POST"
+  ) {
+    const segments = pathname.split("/").filter(Boolean);
+    const orderId = decodeURIComponent(segments[2] || "");
+    if (!orderId) {
+      return sendJson(res, 400, { error: "Pedido inválido" });
     }
-  }
-
-  // API: obtener factura de un pedido
-  // Ruta: /api/invoices/{orderId}
-  if (pathname.startsWith("/api/invoices/") && req.method === "GET") {
-    const orderId = decodeURIComponent(pathname.split("/").pop());
-    try {
-      const invoices = getInvoices();
-      const invoice = invoices.find((inv) => inv.orderId === orderId);
-      if (!invoice) {
-        return sendJson(res, 404, { error: "Factura no encontrada" });
-      }
-      return sendJson(res, 200, { invoice });
-    } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, { error: "No se pudo obtener la factura" });
-    }
-  }
-
-  // API: subir archivo de factura para un pedido
-  // Ruta: /api/invoice-files/{orderId} (POST)
-  if (pathname.startsWith("/api/invoice-files/") && req.method === "POST") {
-    const orderId = decodeURIComponent(pathname.split("/").pop());
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
-      try {
-        const { fileName, data } = JSON.parse(body || "{}");
-        if (!fileName || !data) {
-          return sendJson(res, 400, { error: "Falta archivo" });
-        }
-        const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-        const dir = INVOICES_DIR;
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        const filePath = path.join(dir, `${orderId}-${Date.now()}-${safeName}`);
-        fs.writeFileSync(filePath, Buffer.from(data, "base64"));
-        const uploads = getInvoiceUploads();
-        const existingIdx = uploads.findIndex((u) => u.orderId === orderId);
-        const record = {
-          orderId,
-          fileName: path.basename(filePath),
-        };
-        if (existingIdx !== -1) uploads[existingIdx] = record;
-        else uploads.push(record);
-        saveInvoiceUploads(uploads);
-        return sendJson(res, 201, { success: true, file: record.fileName });
-      } catch (err) {
+    req.orderId = orderId;
+    invoiceUpload.single("file")(req, res, async (err) => {
+      if (err) {
         console.error(err);
+        return sendJson(res, 400, { error: "No se pudo procesar el archivo" });
+      }
+      try {
+        if (!req.file) {
+          return sendJson(res, 400, { error: "Archivo requerido" });
+        }
+        const filename = req.file.filename;
+        const uploadedAt = new Date().toISOString();
+        const record = {
+          filename,
+          url: `/files/invoices/${encodeURIComponent(filename)}`,
+          uploaded_at: uploadedAt,
+          original_name: req.file.originalname || undefined,
+        };
+        await ordersRepo.appendInvoice(orderId, record);
+        const invoices = await ordersRepo.listInvoices(orderId, {
+          includeDeleted: true,
+        });
+        return sendJson(res, 201, { invoice: record, invoices });
+      } catch (error) {
+        console.error(error);
+        if (error.code === 'ORDER_NOT_FOUND') {
+          return sendJson(res, 404, { error: "Pedido no encontrado" });
+        }
+        if (error.code === 'INVALID_INVOICE') {
+          return sendJson(res, 400, { error: "Datos de factura inválidos" });
+        }
         return sendJson(res, 500, { error: "No se pudo guardar la factura" });
       }
     });
     return;
   }
 
-  // API: obtener archivo de factura de un pedido
-  // Ruta: /api/invoice-files/{orderId} (GET)
-  if (pathname.startsWith("/api/invoice-files/") && req.method === "GET") {
-    const orderId = decodeURIComponent(pathname.split("/").pop());
+  if (
+    pathname.startsWith("/api/orders/") &&
+    pathname.endsWith("/invoices") &&
+    req.method === "GET"
+  ) {
+    const segments = pathname.split("/").filter(Boolean);
+    const orderId = decodeURIComponent(segments[2] || "");
+    if (!orderId) {
+      return sendJson(res, 400, { error: "Pedido inválido" });
+    }
     try {
-      const uploads = getInvoiceUploads();
-      const record = uploads.find((u) => u.orderId === orderId);
-      if (!record) {
+      const order = await ordersRepo.getById(orderId);
+      if (!order) {
+        return sendJson(res, 404, { error: "Pedido no encontrado" });
+      }
+      const invoices = await ordersRepo.listInvoices(orderId, {
+        includeDeleted: true,
+      });
+      return sendJson(res, 200, { invoices });
+    } catch (error) {
+      console.error(error);
+      return sendJson(res, 500, { error: "No se pudieron obtener las facturas" });
+    }
+  }
+
+  if (
+    pathname.startsWith("/api/orders/") &&
+    pathname.includes("/invoices/") &&
+    req.method === "DELETE"
+  ) {
+    const segments = pathname.split("/").filter(Boolean);
+    const orderId = decodeURIComponent(segments[2] || "");
+    const filename = decodeURIComponent(segments[4] || "");
+    if (!orderId || !filename) {
+      return sendJson(res, 400, { error: "Parámetros inválidos" });
+    }
+    try {
+      await ordersRepo.softDeleteInvoice(orderId, filename);
+      const invoices = await ordersRepo.listInvoices(orderId, {
+        includeDeleted: true,
+      });
+      return sendJson(res, 200, { success: true, invoices });
+    } catch (error) {
+      console.error(error);
+      if (error.code === 'ORDER_NOT_FOUND') {
+        return sendJson(res, 404, { error: "Pedido no encontrado" });
+      }
+      if (error.code === 'INVOICE_NOT_FOUND') {
         return sendJson(res, 404, { error: "Factura no encontrada" });
       }
-      const urlBase = `/assets/invoices/${encodeURIComponent(record.fileName)}`;
-      return sendJson(res, 200, { fileName: record.fileName, url: urlBase });
-    } catch (err) {
-      console.error(err);
+      return sendJson(res, 500, { error: "No se pudo eliminar la factura" });
+    }
+  }
+
+  if (pathname.startsWith("/api/invoice-files/") && req.method === "GET") {
+    const orderId = decodeURIComponent(pathname.split("/").pop());
+    if (!orderId) {
+      return sendJson(res, 400, { error: "Pedido inválido" });
+    }
+    try {
+      const invoices = await ordersRepo.listInvoices(orderId);
+      if (!invoices.length) {
+        return sendJson(res, 404, { error: "Factura no encontrada" });
+      }
+      const invoice = invoices[0];
+      const response = {
+        fileName: invoice.filename || null,
+        url: invoice.url,
+      };
+      return sendJson(res, 200, response);
+    } catch (error) {
+      console.error(error);
+      if (error.code === 'ORDER_NOT_FOUND') {
+        return sendJson(res, 404, { error: "Pedido no encontrado" });
+      }
       return sendJson(res, 500, { error: "No se pudo obtener la factura" });
     }
   }
@@ -3332,8 +3394,14 @@ async function requestHandler(req, res) {
   //    La ruta pública es /assets/invoices/<nombre de archivo>. Se sirve
   //    directamente desde INVOICES_DIR para que los archivos sobrevivan a
   //    desplegues. Se controla que el path esté dentro del directorio.
-  if (pathname.startsWith("/assets/invoices/") && req.method === "GET") {
-    const file = decodeURIComponent(pathname.replace("/assets/invoices/", ""));
+  if (
+    (pathname.startsWith("/assets/invoices/") ||
+      pathname.startsWith("/files/invoices/")) &&
+    req.method === "GET"
+  ) {
+    const file = decodeURIComponent(
+      pathname.replace(/^\/(?:assets|files)\/invoices\//, ""),
+    );
     const abs = path.join(INVOICES_DIR, file);
     // Validar que la ruta no salga del directorio de facturas
     if (!abs.startsWith(INVOICES_DIR)) {
@@ -3348,7 +3416,7 @@ async function requestHandler(req, res) {
         return;
       }
       res.writeHead(200, {
-        "Content-Type": "application/octet-stream",
+        "Content-Type": "application/pdf",
         "Access-Control-Allow-Origin": ORIGIN,
       });
       fs.createReadStream(abs).pipe(res);

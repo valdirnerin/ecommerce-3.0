@@ -16,6 +16,118 @@ let lastEtag = null;
 const PAYMENT_CANCEL_CODES = new Set(['rejected', 'charged_back', 'refunded']);
 const POLL_INTERVAL_MS = 15000;
 
+const STEP_LABELS = [
+  'Pedido recibido',
+  'Pago acreditado',
+  'Preparando el pedido',
+  'Enviado',
+  'Entregado',
+];
+
+const STEP_ICONS = {
+  done:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"></circle><path d="M9 12.5l2 2 4-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
+  current:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>',
+  todo:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle></svg>',
+};
+
+function normalizeStatusValue(value) {
+  if (!value && value !== 0) return '';
+  return String(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function computeSteps(order = {}) {
+  const steps = STEP_LABELS.map((label) => ({ label, state: 'todo' }));
+  if (!steps.length) return steps;
+
+  steps[0].state = 'done';
+
+  const payValue = normalizeStatusValue(
+    order.payment_status ||
+      order.estado_pago ||
+      order.payment_status_code ||
+      order.status ||
+      '',
+  );
+  const shipSource =
+    order.shipping_status ||
+    order.estado_envio ||
+    order.shipping_status_label ||
+    order.shipping_status_code ||
+    '';
+  const shipValue = normalizeStatusValue(shipSource);
+  const payCode = getPaymentCode(order);
+  const shipCode = getShippingCode(order);
+
+  const isPaid =
+    payCode === 'approved' ||
+    payValue === 'pagado' ||
+    payValue === 'approved' ||
+    payValue === 'aprobado';
+
+  const shipString = shipValue || '';
+  const denyShipped = /\bno\s+enviado\b|\bsin\s+envi/.test(shipString);
+  const denyDelivered = /\bno\s+entregado\b|\bsin\s+entreg/.test(
+    shipString,
+  );
+  const denyPreparing = /\bno\s+prepar|\bsin\s+prepar/.test(shipString);
+  const isPreparing =
+    (shipCode === 'preparing' ||
+      shipString === 'en preparacion' ||
+      shipString === 'preparando' ||
+      shipString.includes('prepar')) &&
+    !denyPreparing;
+  let isShipped =
+    shipCode === 'shipped' ||
+    shipString === 'enviado' ||
+    shipString === 'envio' ||
+    shipString === 'enviando' ||
+    shipString.includes(' enviado');
+  if (denyShipped) isShipped = false;
+  let isDelivered =
+    shipCode === 'delivered' ||
+    shipString === 'entregado' ||
+    shipString === 'entregada' ||
+    shipString.includes('entregado');
+  if (denyDelivered) isDelivered = false;
+
+  if (isDelivered) {
+    steps[1].state = 'done';
+    steps[2].state = 'done';
+    steps[3].state = 'done';
+    steps[4].state = 'done';
+    return steps;
+  }
+
+  if (isShipped) {
+    steps[1].state = 'done';
+    steps[2].state = 'done';
+    steps[3].state = 'done';
+    steps[4].state = 'current';
+    return steps;
+  }
+
+  if (isPreparing) {
+    steps[1].state = 'done';
+    steps[2].state = 'current';
+    return steps;
+  }
+
+  if (isPaid) {
+    steps[1].state = 'done';
+    return steps;
+  }
+
+  steps[1].state = 'current';
+  return steps;
+}
+
 function updateWhatsAppLink() {
   const cfg = window.NERIN_CONFIG;
   if (cfg && cfg.whatsappNumber && contactBtn) {
@@ -32,12 +144,19 @@ async function fetchInvoice(orderId) {
     return;
   }
   try {
-    const res = await fetch(`/api/invoice-files/${encodeURIComponent(orderId)}`);
-    if (res.ok) {
-      invoiceInfo = await res.json();
-    } else {
+    const res = await fetch(
+      `/api/orders/${encodeURIComponent(orderId)}/invoices`,
+    );
+    if (!res.ok) {
       invoiceInfo = null;
+      return;
     }
+    const data = await res.json();
+    const list = Array.isArray(data.invoices) ? data.invoices : [];
+    invoiceInfo =
+      list.find((inv) => !inv.deleted_at) ||
+      list.find((inv) => inv && inv.url) ||
+      null;
   } catch (_) {
     invoiceInfo = null;
   }
@@ -95,16 +214,6 @@ function getPaymentCode(order = {}) {
   return 'pending';
 }
 
-function deriveStage(order = {}) {
-  const pay = getPaymentCode(order);
-  const ship = getShippingCode(order);
-  if (ship === 'delivered') return 5;
-  if (ship === 'shipped') return 4;
-  if (ship === 'preparing') return 3;
-  if (pay === 'approved') return 2;
-  return 1;
-}
-
 function hideAlert() {
   if (!alertEl) return;
   alertEl.style.display = 'none';
@@ -119,34 +228,45 @@ function showAlert(message) {
 
 function renderOrderProgress(order = {}) {
   if (!progressContainer) return;
+  const steps = computeSteps(order);
+  if (!steps.length) {
+    progressContainer.style.display = 'none';
+    progressContainer.innerHTML = '';
+    return;
+  }
   const markup = `
     <ol class="order-progress" role="list" aria-label="Estado del pedido">
-      <li class="step" data-step="1"><span class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v10H4zM4 7l4-3h8l4 3"/></svg>
-      </span><span class="label">Pedido recibido</span></li>
-      <li class="step" data-step="2"><span class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v10H3zM3 10h18"/></svg>
-      </span><span class="label">Pago acreditado</span></li>
-      <li class="step" data-step="3"><span class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20h18M6 17l12-12 3 3-12 12H6z"/></svg>
-      </span><span class="label">Preparando el pedido</span></li>
-      <li class="step" data-step="4"><span class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h12v10H3zM15 10h4l2 3v4h-6z"/></svg>
-      </span><span class="label">Enviado</span></li>
-      <li class="step" data-step="5"><span class="icon">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7l-9 9-5-5"/></svg>
-      </span><span class="label">Entregado</span></li>
+      ${steps
+        .map(
+          (step, index) => `
+            <li class="step ${step.state}" data-step="${index + 1}">
+              <span class="icon" aria-hidden="true">${
+                STEP_ICONS[step.state] || STEP_ICONS.todo
+              }</span>
+              <span class="label">${step.label}</span>
+            </li>
+          `,
+        )
+        .join('')}
     </ol>
   `;
   progressContainer.innerHTML = markup;
   const list = progressContainer.querySelector('.order-progress');
   if (!list) return;
-  const stage = deriveStage(order);
-  list.style.setProperty('--progress', `${((stage - 1) / 4) * 100}%`);
-  list.querySelectorAll('.step').forEach((li) => {
-    const n = Number(li.dataset.step);
-    const state = n < stage ? 'done' : n === stage ? 'current' : 'todo';
+  const currentIndex = steps.findIndex((step) => step.state === 'current');
+  const lastDoneIndex = steps.reduce(
+    (acc, step, idx) => (step.state === 'done' ? idx : acc),
+    -1,
+  );
+  const progressIndex = Math.max(currentIndex, lastDoneIndex, 0);
+  const progressValue =
+    steps.length > 1 ? (progressIndex / (steps.length - 1)) * 100 : 0;
+  list.style.setProperty('--progress', `${progressValue}%`);
+  list.querySelectorAll('.step').forEach((li, idx) => {
+    const state = steps[idx]?.state || 'todo';
     li.dataset.state = state;
+    li.classList.remove('done', 'current', 'todo');
+    li.classList.add(state);
     if (state === 'current') li.setAttribute('aria-current', 'step');
     else li.removeAttribute('aria-current');
   });
@@ -204,6 +324,13 @@ function renderOrder(order = {}) {
   const destination = order.destino || order.address || order.shipping_address?.street || '';
   const province = order.provincia_envio || order.shipping_address?.province || '';
   const customerEmail = order.cliente?.email || order.customer?.email || order.user_email || '';
+  const orderInvoices = Array.isArray(order.invoices) ? order.invoices : [];
+  const activeInvoice = orderInvoices.find((inv) => inv && !inv.deleted_at && inv.url);
+  const invoiceToShow =
+    (invoiceInfo && invoiceInfo.url ? invoiceInfo : null) || activeInvoice || null;
+  if (!invoiceInfo && invoiceToShow) {
+    invoiceInfo = invoiceToShow;
+  }
 
   summaryEl.innerHTML = `
     <p><strong>Número de pedido:</strong> ${orderId}</p>
@@ -218,8 +345,8 @@ function renderOrder(order = {}) {
     ${shippingCostLabel ? `<p><strong>Costo de envío:</strong> ${shippingCostLabel}</p>` : ''}
     ${customerEmail ? `<p><strong>Email:</strong> ${customerEmail}</p>` : ''}
     ${trackingCode ? `<p><strong>Nº de seguimiento:</strong> ${trackingCode}${carrier ? ` (${carrier})` : ''}</p>` : ''}
-    ${invoiceInfo && invoiceInfo.url
-      ? `<p><a href="${invoiceInfo.url}" target="_blank" rel="noopener">Ver/Descargar factura</a></p>`
+    ${invoiceToShow && invoiceToShow.url
+      ? `<p><a href="${invoiceToShow.url}" target="_blank" rel="noopener">Ver/Descargar factura</a></p>`
       : '<p><em>Factura pendiente</em></p>'}
   `;
   summaryEl.style.display = 'block';
