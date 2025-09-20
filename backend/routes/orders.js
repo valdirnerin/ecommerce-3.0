@@ -385,4 +385,84 @@ router.post('/:orderNumber/mark-paid', async (req, res) => {
   }
 });
 
+async function updateOrder(whereClause, values, updates) {
+  if (!updates.sets.length) {
+    throw new Error('NO_FIELDS');
+  }
+  const { rows } = await db.query(
+    `UPDATE orders
+        SET ${updates.sets.join(', ')}
+      WHERE ${whereClause}
+      RETURNING *`,
+    [...updates.values, ...values],
+  );
+  return rows;
+}
+
+function buildUpdateSet(payload = {}) {
+  const allowed = [
+    'payment_status',
+    'shipping_status',
+    'tracking',
+    'carrier',
+    'shipping_note',
+  ];
+  const sets = [];
+  const values = [];
+  allowed.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(payload, key)) {
+      let value = payload[key];
+      if (typeof value === 'string') {
+        value = value.trim();
+        if (value === '') value = null;
+      }
+      if (value === undefined) value = null;
+      sets.push(`${key} = $${sets.length + 1}`);
+      values.push(value);
+    }
+  });
+  return { sets, values };
+}
+
+router.put('/:id', async (req, res) => {
+  const identifier = String(req.params.id || '').trim();
+  if (!identifier) {
+    return res.status(400).json({ error: 'Identificador inválido' });
+  }
+  try {
+    const updates = buildUpdateSet(req.body || {});
+    if (!updates.sets.length) {
+      return res.status(400).json({ error: 'No hay campos para actualizar' });
+    }
+
+    const attempts = [];
+    const numericId = Number(identifier);
+    if (Number.isInteger(numericId) && numericId > 0) {
+      attempts.push({ clause: 'id = $' + (updates.values.length + 1), values: [numericId] });
+    }
+    attempts.push({ clause: 'order_number = $' + (updates.values.length + 1), values: [identifier] });
+    attempts.push({ clause: 'preference_id = $' + (updates.values.length + 1), values: [identifier] });
+
+    let updatedRows = [];
+    for (const attempt of attempts) {
+      // eslint-disable-next-line no-await-in-loop
+      updatedRows = await updateOrder(attempt.clause, attempt.values, updates);
+      if (updatedRows.length) break;
+    }
+
+    if (!updatedRows.length) {
+      return res.status(404).json({ error: 'Pedido no encontrado' });
+    }
+
+    const normalized = normalizeOrderRow(updatedRows[0]);
+    res.json({ success: true, order: normalized });
+  } catch (error) {
+    if (error.message === 'NO_FIELDS') {
+      return res.status(400).json({ error: 'No hay campos para actualizar' });
+    }
+    logger.error(`Error al actualizar pedido ${req.params.id}: ${error.message}`);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;

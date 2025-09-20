@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const { execSync } = require('child_process');
 const db = require('./db');
 const generarNumeroOrden = require('./utils/generarNumeroOrden');
 const logger = require('./logger');
@@ -28,6 +29,31 @@ if (ACCESS_TOKEN.startsWith('TEST-')) {
 
 const PUBLIC_URL =
   process.env.PUBLIC_URL || 'http://localhost:3000';
+
+const BUILD_ID = (() => {
+  if (process.env.BUILD_ID) return process.env.BUILD_ID;
+  const ENV_KEYS = [
+    'SOURCE_VERSION',
+    'VERCEL_GIT_COMMIT_SHA',
+    'VERCEL_GIT_COMMIT_REF',
+    'GIT_COMMIT',
+    'COMMIT_SHA',
+    'RENDER_GIT_COMMIT',
+    'HEROKU_SLUG_COMMIT',
+  ];
+  for (const key of ENV_KEYS) {
+    if (process.env[key]) return process.env[key];
+  }
+  try {
+    return execSync('git rev-parse --short HEAD', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim();
+  } catch (error) {
+    return `dev-${new Date().toISOString().slice(0, 10)}`;
+  }
+})();
 
 const app = express();
 app.enable('trust proxy');
@@ -80,6 +106,10 @@ app.use((req, res, next) => {
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, service: 'backend', ts: Date.now() });
+});
+
+app.get('/api/version', (req, res) => {
+  res.json({ build: BUILD_ID });
 });
 
 app.get('/api/validate-email', async (req, res) => {
