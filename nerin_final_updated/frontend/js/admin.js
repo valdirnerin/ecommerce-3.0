@@ -9,7 +9,29 @@
 import { getUserRole, logout } from "./api.js";
 import { renderAnalyticsDashboard } from "./analytics.js";
 
-console.info("admin-js-version", "20240926-01");
+const ADMIN_BUILD_FALLBACK =
+  (typeof window !== "undefined" && window.__NERIN_ADMIN_BUILD__) || "dev";
+
+async function logAdminBuildVersion() {
+  let buildId = ADMIN_BUILD_FALLBACK;
+  try {
+    const res = await fetch("/api/version", { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.build) {
+        buildId = data.build;
+        if (typeof window !== "undefined") {
+          window.__NERIN_ADMIN_BUILD__ = data.build;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("admin-version-fetch-failed", err);
+  }
+  console.info("admin-js-version", buildId);
+}
+
+logAdminBuildVersion();
 
 // Verificar rol de administrador o vendedor
 const currentRole = getUserRole();
