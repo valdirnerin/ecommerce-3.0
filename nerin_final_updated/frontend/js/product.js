@@ -29,6 +29,35 @@ function ensurePreload(url) {
   head.appendChild(link);
 }
 
+function updateHeadImages(images, alts = []) {
+  const head = document.head;
+  if (!head) return;
+  head
+    .querySelectorAll("meta[data-product-image-meta]")
+    .forEach((node) => node.remove());
+  if (!images.length) return;
+
+  const appendMeta = (attr, value, content) => {
+    const meta = document.createElement("meta");
+    meta.setAttribute(attr, value);
+    meta.content = content;
+    meta.dataset.productImageMeta = "true";
+    head.appendChild(meta);
+    return meta;
+  };
+
+  images.forEach((url, index) => {
+    appendMeta("property", "og:image", url);
+    const alt = alts[index];
+    if (alt) {
+      appendMeta("property", "og:image:alt", alt);
+    }
+  });
+
+  appendMeta("name", "twitter:image", images[0]);
+  appendMeta("name", "twitter:image:alt", alts[0] || "");
+}
+
 function updateJsonLd(product, images) {
   if (!product || !images.length) return;
   const head = document.head;
@@ -176,98 +205,244 @@ function openLightbox(urls, startIndex = 0, alts = []) {
 function buildGallery(root, urls, alts = []) {
   if (!root) return;
   root.innerHTML = "";
+
   if (!urls.length) {
     const placeholder = document.createElement("div");
-    placeholder.className = "gallery-main";
+    placeholder.className = "product-gallery__empty";
     placeholder.textContent = "Sin imágenes disponibles";
-    placeholder.style.display = "grid";
-    placeholder.style.placeItems = "center";
-    placeholder.style.color = "#666";
     root.appendChild(placeholder);
     return;
   }
 
   const normalizedAlts = urls.map((url, index) => alts[index] || "");
-  const main = document.createElement("div");
-  main.className = "gallery-main";
-  const mainImg = new Image();
-  mainImg.decoding = "async";
-  mainImg.fetchPriority = "high";
-  mainImg.src = urls[0];
-  mainImg.alt = normalizedAlts[0];
-  mainImg.draggable = false;
-  main.appendChild(mainImg);
-
-  const lens = document.createElement("div");
-  lens.className = "zoom-lens";
-  lens.style.backgroundImage = `url("${urls[0]}")`;
-  main.appendChild(lens);
-
-  main.setAttribute("role", "button");
-  main.tabIndex = 0;
-  main.setAttribute("aria-label", "Ampliar imagen del producto");
-
-  const thumbs = document.createElement("div");
-  thumbs.className = "thumbs";
+  const total = urls.length;
   let currentIndex = 0;
 
-  const thumbElements = urls.map((url, index) => {
-    const thumb = document.createElement("img");
-    thumb.src = url;
-    thumb.alt = normalizedAlts[index];
-    thumb.loading = index === 0 ? "eager" : "lazy";
-    thumb.decoding = "async";
-    thumb.setAttribute("role", "button");
-    thumb.tabIndex = 0;
-    thumb.setAttribute(
-      "aria-label",
-      `Mostrar imagen ${index + 1} de ${urls.length}`,
+  const gallery = document.createElement("div");
+  gallery.className = "product-gallery";
+  if (total > 1) gallery.classList.add("product-gallery--multiple");
+  gallery.tabIndex = 0;
+  gallery.setAttribute("role", "region");
+  gallery.setAttribute("aria-label", "Galería de imágenes del producto");
+
+  const viewport = document.createElement("div");
+  viewport.className = "product-gallery__viewport";
+  viewport.setAttribute("aria-live", "polite");
+  viewport.setAttribute("aria-roledescription", "Carrusel");
+
+  const track = document.createElement("div");
+  track.className = "product-gallery__track";
+  viewport.appendChild(track);
+
+  const slides = urls.map((url, index) => {
+    const slide = document.createElement("figure");
+    slide.className = "product-gallery__slide";
+    slide.setAttribute("aria-hidden", index === 0 ? "false" : "true");
+    slide.dataset.index = String(index);
+
+    const picture = document.createElement("picture");
+    const img = new Image();
+    img.className = "product-gallery__image";
+    img.decoding = "async";
+    img.loading = index === 0 ? "eager" : "lazy";
+    img.fetchPriority = index === 0 ? "high" : "auto";
+    img.src = url;
+    img.srcset = `${url} 1x, ${url} 2x`;
+    img.sizes = "(min-width: 1280px) 40vw, (min-width: 768px) 60vw, 90vw";
+    img.alt = normalizedAlts[index];
+    img.draggable = false;
+    picture.appendChild(img);
+    slide.appendChild(picture);
+    track.appendChild(slide);
+
+    img.addEventListener("click", () =>
+      openLightbox(urls, index, normalizedAlts),
     );
-    if (index === 0) thumb.setAttribute("aria-current", "true");
-    thumb.addEventListener("click", () => updateMain(index));
-    thumb.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") {
-        ev.preventDefault();
-        updateMain(index);
+
+    return { slide, img };
+  });
+
+  let pointerStartX = null;
+  let pointerId = null;
+  let pointerMoved = false;
+
+  const thumbButtons = [];
+
+  const updateControls = () => {
+    const navDisabled = total <= 1;
+    if (prevBtn) {
+      prevBtn.disabled = navDisabled;
+      prevBtn.setAttribute("aria-hidden", navDisabled ? "true" : "false");
+      prevBtn.tabIndex = navDisabled ? -1 : 0;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = navDisabled;
+      nextBtn.setAttribute("aria-hidden", navDisabled ? "true" : "false");
+      nextBtn.tabIndex = navDisabled ? -1 : 0;
+    }
+  };
+
+  const goTo = (targetIndex, options = {}) => {
+    if (!total) return;
+    const nextIndex = (targetIndex + total) % total;
+    currentIndex = nextIndex;
+    track.style.transform = `translateX(-${nextIndex * 100}%)`;
+    slides.forEach(({ slide }, i) => {
+      slide.setAttribute("aria-hidden", i === nextIndex ? "false" : "true");
+    });
+    thumbButtons.forEach((btn, i) => {
+      if (i === nextIndex) {
+        btn.setAttribute("aria-selected", "true");
+        if (options.focusThumb) {
+          btn.focus({ preventScroll: true });
+        }
+      } else {
+        btn.setAttribute("aria-selected", "false");
       }
     });
-    thumbs.appendChild(thumb);
-    return thumb;
+    updateControls();
+  };
+
+  const prevBtn = document.createElement("button");
+  prevBtn.type = "button";
+  prevBtn.className = "product-gallery__nav product-gallery__nav--prev";
+  prevBtn.setAttribute("aria-label", "Ver imagen anterior");
+  prevBtn.innerHTML = "<span aria-hidden=\"true\">&#10094;</span>";
+  prevBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    goTo(currentIndex - 1);
   });
 
-  function updateMain(index) {
-    if (index === currentIndex) {
-      openLightbox(urls, index, normalizedAlts);
-      return;
+  const nextBtn = document.createElement("button");
+  nextBtn.type = "button";
+  nextBtn.className = "product-gallery__nav product-gallery__nav--next";
+  nextBtn.setAttribute("aria-label", "Ver imagen siguiente");
+  nextBtn.innerHTML = "<span aria-hidden=\"true\">&#10095;</span>";
+  nextBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    goTo(currentIndex + 1);
+  });
+
+  viewport.append(prevBtn, nextBtn);
+
+  viewport.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType === "touch" || ev.pointerType === "pen") {
+      pointerStartX = ev.clientX;
+      pointerId = ev.pointerId;
+      pointerMoved = false;
+      viewport.setPointerCapture(pointerId);
     }
-    currentIndex = index;
-    mainImg.src = urls[index];
-    mainImg.alt = normalizedAlts[index];
-    lens.style.backgroundImage = `url("${urls[index]}")`;
-    thumbElements.forEach((el, i) => {
-      if (i === index) el.setAttribute("aria-current", "true");
-      else el.removeAttribute("aria-current");
-    });
-  }
-
-  main.addEventListener("mousemove", (ev) => {
-    const rect = main.getBoundingClientRect();
-    const x = ((ev.clientX - rect.left) / rect.width) * 100;
-    const y = ((ev.clientY - rect.top) / rect.height) * 100;
-    lens.style.backgroundPosition = `${x}% ${y}%`;
   });
 
-  main.addEventListener("click", () =>
-    openLightbox(urls, currentIndex, normalizedAlts),
-  );
-  main.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter" || ev.key === " ") {
+  viewport.addEventListener("pointerup", (ev) => {
+    if (pointerId == null || ev.pointerId !== pointerId) return;
+    const delta = ev.clientX - pointerStartX;
+    const shouldSlide = Math.abs(delta) > 40;
+    if (shouldSlide) {
+      goTo(currentIndex + (delta < 0 ? 1 : -1));
+    }
+    pointerMoved = shouldSlide;
+    pointerStartX = null;
+    pointerId = null;
+    try {
+      viewport.releasePointerCapture(ev.pointerId);
+    } catch (err) {
+      /* ignore */
+    }
+  });
+
+  viewport.addEventListener("pointercancel", () => {
+    pointerStartX = null;
+    pointerId = null;
+    pointerMoved = false;
+  });
+
+  gallery.addEventListener("keydown", (ev) => {
+    const target = ev.target;
+    if (ev.key === "ArrowRight") {
+      ev.preventDefault();
+      goTo(currentIndex + 1);
+    } else if (ev.key === "ArrowLeft") {
+      ev.preventDefault();
+      goTo(currentIndex - 1);
+    } else if (
+      (ev.key === "Enter" || ev.key === " ") &&
+      (target === gallery || target === viewport)
+    ) {
       ev.preventDefault();
       openLightbox(urls, currentIndex, normalizedAlts);
     }
   });
 
-  root.append(main, thumbs);
+  const thumbsContainer = document.createElement("div");
+  thumbsContainer.className = "product-thumbs";
+  thumbsContainer.setAttribute("role", "tablist");
+  thumbsContainer.setAttribute(
+    "aria-label",
+    "Miniaturas del producto",
+  );
+
+  urls.forEach((url, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "product-thumbs__item";
+    button.setAttribute(
+      "aria-label",
+      `Ver imagen ${index + 1} de ${total}`,
+    );
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", index === 0 ? "true" : "false");
+    button.dataset.index = String(index);
+
+    const thumbImg = new Image();
+    thumbImg.decoding = "async";
+    thumbImg.loading = index === 0 ? "eager" : "lazy";
+    thumbImg.src = url;
+    thumbImg.srcset = `${url} 1x, ${url} 2x`;
+    thumbImg.sizes = "72px";
+    thumbImg.alt = normalizedAlts[index];
+    thumbImg.draggable = false;
+
+    button.appendChild(thumbImg);
+
+    button.addEventListener("click", () => {
+      goTo(index);
+    });
+
+    button.addEventListener("keydown", (ev) => {
+      if (ev.key === "ArrowRight") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        goTo(index + 1, { focusThumb: true });
+      } else if (ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        goTo(index - 1, { focusThumb: true });
+      } else if (ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openLightbox(urls, index, normalizedAlts);
+      }
+    });
+
+    thumbButtons.push(button);
+    thumbsContainer.appendChild(button);
+  });
+
+  viewport.addEventListener("click", () => {
+    if (pointerMoved) {
+      pointerMoved = false;
+      return;
+    }
+    openLightbox(urls, currentIndex, normalizedAlts);
+  });
+
+  updateControls();
+  gallery.appendChild(viewport);
+  root.appendChild(gallery);
+  if (total > 1) {
+    root.appendChild(thumbsContainer);
+  }
 }
 
 function buildAttributes(product) {
@@ -306,14 +481,21 @@ function renderProduct(product) {
   const legacy = product.image ? [product.image] : [];
   const images = arrayImages.length ? arrayImages : legacy;
   const altInput = Array.isArray(product.images_alt) ? product.images_alt : [];
-  const alts = images.map((_, i) => altInput[i] || product.name || "");
+  const skuLabel = product.sku || product.id || product.name || "sin-identificar";
+  const alts = images.map((_, i) => {
+    const rawAlt = altInput[i];
+    if (typeof rawAlt === "string" && rawAlt.trim()) return rawAlt.trim();
+    return `Producto ${skuLabel} \u2013 imagen ${i + 1}`;
+  });
   const primaryImage = images[0] || "";
   const cartImage = primaryImage || FALLBACK_IMAGE;
   if (primaryImage) {
     ensurePreload(primaryImage);
   }
+  product.images = [...images];
   product.image = primaryImage || cartImage;
   buildGallery(galleryContainer, images, alts);
+  updateHeadImages(images, alts);
   updateJsonLd(product, images);
 
   infoContainer.innerHTML = "";
