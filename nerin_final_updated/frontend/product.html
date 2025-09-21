@@ -33,10 +33,21 @@
       </div>
     </header>
     <main class="container product-detail-container">
-      <div id="productDetail">
-        <!-- El contenido del producto se insertará aquí dinámicamente -->
-      </div>
+      <section class="pdp" id="productDetail">
+        <div class="pdp__gallery" id="gallery"></div>
+        <div class="pdp__info" id="productInfo">
+          <!-- Información del producto -->
+        </div>
+      </section>
     </main>
+    <div
+      class="pdp__lightbox"
+      id="lightbox"
+      role="dialog"
+      aria-hidden="true"
+      aria-modal="true"
+      aria-label="Galería de imágenes"
+    ></div>
     <div id="whatsapp-button">
       <a href="https://wa.me/541112345678" target="_blank">
         <img src="/assets/whatsapp.svg" alt="WhatsApp" />

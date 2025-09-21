@@ -126,59 +126,198 @@ const applyBulkBtn = document.getElementById("applyBulkBtn");
 const selectAllCheckbox = document.getElementById("selectAllProducts");
 
 const API_BASE = "/api/products";
-let uploadedImagePath = "";
 let originalProduct = null;
 let productsCache = [];
 let suppliersCache = [];
+let productImagesState = [];
+let dragImageIndex = null;
+
+function normalizeImageState() {
+  productImagesState = productImagesState.filter((img) => img && img.url);
+}
+
+function renderImageManager() {
+  if (!imagePreview) return;
+  normalizeImageState();
+  imagePreview.innerHTML = "";
+  imagePreview.classList.toggle("has-images", productImagesState.length > 0);
+  if (productImagesState.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "image-dropzone";
+    empty.innerHTML =
+      '<p>Arrastrá imágenes aquí o hacé clic en "Seleccionar" para subirlas.</p>';
+    imagePreview.appendChild(empty);
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "image-list";
+  productImagesState.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "image-item";
+    if (index === 0) row.classList.add("is-primary");
+    row.draggable = true;
+    row.dataset.index = String(index);
+
+    const thumb = new Image();
+    thumb.src = item.url;
+    thumb.alt = item.alt || "Vista previa";
+    thumb.loading = "lazy";
+    row.appendChild(thumb);
+
+    const body = document.createElement("div");
+    body.className = "image-item__body";
+
+    const primaryLabel = document.createElement("label");
+    primaryLabel.className = "image-item__primary";
+    const primaryRadio = document.createElement("input");
+    primaryRadio.type = "radio";
+    primaryRadio.name = "primaryImage";
+    primaryRadio.checked = index === 0;
+    primaryRadio.addEventListener("change", () => {
+      const [selected] = productImagesState.splice(index, 1);
+      productImagesState.unshift(selected);
+      renderImageManager();
+    });
+    primaryLabel.append(primaryRadio, document.createTextNode(" Principal"));
+    body.appendChild(primaryLabel);
+
+    const altInput = document.createElement("input");
+    altInput.type = "text";
+    altInput.placeholder = "Texto alternativo";
+    altInput.value = item.alt || "";
+    altInput.addEventListener("input", (ev) => {
+      productImagesState[index].alt = ev.target.value;
+    });
+    body.appendChild(altInput);
+
+    const actions = document.createElement("div");
+    actions.className = "image-item__actions";
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "button danger image-remove";
+    removeBtn.textContent = "Eliminar";
+    removeBtn.addEventListener("click", () => {
+      productImagesState.splice(index, 1);
+      renderImageManager();
+    });
+    actions.appendChild(removeBtn);
+    body.appendChild(actions);
+
+    row.appendChild(body);
+
+    row.addEventListener("dragstart", (ev) => {
+      dragImageIndex = index;
+      ev.dataTransfer.effectAllowed = "move";
+      row.classList.add("dragging");
+    });
+    row.addEventListener("dragend", () => {
+      dragImageIndex = null;
+      row.classList.remove("dragging");
+      row.classList.remove("dragover");
+    });
+    row.addEventListener("dragover", (ev) => {
+      if (dragImageIndex === null || dragImageIndex === index) return;
+      ev.preventDefault();
+      row.classList.add("dragover");
+    });
+    row.addEventListener("dragleave", () => {
+      row.classList.remove("dragover");
+    });
+    row.addEventListener("drop", (ev) => {
+      if (dragImageIndex === null || dragImageIndex === index) return;
+      ev.preventDefault();
+      const [moved] = productImagesState.splice(dragImageIndex, 1);
+      productImagesState.splice(index, 0, moved);
+      dragImageIndex = null;
+      renderImageManager();
+    });
+
+    list.appendChild(row);
+  });
+  imagePreview.appendChild(list);
+}
+
+async function uploadProductImages(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return;
+  const skuInput = document.getElementById("productSku");
+  const sku = skuInput ? skuInput.value.trim() : "";
+  if (!sku) {
+    alert("Completá el SKU antes de subir imágenes");
+    productImageInput.value = "";
+    return;
+  }
+  for (const file of files) {
+    if (file.size > 5 * 1024 * 1024) {
+      alert(`La imagen ${file.name} supera 5MB`);
+      continue;
+    }
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+      alert(`Formato no permitido (${file.name}). Usa JPG o PNG`);
+      continue;
+    }
+    try {
+      imagePreview.classList.add("is-uploading");
+      const fd = new FormData();
+      fd.append("images", file);
+      const resp = await fetch(
+        `/api/product-image/${encodeURIComponent(sku)}`,
+        {
+          method: "POST",
+          body: fd,
+        },
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.error || "Error al subir imagen");
+      }
+      const first = Array.isArray(data.files) ? data.files[0] : null;
+      const path = first?.path || data.path;
+      if (path && !productImagesState.some((img) => img.url === path)) {
+        productImagesState.push({
+          url: path,
+          alt: file.name.replace(/\.[^.]+$/, ""),
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Error al subir imagen");
+    } finally {
+      imagePreview.classList.remove("is-uploading");
+    }
+  }
+  renderImageManager();
+  productImageInput.value = "";
+}
+
+if (imagePreview) {
+  imagePreview.addEventListener("dragover", (ev) => {
+    const types = Array.from(ev.dataTransfer?.types || []);
+    if (types.includes("Files")) {
+      ev.preventDefault();
+      imagePreview.classList.add("is-dragover");
+    }
+  });
+  imagePreview.addEventListener("dragleave", () => {
+    imagePreview.classList.remove("is-dragover");
+  });
+  imagePreview.addEventListener("drop", (ev) => {
+    const types = Array.from(ev.dataTransfer?.types || []);
+    if (types.includes("Files")) {
+      ev.preventDefault();
+      imagePreview.classList.remove("is-dragover");
+      uploadProductImages(ev.dataTransfer.files);
+    }
+  });
+}
+
+renderImageManager();
 
 openModalBtn.addEventListener("click", () => openProductModal());
 closeModalBtn.addEventListener("click", () => productModal.classList.add("hidden"));
 
-productImageInput.addEventListener("change", async () => {
-  const file = productImageInput.files[0];
-  imagePreview.innerHTML = "";
-  uploadedImagePath = "";
-  if (!file) return;
-  if (file.size > 5 * 1024 * 1024) {
-    alert("La imagen supera 5MB");
-    productImageInput.value = "";
-    return;
-  }
-  if (!["image/jpeg", "image/png"].includes(file.type)) {
-    alert("Formato no permitido. Usa JPG o PNG");
-    productImageInput.value = "";
-    return;
-  }
-  const sku = document.getElementById("productSku").value.trim();
-  if (!sku) {
-    alert("Completá el SKU antes de subir la imagen");
-    productImageInput.value = "";
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    imagePreview.innerHTML = `<img src="${e.target.result}" alt="img" />`;
-  };
-  reader.readAsDataURL(file);
-  const fd = new FormData();
-  fd.append("image", file);
-  try {
-    const resp = await fetch(`/api/product-image/${encodeURIComponent(sku)}`, {
-      method: "POST",
-      body: fd,
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      uploadedImagePath = data.path;
-    } else {
-      alert("Error al subir imagen");
-      productImageInput.value = "";
-    }
-  } catch (err) {
-    console.error(err);
-    alert("Error al subir imagen");
-    productImageInput.value = "";
-  }
+productImageInput.addEventListener("change", () => {
+  uploadProductImages(productImageInput.files);
 });
 
 tagsInput.addEventListener("input", () => {
@@ -261,13 +400,13 @@ function fillProductForm(p) {
   set("weight", p.weight);
   set("color", p.color);
   set("visibility", p.visibility);
-  if (p.image) {
-    imagePreview.innerHTML = `<img src="${p.image}" alt="img" />`;
-    uploadedImagePath = p.image;
-  } else {
-    imagePreview.innerHTML = "";
-    uploadedImagePath = "";
-  }
+  const imgs = Array.isArray(p.images) && p.images.length ? p.images : [p.image].filter(Boolean);
+  const alts = Array.isArray(p.images_alt) ? p.images_alt : [];
+  productImagesState = imgs.map((url, index) => ({
+    url,
+    alt: alts[index] || "",
+  }));
+  renderImageManager();
   renderSeoPreview();
 }
 
@@ -288,7 +427,12 @@ function serializeProductForm(form) {
       if (k in obj && obj[k] !== "") obj[k] = Number(obj[k]);
     },
   );
-  if (uploadedImagePath) obj.image = uploadedImagePath;
+  const images = productImagesState.map((img) => img.url);
+  const alts = productImagesState.map((img) => img.alt || "");
+  obj.images = images;
+  obj.images_alt = alts;
+  obj.image = images[0] || "";
+  if (!obj.image) delete obj.image;
   return obj;
 }
 
@@ -298,8 +442,10 @@ function diffObjects(original = {}, current = {}) {
   keys.forEach((k) => {
     const a = original[k];
     const b = current[k];
-    const A = a == null ? "" : String(a);
-    const B = b == null ? "" : String(b);
+    const isObj =
+      (typeof a === "object" && a !== null) || (typeof b === "object" && b !== null);
+    const A = isObj ? JSON.stringify(a ?? null) : a == null ? "" : String(a);
+    const B = isObj ? JSON.stringify(b ?? null) : b == null ? "" : String(b);
     if (A !== B) out[k] = current[k];
   });
   delete out.id;
@@ -329,8 +475,8 @@ async function openProductModal(id) {
 
   if (!id) {
     productForm.reset();
-    imagePreview.innerHTML = "";
-    uploadedImagePath = "";
+    productImagesState = [];
+    renderImageManager();
     originalProduct = null;
     skuInput.readOnly = false;
     modalTitle.textContent = "Agregar producto";
@@ -347,8 +493,8 @@ async function openProductModal(id) {
     fillProductForm(cached);
   } else {
     productForm.reset();
-    imagePreview.innerHTML = "";
-    uploadedImagePath = "";
+    productImagesState = [];
+    renderImageManager();
     originalProduct = null;
     renderSeoPreview();
   }

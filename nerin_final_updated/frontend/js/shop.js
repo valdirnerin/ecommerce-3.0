@@ -1,5 +1,15 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
 
+function getPrimaryImage(product) {
+  if (Array.isArray(product.images) && product.images.length) {
+    return product.images[0];
+  }
+  return product.image;
+}
+
+const PLACEHOLDER_IMAGE =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
 // Referencias a elementos del DOM
 const productGrid = document.getElementById("productGrid");
 const searchInput = document.getElementById("searchInput");
@@ -29,7 +39,8 @@ function createProductCard(product) {
   card.className = "product-card";
 
   const img = document.createElement("img");
-  img.src = product.image;
+  const cover = getPrimaryImage(product);
+  img.src = cover || PLACEHOLDER_IMAGE;
   img.alt = product.name;
   card.appendChild(img);
 
@@ -166,7 +177,7 @@ function createProductCard(product) {
           name: product.name,
           price: product.price_mayorista,
           quantity: qty,
-          image: product.image,
+          image: cover || PLACEHOLDER_IMAGE,
         });
       }
       localStorage.setItem("nerinCart", JSON.stringify(cart));
@@ -208,7 +219,7 @@ function createProductCard(product) {
           name: product.name,
           price: product.price_minorista,
           quantity: 1,
-          image: product.image,
+          image: cover || PLACEHOLDER_IMAGE,
         });
       }
       localStorage.setItem("nerinCart", JSON.stringify(cart));

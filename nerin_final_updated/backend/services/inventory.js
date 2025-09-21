@@ -35,11 +35,35 @@ function saveOrders(orders) {
 }
 
 function getProducts() {
-  return readJSON('products.json').products || [];
+  const data = readJSON('products.json');
+  return normalizeProducts(data.products || []);
 }
 
 function saveProducts(products) {
-  writeJSON('products.json', { products });
+  writeJSON('products.json', { products: normalizeProducts(products) });
+}
+
+function normalizeProducts(list = []) {
+  return list.map((item) => normalizeProduct(item));
+}
+
+function normalizeProduct(product = {}) {
+  const copy = { ...product };
+  const images = Array.isArray(copy.images)
+    ? copy.images.filter(Boolean)
+    : copy.image
+    ? [copy.image]
+    : [];
+  copy.images = images;
+  if (!copy.image && images.length) {
+    copy.image = images[0];
+  }
+  if (Array.isArray(copy.images_alt)) {
+    copy.images_alt = copy.images_alt;
+  } else {
+    copy.images_alt = []; // garantizar consistencia para los cálculos
+  }
+  return copy;
 }
 
 function normalize(str) {
