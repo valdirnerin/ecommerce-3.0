@@ -148,6 +148,15 @@ function safeJsonForScript(obj) {
     .replace(/\u2029/g, "\\u2029");
 }
 
+function absoluteUrl(input) {
+  if (!input) return null;
+  try {
+    return new URL(input, BASE_URL).href;
+  } catch {
+    return null;
+  }
+}
+
 // === Directorios persistentes para archivos subidos ===
 // UPLOADS_DIR guarda archivos genéricos
 // INVOICES_DIR guarda facturas y comprobantes
@@ -1341,7 +1350,7 @@ async function requestHandler(req, res) {
       if (!product) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
       }
-      return sendJson(res, 200, product);
+      return sendJson(res, 200, normalizeProductImages(product));
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "No se pudo cargar el producto" });
@@ -3648,13 +3657,26 @@ async function requestHandler(req, res) {
     const desc =
       product.meta_description || product.description || `Compra ${name}`;
     const canonical = `${BASE_URL}/p/${slug}`;
-    const image = product.image
-      ? new URL(product.image, BASE_URL).href
-      : null;
+    const rawImages = Array.isArray(product.images)
+      ? product.images.filter(Boolean)
+      : [];
+    const legacyImages = !rawImages.length && product.image ? [product.image] : [];
+    const imageList = [...rawImages, ...legacyImages]
+      .map((src) => absoluteUrl(src))
+      .filter(Boolean);
+    const alts = Array.isArray(product.images_alt) ? product.images_alt : [];
+    const defaultAlt = name || "Imagen del producto";
+    const primaryImage = imageList[0] || null;
+    const primaryAlt = (alts[0] && String(alts[0]).trim()) || defaultAlt;
+    const availability =
+      typeof product.stock === "number" && product.stock > 0
+        ? "https://schema.org/InStock"
+        : "https://schema.org/OutOfStock";
     const ld = {
       "@context": "https://schema.org",
       "@type": "Product",
       name,
+      ...(imageList.length ? { image: imageList } : {}),
       ...(product.description ? { description: product.description } : {}),
       ...(product.sku ? { sku: product.sku } : {}),
       ...(product.mpn ? { mpn: product.mpn } : {}),
@@ -3668,10 +3690,24 @@ async function requestHandler(req, res) {
           product.price_minorista ||
           product.price_mayorista ||
           0,
-        availability: "https://schema.org/InStock",
+        availability,
         url: canonical,
       },
     };
+    const ogImagesMeta = imageList
+      .map((img, index) => {
+        const parts = [`<meta property=\"og:image\" content=\"${esc(img)}\">`];
+        const alt = alts[index];
+        const resolvedAlt =
+          typeof alt === "string" && alt.trim() ? alt.trim() : defaultAlt;
+        if (resolvedAlt) {
+          parts.push(
+            `<meta property=\"og:image:alt\" content=\"${esc(resolvedAlt)}\">`,
+          );
+        }
+        return parts.join("");
+      })
+      .join("");
     const head = [
       '<meta charset="utf-8">',
       `<title>${esc(name)}</title>`,
@@ -3681,7 +3717,10 @@ async function requestHandler(req, res) {
       `<meta property="og:description" content="${esc(desc)}">`,
       `<meta property="og:url" content="${esc(canonical)}">`,
       '<meta property="og:type" content="product">',
-      image ? `<meta property="og:image" content="${esc(image)}">` : "",
+      ogImagesMeta,
+      primaryImage
+        ? `<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${esc(primaryImage)}"><meta name="twitter:image:alt" content="${esc(primaryAlt)}">`
+        : "",
       `<script type="application/ld+json">${safeJsonForScript(ld)}</script>`,
     ]
       .filter(Boolean)
@@ -3727,7 +3766,16 @@ async function requestHandler(req, res) {
     // Eliminar la barra inicial para evitar que path.join ignore los segmentos anteriores
     filePath = path.join(__dirname, "..", pathname.slice(1));
   } else {
-    filePath = path.join(__dirname, "../frontend", pathname);
+    // Normalizar la ruta para evitar que un leading slash borre los segmentos previos
+    let relativePath = pathname.replace(/^\/+/, "");
+    if (!relativePath) {
+      relativePath = "index.html";
+    }
+    // Evitar path traversal (../../) tras normalizar la ruta
+    relativePath = path
+      .normalize(relativePath)
+      .replace(/^([.][.][/\\])+/, "");
+    filePath = path.join(__dirname, "../frontend", relativePath);
   }
   // Si la ruta es directorio o no existe, servir index.html (SPA fallback)
   fs.stat(filePath, (err, stats) => {

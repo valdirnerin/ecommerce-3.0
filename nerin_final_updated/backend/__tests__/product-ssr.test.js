@@ -131,3 +131,14 @@ test('JSON-LD is safely escaped inside <script>', async () => {
   if (server.close) server.close();
   process.env.DATA_DIR = orig;
 });
+
+test('frontend JS assets served when requested with leading slash', async () => {
+  const request = require('supertest');
+  const { createServer } = require('../server');
+  const server = createServer();
+  const res = await request(server).get('/js/product.js');
+  expect(res.status).toBe(200);
+  expect(res.headers['content-type']).toMatch(/javascript/);
+  expect(res.text).toContain('renderProduct');
+  if (server.close) server.close();
+});

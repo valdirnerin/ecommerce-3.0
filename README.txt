@@ -1,25 +1,28 @@
 INSTRUCCIONES RÁPIDAS
 =====================
 
-1. Entrá en la carpeta `backend`:
+1. Entrá en la carpeta `nerin_final_updated`:
 
    ```bash
-   cd backend
+   cd nerin_final_updated
    ```
 
-2. Las credenciales de Mercado Pago ya están definidas en `frontend/config.js`
-   y `backend/.env`. Si necesitás otras, editá esos archivos. Instalá las
-   dependencias y ejecutá el servidor:
+2. Instalá las dependencias y ejecutá el servidor completo (frontend + backend
+   con la nueva PDP):
 
    ```bash
    npm install
-   node server.js
+   npm start
    ```
 
-3. Abrí `frontend/index.html` en tu navegador y presioná el botón para pagar.
+   También podés lanzar el servidor desde la raíz del repositorio con
+   `npm start`; internamente invoca a `nerin_final_updated/backend/server.js`.
 
-El backend quedará disponible en `http://localhost:3000` y podés cambiar los
-datos del producto directamente en `frontend/index.html`.
+3. Abrí `http://localhost:3000` para navegar el storefront actualizado. El
+   panel de administración sigue estando en la misma URL (`/admin`).
+
+Las credenciales de Mercado Pago continúan configuradas en
+`nerin_final_updated/frontend/config.js` y `nerin_final_updated/backend/.env`.
 
 VARIABLES DE ENTORNO
 -------------------
