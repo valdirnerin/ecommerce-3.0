@@ -96,18 +96,21 @@ function updateBreadcrumbJsonLd(product, productUrl) {
 
 function updateProductMeta(product, images) {
   if (!product) return { productUrl: resolveAbsoluteUrl(window.location.href) };
+  const fallbackName =
+    typeof product.name === "string" && product.name.trim()
+      ? product.name.trim()
+      : "Producto";
   const baseTitle =
     (typeof product.meta_title === "string" && product.meta_title.trim())
       ? product.meta_title.trim()
-      : product.name;
-  const title = baseTitle.includes("NERIN")
-    ? baseTitle
-    : `${baseTitle} | NERIN Repuestos`;
+      : fallbackName;
+  const hasBrand = typeof product.brand === "string" && product.brand.trim();
+  const title = hasBrand ? baseTitle : `${baseTitle} | NERIN Repuestos`;
   const description =
     (typeof product.meta_description === "string" &&
       product.meta_description.trim()) ||
     (typeof product.description === "string" && product.description.trim()) ||
-    `${product.name} disponible con garantía oficial en NERIN.`;
+    `${fallbackName} disponible con garantía oficial en NERIN.`;
   const productUrl = resolveAbsoluteUrl(
     `/product.html?id=${encodeURIComponent(product.id)}`,
   );
@@ -116,7 +119,7 @@ function updateProductMeta(product, images) {
   if (Array.isArray(product.tags) && product.tags.length) {
     setMetaContent("name", "keywords", product.tags.join(", "));
   } else {
-    const fallbackKeywords = [product.name, product.brand, product.category]
+    const fallbackKeywords = [fallbackName, product.brand, product.category]
       .filter((item) => typeof item === "string" && item.trim())
       .join(", ");
     if (fallbackKeywords) {
