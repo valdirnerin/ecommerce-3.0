@@ -11,6 +11,7 @@
 
 const http = require("http");
 const fs = require("fs");
+const fsp = fs.promises;
 const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
@@ -57,6 +58,59 @@ const BASE_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT 
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
 
 let _cache = { t: 0, data: null };
+
+function safeParseMetadata(meta) {
+  if (!meta) return {};
+  if (typeof meta === "object") {
+    try {
+      return meta == null ? {} : { ...meta };
+    } catch {
+      return {};
+    }
+  }
+  try {
+    return JSON.parse(meta) || {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeProductImages(product) {
+  if (!product) return product;
+  const copy = { ...product };
+  const meta = safeParseMetadata(copy.metadata);
+  const fromField = Array.isArray(copy.images)
+    ? copy.images.filter(Boolean)
+    : [];
+  const fromMeta = Array.isArray(meta.images) ? meta.images.filter(Boolean) : [];
+  const images = fromField.length ? fromField : fromMeta;
+  const alt = Array.isArray(copy.images_alt)
+    ? copy.images_alt
+    : Array.isArray(meta.images_alt)
+    ? meta.images_alt
+    : [];
+  if (images.length) {
+    copy.images = images;
+    if (!copy.image) {
+      copy.image = images[0];
+    }
+  } else if (copy.image) {
+    copy.images = [copy.image];
+  }
+  if (alt.length) {
+    copy.images_alt = alt;
+  }
+  const hasMeta = Object.keys(meta).length > 0;
+  copy.metadata = hasMeta ? meta : undefined;
+  return copy;
+}
+
+function normalizeProductsList(products) {
+  return Array.isArray(products)
+    ? products.map((p) => normalizeProductImages(p))
+    : [];
+}
+
 async function loadProducts() {
   const now = Date.now();
   if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
@@ -66,8 +120,9 @@ async function loadProducts() {
   try {
     const json = JSON.parse(fs.readFileSync(p, 'utf8'));
     const arr = Array.isArray(json?.products) ? json.products : json;
-    _cache = { t: now, data: arr };
-    return arr;
+    const normalized = normalizeProductsList(arr);
+    _cache = { t: now, data: normalized };
+    return normalized;
   } catch {
     _cache = { t: now, data: [] };
     return _cache.data;
@@ -112,6 +167,14 @@ const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 const { Afip } = require("afip.ts");
 const { Resend } = require("resend");
 const multer = require("multer");
+let sharp = null;
+try {
+  // sharp permite optimizar imágenes y generar WebP con alta performance
+  // En entornos donde no esté disponible, se continúa usando el archivo original
+  sharp = require("sharp");
+} catch (err) {
+  console.warn("sharp no disponible, se usará la imagen original", err?.message || err);
+}
 const generarNumeroOrden = require("./utils/generarNumeroOrden");
 const verifyEmail = require("./emailValidator");
 const validateWebhook = require("./middleware/validateWebhook");
@@ -514,14 +577,26 @@ function calculateDetailedAnalytics() {
 // Leer productos desde el archivo JSON
 function getProducts() {
   const filePath = dataPath("products.json");
-  const file = fs.readFileSync(filePath, "utf8");
-  return JSON.parse(file).products;
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(file);
+    const list = Array.isArray(data?.products) ? data.products : data;
+    return normalizeProductsList(list);
+  } catch {
+    return [];
+  }
 }
 
 // Guardar productos en el archivo JSON
 function saveProducts(products) {
   const filePath = dataPath("products.json");
-  fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), "utf8");
+  const normalized = normalizeProductsList(products);
+  fs.writeFileSync(
+    filePath,
+    JSON.stringify({ products: normalized }, null, 2),
+    "utf8",
+  );
+  _cache = { t: Date.now(), data: normalized };
 }
 
 // Leer pedidos desde el archivo JSON
@@ -1084,7 +1159,15 @@ const upload = multer({
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
       const sku = decodeURIComponent((req.params && req.params.sku) || "img");
-      cb(null, `${sku}${ext}`);
+      const safeSku = sku
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40) || "img";
+      const unique = `${Date.now().toString(36)}${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      cb(null, `${safeSku}-${unique}${ext}`);
     },
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -1094,6 +1177,36 @@ const upload = multer({
     else cb(new Error("Formato no permitido"));
   },
 });
+
+async function optimizeProductImage(file) {
+  if (!file) return null;
+  const originalPath = file.path;
+  let finalName = file.filename;
+  let finalPath = `/assets/uploads/products/${encodeURIComponent(
+    file.filename,
+  )}`;
+  if (sharp) {
+    const targetName = `${path.parse(file.filename).name}.webp`;
+    const targetPath = path.join(productImagesDir, targetName);
+    try {
+      await sharp(originalPath)
+        .rotate()
+        .webp({ quality: 82 })
+        .toFile(targetPath);
+      await fsp.unlink(originalPath).catch(() => {});
+      finalName = targetName;
+      finalPath = `/assets/uploads/products/${encodeURIComponent(targetName)}`;
+    } catch (err) {
+      console.error("optimizeProductImage", err);
+      // En caso de error, mantenemos el archivo original
+      finalName = file.filename;
+      finalPath = `/assets/uploads/products/${encodeURIComponent(
+        file.filename,
+      )}`;
+    }
+  }
+  return { file: finalName, path: finalPath };
+}
 
 // Subida genérica de archivos al directorio UPLOADS_DIR
 const generalUpload = multer({
@@ -1284,21 +1397,43 @@ async function requestHandler(req, res) {
   if (pathname.startsWith("/api/product-image/") && req.method === "POST") {
     const sku = decodeURIComponent(pathname.split("/").pop());
     req.params = { sku };
-    upload.single("image")(req, res, (err) => {
+    upload.fields([
+      { name: "images", maxCount: 10 },
+      { name: "image", maxCount: 10 },
+    ])(req, res, async (err) => {
       if (err) {
         console.error(err);
         return sendJson(res, 400, { error: err.message });
       }
-      if (!req.file) {
+      const files = [];
+      if (Array.isArray(req.files)) {
+        files.push(...req.files);
+      } else if (req.files && typeof req.files === "object") {
+        Object.values(req.files).forEach((group) => {
+          if (Array.isArray(group)) files.push(...group);
+        });
+      }
+      if (!files.length) {
         return sendJson(res, 400, { error: "No se recibió archivo" });
       }
-      const fileName = req.file.filename;
-      const urlBase = `/assets/uploads/products/${encodeURIComponent(fileName)}`;
-      return sendJson(res, 201, {
-        success: true,
-        file: fileName,
-        path: urlBase,
-      });
+      try {
+        const processed = [];
+        for (const file of files) {
+          const optimized = await optimizeProductImage(file);
+          if (optimized) processed.push(optimized);
+        }
+        if (!processed.length) {
+          return sendJson(res, 500, { error: "No se pudieron procesar las imágenes" });
+        }
+        return sendJson(res, 201, {
+          success: true,
+          files: processed,
+          path: processed[0]?.path || null,
+        });
+      } catch (e) {
+        console.error("product-image-upload", e);
+        return sendJson(res, 500, { error: "Error al procesar imágenes" });
+      }
     });
     return;
   }

@@ -5,12 +5,94 @@ const { DATA_DIR: dataDir } = require('../utils/dataDir');
 
 const filePath = path.join(dataDir, 'products.json');
 
+function parseMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') {
+    try {
+      return raw == null ? {} : { ...raw };
+    } catch {
+      return {};
+    }
+  }
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeProduct(product) {
+  if (!product) return product;
+  const meta = parseMetadata(product.metadata);
+  const images = Array.isArray(product.images)
+    ? product.images.filter(Boolean)
+    : Array.isArray(meta.images)
+    ? meta.images.filter(Boolean)
+    : [];
+  const imagesAlt = Array.isArray(product.images_alt)
+    ? product.images_alt
+    : Array.isArray(meta.images_alt)
+    ? meta.images_alt
+    : [];
+
+  if (images.length) {
+    product.images = images;
+    if (!product.image) {
+      product.image = images[0];
+    }
+  }
+  if (imagesAlt.length) {
+    product.images_alt = imagesAlt;
+  }
+  if (Object.keys(meta).length) {
+    product.metadata = meta;
+  }
+  if (!product.images && product.image) {
+    product.images = [product.image];
+  }
+  return product;
+}
+
+function normalizeList(list = []) {
+  return list.map((item) => normalizeProduct({ ...item }));
+}
+
+function prepareMetadata(product) {
+  const meta = parseMetadata(product.metadata);
+  if (Array.isArray(product.images) && product.images.length) {
+    meta.images = product.images.filter(Boolean);
+  } else {
+    delete meta.images;
+  }
+  if (Array.isArray(product.images_alt) && product.images_alt.length) {
+    meta.images_alt = product.images_alt;
+  } else {
+    delete meta.images_alt;
+  }
+  return Object.keys(meta).length ? meta : null;
+}
+
+function primaryImage(product) {
+  if (!product) return null;
+  if (product.image_url) return product.image_url;
+  if (product.image) return product.image;
+  if (Array.isArray(product.images) && product.images.length) {
+    return product.images[0];
+  }
+  const meta = parseMetadata(product.metadata);
+  if (Array.isArray(meta.images) && meta.images.length) {
+    return meta.images[0];
+  }
+  return null;
+}
+
 async function getAll() {
   const pool = db.getPool();
   // Si no hay conexión a la base, leemos desde disco
   if (!pool) {
     try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+      const fileProducts = JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+      return normalizeList(fileProducts);
     } catch {
       return [];
     }
@@ -20,16 +102,17 @@ async function getAll() {
     const { rows } = await pool.query(
       'SELECT id, name, price, stock, COALESCE(image_url, image) AS image, metadata, updated_at FROM products ORDER BY id'
     );
-    return rows.map((r) => {
-      // Normalizar el campo de imagen a `image`
-      if (r.image_url && !r.image) r.image = r.image_url;
-      return r;
-    });
+    return normalizeList(rows.map((r) => {
+      const copy = { ...r };
+      if (r.image_url && !r.image) copy.image = r.image_url;
+      return copy;
+    }));
   } catch (e) {
     // Si la consulta falla (por ejemplo, la columna no existe), hacemos fallback a disco
     console.error('DB product query failed', e.message);
     try {
-      return JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+      const fileProducts = JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+      return normalizeList(fileProducts);
     } catch {
       return [];
     }
@@ -47,9 +130,9 @@ async function getById(id) {
       'SELECT id, name, price, stock, COALESCE(image_url, image) AS image, metadata, updated_at FROM products WHERE id=$1',
       [id]
     );
-    const prod = rows[0] || null;
+    const prod = rows[0] ? { ...rows[0] } : null;
     if (prod && prod.image_url && !prod.image) prod.image = prod.image_url;
-    return prod;
+    return normalizeProduct(prod);
   } catch (e) {
     console.error('DB product query failed', e.message);
     const prods = await getAll();
@@ -60,14 +143,16 @@ async function getById(id) {
 async function saveAll(products) {
   const pool = db.getPool();
   if (!pool) {
-    fs.writeFileSync(filePath, JSON.stringify({ products }, null, 2), 'utf8');
+    const normalized = normalizeList(products);
+    fs.writeFileSync(filePath, JSON.stringify({ products: normalized }, null, 2), 'utf8');
     return;
   }
   await pool.query('BEGIN');
   try {
     for (const p of products) {
-      // Determinar la ruta de imagen adecuada
-      const img = p.image_url || p.image || null;
+      const normalized = normalizeProduct({ ...p });
+      const img = primaryImage(normalized);
+      const metadata = prepareMetadata(normalized);
       await pool.query(
         `INSERT INTO products (id, name, price, stock, image_url, metadata)
          VALUES ($1,$2,$3,$4,$5,$6)
@@ -78,7 +163,14 @@ async function saveAll(products) {
            image_url=EXCLUDED.image_url,
            metadata=EXCLUDED.metadata,
            updated_at=now()`,
-        [p.id, p.name, p.price, p.stock, img, p.metadata || null]
+        [
+          normalized.id,
+          normalized.name,
+          normalized.price,
+          normalized.stock,
+          img,
+          metadata,
+        ]
       );
     }
     await pool.query('COMMIT');

@@ -2,6 +2,16 @@
 
 import { fetchProducts, isWholesale } from "./api.js";
 
+function getPrimaryImage(product) {
+  if (Array.isArray(product.images) && product.images.length) {
+    return product.images[0];
+  }
+  return product.image;
+}
+
+const PLACEHOLDER_IMAGE =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
 function addToCart(product) {
   const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
   const existing = cart.find((item) => item.id === product.id);
@@ -16,7 +26,7 @@ function addToCart(product) {
       name: product.name,
       price,
       quantity: 1,
-      image: product.image,
+      image: getPrimaryImage(product) || PLACEHOLDER_IMAGE,
     });
   }
   localStorage.setItem("nerinCart", JSON.stringify(cart));
@@ -28,7 +38,8 @@ function createFeaturedCard(product) {
   const card = document.createElement("div");
   card.className = "product-card";
   const img = document.createElement("img");
-  img.src = product.image;
+  const cover = getPrimaryImage(product);
+  img.src = cover || PLACEHOLDER_IMAGE;
   img.alt = product.name;
   card.appendChild(img);
   const title = document.createElement("h3");
