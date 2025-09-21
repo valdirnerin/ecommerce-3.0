@@ -54,6 +54,7 @@ function updateHeadImages(images, alts = []) {
     }
   });
 
+  appendMeta("name", "twitter:card", "summary_large_image");
   appendMeta("name", "twitter:image", images[0]);
   appendMeta("name", "twitter:image:alt", alts[0] || "");
 }
@@ -500,55 +501,150 @@ function renderProduct(product) {
 
   infoContainer.innerHTML = "";
 
+  const summary = document.createElement("header");
+  summary.className = "product-summary";
+
   const title = document.createElement("h1");
   title.textContent = product.name;
-  infoContainer.appendChild(title);
+  summary.appendChild(title);
+
+  const meta = document.createElement("div");
+  meta.className = "product-meta";
+
+  if (product.brand) {
+    const brand = document.createElement("span");
+    brand.className = "product-meta__item";
+    brand.innerHTML = `<strong>Marca:</strong> ${product.brand}`;
+    meta.appendChild(brand);
+  }
+
+  if (product.sku) {
+    const sku = document.createElement("span");
+    sku.className = "product-meta__item";
+    sku.innerHTML = `<strong>SKU:</strong> ${product.sku}`;
+    meta.appendChild(sku);
+  }
+
+  if (product.category) {
+    const category = document.createElement("span");
+    category.className = "product-meta__item";
+    category.innerHTML = `<strong>Categoría:</strong> ${product.category}`;
+    meta.appendChild(category);
+  }
+
+  if (meta.children.length) {
+    summary.appendChild(meta);
+  }
+
+  let stockCopy = "";
+  let stockStatus = "default";
+  if (typeof product.stock === "number") {
+    if (product.stock <= 0) {
+      stockCopy = "Sin stock disponible";
+      stockStatus = "out";
+    } else if (
+      product.min_stock != null &&
+      product.stock < product.min_stock
+    ) {
+      stockCopy = `Poco stock • ${product.stock} u.`;
+      stockStatus = "low";
+    } else {
+      stockCopy = `Stock disponible • ${product.stock} u.`;
+      stockStatus = "in";
+    }
+  }
+
+  if (stockCopy) {
+    const stockBadge = document.createElement("span");
+    stockBadge.className = `product-stock-badge product-stock-badge--${stockStatus}`;
+    stockBadge.textContent = stockCopy;
+    summary.appendChild(stockBadge);
+  }
+
+  infoContainer.appendChild(summary);
+
+  const panels = document.createElement("div");
+  panels.className = "product-info-panels";
+
+  const detailsPanel = document.createElement("section");
+  detailsPanel.className = "product-details-panel";
+  detailsPanel.setAttribute("aria-label", "Descripción del producto");
+
+  const detailsHeading = document.createElement("h2");
+  detailsHeading.textContent = "Descripción y detalles";
+  detailsPanel.appendChild(detailsHeading);
 
   if (product.description) {
     const desc = document.createElement("p");
     desc.className = "product-detail-desc";
     desc.textContent = product.description;
-    infoContainer.appendChild(desc);
+    detailsPanel.appendChild(desc);
   }
 
   const attrs = buildAttributes(product);
   if (attrs.children.length) {
-    infoContainer.appendChild(attrs);
+    const specsCard = document.createElement("div");
+    specsCard.className = "product-specs-card";
+    const specsHeading = document.createElement("h3");
+    specsHeading.textContent = "Especificaciones técnicas";
+    specsCard.append(specsHeading, attrs);
+    detailsPanel.appendChild(specsCard);
   }
 
-  const stockInfo = document.createElement("p");
-  stockInfo.className = "product-stock-info";
-  if (typeof product.stock === "number") {
-    if (product.stock <= 0) {
-      stockInfo.textContent = "Sin stock disponible";
-      stockInfo.style.color = "var(--color-danger, #d9534f)";
-    } else if (
-      product.min_stock != null &&
-      product.stock < product.min_stock
-    ) {
-      stockInfo.textContent = `Poco stock (quedan ${product.stock} unidades)`;
-      stockInfo.style.color = "var(--color-warning, #f0ad4e)";
-    } else {
-      stockInfo.textContent = `Stock disponible: ${product.stock} unidades`;
-    }
-    infoContainer.appendChild(stockInfo);
+  const trustList = document.createElement("ul");
+  trustList.className = "product-trust";
+  [
+    {
+      title: "Asesoría especializada",
+      description: "Equipo enfocado en repuestos originales y OEM.",
+    },
+    {
+      title: "Logística a todo el país",
+      description: "Despachamos en 24h y seguimiento en línea.",
+    },
+    {
+      title: "Garantía oficial",
+      description: "Todos los productos cuentan con cobertura real.",
+    },
+  ].forEach((item) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong>${item.title}</strong><span>${item.description}</span>`;
+    trustList.appendChild(li);
+  });
+  detailsPanel.appendChild(trustList);
+
+  panels.appendChild(detailsPanel);
+
+  const pricingPanel = document.createElement("aside");
+  pricingPanel.className = "product-pricing-panel";
+  pricingPanel.setAttribute("aria-label", "Acciones de compra");
+
+  const pricingHeading = document.createElement("h2");
+  pricingHeading.textContent = "Comprar este repuesto";
+  pricingPanel.appendChild(pricingHeading);
+
+  if (stockCopy) {
+    const stockInfo = document.createElement("p");
+    stockInfo.className = "product-stock-info";
+    stockInfo.textContent = stockCopy;
+    pricingPanel.appendChild(stockInfo);
   }
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "product-detail-price";
   const minor = document.createElement("p");
-  minor.textContent = `Precio minorista: ${formatPrice(
+  minor.innerHTML = `<span>Precio minorista</span><strong>${formatPrice(
     product.price_minorista,
-  )}`;
+  )}</strong>`;
   priceBlock.appendChild(minor);
   if (isWholesale()) {
     const major = document.createElement("p");
-    major.textContent = `Precio mayorista: ${formatPrice(
+    major.innerHTML = `<span>Precio mayorista</span><strong>${formatPrice(
       product.price_mayorista,
-    )}`;
+    )}</strong>`;
     priceBlock.appendChild(major);
   }
-  infoContainer.appendChild(priceBlock);
+  pricingPanel.appendChild(priceBlock);
 
   if (typeof product.stock === "number" && product.stock > 0) {
     const buyDiv = document.createElement("div");
@@ -658,8 +754,33 @@ function renderProduct(product) {
     const ctaSticky = document.createElement("div");
     ctaSticky.className = "cta-sticky";
     ctaSticky.appendChild(buyDiv);
-    infoContainer.appendChild(ctaSticky);
+    pricingPanel.appendChild(ctaSticky);
   }
+
+  const perks = document.createElement("ul");
+  perks.className = "product-perks";
+  [
+    {
+      title: "Retiro en sucursal",
+      detail: "Coordiná tu visita y retiralo sin costo en San Telmo.",
+    },
+    {
+      title: "Pagá como quieras",
+      detail: "Transferencia, tarjetas o Mercado Pago con cuotas.",
+    },
+    {
+      title: "Soporte posventa",
+      detail: "Acompañamiento técnico para la instalación.",
+    },
+  ].forEach((item) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong>${item.title}</strong><span>${item.detail}</span>`;
+    perks.appendChild(li);
+  });
+  pricingPanel.appendChild(perks);
+
+  panels.appendChild(pricingPanel);
+  infoContainer.appendChild(panels);
 }
 
 async function initProduct() {

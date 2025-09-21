@@ -22,12 +22,25 @@
         "buenos_aires": 5
       },
       "subcategory": "iPhone",
-      "tags": ["pantalla", "iphone"],
+      "tags": [
+        "pantalla",
+        "iphone"
+      ],
       "slug": "pantalla-iphone-12",
       "meta_title": "Pantalla iPhone 12",
       "meta_description": "Repuesto original de pantalla OLED para iPhone 12",
       "visibility": "public",
-      "featured": false
+      "featured": false,
+      "images": [
+        "/assets/product1.png",
+        "/assets/product1.jpg",
+        "/assets/product2.png"
+      ],
+      "images_alt": [
+        "Pantalla iPhone 12 vista frontal",
+        "Pantalla iPhone 12 detalle de marco",
+        "Pantalla iPhone 12 empaquetada"
+      ]
     },
     {
       "id": "2",
@@ -51,12 +64,23 @@
         "buenos_aires": 6
       },
       "subcategory": "Samsung",
-      "tags": ["pantalla", "samsung"],
+      "tags": [
+        "pantalla",
+        "samsung"
+      ],
       "slug": "pantalla-samsung-s21",
       "meta_title": "Pantalla Samsung S21",
       "meta_description": "Pantalla AMOLED de repuesto para Galaxy S21",
       "visibility": "public",
-      "featured": false
+      "featured": false,
+      "images": [
+        "/assets/product2.png",
+        "/assets/product2.jpg"
+      ],
+      "images_alt": [
+        "Pantalla Samsung S21 encendida",
+        "Pantalla Samsung S21 componentes incluidos"
+      ]
     },
     {
       "id": "3",
@@ -80,12 +104,23 @@
         "buenos_aires": 10
       },
       "subcategory": "Xiaomi",
-      "tags": ["pantalla", "xiaomi"],
+      "tags": [
+        "pantalla",
+        "xiaomi"
+      ],
       "slug": "pantalla-xiaomi-mi-11",
       "meta_title": "Pantalla Xiaomi Mi 11",
       "meta_description": "Pantalla AMOLED de repuesto para Xiaomi Mi 11",
       "visibility": "public",
-      "featured": false
+      "featured": false,
+      "images": [
+        "/assets/product3.png",
+        "/assets/product3.jpg"
+      ],
+      "images_alt": [
+        "Batería original iPhone 11",
+        "Batería iPhone 11 con kit de instalación"
+      ]
     },
     {
       "id": "4",
@@ -109,7 +144,10 @@
         "buenos_aires": 10
       },
       "subcategory": "iPhone",
-      "tags": ["bateria", "iphone"],
+      "tags": [
+        "bateria",
+        "iphone"
+      ],
       "slug": "bateria-iphone-12",
       "meta_title": "Batería iPhone 12",
       "meta_description": "Batería de repuesto para iPhone 12 de 2815 mAh",
@@ -138,7 +176,10 @@
         "buenos_aires": 15
       },
       "subcategory": "iPhone",
-      "tags": ["auricular", "iphone"],
+      "tags": [
+        "auricular",
+        "iphone"
+      ],
       "slug": "auricular-iphone-11",
       "meta_title": "Auricular iPhone 11",
       "meta_description": "Auricular interno de repuesto para iPhone 11",
