@@ -8,6 +8,131 @@ const priceFormatter = new Intl.NumberFormat("es-AR");
 const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
+function getSiteBaseUrl() {
+  const cfg = window.NERIN_CONFIG;
+  if (cfg && typeof cfg.publicUrl === "string" && cfg.publicUrl.trim()) {
+    try {
+      return new URL(cfg.publicUrl.trim()).toString().replace(/\/+$/, "");
+    } catch (err) {
+      console.warn("URL pública inválida para SEO", err);
+    }
+  }
+  return window.location.origin;
+}
+
+function resolveAbsoluteUrl(url) {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  try {
+    return new URL(url, getSiteBaseUrl()).toString();
+  } catch (err) {
+    try {
+      return new URL(url, window.location.href).toString();
+    } catch (inner) {
+      return url;
+    }
+  }
+}
+
+function setMetaContent(attr, key, value) {
+  const head = document.head;
+  if (!head || !key) return;
+  let meta = head.querySelector(`meta[${attr}="${key}"][data-product-meta]`);
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.setAttribute(attr, key);
+    meta.dataset.productMeta = key;
+    head.appendChild(meta);
+  }
+  if (typeof value === "string" && value.trim()) {
+    meta.setAttribute("content", value.trim());
+  }
+}
+
+function setCanonicalUrl(url) {
+  if (!url) return;
+  const head = document.head;
+  if (!head) return;
+  let canonical = head.querySelector('link[rel="canonical"]');
+  if (!canonical) {
+    canonical = document.createElement("link");
+    canonical.rel = "canonical";
+    canonical.dataset.productMeta = "canonical";
+    head.appendChild(canonical);
+  }
+  canonical.setAttribute("href", url);
+}
+
+function updateBreadcrumbJsonLd(product, productUrl) {
+  const script = document.getElementById("product-breadcrumbs");
+  if (!script || !product) return;
+  const breadcrumbs = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Inicio",
+        item: resolveAbsoluteUrl("/"),
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Productos",
+        item: resolveAbsoluteUrl("/shop.html"),
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: product.name,
+        item: productUrl,
+      },
+    ],
+  };
+  script.textContent = JSON.stringify(breadcrumbs, null, 2);
+  script.dataset.productBreadcrumbsTemplate = script.textContent;
+}
+
+function updateProductMeta(product, images) {
+  if (!product) return { productUrl: resolveAbsoluteUrl(window.location.href) };
+  const baseTitle =
+    (typeof product.meta_title === "string" && product.meta_title.trim())
+      ? product.meta_title.trim()
+      : product.name;
+  const title = baseTitle.includes("NERIN")
+    ? baseTitle
+    : `${baseTitle} | NERIN Repuestos`;
+  const description =
+    (typeof product.meta_description === "string" &&
+      product.meta_description.trim()) ||
+    (typeof product.description === "string" && product.description.trim()) ||
+    `${product.name} disponible con garantía oficial en NERIN.`;
+  const productUrl = resolveAbsoluteUrl(
+    `/product.html?id=${encodeURIComponent(product.id)}`,
+  );
+  document.title = title;
+  setMetaContent("name", "description", description);
+  if (Array.isArray(product.tags) && product.tags.length) {
+    setMetaContent("name", "keywords", product.tags.join(", "));
+  } else {
+    const fallbackKeywords = [product.name, product.brand, product.category]
+      .filter((item) => typeof item === "string" && item.trim())
+      .join(", ");
+    if (fallbackKeywords) {
+      setMetaContent("name", "keywords", fallbackKeywords);
+    }
+  }
+  setCanonicalUrl(productUrl);
+  setMetaContent("property", "og:title", title);
+  setMetaContent("property", "og:description", description);
+  setMetaContent("property", "og:url", productUrl);
+  setMetaContent("name", "twitter:title", title);
+  setMetaContent("name", "twitter:description", description);
+  setMetaContent("name", "twitter:url", productUrl);
+  return { title, description, productUrl };
+}
+
 function findExistingPreload(url) {
   const links = document.head?.querySelectorAll(
     'link[rel="preload"][as="image"]',
@@ -40,7 +165,12 @@ function updateHeadImages(images, alts = []) {
   const appendMeta = (attr, value, content) => {
     const meta = document.createElement("meta");
     meta.setAttribute(attr, value);
-    meta.content = content;
+    const shouldResolve =
+      attr === "property"
+        ? value === "og:image" || value === "og:url"
+        : value === "twitter:image" || value === "twitter:url";
+    const resolved = shouldResolve ? resolveAbsoluteUrl(content) : content;
+    meta.content = resolved;
     meta.dataset.productImageMeta = "true";
     head.appendChild(meta);
     return meta;
@@ -59,35 +189,59 @@ function updateHeadImages(images, alts = []) {
   appendMeta("name", "twitter:image:alt", alts[0] || "");
 }
 
-function updateJsonLd(product, images) {
-  if (!product || !images.length) return;
+function updateJsonLd(product, images, productUrl) {
+  if (!product) return;
   const head = document.head;
   if (!head) return;
   const existing = head.querySelector("#product-jsonld");
   if (existing) existing.remove();
+  const gallery = Array.isArray(images) ? images : [];
+  const absoluteImages = gallery
+    .filter(Boolean)
+    .map((img) => resolveAbsoluteUrl(img));
+  if (!absoluteImages.length && product.image) {
+    absoluteImages.push(resolveAbsoluteUrl(product.image));
+  }
   const availability =
     typeof product.stock === "number" && product.stock > 0
       ? "https://schema.org/InStock"
       : "https://schema.org/OutOfStock";
+  const priceSource =
+    typeof product.price_minorista === "number"
+      ? product.price_minorista
+      : product.price_mayorista;
   const offers = {
     "@type": "Offer",
-    price: Number(
-      isWholesale() ? product.price_mayorista : product.price_minorista,
-    ).toFixed(2),
+    url: productUrl,
+    price: Number(priceSource || 0).toFixed(2),
     priceCurrency: "ARS",
     availability,
+    itemCondition: "https://schema.org/NewCondition",
+    seller: {
+      "@type": "Organization",
+      name: "NERIN Repuestos",
+      url: getSiteBaseUrl(),
+    },
   };
   const schema = {
     "@context": "https://schema.org",
     "@type": "Product",
+    "@id": productUrl,
+    url: productUrl,
     name: product.name,
-    image: images,
+    image: absoluteImages,
     description: product.meta_description || product.description || "",
-    sku: product.sku || "",
+    sku: product.sku || product.id || "",
+    mpn: product.sku || undefined,
+    category: product.category || undefined,
     brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
     offers,
   };
+  if (!absoluteImages.length) delete schema.image;
   if (!schema.brand) delete schema.brand;
+  if (!schema.category) delete schema.category;
+  if (!schema.mpn) delete schema.mpn;
+  if (!schema.sku) delete schema.sku;
   const script = document.createElement("script");
   script.type = "application/ld+json";
   script.id = "product-jsonld";
@@ -497,7 +651,9 @@ function renderProduct(product) {
   product.image = primaryImage || cartImage;
   buildGallery(galleryContainer, images, alts);
   updateHeadImages(images, alts);
-  updateJsonLd(product, images);
+  const metaInfo = updateProductMeta(product, images);
+  updateJsonLd(product, images, metaInfo.productUrl);
+  updateBreadcrumbJsonLd(product, metaInfo.productUrl);
 
   infoContainer.innerHTML = "";
 
@@ -801,7 +957,6 @@ async function initProduct() {
       return;
     }
     renderProduct(product);
-    document.title = `${product.name} – NERIN`;
   } catch (err) {
     if (infoContainer)
       infoContainer.innerHTML = `<p>Error al cargar producto: ${err.message}</p>`;

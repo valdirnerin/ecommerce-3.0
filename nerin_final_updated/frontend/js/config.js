@@ -5,11 +5,86 @@
  * en `window.NERIN_CONFIG` para que otros módulos puedan consultarla.
  */
 
+function getPublicBaseUrl(cfg = {}) {
+  const raw = typeof cfg.publicUrl === "string" ? cfg.publicUrl.trim() : "";
+  if (raw) {
+    try {
+      const normalized = new URL(raw).toString();
+      return normalized.replace(/\/+$/, "");
+    } catch (err) {
+      console.warn("URL pública inválida en configuración", err);
+    }
+  }
+  if (typeof window !== "undefined" && window.location) {
+    return window.location.origin;
+  }
+  return "";
+}
+
+function resolveAbsoluteUrl(value, baseUrl) {
+  if (!value) return value;
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  const base = baseUrl || getPublicBaseUrl(window.NERIN_CONFIG || {});
+  try {
+    return new URL(value, base || window.location.href).toString();
+  } catch (err) {
+    try {
+      return new URL(value, window.location.href).toString();
+    } catch (innerErr) {
+      return value;
+    }
+  }
+}
+
+function hydrateJsonLd(baseUrl) {
+  const base = (baseUrl || getPublicBaseUrl(window.NERIN_CONFIG || {})).replace(
+    /\/+$/,
+    "",
+  );
+  const selector = "[data-seo-jsonld],[data-product-breadcrumbs]";
+  document.querySelectorAll(selector).forEach((script) => {
+    const template =
+      script.dataset.seoJsonldTemplate ||
+      script.dataset.productBreadcrumbsTemplate ||
+      script.textContent;
+    if (!template) return;
+    if (script.dataset.seoJsonld && !script.dataset.seoJsonldTemplate) {
+      script.dataset.seoJsonldTemplate = template;
+    }
+    if (script.dataset.productBreadcrumbs && !script.dataset.productBreadcrumbsTemplate) {
+      script.dataset.productBreadcrumbsTemplate = template;
+    }
+    const hydrated = template.replace(/__BASE_URL__/g, base);
+    if (hydrated !== script.textContent) {
+      script.textContent = hydrated;
+    }
+  });
+}
+
+function applySeoConfig(cfg = {}) {
+  const baseUrl = getPublicBaseUrl(cfg);
+  const canonical = document.querySelector('link[rel="canonical"]');
+  if (canonical) {
+    const raw = canonical.getAttribute("href") || window.location.pathname || "/";
+    canonical.setAttribute("href", resolveAbsoluteUrl(raw, baseUrl));
+  }
+  document.querySelectorAll("[data-seo-absolute]").forEach((node) => {
+    const attr = node.dataset.seoAbsolute || (node.tagName === "LINK" ? "href" : "content");
+    const value = node.getAttribute(attr);
+    if (!value) return;
+    node.setAttribute(attr, resolveAbsoluteUrl(value, baseUrl));
+  });
+  hydrateJsonLd(baseUrl);
+}
+
 async function loadConfig() {
+  let cfg = {};
   try {
     const res = await fetch("/api/config");
     if (!res.ok) throw new Error("No se pudo obtener la configuración");
-    const cfg = await res.json();
+    cfg = await res.json();
     // Exponer a nivel global
     window.NERIN_CONFIG = cfg;
     // Permitir que otros módulos conozcan la URL base del backend si está definida
@@ -45,6 +120,11 @@ gtag('config', '${cfg.googleAnalyticsId}');`;
     }
   } catch (err) {
     console.error(err);
+    if (!window.NERIN_CONFIG) {
+      window.NERIN_CONFIG = {};
+    }
+  } finally {
+    applySeoConfig(window.NERIN_CONFIG || cfg || {});
   }
   // Actualizar navegación según sesión y carrito
   updateNav();
