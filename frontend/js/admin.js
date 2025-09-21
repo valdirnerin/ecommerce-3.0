@@ -5,6 +5,9 @@
     (typeof window !== 'undefined' && window.__ADMIN_BUILD__) ||
     'dev';
   console.info('admin-js-version', buildId);
+  const resolvedBuild =
+    (typeof window !== 'undefined' && window.__NERIN_ADMIN_BUILD__) || buildId;
+  console.log('[admin-build]', resolvedBuild, { multiImages: true });
 
   const ARG_TIMEZONE = 'America/Argentina/Buenos_Aires';
   const SEARCH_DEBOUNCE = 250;

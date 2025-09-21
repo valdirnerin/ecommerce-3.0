@@ -12,6 +12,10 @@ import { renderAnalyticsDashboard } from "./analytics.js";
 const ADMIN_BUILD_FALLBACK =
   (typeof window !== "undefined" && window.__NERIN_ADMIN_BUILD__) || "dev";
 
+if (typeof window !== "undefined" && !window.__NERIN_ADMIN_BUILD__) {
+  window.__NERIN_ADMIN_BUILD__ = ADMIN_BUILD_FALLBACK;
+}
+
 async function logAdminBuildVersion() {
   let buildId = ADMIN_BUILD_FALLBACK;
   try {
@@ -28,7 +32,17 @@ async function logAdminBuildVersion() {
   } catch (err) {
     console.warn("admin-version-fetch-failed", err);
   }
+  if (typeof window !== "undefined") {
+    window.__NERIN_ADMIN_BUILD__ = buildId;
+  }
+  if (typeof document !== "undefined") {
+    const banner = document.getElementById("admin-build-banner");
+    if (banner) {
+      banner.textContent = `Build: ${buildId || "dev"} • Multi-images: ON`;
+    }
+  }
   console.info("admin-js-version", buildId);
+  console.log("[admin-build]", buildId, { multiImages: true });
 }
 
 logAdminBuildVersion();
