@@ -17,31 +17,11 @@ const PAYMENT_CANCEL_CODES = new Set(['rejected', 'charged_back', 'refunded']);
 const POLL_INTERVAL_MS = 15000;
 
 const ORDER_STEPS = [
-  {
-    label: 'Pedido recibido',
-    icon:
-      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M9 3.5h6"/><path d="M9.5 3h5a1.5 1.5 0 0 1 1.5 1.5V6h1a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h1V4.5A1.5 1.5 0 0 1 9.5 3z"/><path d="M9 11h6"/><path d="M9 15h4"/></svg>',
-  },
-  {
-    label: 'Pago acreditado',
-    icon:
-      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><circle cx="12" cy="12" r="7.5"/><path d="M9.5 12.5l2.1 2.3 4.4-5.3"/></svg>',
-  },
-  {
-    label: 'Preparando el pedido',
-    icon:
-      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M6 8.5 12 5l6 3.5v7l-6 3.5-6-3.5z"/><path d="M12 5v14"/><path d="M6 8.5l6 3.5 6-3.5"/></svg>',
-  },
-  {
-    label: 'Enviado',
-    icon:
-      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 8h9v6H5.75"/><path d="M12 11h4.2l2.8 3v4h-3"/><circle cx="7.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/><path d="M9.5 17.5h5"/></svg>',
-  },
-  {
-    label: 'Entregado',
-    icon:
-      '<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M7 4v16"/><path d="M7 5.5h9l-2 3 2 3H7"/></svg>',
-  },
+  'Pedido recibido',
+  'Pago acreditado',
+  'Preparando el pedido',
+  'Enviado',
+  'Entregado',
 ];
 
 const STATUS_PATTERNS = [
@@ -85,79 +65,148 @@ function resolveStepFromStatus(value, type = 'generic') {
   return 0;
 }
 
+function normalizeStep(label) {
+  const normalized = normalizeStatusValue(label);
+  if (!normalized) return 1;
+  if (/entreg/.test(normalized)) return 5;
+  if (/(enviad|shipp)/.test(normalized)) return 4;
+  if (/(prepar(a|ando|cion)|alist|arm)/.test(normalized)) return 3;
+  if (/(pagad|aprob|approv|paid)/.test(normalized)) return 2;
+  return 1;
+}
+
 function buildOrderStepper() {
   const list = document.createElement('ol');
-  list.className = 'order-progress';
+  list.className = 'order-steps';
   list.setAttribute('role', 'list');
   list.setAttribute('aria-label', 'Progreso del pedido');
+  list.style.setProperty('--total', String(ORDER_STEPS.length));
+
   ORDER_STEPS.forEach((step, index) => {
     const item = document.createElement('li');
-    item.className = 'order-step';
+    item.className = 'step';
     item.dataset.step = String(index + 1);
 
-    const icon = document.createElement('span');
-    icon.className = 'order-step__icon';
-    icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = step.icon;
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.setAttribute('aria-hidden', 'true');
 
     const label = document.createElement('span');
-    label.className = 'order-step__label';
-    label.textContent = step.label;
+    label.className = 'lbl';
+    label.textContent = typeof step === 'string' ? step : step?.label ?? '';
 
-    item.append(icon, label);
+    item.append(dot, label);
     list.appendChild(item);
   });
+
   return list;
 }
 
-function renderOrderSteps(statuses = {}, target = progressContainer) {
+function isDomContainer(value) {
+  return value && typeof value === 'object' && typeof value.querySelector === 'function';
+}
+
+function ensureOrderStepper(target = progressContainer) {
   const container = target || document.getElementById('orderProgress');
   if (!container) return null;
 
-  let list = container.classList?.contains('order-progress')
-    ? container
-    : container.querySelector('.order-progress');
+  let list = container.classList?.contains('order-steps') ? container : null;
+  if (!list && isDomContainer(container)) {
+    list = container.querySelector('.order-steps');
+  }
 
   if (!list) {
     list = buildOrderStepper();
-    if (container !== list) {
+    if (isDomContainer(container) && container !== list) {
       container.innerHTML = '';
       container.appendChild(list);
     }
   }
 
-  const paymentStep = resolveStepFromStatus(statuses.paymentStatus, 'payment');
-  const shippingStep = resolveStepFromStatus(statuses.shippingStatus, 'shipping');
-  const activeStep = Math.max(paymentStep, shippingStep, 1);
-  const total = ORDER_STEPS.length;
-  const clampedStep = Math.min(Math.max(activeStep, 1), total);
-  const activeIndex = clampedStep - 1;
-  const progressRatio = total > 1 ? activeIndex / (total - 1) : 0;
+  if (list) {
+    list.style.setProperty('--total', String(ORDER_STEPS.length));
+  }
 
-  list.style.setProperty('--progress', progressRatio.toFixed(4));
-  list.dataset.activeStep = String(clampedStep);
-  list.dataset.steps = String(total);
+  if (isDomContainer(container) && container !== list && container.style) {
+    container.style.display = 'block';
+  }
 
-  Array.from(list.children).forEach((item, index) => {
-    item.classList.toggle('is-done', index < activeIndex);
-    item.classList.toggle('is-current', index === activeIndex);
-    if (index === activeIndex) {
+  return list;
+}
+
+function pickStatusValue(values) {
+  for (const value of values) {
+    if (value == null) continue;
+    const str = String(value).trim();
+    if (str) return str;
+  }
+  return '';
+}
+
+function renderOrderSteps(rootOrStatuses = progressContainer, maybeStatuses) {
+  let container = rootOrStatuses;
+  let statuses = maybeStatuses;
+
+  if (!isDomContainer(container)) {
+    statuses = container || {};
+    container = isDomContainer(maybeStatuses) ? maybeStatuses : progressContainer;
+  }
+
+  statuses = statuses || {};
+
+  const list = ensureOrderStepper(container);
+  if (!list) return null;
+
+  const paymentValue = pickStatusValue([
+    statuses.payment_status,
+    statuses.estado_pago,
+    statuses.paymentStatus,
+    statuses.payment_status_code,
+    statuses.paymentStatusCode,
+    statuses.status,
+  ]);
+  const shippingValue = pickStatusValue([
+    statuses.shipping_status,
+    statuses.estado_envio,
+    statuses.shippingStatus,
+    statuses.shipping_status_label,
+    statuses.shipping_status_code,
+    statuses.shippingStatusCode,
+  ]);
+
+  const normalizedPayment = normalizeStep(paymentValue);
+  const normalizedShipping = normalizeStep(shippingValue);
+  const resolvedPayment = resolveStepFromStatus(paymentValue, 'payment') || 0;
+  const resolvedShipping = resolveStepFromStatus(shippingValue, 'shipping') || 0;
+
+  const paymentStep = Math.max(normalizedPayment, resolvedPayment, 1);
+  const shippingStep = Math.max(normalizedShipping, resolvedShipping, 1);
+  const activeStep = Math.min(
+    Math.max(paymentStep, shippingStep, 1),
+    ORDER_STEPS.length,
+  );
+
+  list.style.setProperty('--active', String(activeStep));
+
+  const items = Array.from(list.querySelectorAll('.step'));
+  items.forEach((item, index) => {
+    const stepNumber = index + 1;
+    const isDone = stepNumber < activeStep;
+    const isCurrent = stepNumber === activeStep;
+    item.classList.toggle('is-done', isDone);
+    item.classList.toggle('is-current', isCurrent);
+    if (isCurrent) {
       item.setAttribute('aria-current', 'step');
     } else {
       item.removeAttribute('aria-current');
     }
   });
 
-  if (container !== list) {
-    container.style.display = 'block';
-  }
-
   return {
     list,
-    activeStep: clampedStep,
+    activeStep,
     paymentStep,
     shippingStep,
-    progress: progressRatio,
   };
 }
 
@@ -275,10 +324,20 @@ function renderOrderProgress(order = {}) {
     order.shipping_status_code ||
     '';
 
-  const stepInfo = renderOrderSteps(
-    { paymentStatus, shippingStatus },
-    progressContainer,
-  );
+  const stepInfo = renderOrderSteps(progressContainer, {
+    payment_status: order.payment_status,
+    estado_pago: order.estado_pago,
+    paymentStatus,
+    payment_status_code: order.payment_status_code,
+    paymentStatusCode: order.paymentStatusCode,
+    status: order.status,
+    shipping_status: order.shipping_status,
+    estado_envio: order.estado_envio,
+    shippingStatus,
+    shipping_status_label: order.shipping_status_label,
+    shipping_status_code: order.shipping_status_code,
+    shippingStatusCode: order.shippingStatusCode,
+  });
 
   if (!stepInfo) {
     progressContainer.style.display = 'none';
