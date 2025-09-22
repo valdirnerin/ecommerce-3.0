@@ -354,16 +354,24 @@ function slugify(str) {
 
 const nameInput = document.getElementById("productName");
 const slugInput = document.getElementById("productSlug");
+const descriptionInput = document.getElementById("productDescription");
 const metaTitleInput = document.getElementById("productMetaTitle");
 const metaDescInput = document.getElementById("productMetaDesc");
 const seoSlugPreview = document.getElementById("seoSlugPreview");
 const seoTitlePreview = document.getElementById("seoTitlePreview");
 const seoDescPreview = document.getElementById("seoDescPreview");
 
+function resolveDescriptionPreview() {
+  const meta = metaDescInput?.value?.trim();
+  if (meta) return meta;
+  const desc = descriptionInput?.value?.trim();
+  return desc || "";
+}
+
 function renderSeoPreview() {
   seoSlugPreview.textContent = `/productos/${slugInput.value}`;
   seoTitlePreview.textContent = metaTitleInput.value || nameInput.value;
-  seoDescPreview.textContent = metaDescInput.value;
+  seoDescPreview.textContent = resolveDescriptionPreview();
 }
 
 nameInput.addEventListener("input", () => {
@@ -375,6 +383,7 @@ nameInput.addEventListener("input", () => {
 slugInput.addEventListener("input", renderSeoPreview);
 metaTitleInput.addEventListener("input", renderSeoPreview);
 metaDescInput.addEventListener("input", renderSeoPreview);
+if (descriptionInput) descriptionInput.addEventListener("input", renderSeoPreview);
 
 function setLoading(state) {
   productForm
@@ -408,6 +417,7 @@ function fillProductForm(p) {
   set("cost", p.cost);
   set("supplier_id", p.supplier_id);
   set("slug", p.slug);
+  set("description", p.description);
   set("meta_title", p.meta_title);
   set("meta_description", p.meta_description);
   set("dimensions", p.dimensions);

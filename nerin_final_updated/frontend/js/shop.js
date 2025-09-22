@@ -7,6 +7,22 @@ function getPrimaryImage(product) {
   return product.image;
 }
 
+function getProductDescription(product) {
+  if (!product) return "";
+  const candidates = [
+    product.description,
+    product.meta_description,
+    product.short_description,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return "";
+}
+
 const PLACEHOLDER_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
@@ -55,7 +71,9 @@ function createProductCard(product) {
 
   const desc = document.createElement("p");
   desc.className = "description";
-  desc.textContent = product.description;
+  const descriptionText =
+    getProductDescription(product) || "Descripción no disponible.";
+  desc.textContent = descriptionText;
   card.appendChild(desc);
 
   // Mostrar atributos adicionales (categoría, peso, dimensiones, color)

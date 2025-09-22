@@ -34,6 +34,20 @@ function resolveAbsoluteUrl(url) {
   }
 }
 
+function getProductDescription(product, { preferMeta = false } = {}) {
+  if (!product) return "";
+  const primary = preferMeta
+    ? [product.meta_description, product.description, product.short_description]
+    : [product.description, product.meta_description, product.short_description];
+  for (const value of primary) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) return trimmed;
+    }
+  }
+  return "";
+}
+
 function setMetaContent(attr, key, value) {
   const head = document.head;
   if (!head || !key) return;
@@ -107,9 +121,7 @@ function updateProductMeta(product, images) {
   const hasBrand = typeof product.brand === "string" && product.brand.trim();
   const title = hasBrand ? baseTitle : `${baseTitle} | NERIN Repuestos`;
   const description =
-    (typeof product.meta_description === "string" &&
-      product.meta_description.trim()) ||
-    (typeof product.description === "string" && product.description.trim()) ||
+    getProductDescription(product, { preferMeta: true }) ||
     `${fallbackName} disponible con garantía oficial en NERIN.`;
   const productUrl = resolveAbsoluteUrl(
     `/product.html?id=${encodeURIComponent(product.id)}`,
@@ -233,7 +245,7 @@ function updateJsonLd(product, images, productUrl) {
     url: productUrl,
     name: product.name,
     image: absoluteImages,
-    description: product.meta_description || product.description || "",
+    description: getProductDescription(product, { preferMeta: true }),
     sku: product.sku || product.id || "",
     mpn: product.sku || undefined,
     category: product.category || undefined,
@@ -733,12 +745,12 @@ function renderProduct(product) {
   detailsHeading.textContent = "Descripción y detalles";
   detailsPanel.appendChild(detailsHeading);
 
-  if (product.description) {
-    const desc = document.createElement("p");
-    desc.className = "product-detail-desc";
-    desc.textContent = product.description;
-    detailsPanel.appendChild(desc);
-  }
+  const descriptionText =
+    getProductDescription(product) || "Descripción no disponible por el momento.";
+  const desc = document.createElement("p");
+  desc.className = "product-detail-desc";
+  desc.textContent = descriptionText;
+  detailsPanel.appendChild(desc);
 
   const attrs = buildAttributes(product);
   if (attrs.children.length) {
