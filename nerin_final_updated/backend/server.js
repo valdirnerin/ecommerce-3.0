@@ -134,6 +134,42 @@ function normalizeProductsList(products) {
     : [];
 }
 
+const PRODUCT_TEMPLATE_PATH = path.join(
+  __dirname,
+  "..",
+  "frontend",
+  "product.html",
+);
+let PRODUCT_TEMPLATE_CACHE = null;
+
+function getProductTemplateParts() {
+  if (PRODUCT_TEMPLATE_CACHE) return PRODUCT_TEMPLATE_CACHE;
+  try {
+    const template = fs.readFileSync(PRODUCT_TEMPLATE_PATH, "utf8");
+    const headMatch = template.match(/<head>([\s\S]*?)<\/head>/i);
+    const rawHead = headMatch ? headMatch[1] : "";
+    const baseHead = rawHead
+      .replace(/<title>[\s\S]*?<\/title>/i, "")
+      .replace(/<meta[^>]+data-product-meta[^>]*>\s*/gi, "")
+      .replace(/<link[^>]+data-product-meta[^>]*>\s*/gi, "")
+      .replace(/<script[^>]+data-product-breadcrumbs[^>]*>[\s\S]*?<\/script>\s*/gi, "")
+      .replace(/<meta[^>]+name=["']twitter:card["'][^>]*>\s*/gi, "");
+    const bodyMatch = template.match(/<body[\s\S]*<\/body>/i);
+    const body = bodyMatch
+      ? bodyMatch[0]
+      : '<body><main class="product-page container" id="productDetail"></main></body>';
+    PRODUCT_TEMPLATE_CACHE = { head: baseHead, body };
+  } catch (err) {
+    console.error("No se pudo cargar la plantilla de producto", err);
+    PRODUCT_TEMPLATE_CACHE = {
+      head: "",
+      body:
+        '<body><main class="product-page container" id="productDetail"></main></body>',
+    };
+  }
+  return PRODUCT_TEMPLATE_CACHE;
+}
+
 async function loadProducts() {
   const now = Date.now();
   if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
@@ -3863,27 +3899,81 @@ async function requestHandler(req, res) {
         return parts.join("");
       })
       .join("");
+    const { head: templateHead, body: templateBody } = getProductTemplateParts();
+    const fallbackName = name && name.trim() ? name.trim() : "Producto";
+    const metaTitleRaw =
+      typeof product.meta_title === "string" && product.meta_title.trim()
+        ? product.meta_title.trim()
+        : fallbackName;
+    const hasBrand = typeof product.brand === "string" && product.brand.trim();
+    const title = hasBrand ? metaTitleRaw : `${metaTitleRaw} | NERIN Repuestos`;
+    const description =
+      typeof desc === "string" && desc.trim()
+        ? desc.trim()
+        : `Compra ${fallbackName} en NERIN.`;
+    const keywordList = Array.isArray(product.tags)
+      ? product.tags
+          .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+          .filter(Boolean)
+      : [];
+    const keywords = keywordList.length
+      ? keywordList.join(", ")
+      : [fallbackName, product.brand, product.category]
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean)
+          .join(", ");
+    const keywordsMeta = keywords
+      ? `<meta name="keywords" content="${esc(keywords)}">`
+      : "";
+    const twitterCardType = primaryImage ? "summary_large_image" : "summary";
+    const twitterImageMeta = primaryImage
+      ? `<meta name="twitter:image" content="${esc(primaryImage)}"><meta name="twitter:image:alt" content="${esc(primaryAlt)}">`
+      : "";
+    const breadcrumbs = {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        {
+          "@type": "ListItem",
+          position: 1,
+          name: "Inicio",
+          item: absoluteUrl("/", siteBase),
+        },
+        {
+          "@type": "ListItem",
+          position: 2,
+          name: "Productos",
+          item: absoluteUrl("/shop.html", siteBase),
+        },
+        {
+          "@type": "ListItem",
+          position: 3,
+          name: name || fallbackName,
+          item: canonical,
+        },
+      ],
+    };
     const head = [
-      '<meta charset="utf-8">',
-      `<title>${esc(name)}</title>`,
-      `<meta name="description" content="${esc(desc)}">`,
+      templateHead,
+      `<title>${esc(title)}</title>`,
+      `<meta name="description" content="${esc(description)}">`,
+      keywordsMeta,
       `<link rel="canonical" href="${esc(canonical)}">`,
-      `<meta property="og:title" content="${esc(name)}">`,
-      `<meta property="og:description" content="${esc(desc)}">`,
+      `<meta property="og:title" content="${esc(title)}">`,
+      `<meta property="og:description" content="${esc(description)}">`,
       `<meta property="og:url" content="${esc(canonical)}">`,
-      '<meta property="og:type" content="product">',
       ogImagesMeta,
-      primaryImage
-        ? `<meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="${esc(primaryImage)}"><meta name="twitter:image:alt" content="${esc(primaryAlt)}">`
-        : "",
-      `<script type="application/ld+json">${safeJsonForScript(ld)}</script>`,
+      `<meta name="twitter:card" content="${twitterCardType}">`,
+      `<meta name="twitter:title" content="${esc(title)}">`,
+      `<meta name="twitter:description" content="${esc(description)}">`,
+      `<meta name="twitter:url" content="${esc(canonical)}">`,
+      twitterImageMeta,
+      `<script type="application/ld+json" id="product-jsonld">${safeJsonForScript(ld)}</script>`,
+      `<script type="application/ld+json" id="product-breadcrumbs">${safeJsonForScript(breadcrumbs)}</script>`,
     ]
       .filter(Boolean)
       .join("");
-    const body = `<h1>${esc(name)}</h1><div>Precio: $${esc(
-      product.price || product.price_minorista || product.price_mayorista || ""
-    )}</div><div>${product.stock > 0 ? "En stock" : "Sin stock"}</div>`;
-    const html = `<!DOCTYPE html><html lang="es"><head>${head}</head><body>${body}</body></html>`;
+    const html = `<!DOCTYPE html><html lang="es"><head>${head}</head>${templateBody}</html>`;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;

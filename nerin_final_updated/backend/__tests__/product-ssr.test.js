@@ -5,6 +5,26 @@ process.env.DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
 const { createServer } = require('../server');
 const productsData = require('../../data/products.json').products;
+const seoConfig = require('../../data/config.json');
+
+function normalizeBaseUrl(value) {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const normalized = new URL(value.trim());
+    normalized.hash = '';
+    return normalized.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function expectedSiteBase() {
+  return (
+    normalizeBaseUrl(seoConfig.publicUrl) ||
+    normalizeBaseUrl(process.env.PUBLIC_URL) ||
+    `http://localhost:${process.env.PORT || 3000}`
+  );
+}
 
 function esc(s=''){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
@@ -24,20 +44,29 @@ describe('product SSR', () => {
     const res = await request(server).get(`/p/${slug}`);
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
-    const canonical = `http://localhost:${process.env.PORT || 3000}/p/${slug}`;
-    const nameEsc = esc(product.name);
-    expect(res.text).toContain(`<title>${nameEsc}</title>`);
+    const canonical = `${expectedSiteBase()}/p/${slug}`;
+    const titleEsc = esc(product.meta_title || product.name);
+    expect(res.text).toContain(`<title>${titleEsc}</title>`);
     expect(res.text).toContain('<meta name="description"');
     expect(res.text).toContain(`<link rel="canonical" href="${canonical}">`);
-    expect(res.text).toContain(`<meta property="og:title" content="${nameEsc}">`);
+    expect(res.text).toContain(`<meta property="og:title" content="${titleEsc}">`);
     expect(res.text).toContain(`<meta property="og:description"`);
     expect(res.text).toContain(`<meta property="og:url" content="${canonical}">`);
-    expect(res.text).toContain('<meta property="og:type" content="product">');
-    if (product.image) {
-      const abs = new URL(product.image, `http://localhost:${process.env.PORT || 3000}`).href;
+    expect(res.text).toMatch(
+      /<meta property="og:type" content="product"\s*\/?>(?:\s|<)/,
+    );
+    const base = expectedSiteBase();
+    const expectedImages = Array.isArray(product.images)
+      ? product.images.filter(Boolean)
+      : product.image
+        ? [product.image]
+        : [];
+    expectedImages.forEach((img) => {
+      const abs = new URL(img, base).href;
       expect(res.text).toContain(`<meta property="og:image" content="${abs}">`);
-    }
-    expect(res.text).toContain('<script type="application/ld+json">');
+    });
+    expect(res.text).toContain('id="product-jsonld"');
+    expect(res.text).toContain('id="product-breadcrumbs"');
     expect(res.text).toContain('"@type":"Product"');
     expect(res.text).toContain('"@type":"Offer"');
   });
@@ -118,9 +147,10 @@ test('JSON-LD is safely escaped inside <script>', async () => {
 
   expect(res.status).toBe(200);
   // Debe contener el bloque de JSON-LD…
-  expect(res.text).toContain('<script type="application/ld+json">');
   // …y el contenido debe venir escapado (sin '<' literales dentro del script)
-  const scriptStart = res.text.indexOf('<script type="application/ld+json">') + 35;
+  const marker = '<script type="application/ld+json" id="product-jsonld">';
+  expect(res.text).toContain(marker);
+  const scriptStart = res.text.indexOf(marker) + marker.length;
   const scriptEnd = res.text.indexOf('</script>', scriptStart);
   const jsonInScript = res.text.slice(scriptStart, scriptEnd);
   expect(jsonInScript).toContain('\\u003c');   // '<' escapado
