@@ -8,6 +8,57 @@ const priceFormatter = new Intl.NumberFormat("es-AR");
 const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
+function getProductSlug(product) {
+  if (!product || typeof product.slug !== "string") return null;
+  const slug = product.slug.trim();
+  return slug || null;
+}
+
+function buildRelativeProductUrl(product) {
+  const slug = getProductSlug(product);
+  if (slug) {
+    return `/p/${encodeURIComponent(slug)}`;
+  }
+  const id = product?.id != null ? String(product.id) : "";
+  return `/product.html?id=${encodeURIComponent(id)}`;
+}
+
+function extractSlugFromPath() {
+  const path = window.location?.pathname || "";
+  const match = path.match(/^\/p\/([^/]+)\/?$/);
+  if (!match) return null;
+  let decoded = match[1];
+  try {
+    decoded = decodeURIComponent(match[1]);
+  } catch (err) {
+    /* keep raw value */
+  }
+  const trimmed = decoded.trim();
+  return trimmed || null;
+}
+
+function syncBrowserUrl(relativeUrl) {
+  if (!relativeUrl || typeof history.replaceState !== "function") return;
+  try {
+    const target = new URL(relativeUrl, window.location.origin);
+    const current = window.location;
+    let nextSearch = target.search;
+    if (target.pathname.startsWith("/p/")) {
+      const params = new URLSearchParams(current.search);
+      params.delete("id");
+      params.delete("slug");
+      const remaining = params.toString();
+      nextSearch = remaining ? `?${remaining}` : "";
+    }
+    if (current.pathname !== target.pathname || current.search !== nextSearch) {
+      const hash = current.hash || "";
+      history.replaceState({}, "", target.pathname + nextSearch + hash);
+    }
+  } catch (err) {
+    /* ignore invalid URLs */
+  }
+}
+
 function getSiteBaseUrl() {
   const cfg = window.NERIN_CONFIG;
   if (cfg && typeof cfg.publicUrl === "string" && cfg.publicUrl.trim()) {
@@ -123,13 +174,17 @@ function updateProductMeta(product, images) {
   const description =
     getProductDescription(product, { preferMeta: true }) ||
     `${fallbackName} disponible con garantía oficial en NERIN.`;
-  const productUrl = resolveAbsoluteUrl(
-    `/product.html?id=${encodeURIComponent(product.id)}`,
-  );
+  const relativeUrl = buildRelativeProductUrl(product);
+  const productUrl = resolveAbsoluteUrl(relativeUrl);
   document.title = title;
   setMetaContent("name", "description", description);
-  if (Array.isArray(product.tags) && product.tags.length) {
-    setMetaContent("name", "keywords", product.tags.join(", "));
+  const tags = Array.isArray(product.tags)
+    ? product.tags
+        .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+        .filter(Boolean)
+    : [];
+  if (tags.length) {
+    setMetaContent("name", "keywords", tags.join(", "));
   } else {
     const fallbackKeywords = [fallbackName, product.brand, product.category]
       .filter((item) => typeof item === "string" && item.trim())
@@ -145,7 +200,7 @@ function updateProductMeta(product, images) {
   setMetaContent("name", "twitter:title", title);
   setMetaContent("name", "twitter:description", description);
   setMetaContent("name", "twitter:url", productUrl);
-  return { title, description, productUrl };
+  return { title, description, productUrl, relativeUrl, slug: getProductSlug(product) };
 }
 
 function findExistingPreload(url) {
@@ -667,6 +722,7 @@ function renderProduct(product) {
   buildGallery(galleryContainer, images, alts);
   updateHeadImages(images, alts);
   const metaInfo = updateProductMeta(product, images);
+  syncBrowserUrl(metaInfo.relativeUrl);
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
 
@@ -958,13 +1014,27 @@ async function initProduct() {
   if (!detailSection) return;
   const params = new URLSearchParams(window.location.search);
   const id = params.get("id");
-  if (!id) {
-    if (infoContainer) infoContainer.innerHTML = "<p>Producto no especificado.</p>";
+  const rawSlugParam = params.get("slug");
+  const slugParam =
+    typeof rawSlugParam === "string" && rawSlugParam.trim()
+      ? rawSlugParam.trim()
+      : null;
+  const pathSlug = extractSlugFromPath();
+  const targetSlug = pathSlug || slugParam;
+  if (!targetSlug && !id) {
+    if (infoContainer)
+      infoContainer.innerHTML = "<p>Producto no especificado.</p>";
     return;
   }
   try {
     const products = await fetchProducts();
-    const product = products.find((p) => String(p.id) === String(id));
+    let product = null;
+    if (targetSlug) {
+      product = products.find((p) => getProductSlug(p) === targetSlug);
+    }
+    if (!product && id) {
+      product = products.find((p) => String(p.id) === String(id));
+    }
     if (!product) {
       if (infoContainer)
         infoContainer.innerHTML = "<p>Producto no encontrado.</p>";

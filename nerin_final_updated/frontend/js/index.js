@@ -2,6 +2,15 @@
 
 import { fetchProducts, isWholesale } from "./api.js";
 
+function buildProductUrl(product) {
+  if (product && typeof product.slug === "string") {
+    const slug = product.slug.trim();
+    if (slug) return `/p/${encodeURIComponent(slug)}`;
+  }
+  const id = product?.id != null ? String(product.id) : "";
+  return `/product.html?id=${encodeURIComponent(id)}`;
+}
+
 function getPrimaryImage(product) {
   if (Array.isArray(product.images) && product.images.length) {
     return product.images[0];
@@ -52,7 +61,7 @@ function createFeaturedCard(product) {
   const actions = document.createElement("div");
   actions.className = "product-actions";
   const more = document.createElement("a");
-  more.href = `/product.html?id=${product.id}`;
+  more.href = buildProductUrl(product);
   more.className = "button secondary";
   more.textContent = "Ver más";
   actions.appendChild(more);

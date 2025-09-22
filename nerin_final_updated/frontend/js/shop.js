@@ -1,5 +1,14 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
 
+function buildProductUrl(product) {
+  if (product && typeof product.slug === "string") {
+    const slug = product.slug.trim();
+    if (slug) return `/p/${encodeURIComponent(slug)}`;
+  }
+  const id = product?.id != null ? String(product.id) : "";
+  return `/product.html?id=${encodeURIComponent(id)}`;
+}
+
 function getPrimaryImage(product) {
   if (Array.isArray(product.images) && product.images.length) {
     return product.images[0];
@@ -262,7 +271,7 @@ function createProductCard(product) {
   infoBtn.textContent = "Más info";
   infoBtn.addEventListener("click", (ev) => {
     ev.stopPropagation();
-    window.location.href = `/product.html?id=${product.id}`;
+    window.location.href = buildProductUrl(product);
   });
   actionsDiv.appendChild(infoBtn);
   card.appendChild(actionsDiv);
@@ -273,7 +282,7 @@ function createProductCard(product) {
     if (evt.target.tagName === "BUTTON" || evt.target.tagName === "INPUT") {
       return;
     }
-    window.location.href = `/product.html?id=${product.id}`;
+    window.location.href = buildProductUrl(product);
   });
   return card;
 }
