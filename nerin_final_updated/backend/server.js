@@ -59,6 +59,29 @@ const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
 
 let _cache = { t: 0, data: null };
 
+function normalizeBaseUrl(value) {
+  if (!value || typeof value !== "string") return null;
+  try {
+    const normalized = new URL(value.trim());
+    normalized.hash = "";
+    return normalized.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+const FALLBACK_BASE_URL = normalizeBaseUrl(BASE_URL) || BASE_URL;
+
+function getPublicBaseUrl(cfg) {
+  if (cfg && typeof cfg.publicUrl === "string") {
+    const fromConfig = normalizeBaseUrl(cfg.publicUrl);
+    if (fromConfig) return fromConfig;
+  }
+  const fromEnv = normalizeBaseUrl(process.env.PUBLIC_URL);
+  if (fromEnv) return fromEnv;
+  return FALLBACK_BASE_URL;
+}
+
 function safeParseMetadata(meta) {
   if (!meta) return {};
   if (typeof meta === "object") {
@@ -148,13 +171,108 @@ function safeJsonForScript(obj) {
     .replace(/\u2029/g, "\\u2029");
 }
 
-function absoluteUrl(input) {
+function absoluteUrl(input, base) {
   if (!input) return null;
+  const siteBase = normalizeBaseUrl(base) || FALLBACK_BASE_URL;
   try {
-    return new URL(input, BASE_URL).href;
+    return new URL(input, siteBase).href;
   } catch {
     return null;
   }
+}
+
+function toIsoString(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function isProductPublic(product) {
+  if (!product) return false;
+  const visibility =
+    typeof product.visibility === "string"
+      ? product.visibility.trim().toLowerCase()
+      : "";
+  if (visibility && visibility !== "public") return false;
+  if (product.vip_only) return false;
+  if (product.enabled === false) return false;
+  const status =
+    typeof product.status === "string"
+      ? product.status.trim().toLowerCase()
+      : "";
+  if (status === "draft" || status === "archived") return false;
+  return Boolean(
+    (typeof product.slug === "string" && product.slug.trim()) ||
+      (typeof product.id === "string" && product.id.trim()) ||
+      typeof product.id === "number",
+  );
+}
+
+function buildSitemapXml(baseUrl, products = []) {
+  const siteBase = normalizeBaseUrl(baseUrl) || FALLBACK_BASE_URL;
+  const generatedAt = toIsoString(new Date());
+  const toAbsolute = (pathSegment) => absoluteUrl(pathSegment, siteBase);
+  const staticPages = [
+    { path: "/", changefreq: "weekly", priority: "1.0" },
+    { path: "/shop.html", changefreq: "daily", priority: "0.9" },
+    { path: "/contact.html", changefreq: "monthly", priority: "0.5" },
+    { path: "/seguimiento.html", changefreq: "weekly", priority: "0.4" },
+    { path: "/cart.html", changefreq: "weekly", priority: "0.3" },
+    { path: "/checkout.html", changefreq: "weekly", priority: "0.5" },
+    { path: "/login.html", changefreq: "monthly", priority: "0.3" },
+    { path: "/register.html", changefreq: "monthly", priority: "0.3" },
+  ];
+
+  const urls = staticPages
+    .map((entry) => ({
+      loc: toAbsolute(entry.path),
+      changefreq: entry.changefreq,
+      priority: entry.priority,
+      lastmod: generatedAt,
+    }))
+    .filter((entry) => Boolean(entry.loc));
+
+  const productUrls = products
+    .filter((product) => isProductPublic(product))
+    .map((product) => {
+      const slug =
+        typeof product.slug === "string" && product.slug.trim()
+          ? product.slug.trim()
+          : null;
+      const pathSegment = slug
+        ? `/p/${encodeURIComponent(slug)}`
+        : `/product.html?id=${encodeURIComponent(String(product.id))}`;
+      const lastmod =
+        toIsoString(
+          product.updated_at ||
+            product.updatedAt ||
+            product.lastModified ||
+            product.lastmod ||
+            product.updated ||
+            product.modified ||
+            product.created_at,
+        ) || generatedAt;
+      return {
+        loc: toAbsolute(pathSegment),
+        changefreq: "weekly",
+        priority: "0.8",
+        lastmod,
+      };
+    })
+    .filter((entry) => Boolean(entry.loc));
+
+  const serialize = ({ loc, lastmod, changefreq, priority }) => {
+    const segments = [`<loc>${esc(loc)}</loc>`];
+    if (lastmod) segments.push(`<lastmod>${lastmod}</lastmod>`);
+    if (changefreq) segments.push(`<changefreq>${changefreq}</changefreq>`);
+    if (priority) segments.push(`<priority>${priority}</priority>`);
+    return `<url>${segments.join("")}</url>`;
+  };
+
+  const allEntries = [...urls, ...productUrls];
+  const body = allEntries.map(serialize).join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</urlset>`;
 }
 
 // === Directorios persistentes para archivos subidos ===
@@ -3533,6 +3651,41 @@ async function requestHandler(req, res) {
     );
   }
 
+  if (pathname === "/robots.txt" && req.method === "GET") {
+    const cfg = getConfig();
+    const siteBase = getPublicBaseUrl(cfg);
+    const lines = [
+      "User-agent: *",
+      "Allow: /",
+      "Disallow: /admin",
+      "Disallow: /admin/",
+      "Disallow: /api/",
+      "Disallow: /backend/",
+    ];
+    if (siteBase) {
+      lines.push(`Sitemap: ${siteBase}/sitemap.xml`);
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    res.end(lines.join("\n") + "\n");
+    return;
+  }
+
+  if (pathname === "/sitemap.xml" && req.method === "GET") {
+    const cfg = getConfig();
+    const siteBase = getPublicBaseUrl(cfg);
+    const products = getProducts();
+    const xml = buildSitemapXml(siteBase, products);
+    res.writeHead(200, {
+      "Content-Type": "application/xml; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    });
+    res.end(xml);
+    return;
+  }
+
   // === Archivos estáticos persistentes ===
   // 1) Facturas de pedidos (PDF/XML) guardadas en el disco persistente.
   //    La ruta pública es /assets/invoices/<nombre de archivo>. Se sirve
@@ -3656,13 +3809,15 @@ async function requestHandler(req, res) {
     const name = product.name || "";
     const desc =
       product.meta_description || product.description || `Compra ${name}`;
-    const canonical = `${BASE_URL}/p/${slug}`;
+    const seoConfig = getConfig();
+    const siteBase = getPublicBaseUrl(seoConfig);
+    const canonical = `${siteBase}/p/${encodeURIComponent(slug)}`;
     const rawImages = Array.isArray(product.images)
       ? product.images.filter(Boolean)
       : [];
     const legacyImages = !rawImages.length && product.image ? [product.image] : [];
     const imageList = [...rawImages, ...legacyImages]
-      .map((src) => absoluteUrl(src))
+      .map((src) => absoluteUrl(src, siteBase))
       .filter(Boolean);
     const alts = Array.isArray(product.images_alt) ? product.images_alt : [];
     const defaultAlt = name || "Imagen del producto";
