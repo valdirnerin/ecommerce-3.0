@@ -1414,6 +1414,25 @@ const invoiceUpload = multer({
 });
 
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
+function hydrateHtmlSeo(buffer) {
+  try {
+    const html = buffer.toString("utf8");
+    const baseUrl = getPublicBaseUrl(getConfig());
+    if (!baseUrl) {
+      return buffer;
+    }
+    const normalized = baseUrl.replace(/\/+$/, "");
+    const hydrated = html.replace(/__BASE_URL__/g, normalized);
+    if (hydrated === html) {
+      return buffer;
+    }
+    return Buffer.from(hydrated, "utf8");
+  } catch (err) {
+    console.error("No se pudo hidratar HTML con la URL pública", err);
+    return buffer;
+  }
+}
+
 function serveStatic(filePath, res, headers = {}) {
   const ext = path.extname(filePath).toLowerCase();
   const mimeTypes = {
@@ -1431,10 +1450,14 @@ function serveStatic(filePath, res, headers = {}) {
     if (err) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Not Found");
-    } else {
-      res.writeHead(200, { "Content-Type": contentType, ...headers });
-      res.end(data);
+      return;
     }
+    let payload = data;
+    if (ext === ".html") {
+      payload = hydrateHtmlSeo(data);
+    }
+    res.writeHead(200, { "Content-Type": contentType, ...headers });
+    res.end(payload);
   });
 }
 
