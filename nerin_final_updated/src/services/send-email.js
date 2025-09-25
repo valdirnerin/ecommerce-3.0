@@ -4,6 +4,11 @@ import OrderConfirmedEmail from "../emails/OrderConfirmedEmail.tsx";
 import PaymentPendingEmail from "../emails/PaymentPendingEmail.tsx";
 import PaymentRejectedEmail from "../emails/PaymentRejectedEmail.tsx";
 
+/**
+ * @typedef {import("../types/order").Order} Order
+ * @typedef {{ to: string; order: Order }} SendEmailParams
+ */
+
 const RETRIABLE_STATUS = new Set([429, 500, 502, 503]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -205,7 +210,10 @@ export async function withRetries(fn, { retries = 3, base = 500 } = {}) {
 
 const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL;
 
-export const sendOrderConfirmed = async ({ to, order } = {}) => {
+/**
+ * @param {SendEmailParams} params
+ */
+export const sendOrderConfirmed = async ({ to, order }) => {
   const recipients = ensureArray(to);
   const items = normalizeItems(order);
   const total = computeOrderTotal(order, items);
@@ -242,7 +250,10 @@ export const sendOrderConfirmed = async ({ to, order } = {}) => {
   );
 };
 
-export const sendPaymentPending = async ({ to, order } = {}) => {
+/**
+ * @param {SendEmailParams} params
+ */
+export const sendPaymentPending = async ({ to, order }) => {
   const recipients = ensureArray(to);
   const orderNumber = resolveOrderNumber(order);
   const customerName = resolveCustomerName(order);
@@ -271,7 +282,10 @@ export const sendPaymentPending = async ({ to, order } = {}) => {
   );
 };
 
-export const sendPaymentRejected = async ({ to, order } = {}) => {
+/**
+ * @param {SendEmailParams} params
+ */
+export const sendPaymentRejected = async ({ to, order }) => {
   const recipients = ensureArray(to);
   const orderNumber = resolveOrderNumber(order);
   const customerName = resolveCustomerName(order);

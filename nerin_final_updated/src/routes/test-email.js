@@ -72,7 +72,7 @@ router.get("/", async (req, res) => {
 
   try {
     const order = buildTestOrder();
-    await sender({ to: recipients, order });
+    await Promise.all(recipients.map((recipient) => sender({ to: recipient, order })));
     return res.json({ ok: true });
   } catch (error) {
     console.error("test-email route failed", error);
