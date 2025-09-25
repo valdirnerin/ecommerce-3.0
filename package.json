@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node nerin_final_updated/backend/server.js",
     "test": "npm test --prefix nerin_final_updated",
-    "list:webhooks": "node scripts/listMpWebhooks.js"
+    "list:webhooks": "node scripts/listMpWebhooks.js",
+    "hit:mp-webhook": "curl -X POST -H 'Content-Type: application/json' -d '{\"data\":{\"id\":\"TEST123\"}}' http://localhost:3000/webhooks/mp"
   },
   "dependencies": {
     "cors": "^2.8.5",
