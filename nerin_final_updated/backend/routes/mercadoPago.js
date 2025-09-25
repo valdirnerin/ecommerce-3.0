@@ -6,6 +6,11 @@ const {
   applyInventoryForOrder,
   revertInventoryForOrder,
 } = require('../services/inventory');
+const {
+  sendOrderConfirmed,
+  sendPaymentPending,
+  sendPaymentRejected,
+} = require('../services/emailNotifications');
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
 const fetchFn =
@@ -161,13 +166,114 @@ function extractPaymentEvent(req = {}) {
   return { type, action, id };
 }
 
+async function fetchPaymentStatus(paymentId) {
+  const client = getMpClient();
+  const res = await client.payment.findById(paymentId);
+  return normalizePaymentResponse(res);
+}
+
+async function getOrderByPaymentId(paymentId, { preferenceId, externalReference } = {}) {
+  return ordersRepo.findByPaymentIdentifiers({
+    payment_id: paymentId,
+    preference_id: preferenceId,
+    external_reference: externalReference,
+  });
+}
+
+function resolveCustomerEmail(order = {}) {
+  const candidates = [
+    order.customer?.email,
+    order.customer?.mail,
+    order.customer?.correo,
+    order.cliente?.email,
+    order.cliente?.mail,
+    order.cliente?.correo,
+    order.customer_email,
+    order.user_email,
+    order.email,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const normalized = String(candidate).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function resolveOrderIdentifier(order = {}) {
+  const candidates = [
+    order.id,
+    order.order_id,
+    order.orderId,
+    order.external_reference,
+    order.externalReference,
+    order.preference_id,
+    order.preferenceId,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const normalized = String(candidate).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+const STATUS_EMAIL_HANDLERS = {
+  approved: { sender: sendOrderConfirmed, flag: 'confirmedSent' },
+  pending: { sender: sendPaymentPending, flag: 'pendingSent' },
+  rejected: { sender: sendPaymentRejected, flag: 'rejectedSent' },
+};
+
+async function notifyCustomerStatus({ order, status, paymentId }) {
+  if (!order || !status) return;
+  const config = STATUS_EMAIL_HANDLERS[status];
+  if (!config) return;
+  const alreadySent = order?.emails?.[config.flag] === true;
+  if (alreadySent) {
+    logger.info('mp-webhook email skipped', {
+      paymentId,
+      status,
+      reason: 'already-sent',
+      flag: config.flag,
+    });
+    return;
+  }
+  const to = resolveCustomerEmail(order);
+  if (!to) {
+    logger.info('mp-webhook email skipped', {
+      paymentId,
+      status,
+      reason: 'missing-email',
+      flag: config.flag,
+    });
+    return;
+  }
+  try {
+    await config.sender({ to, order });
+    const orderId = resolveOrderIdentifier(order);
+    if (orderId) {
+      await ordersRepo.markEmailSent(orderId, config.flag, true);
+    }
+    logger.info('mp-webhook email processed', {
+      paymentId,
+      status,
+      flag: config.flag,
+      orderId: resolveOrderIdentifier(order),
+    });
+  } catch (error) {
+    logger.error('mp-webhook email send failed', {
+      paymentId,
+      status,
+      msg: error?.message,
+    });
+  }
+}
+
 async function handlePayment(paymentId, hints = {}) {
   if (!paymentId) return 'ignored';
   let payment;
   try {
-    const client = getMpClient();
-    const res = await client.payment.findById(paymentId);
-    payment = normalizePaymentResponse(res);
+    payment = await fetchPaymentStatus(paymentId);
   } catch (error) {
     logger.warn('mp-webhook payment fetch failed', {
       paymentId,
@@ -193,10 +299,9 @@ async function handlePayment(paymentId, hints = {}) {
   const preferenceId = payment.preference_id || hints.preference_id || null;
 
   try {
-    const order = await ordersRepo.findByPaymentIdentifiers({
-      payment_id: paymentId,
-      preference_id: preferenceId,
-      external_reference: reference,
+    const order = await getOrderByPaymentId(paymentId, {
+      preferenceId,
+      externalReference: reference,
     });
 
     if (!order) {
@@ -295,6 +400,21 @@ async function handlePayment(paymentId, hints = {}) {
       });
       return 'no-order';
     }
+
+    const mergedOrder = {
+      ...(order || {}),
+      ...(updated || {}),
+      emails: {
+        ...((order && order.emails) || {}),
+        ...((updated && updated.emails) || {}),
+      },
+    };
+
+    await notifyCustomerStatus({
+      order: mergedOrder,
+      status: nextCode,
+      paymentId,
+    });
 
     logger.info('mp-webhook order updated', {
       paymentId,
