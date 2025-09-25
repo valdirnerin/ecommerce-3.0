@@ -14,11 +14,18 @@ jest.mock('../data/ordersRepo', () => ({
   upsertByPayment: jest.fn(),
   findByPaymentIdentifiers: jest.fn(),
   getNormalizedItems: jest.fn(),
+  markEmailSent: jest.fn(),
 }));
 
 jest.mock('../services/inventory', () => ({
   applyInventoryForOrder: jest.fn().mockResolvedValue(undefined),
   revertInventoryForOrder: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../services/emailNotifications', () => ({
+  sendOrderConfirmed: jest.fn().mockResolvedValue(undefined),
+  sendPaymentPending: jest.fn().mockResolvedValue(undefined),
+  sendPaymentRejected: jest.fn().mockResolvedValue(undefined),
 }));
 
 process.env.MP_ACCESS_TOKEN = 'test-token';
@@ -29,6 +36,7 @@ const ordersRepo = require('../data/ordersRepo');
 const { createServer } = require('../server');
 const { processNotification } = require('../routes/mercadoPago');
 const inventory = require('../services/inventory');
+const emailNotifications = require('../services/emailNotifications');
 
 describe('Mercado Pago webhook', () => {
   beforeEach(() => {
@@ -40,6 +48,8 @@ describe('Mercado Pago webhook', () => {
       status: 'pending',
       inventoryApplied: false,
       inventory_applied: false,
+      customer_email: 'cliente@example.com',
+      customer: { email: 'cliente@example.com' },
     };
     ordersRepo.findByPaymentIdentifiers.mockResolvedValue(order);
     ordersRepo.getNormalizedItems.mockReturnValue(order.items);
@@ -51,6 +61,7 @@ describe('Mercado Pago webhook', () => {
       inventoryApplied: true,
       inventory_applied: true,
     });
+    ordersRepo.markEmailSent.mockResolvedValue(order);
     global.fetch.mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -93,6 +104,17 @@ describe('Mercado Pago webhook', () => {
       })
     );
     expect(inventory.applyInventoryForOrder).toHaveBeenCalled();
+    expect(emailNotifications.sendOrderConfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'cliente@example.com',
+        order: expect.objectContaining({ id: 'ORDER-1' }),
+      }),
+    );
+    expect(ordersRepo.markEmailSent).toHaveBeenCalledWith(
+      'ORDER-1',
+      'confirmedSent',
+      true,
+    );
     if (server.close) server.close();
   });
 
@@ -127,6 +149,12 @@ describe('Mercado Pago webhook', () => {
       })
     );
     expect(inventory.applyInventoryForOrder).toHaveBeenCalled();
+    expect(emailNotifications.sendOrderConfirmed).toHaveBeenCalled();
+    expect(ordersRepo.markEmailSent).toHaveBeenCalledWith(
+      'ORDER-1',
+      'confirmedSent',
+      true,
+    );
 
     if (server.close) server.close();
   });
@@ -183,6 +211,8 @@ describe('Mercado Pago webhook', () => {
         }),
       })
     );
+    expect(emailNotifications.sendOrderConfirmed).not.toHaveBeenCalled();
+    expect(emailNotifications.sendPaymentRejected).not.toHaveBeenCalled();
   });
 
   test('payment approved transitioning to charged_back reverts inventory once', async () => {
@@ -237,6 +267,8 @@ describe('Mercado Pago webhook', () => {
         }),
       })
     );
+    expect(emailNotifications.sendOrderConfirmed).not.toHaveBeenCalled();
+    expect(emailNotifications.sendPaymentRejected).not.toHaveBeenCalled();
   });
 
   test('refund revierte stock si la orden previa está "pagado" (ES) sin code', async () => {

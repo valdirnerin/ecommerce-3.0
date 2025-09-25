@@ -456,7 +456,7 @@ async function update(order) {
   await pool.query('BEGIN');
   try {
     await pool.query(
-      'UPDATE orders SET customer_email=$2, status=$3, total=$4, invoice_status=$5, invoices=$6 WHERE id=$1',
+      'UPDATE orders SET customer_email=$2, status=$3, total=$4, invoice_status=$5, invoices=$6, emails=COALESCE($7, emails) WHERE id=$1',
       [
         draft.id,
         draft.customer_email || draft.customer?.email || null,
@@ -464,6 +464,7 @@ async function update(order) {
         draft.total || 0,
         draft.invoice_status || null,
         JSON.stringify(draft.invoices || []),
+        draft.emails ? JSON.stringify(draft.emails) : null,
       ]
     );
     await pool.query('DELETE FROM order_items WHERE order_id=$1', [draft.id]);
@@ -964,6 +965,38 @@ async function clearInventoryApplied(id) {
   await pool.query('UPDATE orders SET inventory_applied=false WHERE id=$1', [id]);
 }
 
+async function markEmailSent(orderId, flagName, value = true) {
+  const id = normalizeKey(orderId);
+  const flag = normalizeKey(flagName);
+  if (!id) throw new Error('ORDER_ID_REQUIRED');
+  if (!flag) throw new Error('FLAG_NAME_REQUIRED');
+  const nextValue = value === true;
+
+  const pool = db.getPool();
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((order) => String(order.id) === String(id));
+    if (idx === -1) return null;
+    const current = orders[idx].emails || {};
+    if (current[flag] === nextValue) return orders[idx];
+    const updated = {
+      ...orders[idx],
+      emails: { ...current, [flag]: nextValue },
+    };
+    orders[idx] = updated;
+    await saveAll(orders);
+    return updated;
+  }
+
+  const payload = JSON.stringify({ [flag]: nextValue });
+  const { rows } = await pool.query(
+    "UPDATE orders SET emails = COALESCE(emails, '{}'::jsonb) || $2::jsonb WHERE id=$1 RETURNING *",
+    [id, payload],
+  );
+  if (!rows[0]) return null;
+  return ensureInvoiceStructure(rows[0]);
+}
+
 module.exports = {
   getAll,
   getById,
@@ -977,6 +1010,7 @@ module.exports = {
   createOrder,
   markInventoryApplied,
   clearInventoryApplied,
+  markEmailSent,
   upsertByPayment,
   findByPaymentIdentifiers,
   getNormalizedItems,
