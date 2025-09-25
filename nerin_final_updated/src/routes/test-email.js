@@ -10,6 +10,20 @@ const loadSenders = async () => {
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  if (!isProduction) {
+    return next();
+  }
+
+  const providedKey = req.query?.key;
+  if (typeof providedKey === "string" && providedKey === process.env.ENV_TEST_KEY) {
+    return next();
+  }
+
+  return res.status(403).json({ ok: false, error: "Unauthorized" });
+});
+
 const buildTestOrder = () => ({
   orderNumber: "DEV-TEST-1001",
   customer: { name: "Juan Pérez" },
