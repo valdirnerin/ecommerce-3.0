@@ -23,6 +23,18 @@ try {
 }
 require("dotenv").config();
 
+function checkEmailConfig() {
+  const key = process.env.RESEND_API_KEY || "";
+  const from = process.env.FROM_EMAIL || "";
+  const hasKey = Boolean(key);
+  const keyLen = hasKey ? key.length : 0;
+  const ok = hasKey && Boolean(from);
+  console.log("email-config", { ok, hasKey, keyLen, from });
+  return ok;
+}
+
+checkEmailConfig();
+
 const app = express();
 app.use(
   express.json({
@@ -53,6 +65,8 @@ const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
+const DEFAULT_TEST_EMAIL_TO =
+  process.env.TEST_EMAIL_TO || ADMIN_EMAIL || process.env.FROM_EMAIL || "";
 const API_FORWARD_URL = process.env.API_FORWARD_URL || "";
 const db = require("./db");
 db.init().catch((e) => console.error("db init", e));
@@ -62,6 +76,63 @@ const { processNotification } = require("./routes/mercadoPago");
 
 // Ruta para servir los archivos del frontend (HTML, CSS, JS)
 app.use("/", express.static(path.join(__dirname, "../frontend")));
+
+const healthRouter = express.Router();
+
+healthRouter.get("/ping", (_req, res) => {
+  res.json({ ok: true });
+});
+
+healthRouter.get("/test-email", async (req, res) => {
+  const apiKey = process.env.RESEND_API_KEY || "";
+  const from = process.env.FROM_EMAIL || "";
+  if (!Resend || !apiKey || !from) {
+    return res
+      .status(500)
+      .json({ ok: false, error: "email service not configured" });
+  }
+
+  const toParam = req.query.to;
+  let to = [];
+  if (Array.isArray(toParam)) {
+    to = toParam
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+  } else if (typeof toParam === "string") {
+    to = toParam
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  if (!to.length && DEFAULT_TEST_EMAIL_TO) {
+    to = [DEFAULT_TEST_EMAIL_TO];
+  }
+
+  if (!to.length) {
+    return res.status(400).json({ ok: false, error: "missing recipient" });
+  }
+
+  try {
+    const client = new Resend(apiKey);
+    const result = await client.emails.send({
+      from,
+      to,
+      subject: "Test Resend OK",
+      html: "<p>Backend ✅ Resend ✅</p>",
+    });
+    const id = result?.data?.id || result?.id || null;
+    return res.json({ ok: true, id });
+  } catch (error) {
+    console.error("test-email", error);
+    return res.status(500).json({
+      ok: false,
+      error: error?.message || "failed to send email",
+    });
+  }
+});
+
+app.use(healthRouter);
 
 // Ruta para servir las imágenes de productos y otros activos
 app.use("/assets", express.static(path.join(__dirname, "../assets")));
