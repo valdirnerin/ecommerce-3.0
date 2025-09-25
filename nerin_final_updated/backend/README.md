@@ -39,3 +39,12 @@ Esta actualización agrega persistencia básica de pedidos y soporte de seguimie
      -H 'Content-Type: application/json' \
      -d '{"email":"a@b.com","id":"<NRN>"}' | jq
    ```
+
+## Emails (Resend)
+
+- Configurá las variables en tu `.env`:
+  - `RESEND_API_KEY`: API key de Resend con permisos para enviar emails.
+  - `FROM_EMAIL`: remitente verificado que verán los clientes.
+  - `SUPPORT_EMAIL`: casilla que recibirá respuestas o consultas.
+- Verificá el dominio remitente en Resend (registros SPF y DKIM) antes de enviar correos en producción.
+- Probar envío local: `GET /test-email?to=TU_EMAIL&type=confirmed`.
