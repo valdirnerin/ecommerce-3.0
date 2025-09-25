@@ -184,6 +184,15 @@ export async function withRetries(fn, { retries = 3, base = 500 } = {}) {
       const status = extractStatus(error);
       const shouldRetry = attempt <= retries && RETRIABLE_STATUS.has(status);
       if (!shouldRetry) {
+        const statusCode =
+          error?.statusCode ?? error?.status ?? error?.response?.status ?? status ?? null;
+        console.error("[send-email] Email send failed", {
+          attempt,
+          statusCode,
+          error: error?.message || error,
+        });
+      }
+      if (!shouldRetry) {
         throw error;
       }
 
@@ -202,6 +211,11 @@ export const sendOrderConfirmed = async ({ to, order } = {}) => {
   const total = computeOrderTotal(order, items);
   const orderNumber = resolveOrderNumber(order);
   const customerName = resolveCustomerName(order);
+
+  console.info("[send-email] Preparing to send order-confirmed email", {
+    to: recipients,
+    orderNumber: order?.number ?? orderNumber,
+  });
 
   return withRetries(async () =>
     ensureSendResult(
@@ -233,6 +247,11 @@ export const sendPaymentPending = async ({ to, order } = {}) => {
   const orderNumber = resolveOrderNumber(order);
   const customerName = resolveCustomerName(order);
 
+  console.info("[send-email] Preparing to send payment-pending email", {
+    to: recipients,
+    orderNumber: order?.number ?? orderNumber,
+  });
+
   return withRetries(async () =>
     ensureSendResult(
       await resend.emails.send({
@@ -256,6 +275,11 @@ export const sendPaymentRejected = async ({ to, order } = {}) => {
   const recipients = ensureArray(to);
   const orderNumber = resolveOrderNumber(order);
   const customerName = resolveCustomerName(order);
+
+  console.info("[send-email] Preparing to send payment-rejected email", {
+    to: recipients,
+    orderNumber: order?.number ?? orderNumber,
+  });
 
   return withRetries(async () =>
     ensureSendResult(
