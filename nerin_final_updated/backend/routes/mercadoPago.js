@@ -248,6 +248,16 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
     });
     return;
   }
+  const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
+  const fromEmail = String(process.env.FROM_EMAIL || '').trim();
+  if (!resendApiKey || !fromEmail) {
+    logger.info('email service not configured', {
+      paymentId,
+      status,
+      flag: config.flag,
+    });
+    return;
+  }
   try {
     await config.sender({ to, order });
     const orderId = resolveOrderIdentifier(order);
@@ -261,10 +271,12 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
       orderId: resolveOrderIdentifier(order),
     });
   } catch (error) {
+    const errorPayload = error?.response?.data;
     logger.error('mp-webhook email send failed', {
       paymentId,
       status,
       msg: error?.message,
+      response: errorPayload,
     });
   }
 }

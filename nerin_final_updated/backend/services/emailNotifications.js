@@ -145,13 +145,17 @@ async function sendEmail({ to, subject, heading, message, footer, order }) {
     return null;
   }
   const html = buildHtmlTemplate({ heading, message, footer, order });
-  return resend.emails.send({
-    from: FROM,
-    to: recipients,
-    subject,
-    html,
-    reply_to: SUPPORT_EMAIL || undefined,
-  });
+  try {
+    return await resend.emails.send({
+      from: FROM,
+      to: recipients,
+      subject,
+      html,
+      reply_to: SUPPORT_EMAIL || undefined,
+    });
+  } catch (error) {
+    throw error;
+  }
 }
 
 async function sendOrderConfirmed({ to, order } = {}) {
