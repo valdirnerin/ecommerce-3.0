@@ -11,6 +11,7 @@ const {
   sendPaymentPending,
   sendPaymentRejected,
 } = require('../services/emailNotifications');
+const inflight = require('../utils/inflightLock');
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
 const fetchFn =
@@ -228,6 +229,9 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
   if (!order || !status) return;
   const config = STATUS_EMAIL_HANDLERS[status];
   if (!config) return;
+  const orderReference = order?.reference || null;
+  const resolvedOrderId = resolveOrderIdentifier(order);
+  const orderIdForLogs = orderReference || resolvedOrderId || order?.id || null;
   const alreadySent = order?.emails?.[config.flag] === true;
   if (alreadySent) {
     logger.info('mp-webhook email skipped', {
@@ -235,6 +239,7 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
       status,
       reason: 'already-sent',
       flag: config.flag,
+      orderId: orderReference || undefined,
     });
     return;
   }
@@ -248,8 +253,28 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
     });
     return;
   }
+  const shouldLock = status === 'approved';
+  const lockKeyBase = paymentId || orderIdForLogs || null;
+  const lockKey = shouldLock && lockKeyBase ? `confirm:${lockKeyBase}` : null;
+  if (lockKey && inflight.has(lockKey)) {
+    logger.info('mp-webhook email skipped', {
+      paymentId,
+      status,
+      reason: 'in-flight',
+      key: lockKey,
+      flag: config.flag,
+      orderId: orderReference || undefined,
+    });
+    return;
+  }
+  if (lockKey) {
+    inflight.add(lockKey);
+  }
+
+  let sendSucceeded = false;
   try {
     await config.sender({ to, order });
+    sendSucceeded = true;
   } catch (error) {
     const errorPayload =
       (error && error.response && error.response.data) ||
@@ -262,17 +287,22 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
       error: errorPayload,
     });
     return;
+  } finally {
+    if (lockKey) {
+      inflight.delete(lockKey);
+    }
   }
-  const orderId = resolveOrderIdentifier(order);
-  if (orderId) {
-    await ordersRepo.markEmailSent(orderId, config.flag, true);
+  if (sendSucceeded) {
+    if (resolvedOrderId) {
+      await ordersRepo.markEmailSent(resolvedOrderId, config.flag, true);
+    }
+    logger.info('mp-webhook email processed', {
+      paymentId,
+      status,
+      flag: config.flag,
+      orderId: resolvedOrderId || undefined,
+    });
   }
-  logger.info('mp-webhook email processed', {
-    paymentId,
-    status,
-    flag: config.flag,
-    orderId: resolveOrderIdentifier(order),
-  });
 }
 
 async function handlePayment(paymentId, hints = {}) {
