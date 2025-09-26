@@ -1494,6 +1494,31 @@ async function requestHandler(req, res) {
     return sendJson(res, 200, { build: BUILD_ID });
   }
 
+  if (pathname === "/api/ping" && req.method === "GET") {
+    return sendJson(res, 200, { ok: true, ts: Date.now() });
+  }
+
+  if (pathname === "/api/test-email" && req.method === "GET") {
+    const query = parsedUrl.query || {};
+    const to =
+      (typeof query.to === "string" && query.to.trim()) ||
+      "test@nerin.com.ar";
+    const { sendEmail } = require("./services/emailNotifications");
+    try {
+      const result = await sendEmail({
+        to,
+        subject: "Test email",
+        html: "<p>Este es un correo de prueba.</p>",
+        type: "no-reply",
+        replyTo: process.env.SUPPORT_EMAIL,
+      });
+      const id = (result && result.data && result.data.id) || true;
+      return sendJson(res, 200, { ok: true, id });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error });
+    }
+  }
+
   if (pathname === "/health/db") {
     (async () => {
       const pool = db.getPool();
