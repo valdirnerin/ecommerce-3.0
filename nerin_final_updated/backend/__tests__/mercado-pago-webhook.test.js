@@ -29,6 +29,8 @@ jest.mock('../services/emailNotifications', () => ({
 }));
 
 process.env.MP_ACCESS_TOKEN = 'test-token';
+process.env.RESEND_API_KEY = 'test-resend';
+process.env.FROM_EMAIL = 'tester@example.com';
 
 global.fetch = jest.fn();
 
