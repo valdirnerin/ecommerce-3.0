@@ -64,6 +64,9 @@ const mpPreference = mpClient ? new Preference(mpClient) : null;
 const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+const API_BASE_URL = (
+  process.env.API_BASE_URL || `${PUBLIC_URL}/api`
+).replace(/\/+$/, "");
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "";
 const DEFAULT_TEST_EMAIL_TO =
   process.env.TEST_EMAIL_TO || ADMIN_EMAIL || process.env.FROM_EMAIL || "";
@@ -281,7 +284,7 @@ app.post("/api/orders", async (req, res) => {
           },
           auto_return: "approved",
           external_reference: id,
-          notification_url: `${PUBLIC_URL}/api/webhooks/mp`,
+          notification_url: `${API_BASE_URL}/webhooks/mp`,
         };
         const prefRes = await mpPreference.create({ body: pref });
         initPoint = prefRes.init_point;

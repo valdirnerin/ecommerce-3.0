@@ -348,6 +348,9 @@ const APP_PORT = process.env.PORT || 3000;
 // Dominio público para redirecciones de Mercado Pago
 // configurable mediante la variable de entorno PUBLIC_URL
 const DOMAIN = process.env.PUBLIC_URL || "http://localhost:3000";
+const API_BASE_URL = (
+  process.env.API_BASE_URL || `${DOMAIN}/api`
+).replace(/\/+$/, "");
 const resend = CONFIG.resendApiKey ? new Resend(CONFIG.resendApiKey) : null;
 const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
 let mpPreference = null;
@@ -3371,7 +3374,7 @@ async function requestHandler(req, res) {
             pending: `${DOMAIN}/pending`,
           },
           auto_return: "approved",
-          notification_url: `${DOMAIN}/api/webhooks/mp`,
+          notification_url: `${API_BASE_URL}/webhooks/mp`,
         };
         console.log("Preferencia enviada a Mercado Pago:", preferenceBody);
         if (!mpPreference) {
