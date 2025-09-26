@@ -63,6 +63,7 @@ const mpClient = MP_TOKEN ? new MercadoPagoConfig({ accessToken: MP_TOKEN }) : n
 const mpPreference = mpClient ? new Preference(mpClient) : null;
 const resendApiKey = process.env.RESEND_API_KEY || "";
 const resend = Resend && resendApiKey ? new Resend(resendApiKey) : null;
+const FROM_EMAIL = process.env.FROM_EMAIL || "no-reply@nerin.com";
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 const API_BASE_URL = (
   process.env.API_BASE_URL || `${PUBLIC_URL}/api`
@@ -136,6 +137,94 @@ healthRouter.get("/test-email", async (req, res) => {
 });
 
 app.use(healthRouter);
+
+app.get("/admin/resend", async (req, res) => {
+  const requiredKey = process.env.ENV_TEST_KEY || "";
+  if (!requiredKey || req.query.key !== requiredKey) {
+    return res.status(401).json({ ok: false, error: "invalid-key" });
+  }
+
+  const reference =
+    typeof req.query.ref === "string" ? req.query.ref.trim() : "";
+  if (!reference) {
+    return res.status(400).json({ ok: false, error: "missing-reference" });
+  }
+
+  if (!resend) {
+    return res
+      .status(500)
+      .json({ ok: false, error: "email-service-not-configured" });
+  }
+
+  try {
+    const order = await ordersRepo.findByPaymentIdentifiers({
+      external_reference: reference,
+    });
+
+    if (!order) {
+      return res.status(404).json({ ok: false, error: "order-not-found" });
+    }
+
+    const fallbackTo =
+      typeof req.query.to === "string" ? req.query.to.trim() : "";
+
+    const customerEmail =
+      order.customerEmail ||
+      order.customer_email ||
+      order.customer?.email ||
+      order.cliente?.email ||
+      order.user_email ||
+      order.email ||
+      fallbackTo;
+
+    if (!customerEmail) {
+      return res.status(400).json({ ok: false, error: "missing-recipient" });
+    }
+
+    const orderId =
+      order.id || order.order_id || order.orderId || order.order_number || null;
+    if (!orderId) {
+      return res.status(500).json({ ok: false, error: "order-without-id" });
+    }
+
+    const orderNumber =
+      order.order_number ||
+      order.orderNumber ||
+      order.id ||
+      order.external_reference ||
+      reference;
+
+    const tpl = path.join(__dirname, "../emails/orderPaid.html");
+    let html = fs.readFileSync(tpl, "utf8");
+    const url = `${PUBLIC_URL}/seguimiento?order=${encodeURIComponent(
+      orderNumber,
+    )}&email=${encodeURIComponent(customerEmail)}`;
+    html = html
+      .replace("{{ORDER_URL}}", url)
+      .replace("{{ORDER_ID}}", orderNumber);
+
+    const sendResult = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: customerEmail,
+      subject: `Confirmación de compra #${orderNumber}`,
+      html,
+    });
+
+    const success = Boolean(sendResult?.data?.id || sendResult?.id);
+    if (!success) {
+      return res.status(502).json({ ok: false, error: "send-failed" });
+    }
+
+    await ordersRepo.markEmailSent(orderId, "confirmedSent", true);
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error("/admin/resend error", error);
+    return res
+      .status(500)
+      .json({ ok: false, error: error?.message || "unexpected-error" });
+  }
+});
 
 // Ruta para servir las imágenes de productos y otros activos
 app.use("/assets", express.static(path.join(__dirname, "../assets")));
