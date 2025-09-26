@@ -248,37 +248,31 @@ async function notifyCustomerStatus({ order, status, paymentId }) {
     });
     return;
   }
-  const resendApiKey = String(process.env.RESEND_API_KEY || '').trim();
-  const fromEmail = String(process.env.FROM_EMAIL || '').trim();
-  if (!resendApiKey || !fromEmail) {
-    logger.info('email service not configured', {
-      paymentId,
-      status,
-      flag: config.flag,
-    });
-    return;
-  }
   try {
     await config.sender({ to, order });
-    const orderId = resolveOrderIdentifier(order);
-    if (orderId) {
-      await ordersRepo.markEmailSent(orderId, config.flag, true);
-    }
-    logger.info('mp-webhook email processed', {
-      paymentId,
-      status,
-      flag: config.flag,
-      orderId: resolveOrderIdentifier(order),
-    });
   } catch (error) {
-    const errorPayload = error?.response?.data;
+    const errorPayload =
+      (error && error.response && error.response.data) ||
+      (error && error.message) ||
+      error;
     logger.error('mp-webhook email send failed', {
       paymentId,
       status,
-      msg: error?.message,
-      response: errorPayload,
+      flag: config.flag,
+      error: errorPayload,
     });
+    return;
   }
+  const orderId = resolveOrderIdentifier(order);
+  if (orderId) {
+    await ordersRepo.markEmailSent(orderId, config.flag, true);
+  }
+  logger.info('mp-webhook email processed', {
+    paymentId,
+    status,
+    flag: config.flag,
+    orderId: resolveOrderIdentifier(order),
+  });
 }
 
 async function handlePayment(paymentId, hints = {}) {

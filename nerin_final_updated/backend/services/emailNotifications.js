@@ -1,10 +1,27 @@
-const { Resend } = require('resend');
+const fs = require('fs');
+const path = require('path');
 
-const resendApiKey = process.env.RESEND_API_KEY || '';
-const FROM = process.env.FROM_EMAIL || 'NERIN <no-reply@nerin.com.ar>';
-const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || '';
+const CONFIG_PATH = path.join(__dirname, '..', '..', 'data', 'config.json');
 
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
+console.log('email-config', {
+  hasKey: !!process.env.RESEND_API_KEY,
+  fromNoReply: process.env.FROM_EMAIL_NO_REPLY,
+  fromVentas: process.env.FROM_EMAIL_VENTAS,
+  fromContacto: process.env.FROM_EMAIL_CONTACTO,
+});
+
+let cachedConfig = null;
+
+function readConfigFile() {
+  if (cachedConfig) return cachedConfig;
+  try {
+    const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    cachedConfig = JSON.parse(raw);
+  } catch (error) {
+    cachedConfig = {};
+  }
+  return cachedConfig;
+}
 
 function ensureArray(value) {
   if (Array.isArray(value)) {
@@ -46,11 +63,15 @@ function resolveCustomerName(order = {}) {
   return (
     normalizeString(order.customer?.name) ||
     normalizeString(order.customer?.fullName) ||
-    normalizeString(order.customer?.nombre &&
-      `${order.customer.nombre} ${order.customer.apellido || ''}`) ||
+    normalizeString(
+      order.customer?.nombre &&
+        `${order.customer.nombre} ${order.customer.apellido || ''}`.trim(),
+    ) ||
     normalizeString(order.cliente?.name) ||
-    normalizeString(order.cliente?.nombre &&
-      `${order.cliente.nombre} ${order.cliente.apellido || ''}`) ||
+    normalizeString(
+      order.cliente?.nombre &&
+        `${order.cliente.nombre} ${order.cliente.apellido || ''}`.trim(),
+    ) ||
     normalizeString(order.customer_name) ||
     normalizeString(order.client_name) ||
     normalizeString(order.nombre) ||
@@ -128,7 +149,11 @@ function buildHtmlTemplate({ heading, message, footer, order }) {
             <h1 style="font-size: 20px; margin: 0 0 16px;">${heading}</h1>
             <p style="font-size: 16px; line-height: 24px; margin: 0 0 16px;">${message}</p>
             <p style="font-size: 14px; line-height: 20px; margin: 0 0 12px; color: #475569;">Número de pedido: <strong>${orderNumber}</strong></p>
-            ${formattedTotal ? `<p style="font-size: 14px; line-height: 20px; margin: 0 0 12px; color: #475569;">Total: <strong>${formattedTotal}</strong></p>` : ''}
+            ${
+              formattedTotal
+                ? `<p style="font-size: 14px; line-height: 20px; margin: 0 0 12px; color: #475569;">Total: <strong>${formattedTotal}</strong></p>`
+                : ''
+            }
             ${footer}
           </td>
         </tr>
@@ -137,79 +162,144 @@ function buildHtmlTemplate({ heading, message, footer, order }) {
   `;
 }
 
-async function sendEmail({ to, subject, heading, message, footer, order }) {
+function sanitizeFrom(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  return trimmed || null;
+}
+
+function getFrom(type = 'no-reply') {
+  const key = typeof type === 'string' ? type : 'no-reply';
+  const map = {
+    'no-reply': sanitizeFrom(process.env.FROM_EMAIL_NO_REPLY),
+    ventas: sanitizeFrom(process.env.FROM_EMAIL_VENTAS),
+    contacto: sanitizeFrom(process.env.FROM_EMAIL_CONTACTO),
+  };
+  const requested = map[key];
+  const fallback = map['no-reply'];
+  const resolved = requested || fallback || Object.values(map).find(Boolean);
+  if (resolved) return resolved;
+  throw new Error('FROM_EMAIL not configured');
+}
+
+function getEmailConfig() {
+  const envKey = sanitizeFrom(process.env.RESEND_API_KEY);
+  const envSupport = sanitizeFrom(process.env.SUPPORT_EMAIL);
+  if (envKey) {
+    return { apiKey: envKey, replyTo: envSupport || null };
+  }
+  const cfg = readConfigFile();
+  const fileKey = sanitizeFrom(cfg?.resendApiKey);
+  const fileSupport = sanitizeFrom(cfg?.supportEmail);
+  return {
+    apiKey: fileKey || null,
+    replyTo: envSupport || fileSupport || null,
+  };
+}
+
+function getSupportEmail() {
+  const { replyTo } = getEmailConfig();
+  return replyTo || null;
+}
+
+async function sendEmail({ to, subject, html, type = 'no-reply', replyTo } = {}) {
   const recipients = ensureArray(to);
   if (!recipients.length) return null;
-  if (!resend) {
-    console.info('email service not configured, skipping send', { subject });
-    return null;
-  }
-  const html = buildHtmlTemplate({ heading, message, footer, order });
+  const { Resend } = require('resend');
+  const { apiKey, replyTo: support } = getEmailConfig();
+  if (!apiKey) throw new Error('email service not configured');
+  const from = getFrom(type);
+  if (!from) throw new Error('FROM_EMAIL not configured');
+  const client = new Resend(apiKey);
   try {
-    return await resend.emails.send({
-      from: FROM,
+    return await client.emails.send({
+      from,
       to: recipients,
       subject,
       html,
-      reply_to: SUPPORT_EMAIL || undefined,
+      reply_to: replyTo || support || undefined,
     });
   } catch (error) {
-    throw error;
+    throw error?.response?.data || error?.message || error;
   }
 }
 
 async function sendOrderConfirmed({ to, order } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
   const customer = resolveCustomerName(order);
   const orderNumber = resolveOrderNumber(order);
-  return sendEmail({
-    to,
-    order,
-    subject: `Confirmación de compra #${orderNumber}`,
+  const supportEmail = getSupportEmail();
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás ayuda, escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
     heading: `¡Gracias por tu compra, ${customer}!`,
     message:
       'Tu pago fue acreditado correctamente y comenzaremos a preparar tu pedido en breve.',
-    footer:
-      SUPPORT_EMAIL
-        ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás ayuda, escribinos a <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`
-        : '',
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Confirmación de compra #${orderNumber}`,
+    html,
+    type: 'no-reply',
   });
 }
 
 async function sendPaymentPending({ to, order } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
   const customer = resolveCustomerName(order);
   const orderNumber = resolveOrderNumber(order);
-  return sendEmail({
-    to,
-    order,
-    subject: `Pago pendiente - Orden #${orderNumber}`,
+  const supportEmail = getSupportEmail();
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Ante cualquier consulta, respondé este correo o escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
     heading: `Tu pago está en proceso, ${customer}`,
     message:
       'Estamos esperando la confirmación de Mercado Pago. Te avisaremos apenas se acredite.',
-    footer:
-      SUPPORT_EMAIL
-        ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Ante cualquier consulta, respondé este correo o escribinos a <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`
-        : '',
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Pago pendiente - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
   });
 }
 
 async function sendPaymentRejected({ to, order } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
   const customer = resolveCustomerName(order);
   const orderNumber = resolveOrderNumber(order);
-  return sendEmail({
-    to,
-    order,
-    subject: `Pago rechazado - Orden #${orderNumber}`,
+  const supportEmail = getSupportEmail();
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si creés que es un error, contactanos en <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
     heading: `Necesitamos que revises tu pago, ${customer}`,
     message:
       'El intento de pago fue rechazado. Podés volver a intentar con otra tarjeta o medio de pago en tu cuenta de Mercado Pago.',
-    footer:
-      SUPPORT_EMAIL
-        ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si creés que es un error, contactanos en <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`
-        : '',
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Pago rechazado - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
   });
 }
 
 module.exports = {
+  getFrom,
+  getEmailConfig,
+  sendEmail,
   sendOrderConfirmed,
   sendPaymentPending,
   sendPaymentRejected,
