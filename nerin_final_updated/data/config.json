@@ -8,6 +8,7 @@
   "afipCert": "",
   "afipKey": "",
   "resendApiKey": "",
+  "supportEmail": "",
   "publicUrl": "https://nerinparts.com.ar",
   "apiBase": ""
 }

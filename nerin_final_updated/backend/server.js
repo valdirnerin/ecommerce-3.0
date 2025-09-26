@@ -16,6 +16,7 @@ const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
 const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
+const { sendEmail } = require("./services/emailNotifications");
 const {
   STATUS_ES_TO_CODE,
   mapPaymentStatusCode,
@@ -1492,6 +1493,29 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/version" && req.method === "GET") {
     return sendJson(res, 200, { build: BUILD_ID });
+  }
+
+  if (pathname === "/api/ping" && req.method === "GET") {
+    return sendJson(res, 200, { ok: true, ts: Date.now() });
+  }
+
+  if (pathname === "/api/test-email" && req.method === "GET") {
+    const requestUrl = new URL(req.url, "http://localhost");
+    const to = requestUrl.searchParams.get("to") || "tuemail@ejemplo.com";
+    try {
+      const result = await sendEmail({
+        to,
+        subject: "Test Resend OK",
+        html: "<p>Backend ✅ Resend ✅</p>",
+        type: "no-reply",
+      });
+      const id = (result && result.data && result.data.id) || true;
+      return sendJson(res, 200, { ok: true, id });
+    } catch (error) {
+      const errorPayload =
+        error && typeof error === "object" ? error : String(error);
+      return sendJson(res, 500, { ok: false, error: errorPayload });
+    }
   }
 
   if (pathname === "/health/db") {
