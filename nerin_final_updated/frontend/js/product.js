@@ -99,6 +99,49 @@ function getProductDescription(product, { preferMeta = false } = {}) {
   return "";
 }
 
+function normalizeText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function buildBrandModelLabel(product) {
+  if (!product) return "Repuesto";
+  const brand = normalizeText(product.brand);
+  const model = normalizeText(product.model);
+  if (brand && model) return `${brand} ${model}`;
+  if (brand) return brand;
+  if (model) return model;
+  const name = normalizeText(product.name);
+  if (name) return name;
+  const metaTitle = normalizeText(product.meta_title);
+  if (metaTitle) return metaTitle;
+  return "Repuesto";
+}
+
+function buildMetaTitle(product) {
+  const label = buildBrandModelLabel(product);
+  return `${label} ORIGINAL Service Pack | NERIN Parts`;
+}
+
+function truncateText(text, limit) {
+  if (typeof text !== "string" || !text.trim()) return "";
+  const normalized = normalizeText(text);
+  if (normalized.length <= limit) return normalized;
+  const slice = normalized.slice(0, Math.max(0, limit - 1));
+  const lastSpace = slice.lastIndexOf(" ");
+  const base = lastSpace > 40 ? slice.slice(0, lastSpace) : slice;
+  return `${base.replace(/[\s,.!?;:-]+$/, "")}…`;
+}
+
+function buildMetaDescription(product) {
+  const label = buildBrandModelLabel(product);
+  const fallback = `${label} original Service Pack disponible con garantía oficial en NERIN Parts.`;
+  const rawDescription =
+    getProductDescription(product, { preferMeta: true }) || fallback;
+  const normalized = normalizeText(rawDescription) || fallback;
+  return truncateText(normalized, 160);
+}
+
 function setMetaContent(attr, key, value) {
   const head = document.head;
   if (!head || !key) return;
@@ -165,15 +208,8 @@ function updateProductMeta(product, images) {
     typeof product.name === "string" && product.name.trim()
       ? product.name.trim()
       : "Producto";
-  const baseTitle =
-    (typeof product.meta_title === "string" && product.meta_title.trim())
-      ? product.meta_title.trim()
-      : fallbackName;
-  const hasBrand = typeof product.brand === "string" && product.brand.trim();
-  const title = hasBrand ? baseTitle : `${baseTitle} | NERIN Repuestos`;
-  const description =
-    getProductDescription(product, { preferMeta: true }) ||
-    `${fallbackName} disponible con garantía oficial en NERIN.`;
+  const title = buildMetaTitle(product);
+  const description = buildMetaDescription(product);
   const relativeUrl = buildRelativeProductUrl(product);
   const productUrl = resolveAbsoluteUrl(relativeUrl);
   document.title = title;
