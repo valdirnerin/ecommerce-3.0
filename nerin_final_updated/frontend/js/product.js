@@ -465,6 +465,8 @@ function buildGallery(root, urls, alts = []) {
     slide.setAttribute("aria-hidden", index === 0 ? "false" : "true");
     slide.dataset.index = String(index);
 
+    const wrapper = document.createElement("div");
+    wrapper.className = "product-image-wrapper";
     const picture = document.createElement("picture");
     const img = new Image();
     img.className = "product-gallery__image";
@@ -477,7 +479,8 @@ function buildGallery(root, urls, alts = []) {
     img.alt = normalizedAlts[index];
     img.draggable = false;
     picture.appendChild(img);
-    slide.appendChild(picture);
+    wrapper.appendChild(picture);
+    slide.appendChild(wrapper);
     track.appendChild(slide);
 
     img.addEventListener("click", () =>
