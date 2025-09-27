@@ -1297,6 +1297,15 @@ footer .legal {
   background: var(--color-bg, #fff);
 }
 
+.product-page .product-image-wrapper {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+
 .product-page .product-gallery__slide picture {
   width: 100%;
   height: 100%;
