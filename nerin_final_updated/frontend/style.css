@@ -1306,6 +1306,21 @@ footer .legal {
   position: relative;
 }
 
+.product-page .product-image-wrapper {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+}
+
+.product-page .product-image-wrapper .product-gallery__image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
 .product-page .product-gallery__image {
   max-width: 100%;
   max-height: 100%;
