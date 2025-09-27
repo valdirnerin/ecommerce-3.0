@@ -477,7 +477,10 @@ function buildGallery(root, urls, alts = []) {
     img.alt = normalizedAlts[index];
     img.draggable = false;
     picture.appendChild(img);
-    slide.appendChild(picture);
+    const imageWrapper = document.createElement("div");
+    imageWrapper.className = "product-image-wrapper";
+    imageWrapper.appendChild(picture);
+    slide.appendChild(imageWrapper);
     track.appendChild(slide);
 
     img.addEventListener("click", () =>
