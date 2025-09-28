@@ -246,6 +246,22 @@ function isProductPublic(product) {
   );
 }
 
+function getProductLastModifiedDate(product) {
+  if (!product) return null;
+  const rawDate =
+    product.updated_at ||
+    product.updatedAt ||
+    product.lastModified ||
+    product.lastmod ||
+    product.updated ||
+    product.modified ||
+    product.created_at;
+  if (!rawDate) return null;
+  const parsed = rawDate instanceof Date ? rawDate : new Date(rawDate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
 function buildSitemapXml(baseUrl, products = []) {
   const siteBase = normalizeBaseUrl(baseUrl) || FALLBACK_BASE_URL;
   const generatedAt = toIsoString(new Date());
@@ -280,20 +296,49 @@ function buildSitemapXml(baseUrl, products = []) {
       const pathSegment = slug
         ? `/p/${encodeURIComponent(slug)}`
         : `/product.html?id=${encodeURIComponent(String(product.id))}`;
-      const lastmod =
-        toIsoString(
-          product.updated_at ||
-            product.updatedAt ||
-            product.lastModified ||
-            product.lastmod ||
-            product.updated ||
-            product.modified ||
-            product.created_at,
-        ) || generatedAt;
+      const lastModifiedDate = getProductLastModifiedDate(product);
+      const lastmod = toIsoString(lastModifiedDate) || generatedAt;
       return {
         loc: toAbsolute(pathSegment),
         changefreq: "weekly",
         priority: "0.8",
+        lastmod,
+      };
+    })
+    .filter((entry) => Boolean(entry.loc));
+
+  const categoryMap = new Map();
+  for (const product of products) {
+    if (!isProductPublic(product)) continue;
+    const name =
+      typeof product.category === "string" ? product.category.trim() : "";
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const lastModifiedDate = getProductLastModifiedDate(product);
+    const existing = categoryMap.get(key);
+    if (!existing) {
+      categoryMap.set(key, {
+        name,
+        lastModifiedDate: lastModifiedDate || null,
+      });
+    } else if (lastModifiedDate) {
+      if (
+        !existing.lastModifiedDate ||
+        existing.lastModifiedDate.getTime() < lastModifiedDate.getTime()
+      ) {
+        existing.lastModifiedDate = lastModifiedDate;
+      }
+    }
+  }
+
+  const categoryUrls = Array.from(categoryMap.values())
+    .map(({ name, lastModifiedDate }) => {
+      const pathSegment = `/shop.html?category=${encodeURIComponent(name)}`;
+      const lastmod = toIsoString(lastModifiedDate) || generatedAt;
+      return {
+        loc: toAbsolute(pathSegment),
+        changefreq: "weekly",
+        priority: "0.6",
         lastmod,
       };
     })
@@ -307,7 +352,7 @@ function buildSitemapXml(baseUrl, products = []) {
     return `<url>${segments.join("")}</url>`;
   };
 
-  const allEntries = [...urls, ...productUrls];
+  const allEntries = [...urls, ...categoryUrls, ...productUrls];
   const body = allEntries.map(serialize).join("");
   return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</urlset>`;
 }
@@ -3745,7 +3790,6 @@ async function requestHandler(req, res) {
       "Allow: /",
       "Disallow: /admin",
       "Disallow: /admin/",
-      "Disallow: /api/",
       "Disallow: /backend/",
     ];
     if (siteBase) {
