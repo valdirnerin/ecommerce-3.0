@@ -556,7 +556,7 @@ function buildGallery(root, urls, alts = []) {
     });
 
     const img = new Image();
-    img.className = "product-gallery__image";
+    img.className = "product-gallery__image product-hero-img";
     img.decoding = "async";
     img.loading = index === 0 ? "eager" : "lazy";
     img.fetchPriority = index === 0 ? "high" : "auto";
@@ -569,9 +569,12 @@ function buildGallery(root, urls, alts = []) {
     img.alt = normalizedAlts[index];
     img.draggable = false;
     picture.appendChild(img);
+    const frame = document.createElement("div");
+    frame.className = "product-hero-frame";
+    frame.appendChild(picture);
     const wrapper = document.createElement("div");
     wrapper.className = "product-image-wrapper";
-    wrapper.appendChild(picture);
+    wrapper.appendChild(frame);
     slide.appendChild(wrapper);
     track.appendChild(slide);
 
