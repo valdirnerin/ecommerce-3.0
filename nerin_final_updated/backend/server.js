@@ -138,6 +138,21 @@ function normalizeProductsList(products) {
     : [];
 }
 
+function normalizeTextInput(value) {
+  if (value == null) return "";
+  try {
+    const trimmed = String(value).trim();
+    return trimmed || "";
+  } catch (err) {
+    return "";
+  }
+}
+
+function normalizeEmailInput(value) {
+  const text = normalizeTextInput(value);
+  return text ? text.toLowerCase() : "";
+}
+
 const PRODUCT_TEMPLATE_PATH = path.join(
   __dirname,
   "..",
@@ -1095,6 +1110,25 @@ function saveClients(clients) {
   fs.writeFileSync(filePath, JSON.stringify({ clients }, null, 2), "utf8");
 }
 
+function getWholesaleRequests() {
+  const filePath = dataPath("wholesale_requests.json");
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(file);
+    return Array.isArray(parsed.requests) ? parsed.requests : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveWholesaleRequests(requests) {
+  const filePath = dataPath("wholesale_requests.json");
+  const payload = {
+    requests: Array.isArray(requests) ? requests : [],
+  };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
 // Leer facturas desde el archivo JSON
 function getInvoices() {
   const filePath = dataPath("invoices.json");
@@ -1741,6 +1775,241 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo" });
       }
       return sendJson(res, 201, { filename: req.file.filename });
+    });
+    return;
+  }
+
+  if (pathname === "/api/wholesale/send-code" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const email = normalizeEmailInput(payload.email);
+        const confirmEmail = normalizeEmailInput(payload.confirmEmail);
+        if (!email || !confirmEmail || email !== confirmEmail) {
+          return sendJson(res, 400, {
+            error: "El correo debe coincidir en ambos campos",
+          });
+        }
+
+        const legalName = normalizeTextInput(payload.legalName);
+        const contactName = normalizeTextInput(payload.contactName);
+        const phone = normalizeTextInput(payload.phone);
+
+        const code = String(crypto.randomInt(100000, 1000000));
+        const nowIso = new Date().toISOString();
+        const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+        const requests = getWholesaleRequests();
+        const idx = requests.findIndex((request) => request.email === email);
+
+        const historyEntry = { action: "code_sent", at: nowIso };
+
+        if (idx >= 0) {
+          const current = requests[idx];
+          const history = Array.isArray(current.history)
+            ? [...current.history, historyEntry]
+            : [historyEntry];
+          requests[idx] = {
+            ...current,
+            email,
+            legalName: legalName || current.legalName || "",
+            contactName: contactName || current.contactName || "",
+            phone: phone || current.phone || "",
+            status: "code_sent",
+            updatedAt: nowIso,
+            verification: {
+              code,
+              sentAt: nowIso,
+              expiresAt,
+              confirmed: false,
+            },
+            history,
+          };
+        } else {
+          requests.push({
+            email,
+            legalName,
+            contactName,
+            phone,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            status: "code_sent",
+            verification: {
+              code,
+              sentAt: nowIso,
+              expiresAt,
+              confirmed: false,
+            },
+            history: [historyEntry],
+          });
+        }
+
+        saveWholesaleRequests(requests);
+        console.log(`[wholesale] Código de verificación enviado a ${email}`);
+
+        try {
+          const greeting = contactName ? `Hola ${contactName},` : "Hola,";
+          const html = `
+            <p>${greeting}</p>
+            <p>Gracias por solicitar acceso mayorista en NERIN Parts.</p>
+            <p>Tu código de verificación es:</p>
+            <p style="font-size: 24px; font-weight: 700; letter-spacing: 4px;">${code}</p>
+            <p>Ingresalo en el formulario dentro de los próximos 30 minutos para continuar con la solicitud.</p>
+            <p>Si no solicitaste este código podés ignorar este mensaje.</p>
+          `;
+          await sendEmail({
+            to: email,
+            subject: "Código de verificación mayorista – NERIN Parts",
+            html,
+            type: "no-reply",
+          });
+        } catch (error) {
+          console.warn("wholesale send-code email", error?.message || error);
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          message: "Código de verificación enviado",
+        });
+      } catch (error) {
+        console.error("wholesale send-code", error);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/wholesale/apply" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const email = normalizeEmailInput(payload.email);
+        const confirmEmail = normalizeEmailInput(payload.confirmEmail);
+        if (!email || !confirmEmail || email !== confirmEmail) {
+          return sendJson(res, 400, {
+            error: "El correo debe coincidir en ambos campos",
+          });
+        }
+
+        const verificationCode = normalizeTextInput(payload.verificationCode);
+        if (!verificationCode) {
+          return sendJson(res, 400, {
+            error: "Ingresá el código de verificación enviado por email",
+          });
+        }
+
+        if (!payload.termsAccepted) {
+          return sendJson(res, 400, {
+            error: "Debés aceptar la declaración para continuar",
+          });
+        }
+
+        const requests = getWholesaleRequests();
+        const idx = requests.findIndex((request) => request.email === email);
+        if (idx === -1) {
+          return sendJson(res, 404, {
+            error: "No encontramos una solicitud de código para este correo",
+          });
+        }
+
+        const current = requests[idx];
+        const verification = current.verification || {};
+        if (!verification.code) {
+          return sendJson(res, 400, {
+            error: "Solicitá un código de verificación antes de enviar la solicitud",
+          });
+        }
+
+        if (verification.code !== verificationCode) {
+          return sendJson(res, 400, {
+            error: "El código de verificación es incorrecto",
+          });
+        }
+
+        if (verification.expiresAt && Date.now() > Date.parse(verification.expiresAt)) {
+          return sendJson(res, 400, {
+            error: "El código de verificación expiró, solicitá uno nuevo",
+          });
+        }
+
+        const nowIso = new Date().toISOString();
+        const history = Array.isArray(current.history)
+          ? [...current.history, { action: "application_submitted", at: nowIso }]
+          : [{ action: "application_submitted", at: nowIso }];
+
+        requests[idx] = {
+          ...current,
+          email,
+          legalName: normalizeTextInput(payload.legalName) || current.legalName || "",
+          taxId: normalizeTextInput(payload.taxId) || current.taxId || "",
+          contactName:
+            normalizeTextInput(payload.contactName) || current.contactName || "",
+          phone: normalizeTextInput(payload.phone) || current.phone || "",
+          province: normalizeTextInput(payload.province) || current.province || "",
+          website: normalizeTextInput(payload.website) || current.website || "",
+          companyType:
+            normalizeTextInput(payload.companyType) || current.companyType || "",
+          salesChannel:
+            normalizeTextInput(payload.salesChannel) || current.salesChannel || "",
+          monthlyVolume:
+            normalizeTextInput(payload.monthlyVolume) || current.monthlyVolume || "",
+          systems: normalizeTextInput(payload.systems) || current.systems || "",
+          afipUrl: normalizeTextInput(payload.afipUrl) || current.afipUrl || "",
+          notes: normalizeTextInput(payload.notes) || current.notes || "",
+          termsAccepted: true,
+          status: "pending_review",
+          updatedAt: nowIso,
+          submittedAt: nowIso,
+          verification: {
+            ...verification,
+            code: null,
+            confirmed: true,
+            confirmedAt: nowIso,
+          },
+          history,
+        };
+
+        saveWholesaleRequests(requests);
+        console.log(
+          `[wholesale] Solicitud mayorista recibida de ${email} (${requests[idx].legalName || "sin razón social"})`,
+        );
+
+        try {
+          const greeting = requests[idx].contactName
+            ? `Hola ${requests[idx].contactName},`
+            : "Hola,";
+          const html = `
+            <p>${greeting}</p>
+            <p>Recibimos tu solicitud para acceder a nuestra tienda mayorista.</p>
+            <p>En un plazo de 24 a 48 hs hábiles nuestro equipo validará la información y te responderá por correo.</p>
+            <p>Gracias por confiar en NERIN Parts.</p>
+          `;
+          await sendEmail({
+            to: email,
+            subject: "Solicitud mayorista recibida – NERIN Parts",
+            html,
+            type: "no-reply",
+          });
+        } catch (error) {
+          console.warn("wholesale apply confirmation email", error?.message || error);
+        }
+
+        return sendJson(res, 201, {
+          success: true,
+          message: "Solicitud mayorista recibida",
+        });
+      } catch (error) {
+        console.error("wholesale apply", error);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
     });
     return;
   }

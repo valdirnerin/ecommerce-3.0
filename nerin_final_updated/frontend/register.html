@@ -37,39 +37,349 @@
         </nav>
       </div>
     </header>
-    <main class="container auth-container">
-      <h2>Crear cuenta</h2>
-      <form id="registerForm" class="auth-form">
-        <input type="text" id="regName" placeholder="Nombre completo" />
-        <input
-          type="email"
-          id="regEmail"
-          placeholder="Correo electrónico"
-          required
-        />
-        <input
-          type="password"
-          id="regPassword"
-          placeholder="Contraseña"
-          required
-        />
-        <input
-          type="password"
-          id="regConfirm"
-          placeholder="Confirmar contraseña"
-          required
-        />
-        <label for="regRole">Tipo de cuenta</label>
-        <select id="regRole">
-          <option value="mayorista">Mayorista</option>
-          <option value="minorista">Minorista</option>
-        </select>
-        <button type="submit" class="button primary">Registrarse</button>
-        <p
-          id="regError"
-          style="color: var(--color-danger); display: none; margin-top: 0.5rem"
-        ></p>
-      </form>
+    <main class="register-layout">
+      <section class="register-intro">
+        <div class="register-intro__eyebrow">Tu cuenta NERIN</div>
+        <h1>Un único acceso para comprar repuestos originales</h1>
+        <p>
+          Elegí la modalidad que mejor se adapte a tu negocio. Las cuentas
+          minoristas se habilitan en el momento. Las solicitudes mayoristas se
+          validan manualmente para brindarte precios especiales y beneficios
+          profesionales.
+        </p>
+        <div class="register-intro__highlights">
+          <div>
+            <span class="pill">Minorista</span>
+            <p>Compra inmediata con precios finales y seguimiento online.</p>
+          </div>
+          <div>
+            <span class="pill pill--accent">Mayorista</span>
+            <p>Proceso validado con verificación de correo y documentación.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="register-panels">
+        <article class="register-card register-card--retail">
+          <header>
+            <div class="register-card__tag">Clientes finales</div>
+            <h2>Registro minorista</h2>
+            <p>
+              Creá tu usuario en segundos para comprar repuestos originales con
+              garantía oficial.
+            </p>
+          </header>
+          <form id="registerForm" class="register-form" novalidate>
+            <div class="register-grid">
+              <div class="form-field">
+                <label for="regName">Nombre y apellido</label>
+                <input
+                  type="text"
+                  id="regName"
+                  name="name"
+                  autocomplete="name"
+                  placeholder="Ej: Carla Martínez"
+                />
+              </div>
+              <div class="form-field">
+                <label for="regEmail">Correo electrónico</label>
+                <input
+                  type="email"
+                  id="regEmail"
+                  name="email"
+                  autocomplete="email"
+                  placeholder="tucorreo@ejemplo.com"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="regPassword">Contraseña</label>
+                <input
+                  type="password"
+                  id="regPassword"
+                  name="password"
+                  autocomplete="new-password"
+                  minlength="8"
+                  placeholder="Mínimo 8 caracteres"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="regConfirm">Confirmar contraseña</label>
+                <input
+                  type="password"
+                  id="regConfirm"
+                  name="confirmPassword"
+                  autocomplete="new-password"
+                  minlength="8"
+                  placeholder="Repetí tu contraseña"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="regRole">Tipo de cuenta</label>
+                <select id="regRole" name="role">
+                  <option value="minorista">Minorista</option>
+                  <option value="mayorista">Mayorista</option>
+                </select>
+              </div>
+            </div>
+            <div
+              id="regError"
+              class="form-status"
+              role="alert"
+              aria-live="polite"
+            ></div>
+            <button type="submit" class="button primary">Crear cuenta</button>
+          </form>
+          <div class="register-perks">
+            <h3>Beneficios minoristas</h3>
+            <ul>
+              <li>Seguimiento de pedidos en tiempo real.</li>
+              <li>Historial de compras y facturas descargables.</li>
+              <li>Pagos seguros con tarjetas, transferencias o billeteras.</li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="register-card register-card--wholesale">
+          <header>
+            <div class="register-card__tag register-card__tag--accent">
+              Mayoristas verificados
+            </div>
+            <h2>Solicitud mayorista</h2>
+            <p>
+              Validamos cada alta para garantizar condiciones exclusivas a
+              servicios técnicos, distribuidores y comercios especializados.
+            </p>
+          </header>
+          <ol class="wholesale-steps">
+            <li>Completá tus datos comerciales y de contacto.</li>
+            <li>Solicitá el código de verificación que enviamos por email.</li>
+            <li>Adjuntá la documentación y envianos la solicitud para revisión.</li>
+          </ol>
+          <form id="wholesaleForm" class="register-form" novalidate>
+            <div class="register-grid">
+              <div class="form-field">
+                <label for="wholesaleLegalName">Razón social / Nombre comercial</label>
+                <input
+                  type="text"
+                  id="wholesaleLegalName"
+                  name="legalName"
+                  placeholder="Ej: Servicios Técnicos del Sur"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleTaxId">CUIT</label>
+                <input
+                  type="text"
+                  id="wholesaleTaxId"
+                  name="taxId"
+                  inputmode="numeric"
+                  placeholder="30-12345678-9"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleContact">Nombre del responsable</label>
+                <input
+                  type="text"
+                  id="wholesaleContact"
+                  name="contactName"
+                  placeholder="Nombre y apellido"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesalePhone">Teléfono de contacto</label>
+                <input
+                  type="tel"
+                  id="wholesalePhone"
+                  name="phone"
+                  autocomplete="tel"
+                  placeholder="Ej: +54 11 1234-5678"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleEmail">Correo corporativo</label>
+                <input
+                  type="email"
+                  id="wholesaleEmail"
+                  name="email"
+                  autocomplete="email"
+                  placeholder="ventas@tuempresa.com"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleEmailConfirm">Confirmar correo</label>
+                <input
+                  type="email"
+                  id="wholesaleEmailConfirm"
+                  name="confirmEmail"
+                  autocomplete="email"
+                  placeholder="Repetí el correo"
+                  required
+                />
+              </div>
+            </div>
+
+            <div class="verification-block">
+              <div class="form-field form-field--grow">
+                <label for="wholesaleCode">Código de verificación</label>
+                <input
+                  type="text"
+                  id="wholesaleCode"
+                  name="verificationCode"
+                  inputmode="numeric"
+                  placeholder="Ingresá el código enviado por email"
+                  maxlength="6"
+                  pattern="[0-9]{4,6}"
+                />
+              </div>
+              <button
+                type="button"
+                id="sendWholesaleCode"
+                class="button secondary small"
+              >
+                Enviar código
+              </button>
+            </div>
+
+            <div class="register-grid">
+              <div class="form-field">
+                <label for="wholesaleProvince">Provincia</label>
+                <select id="wholesaleProvince" name="province" required>
+                  <option value="" disabled selected>Seleccioná una opción</option>
+                  <option value="Buenos Aires">Buenos Aires</option>
+                  <option value="CABA">CABA</option>
+                  <option value="Catamarca">Catamarca</option>
+                  <option value="Chaco">Chaco</option>
+                  <option value="Chubut">Chubut</option>
+                  <option value="Córdoba">Córdoba</option>
+                  <option value="Corrientes">Corrientes</option>
+                  <option value="Entre Ríos">Entre Ríos</option>
+                  <option value="Formosa">Formosa</option>
+                  <option value="Jujuy">Jujuy</option>
+                  <option value="La Pampa">La Pampa</option>
+                  <option value="La Rioja">La Rioja</option>
+                  <option value="Mendoza">Mendoza</option>
+                  <option value="Misiones">Misiones</option>
+                  <option value="Neuquén">Neuquén</option>
+                  <option value="Río Negro">Río Negro</option>
+                  <option value="Salta">Salta</option>
+                  <option value="San Juan">San Juan</option>
+                  <option value="San Luis">San Luis</option>
+                  <option value="Santa Cruz">Santa Cruz</option>
+                  <option value="Santa Fe">Santa Fe</option>
+                  <option value="Santiago del Estero">Santiago del Estero</option>
+                  <option value="Tierra del Fuego">Tierra del Fuego</option>
+                  <option value="Tucumán">Tucumán</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="wholesaleWebsite">Sitio web o red social</label>
+                <input
+                  type="url"
+                  id="wholesaleWebsite"
+                  name="website"
+                  placeholder="https://tuempresa.com"
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleCompanyType">Rubro principal</label>
+                <input
+                  type="text"
+                  id="wholesaleCompanyType"
+                  name="companyType"
+                  placeholder="Servicio técnico, distribuidor, retail..."
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleSalesChannel">Canales de venta</label>
+                <input
+                  type="text"
+                  id="wholesaleSalesChannel"
+                  name="salesChannel"
+                  placeholder="Locales físicos, ecommerce, marketplaces"
+                  required
+                />
+              </div>
+              <div class="form-field">
+                <label for="wholesaleMonthlyVolume">Volumen mensual estimado</label>
+                <select
+                  id="wholesaleMonthlyVolume"
+                  name="monthlyVolume"
+                  required
+                >
+                  <option value="" disabled selected>Seleccioná un rango</option>
+                  <option value="hasta_100000">Hasta $100.000</option>
+                  <option value="100000_300000">$100.000 – $300.000</option>
+                  <option value="300000_600000">$300.000 – $600.000</option>
+                  <option value="600000_1000000">$600.000 – $1.000.000</option>
+                  <option value="mas_1000000">Más de $1.000.000</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="wholesaleSystems">Sistema de gestión / Marketplace</label>
+                <input
+                  type="text"
+                  id="wholesaleSystems"
+                  name="systems"
+                  placeholder="Ej: Tango, Tiendanube, Mercado Libre"
+                />
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label for="wholesaleAfipUrl">Constancia AFIP o habilitación (URL opcional)</label>
+              <input
+                type="url"
+                id="wholesaleAfipUrl"
+                name="afipUrl"
+                placeholder="Link a tu constancia digital"
+              />
+            </div>
+
+            <div class="form-field">
+              <label for="wholesaleNotes">Notas adicionales</label>
+              <textarea
+                id="wholesaleNotes"
+                name="notes"
+                rows="4"
+                placeholder="Contanos qué productos necesitás o con qué marcas trabajás"
+              ></textarea>
+            </div>
+
+            <label class="checkbox-field">
+              <input type="checkbox" id="wholesaleTerms" name="terms" required />
+              <span>
+                Declaro que la información proporcionada es correcta y acepto
+                ser contactado para validar mi alta mayorista.
+              </span>
+            </label>
+
+            <div
+              id="wholesaleStatus"
+              class="form-status"
+              role="alert"
+              aria-live="polite"
+            ></div>
+
+            <button type="submit" class="button primary">
+              Enviar solicitud para revisión
+            </button>
+          </form>
+          <p class="register-note">
+            Nuestro equipo revisará tu solicitud dentro de las próximas 24/48 hs
+            hábiles. Te enviaremos un correo con los pasos para activar tu cuenta
+            mayorista una vez aprobada.
+          </p>
+        </article>
+      </section>
     </main>
     <script type="module" src="/js/register.js"></script>
     <!-- Configuración global -->
