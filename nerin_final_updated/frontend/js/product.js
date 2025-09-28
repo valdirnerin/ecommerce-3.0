@@ -118,9 +118,48 @@ function buildBrandModelLabel(product) {
   return "Repuesto";
 }
 
+function buildModuleAltLabel(product) {
+  const label = normalizeText(buildBrandModelLabel(product));
+  if (label) {
+    return `Módulo ${label} Service Pack original`;
+  }
+  return "Módulo Service Pack original";
+}
+
 function buildMetaTitle(product) {
   const label = buildBrandModelLabel(product);
   return `${label} ORIGINAL Service Pack | NERIN Parts`;
+}
+
+function deriveFormatUrl(url, newExtension) {
+  if (typeof url !== "string" || !newExtension) return null;
+  const hashIndex = url.indexOf("#");
+  const hash = hashIndex >= 0 ? url.slice(hashIndex) : "";
+  const cleanUrl = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
+  const [path, query] = cleanUrl.split("?");
+  if (!path) return null;
+  const lastDot = path.lastIndexOf(".");
+  if (lastDot === -1) return null;
+  const base = path.slice(0, lastDot);
+  const nextUrl = `${base}${newExtension}`;
+  return query ? `${nextUrl}?${query}${hash}` : `${nextUrl}${hash}`;
+}
+
+function buildPreferredFormats(url) {
+  if (typeof url !== "string") return [];
+  const isRaster = /\.(?:jpe?g|png)$/i.test(url);
+  if (!isRaster) return [];
+  const avif = deriveFormatUrl(url, ".avif");
+  const webp = deriveFormatUrl(url, ".webp");
+  const formats = [];
+  if (avif) formats.push({ type: "image/avif", url: avif });
+  if (webp) formats.push({ type: "image/webp", url: webp });
+  return formats;
+}
+
+function buildDensitySrcset(url) {
+  if (typeof url !== "string" || !url.trim()) return "";
+  return `${url} 1x, ${url} 2x`;
 }
 
 function truncateText(text, limit) {
@@ -503,13 +542,29 @@ function buildGallery(root, urls, alts = []) {
     slide.dataset.index = String(index);
 
     const picture = document.createElement("picture");
+    const preferredFormats = buildPreferredFormats(url);
+    preferredFormats.forEach(({ type, url: sourceUrl }) => {
+      const source = document.createElement("source");
+      source.type = type;
+      const srcset = buildDensitySrcset(sourceUrl);
+      if (srcset) {
+        source.srcset = srcset;
+      } else {
+        source.src = sourceUrl;
+      }
+      picture.appendChild(source);
+    });
+
     const img = new Image();
     img.className = "product-gallery__image";
     img.decoding = "async";
     img.loading = index === 0 ? "eager" : "lazy";
     img.fetchPriority = index === 0 ? "high" : "auto";
     img.src = url;
-    img.srcset = `${url} 1x, ${url} 2x`;
+    const densitySrcset = buildDensitySrcset(url);
+    if (densitySrcset) {
+      img.srcset = densitySrcset;
+    }
     img.sizes = "(min-width: 1280px) 40vw, (min-width: 768px) 60vw, 90vw";
     img.alt = normalizedAlts[index];
     img.draggable = false;
@@ -661,9 +716,12 @@ function buildGallery(root, urls, alts = []) {
 
     const thumbImg = new Image();
     thumbImg.decoding = "async";
-    thumbImg.loading = index === 0 ? "eager" : "lazy";
+    thumbImg.loading = "lazy";
     thumbImg.src = url;
-    thumbImg.srcset = `${url} 1x, ${url} 2x`;
+    const thumbSrcset = buildDensitySrcset(url);
+    if (thumbSrcset) {
+      thumbImg.srcset = thumbSrcset;
+    }
     thumbImg.sizes = "72px";
     thumbImg.alt = normalizedAlts[index];
     thumbImg.draggable = false;
@@ -747,9 +805,11 @@ function renderProduct(product) {
   const images = arrayImages.length ? arrayImages : legacy;
   const altInput = Array.isArray(product.images_alt) ? product.images_alt : [];
   const skuLabel = product.sku || product.id || product.name || "sin-identificar";
+  const moduleAlt = buildModuleAltLabel(product);
   const alts = images.map((_, i) => {
     const rawAlt = altInput[i];
     if (typeof rawAlt === "string" && rawAlt.trim()) return rawAlt.trim();
+    if (moduleAlt) return moduleAlt;
     return `Producto ${skuLabel} \u2013 imagen ${i + 1}`;
   });
   const primaryImage = images[0] || "";
