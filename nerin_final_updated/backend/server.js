@@ -3913,26 +3913,44 @@ async function requestHandler(req, res) {
       typeof product.stock === "number" && product.stock > 0
         ? "https://schema.org/InStock"
         : "https://schema.org/OutOfStock";
+    const brandName =
+      typeof product.brand === "string" && product.brand.trim()
+        ? product.brand.trim()
+        : null;
+    const skuValue =
+      typeof product.sku === "string" && product.sku.trim()
+        ? product.sku.trim()
+        : product.id != null
+          ? String(product.id)
+          : null;
+    const descriptionValue =
+      typeof desc === "string" && desc.trim() ? desc.trim() : null;
+    const priceSource =
+      product.price_minorista ??
+      product.price ??
+      product.price_mayorista ??
+      0;
+    const numericPrice = Number(priceSource);
+    const formattedPrice = Number.isFinite(numericPrice)
+      ? numericPrice.toFixed(2)
+      : "0.00";
     const ld = {
       "@context": "https://schema.org",
       "@type": "Product",
       name,
       ...(imageList.length ? { image: imageList } : {}),
-      ...(product.description ? { description: product.description } : {}),
-      ...(product.sku ? { sku: product.sku } : {}),
-      ...(product.mpn ? { mpn: product.mpn } : {}),
-      ...(product.gtin13 ? { gtin13: product.gtin13 } : {}),
-      brand: { "@type": "Brand", name: product.brand || "Samsung" },
+      ...(descriptionValue ? { description: descriptionValue } : {}),
+      ...(skuValue ? { sku: skuValue } : {}),
+      ...(brandName
+        ? { brand: { "@type": "Brand", name: brandName } }
+        : {}),
       offers: {
         "@type": "Offer",
-        priceCurrency: "ARS",
-        price:
-          product.price ||
-          product.price_minorista ||
-          product.price_mayorista ||
-          0,
-        availability,
         url: canonical,
+        priceCurrency: "ARS",
+        price: formattedPrice,
+        availability,
+        itemCondition: "https://schema.org/NewCondition",
       },
     };
     const ogImagesMeta = imageList
