@@ -1308,17 +1308,9 @@ footer .legal {
 
 .product-page .product-image-wrapper {
   width: 100%;
-  aspect-ratio: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
-}
-
-.product-page .product-image-wrapper .product-gallery__image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
 }
 
 .product-page .product-gallery__image {
@@ -2171,4 +2163,25 @@ html, body{ max-width:100%; overflow-x:hidden; }
   to {
     transform: rotate(360deg);
   }
+}
+
+.product-page .product-hero-frame {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 16px;
+  min-height: clamp(260px, 42vh, 560px);
+  overflow: hidden;
+}
+
+.product-page img.product-hero-img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: center;
+  display: block;
 }
