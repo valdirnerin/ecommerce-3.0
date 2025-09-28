@@ -299,8 +299,6 @@ function updateJsonLd(product, images, productUrl) {
   if (!product) return;
   const head = document.head;
   if (!head) return;
-  const existing = head.querySelector("#product-jsonld");
-  if (existing) existing.remove();
   const gallery = Array.isArray(images) ? images : [];
   const absoluteImages = gallery
     .filter(Boolean)
@@ -313,46 +311,49 @@ function updateJsonLd(product, images, productUrl) {
       ? "https://schema.org/InStock"
       : "https://schema.org/OutOfStock";
   const priceSource =
-    typeof product.price_minorista === "number"
-      ? product.price_minorista
-      : product.price_mayorista;
-  const offers = {
-    "@type": "Offer",
-    url: productUrl,
-    price: Number(priceSource || 0).toFixed(2),
-    priceCurrency: "ARS",
-    availability,
-    itemCondition: "https://schema.org/NewCondition",
-    seller: {
-      "@type": "Organization",
-      name: "NERIN Repuestos",
-      url: getSiteBaseUrl(),
-    },
-  };
+    product.price_minorista ?? product.price ?? product.price_mayorista ?? 0;
+  const numericPrice = Number(priceSource);
+  const formattedPrice = Number.isFinite(numericPrice)
+    ? numericPrice.toFixed(2)
+    : "0.00";
+  const brandName =
+    typeof product.brand === "string" && product.brand.trim()
+      ? product.brand.trim()
+      : "";
+  const skuValue =
+    typeof product.sku === "string" && product.sku.trim()
+      ? product.sku.trim()
+      : product.id != null
+        ? String(product.id)
+        : "";
+  const description = getProductDescription(product, { preferMeta: true });
   const schema = {
     "@context": "https://schema.org",
     "@type": "Product",
     "@id": productUrl,
     url: productUrl,
     name: product.name,
-    image: absoluteImages,
-    description: getProductDescription(product, { preferMeta: true }),
-    sku: product.sku || product.id || "",
-    mpn: product.sku || undefined,
-    category: product.category || undefined,
-    brand: product.brand ? { "@type": "Brand", name: product.brand } : undefined,
-    offers,
+    ...(absoluteImages.length ? { image: absoluteImages } : {}),
+    ...(description ? { description } : {}),
+    ...(skuValue ? { sku: skuValue } : {}),
+    ...(brandName ? { brand: { "@type": "Brand", name: brandName } } : {}),
+    offers: {
+      "@type": "Offer",
+      url: productUrl,
+      priceCurrency: "ARS",
+      price: formattedPrice,
+      availability,
+      itemCondition: "https://schema.org/NewCondition",
+    },
   };
-  if (!absoluteImages.length) delete schema.image;
-  if (!schema.brand) delete schema.brand;
-  if (!schema.category) delete schema.category;
-  if (!schema.mpn) delete schema.mpn;
-  if (!schema.sku) delete schema.sku;
-  const script = document.createElement("script");
-  script.type = "application/ld+json";
-  script.id = "product-jsonld";
+  let script = head.querySelector("#product-jsonld");
+  if (!script) {
+    script = document.createElement("script");
+    script.type = "application/ld+json";
+    script.id = "product-jsonld";
+    head.appendChild(script);
+  }
   script.textContent = JSON.stringify(schema, null, 2);
-  head.appendChild(script);
 }
 
 function openLightbox(urls, startIndex = 0, alts = []) {
