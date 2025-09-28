@@ -1,5 +1,75 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
 
+function getPublicBaseUrl() {
+  const cfg = window.NERIN_CONFIG;
+  if (cfg && typeof cfg.publicUrl === "string") {
+    const raw = cfg.publicUrl.trim();
+    if (raw) {
+      try {
+        const normalized = new URL(raw).toString();
+        return normalized.replace(/\/+$/, "");
+      } catch (err) {
+        console.warn("URL pública inválida en configuración", err);
+      }
+    }
+  }
+  if (typeof window !== "undefined" && window.location) {
+    return window.location.origin;
+  }
+  return "";
+}
+
+function resolveAbsoluteUrl(value, baseUrl) {
+  if (!value) return value;
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  const base = baseUrl || getPublicBaseUrl();
+  try {
+    return new URL(value, base || window.location.href).toString();
+  } catch (err) {
+    return value;
+  }
+}
+
+function updateShopBreadcrumbs(categoryName) {
+  const script = document.getElementById("shop-breadcrumbs");
+  if (!script) return;
+  const baseUrl = getPublicBaseUrl();
+  const label =
+    typeof categoryName === "string" ? categoryName.trim() : "";
+  const elements = [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: "Inicio",
+      item: resolveAbsoluteUrl("/", baseUrl),
+    },
+    {
+      "@type": "ListItem",
+      position: 2,
+      name: "Productos",
+      item: resolveAbsoluteUrl("/shop.html", baseUrl),
+    },
+  ];
+  if (label) {
+    elements.push({
+      "@type": "ListItem",
+      position: elements.length + 1,
+      name: label,
+      item: window.location.href,
+    });
+  }
+  const breadcrumbs = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: elements,
+  };
+  const json = JSON.stringify(breadcrumbs, null, 2);
+  script.textContent = json;
+  script.dataset.seoJsonldTemplate = json;
+}
+
 function buildProductUrl(product) {
   if (product && typeof product.slug === "string") {
     const slug = product.slug.trim();
@@ -44,6 +114,12 @@ const categoryFilter = document.getElementById("categoryFilter");
 
 // Almacenar productos cargados globalmente
 let allProducts = [];
+
+function getCategoryFromUrl() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("category") || "";
+}
 
 // Calcular precio con descuento según cantidad para mayorista
 function calculateDiscountedPrice(basePrice, quantity) {
@@ -348,20 +424,41 @@ function populateFilters(products) {
   }
 }
 
+function applyInitialCategoryFilter() {
+  if (!categoryFilter) return "";
+  const fromUrl = getCategoryFromUrl();
+  if (!fromUrl) {
+    return categoryFilter.value || "";
+  }
+  const options = Array.from(categoryFilter.options || []);
+  const match = options.find((option) => option.value === fromUrl);
+  if (match) {
+    categoryFilter.value = fromUrl;
+    return match.value || match.textContent || fromUrl;
+  }
+  return fromUrl;
+}
+
 // Inicializar
 async function initShop() {
   try {
     allProducts = await fetchProducts();
     populateFilters(allProducts);
+    const initialCategory = applyInitialCategoryFilter();
+    updateShopBreadcrumbs(initialCategory);
     renderProducts();
     searchInput.addEventListener("input", renderProducts);
     brandFilter.addEventListener("change", renderProducts);
     modelFilter.addEventListener("change", renderProducts);
     if (categoryFilter) {
-      categoryFilter.addEventListener("change", renderProducts);
+      categoryFilter.addEventListener("change", () => {
+        updateShopBreadcrumbs(categoryFilter.value);
+        renderProducts();
+      });
     }
   } catch (err) {
     productGrid.innerHTML = `<p>Error al cargar productos: ${err.message}</p>`;
+    updateShopBreadcrumbs(getCategoryFromUrl());
   }
 }
 
