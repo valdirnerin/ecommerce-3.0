@@ -131,32 +131,6 @@ function buildMetaTitle(product) {
   return `${label} ORIGINAL Service Pack | NERIN Parts`;
 }
 
-function deriveFormatUrl(url, newExtension) {
-  if (typeof url !== "string" || !newExtension) return null;
-  const hashIndex = url.indexOf("#");
-  const hash = hashIndex >= 0 ? url.slice(hashIndex) : "";
-  const cleanUrl = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
-  const [path, query] = cleanUrl.split("?");
-  if (!path) return null;
-  const lastDot = path.lastIndexOf(".");
-  if (lastDot === -1) return null;
-  const base = path.slice(0, lastDot);
-  const nextUrl = `${base}${newExtension}`;
-  return query ? `${nextUrl}?${query}${hash}` : `${nextUrl}${hash}`;
-}
-
-function buildPreferredFormats(url) {
-  if (typeof url !== "string") return [];
-  const isRaster = /\.(?:jpe?g|png)$/i.test(url);
-  if (!isRaster) return [];
-  const avif = deriveFormatUrl(url, ".avif");
-  const webp = deriveFormatUrl(url, ".webp");
-  const formats = [];
-  if (avif) formats.push({ type: "image/avif", url: avif });
-  if (webp) formats.push({ type: "image/webp", url: webp });
-  return formats;
-}
-
 function buildDensitySrcset(url) {
   if (typeof url !== "string" || !url.trim()) return "";
   return `${url} 1x, ${url} 2x`;
@@ -542,19 +516,6 @@ function buildGallery(root, urls, alts = []) {
     slide.dataset.index = String(index);
 
     const picture = document.createElement("picture");
-    const preferredFormats = buildPreferredFormats(url);
-    preferredFormats.forEach(({ type, url: sourceUrl }) => {
-      const source = document.createElement("source");
-      source.type = type;
-      const srcset = buildDensitySrcset(sourceUrl);
-      if (srcset) {
-        source.srcset = srcset;
-      } else {
-        source.src = sourceUrl;
-      }
-      picture.appendChild(source);
-    });
-
     const img = new Image();
     img.className = "product-gallery__image product-hero-img";
     img.decoding = "async";
@@ -568,6 +529,12 @@ function buildGallery(root, urls, alts = []) {
     img.sizes = "(min-width: 1280px) 40vw, (min-width: 768px) 60vw, 90vw";
     img.alt = normalizedAlts[index];
     img.draggable = false;
+    img.addEventListener("error", () => {
+      if (img.dataset.fallbackApplied === "true") return;
+      img.dataset.fallbackApplied = "true";
+      img.removeAttribute("srcset");
+      img.src = FALLBACK_IMAGE;
+    });
     picture.appendChild(img);
     const frame = document.createElement("div");
     frame.className = "product-hero-frame";
