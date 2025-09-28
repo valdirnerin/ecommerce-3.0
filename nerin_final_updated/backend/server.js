@@ -16,7 +16,10 @@ const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
 const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
-const { sendEmail } = require("./services/emailNotifications");
+const {
+  sendEmail,
+  sendOrderPreparing,
+} = require("./services/emailNotifications");
 const {
   STATUS_ES_TO_CODE,
   mapPaymentStatusCode,
@@ -1340,6 +1343,36 @@ function getShippingCost(provincia) {
   return other ? other.costo : 0;
 }
 
+function resolveOrderCustomerEmail(order = {}) {
+  let normalizedCustomer = null;
+  try {
+    normalizedCustomer =
+      typeof ordersRepo.normalizeCustomer === "function"
+        ? ordersRepo.normalizeCustomer(order)
+        : null;
+  } catch {
+    normalizedCustomer = null;
+  }
+  const candidates = [
+    normalizedCustomer?.email,
+    order?.customer?.email,
+    order?.customer?.mail,
+    order?.customer?.correo,
+    order?.cliente?.email,
+    order?.cliente?.mail,
+    order?.cliente?.correo,
+    order?.customer_email,
+    order?.user_email,
+    order?.email,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const trimmed = String(candidate).trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 // Enviar email cuando el pedido se despacha
 function sendOrderShippedEmail(order) {
   if (!resend || !order.cliente || !order.cliente.email) return;
@@ -2577,6 +2610,34 @@ async function requestHandler(req, res) {
         const nextShippingCode = mapShippingStatusCode(
           next.shipping_status ?? next.estado_envio ?? null,
         );
+        if (
+          incomingShippingStatus != null &&
+          nextShippingCode === "preparing" &&
+          prevShippingCode !== "preparing"
+        ) {
+          const recipient = resolveOrderCustomerEmail(orders[index]);
+          if (recipient) {
+            let customerInfo = null;
+            try {
+              customerInfo =
+                typeof ordersRepo.normalizeCustomer === "function"
+                  ? ordersRepo.normalizeCustomer(orders[index])
+                  : null;
+            } catch {
+              customerInfo = null;
+            }
+            const orderForEmail =
+              customerInfo &&
+              (!orders[index].customer || orders[index].customer !== customerInfo)
+                ? { ...orders[index], customer: customerInfo }
+                : orders[index];
+            try {
+              await sendOrderPreparing({ to: recipient, order: orderForEmail });
+            } catch (emailErr) {
+              console.error("order preparing email failed", emailErr);
+            }
+          }
+        }
         if (
           incomingShippingStatus != null &&
           nextShippingCode === "shipped" &&
