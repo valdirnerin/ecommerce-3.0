@@ -1192,21 +1192,99 @@ function sendStatus(res, statusCode, extraHeaders = {}) {
 }
 
 // Enviar email de confirmación cuando un pedido se marca como pagado
+function getOrderCustomerEmail(order) {
+  if (!order) return "";
+  const fromClient =
+    (order.cliente &&
+      (order.cliente.email || order.cliente.mail || order.cliente.correo)) ||
+    null;
+  if (fromClient) return String(fromClient).trim();
+  const fromCustomer =
+    (order.customer &&
+      (order.customer.email || order.customer.mail || order.customer.correo)) ||
+    null;
+  if (fromCustomer) return String(fromCustomer).trim();
+  const fallback =
+    order.customer_email || order.user_email || order.email || "";
+  return String(fallback || "").trim();
+}
+
+function getOrderCustomerName(order) {
+  if (!order) return "";
+  const cliente = order.cliente || {};
+  const parts = [
+    cliente.nombre || cliente.name || cliente.first_name || cliente.firstname,
+    cliente.apellido || cliente.last_name || cliente.lastname,
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+  if (parts.length) return parts.join(" ");
+  const alt =
+    (order.customer && order.customer.name) ||
+    order.customer_name ||
+    order.client_name ||
+    order.name ||
+    "";
+  return String(alt || "").trim();
+}
+
+function buildOrderTrackingUrl(order) {
+  const baseUrl = getPublicBaseUrl(CONFIG);
+  const orderId =
+    order && (order.id || order.order_number || order.external_reference);
+  const email = getOrderCustomerEmail(order);
+  const idParam = encodeURIComponent(String(orderId || ""));
+  const emailParam = encodeURIComponent(String(email || ""));
+  return `${baseUrl}/seguimiento?order=${idParam}&email=${emailParam}`;
+}
+
+function fillOrderEmailTemplate(template, order, extra = {}) {
+  if (typeof template !== "string") return "";
+  const values = {
+    ORDER_ID: String(
+      (order && (order.id || order.order_number || order.external_reference)) ||
+        "",
+    ),
+    ORDER_URL: buildOrderTrackingUrl(order),
+    CUSTOMER_NAME: esc(getOrderCustomerName(order)),
+    ...extra,
+  };
+  return Object.entries(values).reduce((html, [token, value]) => {
+    const re = new RegExp(`{{\s*${token}\s*}}`, "g");
+    return html.replace(re, value == null ? "" : String(value));
+  }, template);
+}
+
 function sendOrderPaidEmail(order) {
-  if (!resend || !order.cliente || !order.cliente.email) return;
+  if (!resend || !order?.cliente || !order?.cliente?.email) return;
   try {
     const tplPath = path.join(__dirname, "../emails/orderPaid.html");
-    let html = fs.readFileSync(tplPath, "utf8");
-    const urlBase = CONFIG.publicUrl || `http://localhost:${APP_PORT}`;
-    const orderUrl = `${urlBase}/seguimiento?order=${encodeURIComponent(order.id)}&email=${encodeURIComponent(order.cliente.email || "")}`;
-    html = html
-      .replace("{{ORDER_URL}}", orderUrl)
-      .replace("{{ORDER_ID}}", order.id);
+    const template = fs.readFileSync(tplPath, "utf8");
+    const html = fillOrderEmailTemplate(template, order);
     resend.emails
       .send({
         from: "no-reply@nerin.com",
         to: order.cliente.email,
         subject: "Confirmación de compra",
+        html,
+      })
+      .catch((e) => console.error("Email error", e));
+  } catch (e) {
+    console.error("send email failed", e);
+  }
+}
+
+function sendOrderPreparingEmail(order) {
+  if (!resend || !order?.cliente || !order?.cliente?.email) return;
+  try {
+    const tplPath = path.join(__dirname, "../emails/orderPreparing.html");
+    const template = fs.readFileSync(tplPath, "utf8");
+    const html = fillOrderEmailTemplate(template, order);
+    resend.emails
+      .send({
+        from: "no-reply@nerin.com",
+        to: order.cliente.email,
+        subject: "Tu pedido está en preparación",
         html,
       })
       .catch((e) => console.error("Email error", e));
@@ -2577,6 +2655,13 @@ async function requestHandler(req, res) {
         const nextShippingCode = mapShippingStatusCode(
           next.shipping_status ?? next.estado_envio ?? null,
         );
+        if (
+          incomingShippingStatus != null &&
+          nextShippingCode === "preparing" &&
+          prevShippingCode !== "preparing"
+        ) {
+          sendOrderPreparingEmail(orders[index]);
+        }
         if (
           incomingShippingStatus != null &&
           nextShippingCode === "shipped" &&
