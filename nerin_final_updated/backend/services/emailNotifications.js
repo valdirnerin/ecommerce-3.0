@@ -296,6 +296,30 @@ async function sendPaymentRejected({ to, order } = {}) {
   });
 }
 
+async function sendOrderPreparing({ to, order } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(order);
+  const orderNumber = resolveOrderNumber(order);
+  const supportEmail = getSupportEmail();
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás más información, escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Estamos preparando tu pedido, ${customer}`,
+    message:
+      'Ya estamos armando tu compra con mucho cuidado. Te avisaremos apenas salga a despacho.',
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Tu pedido está en preparación - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
 module.exports = {
   getFrom,
   getEmailConfig,
@@ -303,4 +327,5 @@ module.exports = {
   sendOrderConfirmed,
   sendPaymentPending,
   sendPaymentRejected,
+  sendOrderPreparing,
 };

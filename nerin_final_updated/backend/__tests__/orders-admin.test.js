@@ -14,14 +14,22 @@ jest.mock('../db', () => ({
   init: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../services/emailNotifications', () => ({
+  sendEmail: jest.fn(),
+  sendOrderPreparing: jest.fn().mockResolvedValue(undefined),
+}));
+
 describe('Orders admin endpoints', () => {
   let server;
   let tmpDir;
   let previousDataDir;
   let previousToken;
+  let emailNotifications;
 
   beforeEach(() => {
     jest.resetModules();
+    emailNotifications = require('../services/emailNotifications');
+    jest.clearAllMocks();
     previousDataDir = process.env.DATA_DIR;
     previousToken = process.env.MP_ACCESS_TOKEN;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nerin-orders-admin-'));
@@ -37,6 +45,7 @@ describe('Orders admin endpoints', () => {
       shipping_status: 'Pendiente',
       estado_envio: 'Pendiente',
       shipping_status_code: 'received',
+      cliente: { email: 'cliente@example.com' },
       productos: [
         { id: 'SKU-1', name: 'Producto demo', quantity: 1, price: 1000 },
       ],
@@ -94,6 +103,23 @@ describe('Orders admin endpoints', () => {
     expect(res.body).toHaveProperty('order');
     expect(res.body.order.shipping_status_code).toBe('shipped');
     expect(res.body.order.estado_envio).toBe('Enviado');
+  });
+
+  test('PATCH /api/orders/:id envía email cuando pasa a preparación', async () => {
+    const res = await request(server)
+      .patch('/api/orders/ORDER-123')
+      .send({ shipping_status: 'preparing' });
+
+    expect(res.status).toBe(200);
+    expect(emailNotifications.sendOrderPreparing).toHaveBeenCalledTimes(1);
+    expect(emailNotifications.sendOrderPreparing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'cliente@example.com',
+        order: expect.objectContaining({
+          shipping_status: 'preparing',
+        }),
+      }),
+    );
   });
 
   test('POST /api/orders/:id/invoices guarda y lista facturas', async () => {
