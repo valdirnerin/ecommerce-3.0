@@ -59,6 +59,7 @@ if (currentRole === "vendedor") {
   // Los vendedores no pueden ver clientes, métricas, devoluciones ni configuración
   const buttonsToHide = [
     "clientsSection",
+    "wholesaleSection",
     "metricsSection",
     "returnsSection",
     "configSection",
@@ -101,6 +102,8 @@ navButtons.forEach((btn) => {
       OrdersUI.init();
     } else if (target === "clientsSection") {
       loadClients();
+    } else if (target === "wholesaleSection") {
+      loadWholesaleRequests();
     } else if (target === "metricsSection") {
       loadMetrics();
     } else if (target === "returnsSection") {
@@ -118,6 +121,131 @@ navButtons.forEach((btn) => {
     }
   });
 });
+
+function escapeHtml(text) {
+  if (text == null) return "";
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatDateTimeDisplay(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("es-AR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
+
+function formatDateDisplay(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("es-AR", { dateStyle: "medium" });
+}
+
+function renderNullable(value) {
+  return value ? escapeHtml(value) : "—";
+}
+
+function renderLink(value) {
+  if (!value) return "—";
+  const trimmed = String(value).trim();
+  if (!trimmed) return "—";
+  let href = trimmed;
+  if (!/^https?:\/\//i.test(trimmed)) {
+    href = `https://${trimmed}`;
+  }
+  try {
+    const safeUrl = new URL(href);
+    return `<a href="${safeUrl.toString()}" target="_blank" rel="noopener">${escapeHtml(trimmed)}</a>`;
+  } catch (err) {
+    return escapeHtml(trimmed);
+  }
+}
+
+function formatMultiline(value) {
+  if (!value) return "—";
+  return escapeHtml(String(value)).replace(/\n/g, "<br />");
+}
+
+const currentAdminActor = {
+  name: (typeof localStorage !== "undefined" && localStorage.getItem("nerinUserName")) || "Administrador",
+  email: (typeof localStorage !== "undefined" && localStorage.getItem("nerinUserEmail")) || "",
+};
+
+function getCurrentActor() {
+  const actor = { ...currentAdminActor };
+  if (!actor.name) actor.name = "Administrador";
+  if (!actor.email) delete actor.email;
+  return actor;
+}
+
+const WHOLESALE_STATUS_META = {
+  code_sent: { label: "Verificación enviada", tone: "info" },
+  pending_review: { label: "Pendiente", tone: "pending" },
+  waiting_documents: { label: "Requiere documentos", tone: "warning" },
+  approved: { label: "Aprobada", tone: "success" },
+  rejected: { label: "Rechazada", tone: "danger" },
+  archived: { label: "Archivada", tone: "muted" },
+};
+
+const WHOLESALE_HISTORY_LABELS = {
+  code_sent: "Código enviado",
+  application_submitted: "Solicitud enviada",
+  status_changed: "Estado actualizado",
+  document_added: "Documento adjunto",
+  document_removed: "Documento eliminado",
+  notification_sent: "Notificación enviada",
+  account_created: "Cuenta creada",
+  timeline_call: "Seguimiento telefónico",
+  timeline_email: "Seguimiento por email",
+  timeline_visit: "Visita registrada",
+  timeline_note: "Nota interna",
+};
+
+const WHOLESALE_TIMELINE_TYPES = [
+  { value: "note", label: "Nota interna" },
+  { value: "call", label: "Llamada" },
+  { value: "email", label: "Email" },
+  { value: "visit", label: "Visita" },
+];
+
+const wholesaleSectionEl = document.getElementById("wholesaleSection");
+const wholesaleTableBody = document.querySelector("#wholesaleTable tbody");
+const wholesaleStatusFilter = document.getElementById("wholesaleStatusFilter");
+const wholesaleSearchInput = document.getElementById("wholesaleSearchInput");
+const wholesaleDetailContainer = document.getElementById("wholesaleDetail");
+const wholesaleRefreshBtn = document.getElementById("wholesaleRefreshBtn");
+
+const wholesaleState = {
+  requests: [],
+  selectedId: null,
+  detail: null,
+  loading: false,
+};
+
+const wholesaleSearchHandler =
+  wholesaleSearchInput && typeof debounce === "function"
+    ? debounce(() => renderWholesaleTable(), 250)
+    : null;
+
+if (wholesaleStatusFilter) {
+  wholesaleStatusFilter.addEventListener("change", () => renderWholesaleTable());
+}
+if (wholesaleSearchInput && wholesaleSearchHandler) {
+  wholesaleSearchInput.addEventListener("input", wholesaleSearchHandler);
+}
+if (wholesaleRefreshBtn) {
+  wholesaleRefreshBtn.addEventListener("click", () =>
+    loadWholesaleRequests({ force: true }),
+  );
+}
 
 // ------------ Productos ------------
 // (contenido reemplazado más abajo)
@@ -2229,6 +2357,761 @@ async function loadClients() {
     console.error(err);
     clientsTableBody.innerHTML =
       '<tr><td colspan="5">No se pudieron cargar los clientes</td></tr>';
+  }
+}
+
+// ------------ Solicitudes mayoristas ------------
+function getDefaultWholesaleSubject(status) {
+  switch (status) {
+    case "approved":
+      return "Cuenta mayorista aprobada – NERIN Parts";
+    case "waiting_documents":
+      return "Información adicional requerida para tu solicitud mayorista";
+    case "rejected":
+      return "Actualización sobre tu solicitud mayorista";
+    default:
+      return "Actualización de tu solicitud mayorista";
+  }
+}
+
+function getWholesaleStatusMeta(status) {
+  return (
+    WHOLESALE_STATUS_META[status] || {
+      label: status ? status : "Sin estado",
+      tone: "muted",
+    }
+  );
+}
+
+function formatWholesaleStatusBadge(status) {
+  const meta = getWholesaleStatusMeta(status);
+  return `<span class="wh-status-badge wh-status-badge--${meta.tone}">${escapeHtml(
+    meta.label,
+  )}</span>`;
+}
+
+function getFilteredWholesaleRequests() {
+  const statusValue =
+    wholesaleStatusFilter && wholesaleStatusFilter.value
+      ? wholesaleStatusFilter.value
+      : "all";
+  const searchValue =
+    wholesaleSearchInput && wholesaleSearchInput.value
+      ? wholesaleSearchInput.value.trim().toLowerCase()
+      : "";
+  return wholesaleState.requests.filter((request) => {
+    if (statusValue !== "all" && request.status !== statusValue) {
+      return false;
+    }
+    if (searchValue) {
+      const haystack = [
+        request.legalName,
+        request.contactName,
+        request.email,
+        request.taxId,
+        request.companyType,
+        request.salesChannel,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(searchValue)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function renderWholesaleTable(options = {}) {
+  if (!wholesaleTableBody) return;
+  if (options.loading) {
+    wholesaleTableBody.innerHTML =
+      '<tr><td colspan="5">Cargando solicitudes…</td></tr>';
+    return;
+  }
+  const rows = getFilteredWholesaleRequests();
+  if (!rows.length) {
+    wholesaleTableBody.innerHTML =
+      '<tr><td colspan="5">No hay solicitudes con los filtros seleccionados.</td></tr>';
+    return;
+  }
+  wholesaleTableBody.innerHTML = "";
+  rows.forEach((request) => {
+    const tr = document.createElement("tr");
+    tr.dataset.id = request.id;
+    if (request.id === wholesaleState.selectedId) {
+      tr.classList.add("is-selected");
+    }
+    const refCell = document.createElement("td");
+    const reference = request.id
+      ? request.id.replace(/^whr_/i, "WH-").toUpperCase().slice(0, 12)
+      : "—";
+    refCell.textContent = reference;
+    const statusCell = document.createElement("td");
+    statusCell.innerHTML = formatWholesaleStatusBadge(request.status);
+    const legalCell = document.createElement("td");
+    legalCell.textContent =
+      request.legalName || request.contactName || "—";
+    const emailCell = document.createElement("td");
+    emailCell.textContent = request.email || "—";
+    const updatedCell = document.createElement("td");
+    updatedCell.textContent = formatDateTimeDisplay(
+      request.updatedAt || request.submittedAt || request.createdAt,
+    );
+    tr.append(refCell, statusCell, legalCell, emailCell, updatedCell);
+    tr.addEventListener("click", () => selectWholesaleRequest(request.id));
+    wholesaleTableBody.appendChild(tr);
+  });
+}
+
+async function loadWholesaleRequests(options = {}) {
+  if (!wholesaleTableBody) return;
+  if (wholesaleState.loading && !options.force) return;
+  wholesaleState.loading = true;
+  renderWholesaleTable({ loading: true });
+  try {
+    const res = await fetch("/api/wholesale/requests");
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const list = Array.isArray(data.requests) ? data.requests.slice() : [];
+    list.sort((a, b) => {
+      const tA = Date.parse(a.updatedAt || a.createdAt || 0) || 0;
+      const tB = Date.parse(b.updatedAt || b.createdAt || 0) || 0;
+      return tB - tA;
+    });
+    wholesaleState.requests = list;
+    renderWholesaleTable();
+    if (wholesaleState.selectedId) {
+      const match = list.find((item) => item.id === wholesaleState.selectedId);
+      if (match) {
+        wholesaleState.detail = match;
+        renderWholesaleDetail(match, { preserveInputs: true });
+      }
+    }
+  } catch (err) {
+    console.error("wholesale-load", err);
+    wholesaleTableBody.innerHTML =
+      '<tr><td colspan="5">No se pudieron cargar las solicitudes.</td></tr>';
+    if (window.showToast) {
+      showToast("No se pudieron cargar las solicitudes mayoristas");
+    }
+  } finally {
+    wholesaleState.loading = false;
+  }
+}
+
+async function selectWholesaleRequest(id) {
+  if (!id) return;
+  wholesaleState.selectedId = id;
+  renderWholesaleTable();
+  if (wholesaleDetailContainer) {
+    wholesaleDetailContainer.innerHTML =
+      '<div class="wh-detail-loading">Cargando solicitud…</div>';
+  }
+  try {
+    const res = await fetch(
+      `/api/wholesale/requests/${encodeURIComponent(id)}`,
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    wholesaleState.detail = data.request;
+    renderWholesaleDetail(data.request);
+  } catch (err) {
+    console.error("wholesale-detail", err);
+    if (wholesaleDetailContainer) {
+      wholesaleDetailContainer.innerHTML =
+        '<div class="wh-detail-error">No se pudo cargar la solicitud seleccionada.</div>';
+    }
+  }
+}
+
+function renderWholesaleDocuments(request) {
+  const docs = Array.isArray(request?.documents) ? request.documents : [];
+  if (!docs.length) {
+    return '<li class="wh-doc-empty">Sin documentos adjuntos por el momento.</li>';
+  }
+  return docs
+    .map((doc) => {
+      const docId = escapeHtml(doc.id || "");
+      const label = escapeHtml(doc.label || doc.originalName || "Documento");
+      const url = doc.url ? escapeHtml(doc.url) : "#";
+      const uploadedAt = formatDateTimeDisplay(doc.uploadedAt);
+      const uploader =
+        doc.uploadedBy && (doc.uploadedBy.name || doc.uploadedBy.email)
+          ? `<span class="wh-doc-meta">${escapeHtml(
+              doc.uploadedBy.name || doc.uploadedBy.email,
+            )}</span>`
+          : "";
+      return `<li data-doc-id="${docId}">
+        <div class="wh-doc-main">
+          <a href="${url}" target="_blank" rel="noopener">${label}</a>
+          <span class="wh-doc-date">${uploadedAt}</span>
+          ${uploader}
+        </div>
+        <button type="button" class="link-button" data-remove-doc="${docId}">Eliminar</button>
+      </li>`;
+    })
+    .join("");
+}
+
+function renderWholesaleHistory(history) {
+  const items = Array.isArray(history) ? history : [];
+  if (!items.length) {
+    return '<li class="wh-history-empty">Todavía no hay eventos registrados.</li>';
+  }
+  return items
+    .map((entry) => {
+      const label =
+        WHOLESALE_HISTORY_LABELS[entry.action] ||
+        entry.action ||
+        "Actividad";
+      const actor =
+        entry.by && (entry.by.name || entry.by.email)
+          ? `<span class="wh-history-actor">${escapeHtml(
+              entry.by.name || entry.by.email,
+            )}</span>`
+          : "";
+      const note = entry.note
+        ? `<div class="wh-history-note">${formatMultiline(entry.note)}</div>`
+        : "";
+      return `<li>
+        <div class="wh-history-header">
+          <span class="wh-history-label">${escapeHtml(label)}</span>
+          <span class="wh-history-time">${formatDateTimeDisplay(entry.at)}</span>
+        </div>
+        ${actor ? `<div class="wh-history-meta">${actor}</div>` : ""}
+        ${note}
+      </li>`;
+    })
+    .join("");
+}
+
+function renderWholesaleDetail(request, options = {}) {
+  if (!wholesaleDetailContainer) return;
+  if (options.loading) {
+    wholesaleDetailContainer.innerHTML =
+      '<div class="wh-detail-loading">Cargando solicitud…</div>';
+    return;
+  }
+  if (!request) {
+    wholesaleDetailContainer.innerHTML = `
+      <div class="wholesale-empty">
+        <h4>Seleccioná una solicitud</h4>
+        <p>Elegí un registro de la lista para revisar los datos enviados, agregar documentación y completar la aprobación.</p>
+      </div>
+    `;
+    return;
+  }
+  let previousInputs = null;
+  if (options.preserveInputs) {
+    previousInputs = {
+      assignedTo:
+        document.getElementById("wholesaleAssigneeInput")?.value || "",
+      internalNotes:
+        document.getElementById("wholesaleInternalNotes")?.value || "",
+      subject:
+        document.getElementById("wholesaleEmailSubject")?.value || "",
+      message:
+        document.getElementById("wholesaleDecisionMessage")?.value || "",
+      notify:
+        document.getElementById("wholesaleNotifyApplicant")?.checked ?? true,
+      createAccount:
+        document.getElementById("wholesaleCreateAccount")?.checked ?? true,
+      timelineType:
+        document.getElementById("wholesaleTimelineType")?.value || "note",
+    };
+  }
+  const archiveNextStatus =
+    request.status === "archived" ? "pending_review" : "archived";
+  const archiveLabel =
+    request.status === "archived" ? "Reabrir" : "Archivar";
+  const infoRows = [
+    {
+      label: "Correo corporativo",
+      value: request.email
+        ? `<a href="mailto:${escapeHtml(request.email)}">${escapeHtml(
+            request.email,
+          )}</a>`
+        : "—",
+    },
+    { label: "Razón social", value: renderNullable(request.legalName) },
+    { label: "Responsable", value: renderNullable(request.contactName) },
+    { label: "CUIT", value: renderNullable(request.taxId) },
+    { label: "Teléfono", value: renderNullable(request.phone) },
+    { label: "Provincia", value: renderNullable(request.province) },
+    { label: "Rubro principal", value: renderNullable(request.companyType) },
+    { label: "Canales de venta", value: renderNullable(request.salesChannel) },
+    { label: "Volumen mensual", value: renderNullable(request.monthlyVolume) },
+    { label: "Sistema / Marketplace", value: renderNullable(request.systems) },
+    { label: "Sitio web", value: renderLink(request.website) },
+    { label: "Constancia AFIP", value: renderLink(request.afipUrl) },
+    { label: "Notas del solicitante", value: formatMultiline(request.notes) },
+  ];
+  const infoHtml = infoRows
+    .map(
+      (row) =>
+        `<div class="wh-info-item"><dt>${row.label}</dt><dd>${row.value}</dd></div>`,
+    )
+    .join("");
+  const documentsHtml = renderWholesaleDocuments(request);
+  const historyHtml = renderWholesaleHistory(request.history);
+  const timelineOptions = WHOLESALE_TIMELINE_TYPES.map(
+    (item) => `<option value="${item.value}">${item.label}</option>`,
+  ).join("");
+  const subjectValue = getDefaultWholesaleSubject(request.status);
+  const accountMeta =
+    request.account && request.account.createdAt
+      ? `<p class="wh-detail-meta">Cuenta creada el ${formatDateTimeDisplay(
+          request.account.createdAt,
+        )}</p>`
+      : "";
+  wholesaleDetailContainer.innerHTML = `
+    <div class="wh-detail-card">
+      <header class="wh-detail-head">
+        <div>
+          <div class="wh-detail-status">
+            ${formatWholesaleStatusBadge(request.status)}
+            <span class="wh-detail-updated">Actualizado ${formatDateTimeDisplay(
+              request.updatedAt || request.createdAt,
+            )}</span>
+          </div>
+          <h3>${escapeHtml(
+            request.legalName ||
+              request.contactName ||
+              request.email ||
+              "Solicitud mayorista",
+          )}</h3>
+          <p class="wh-detail-summary">
+            ${request.email ? escapeHtml(request.email) : ""}
+            ${request.taxId ? ` · CUIT ${escapeHtml(request.taxId)}` : ""}
+            ${request.province ? ` · ${escapeHtml(request.province)}` : ""}
+          </p>
+          ${accountMeta}
+        </div>
+        <div class="wh-detail-actions">
+          <button class="button primary" id="wholesaleApproveBtn">Aprobar</button>
+          <button class="button" id="wholesaleRequestDocsBtn">Pedir documentación</button>
+          <button class="button danger" id="wholesaleRejectBtn">Rechazar</button>
+          <button class="button subtle" id="wholesaleArchiveBtn" data-next-status="${archiveNextStatus}">${archiveLabel}</button>
+        </div>
+      </header>
+      <div class="wh-detail-columns">
+        <section class="wh-info">
+          <h4>Datos del solicitante</h4>
+          <dl class="wh-info-grid">
+            ${infoHtml}
+          </dl>
+        </section>
+        <aside class="wh-management">
+          <h4>Gestión interna</h4>
+          <form id="wholesaleNotesForm" class="wh-form">
+            <label>
+              <span>Asignado a</span>
+              <div class="wh-inline-field">
+                <input type="text" id="wholesaleAssigneeInput" value="${escapeHtml(
+                  request.assignedTo || "",
+                )}" />
+                <button type="button" class="button" id="wholesaleTakeBtn">Tomar caso</button>
+              </div>
+            </label>
+            <label>
+              <span>Notas internas</span>
+              <textarea id="wholesaleInternalNotes" rows="4" placeholder="Seguimiento interno">${escapeHtml(
+                request.internalNotes || "",
+              )}</textarea>
+            </label>
+            <button type="submit" class="button primary">Guardar cambios</button>
+          </form>
+          <section class="wh-decision">
+            <h4>Comunicación con el cliente</h4>
+            <label>
+              <span>Asunto del correo</span>
+              <input type="text" id="wholesaleEmailSubject" value="${escapeHtml(
+                subjectValue,
+              )}" />
+            </label>
+            <label>
+              <span>Mensaje al cliente</span>
+              <textarea id="wholesaleDecisionMessage" rows="4" placeholder="Detalle del mensaje"></textarea>
+            </label>
+            <label class="input-checkbox">
+              <input type="checkbox" id="wholesaleNotifyApplicant" checked /> Notificar por email
+            </label>
+            ${
+              request.account && request.account.createdAt
+                ? `<p class="wh-detail-meta">La cuenta ya fue generada el ${formatDateTimeDisplay(
+                    request.account.createdAt,
+                  )}.</p>`
+                : `<label class="input-checkbox"><input type="checkbox" id="wholesaleCreateAccount" checked /> Crear cuenta y enviar clave provisoria</label>`
+            }
+          </section>
+        </aside>
+      </div>
+      <section class="wh-documents">
+        <h4>Documentación</h4>
+        <ul class="wh-documents-list">
+          ${documentsHtml}
+        </ul>
+        <form id="wholesaleDocumentForm" class="wh-form" enctype="multipart/form-data">
+          <div class="wh-document-fields">
+            <input type="text" id="wholesaleDocumentLabel" placeholder="Descripción del archivo" />
+            <input type="file" id="wholesaleDocumentFile" accept=".pdf,.jpg,.jpeg,.png" required />
+            <button type="submit" class="button">Adjuntar</button>
+          </div>
+          <p class="wh-form-hint">Hasta 5 MB. Formatos permitidos: PDF, JPG, PNG.</p>
+        </form>
+      </section>
+      <section class="wh-timeline">
+        <h4>Seguimiento</h4>
+        <form id="wholesaleTimelineForm" class="wh-form-inline">
+          <select id="wholesaleTimelineType">
+            ${timelineOptions}
+          </select>
+          <input type="text" id="wholesaleTimelineNote" placeholder="Detalle del contacto" required />
+          <button type="submit" class="button">Registrar</button>
+        </form>
+        <ul class="wh-history-list">
+          ${historyHtml}
+        </ul>
+      </section>
+    </div>
+  `;
+  attachWholesaleDetailEvents(request);
+  if (previousInputs) {
+    const subjectInput = document.getElementById("wholesaleEmailSubject");
+    if (subjectInput && previousInputs.subject) {
+      subjectInput.value = previousInputs.subject;
+    }
+    const messageInput = document.getElementById("wholesaleDecisionMessage");
+    if (messageInput && previousInputs.message) {
+      messageInput.value = previousInputs.message;
+    }
+    const notifyCheckbox = document.getElementById(
+      "wholesaleNotifyApplicant",
+    );
+    if (notifyCheckbox) {
+      notifyCheckbox.checked = previousInputs.notify;
+    }
+    const createCheckbox = document.getElementById("wholesaleCreateAccount");
+    if (createCheckbox && typeof previousInputs.createAccount === "boolean") {
+      createCheckbox.checked = previousInputs.createAccount;
+    }
+    const notesTextarea = document.getElementById("wholesaleInternalNotes");
+    if (notesTextarea && previousInputs.internalNotes) {
+      notesTextarea.value = previousInputs.internalNotes;
+    }
+    const assigneeInput = document.getElementById("wholesaleAssigneeInput");
+    if (assigneeInput && previousInputs.assignedTo) {
+      assigneeInput.value = previousInputs.assignedTo;
+    }
+    const timelineType = document.getElementById("wholesaleTimelineType");
+    if (timelineType && previousInputs.timelineType) {
+      timelineType.value = previousInputs.timelineType;
+    }
+  }
+}
+
+function attachWholesaleDetailEvents(request) {
+  const approveBtn = document.getElementById("wholesaleApproveBtn");
+  if (approveBtn) {
+    approveBtn.addEventListener("click", () =>
+      handleWholesaleDecision("approved", approveBtn),
+    );
+  }
+  const docsBtn = document.getElementById("wholesaleRequestDocsBtn");
+  if (docsBtn) {
+    docsBtn.addEventListener("click", () =>
+      handleWholesaleDecision("waiting_documents", docsBtn),
+    );
+  }
+  const rejectBtn = document.getElementById("wholesaleRejectBtn");
+  if (rejectBtn) {
+    rejectBtn.addEventListener("click", () =>
+      handleWholesaleDecision("rejected", rejectBtn),
+    );
+  }
+  const archiveBtn = document.getElementById("wholesaleArchiveBtn");
+  if (archiveBtn) {
+    archiveBtn.addEventListener("click", () => {
+      const next = archiveBtn.dataset.nextStatus || "archived";
+      handleWholesaleDecision(next, archiveBtn);
+    });
+  }
+  const notesForm = document.getElementById("wholesaleNotesForm");
+  if (notesForm) {
+    notesForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const assignedTo =
+        document.getElementById("wholesaleAssigneeInput")?.value.trim() || "";
+      const internalNotes =
+        document.getElementById("wholesaleInternalNotes")?.value || "";
+      updateWholesaleRequest(
+        request.id,
+        { assignedTo, internalNotes },
+        { successMessage: "Cambios guardados" },
+      );
+    });
+  }
+  const takeBtn = document.getElementById("wholesaleTakeBtn");
+  if (takeBtn) {
+    takeBtn.addEventListener("click", () => {
+      const actor = getCurrentActor();
+      const assignedTo =
+        actor.name || actor.email || "Administrador";
+      const notesInput = document.getElementById("wholesaleInternalNotes");
+      const internalNotes = notesInput ? notesInput.value : "";
+      const assigneeInput = document.getElementById("wholesaleAssigneeInput");
+      if (assigneeInput) assigneeInput.value = assignedTo;
+      updateWholesaleRequest(
+        request.id,
+        { assignedTo, internalNotes },
+        { successMessage: "Caso asignado" },
+      );
+    });
+  }
+  const docForm = document.getElementById("wholesaleDocumentForm");
+  if (docForm) {
+    docForm.addEventListener("submit", (event) =>
+      handleWholesaleDocumentUpload(event, request.id),
+    );
+  }
+  wholesaleDetailContainer
+    .querySelectorAll("[data-remove-doc]")
+    .forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const docId = btn.getAttribute("data-remove-doc");
+        handleWholesaleDocumentRemove(request.id, docId, btn);
+      });
+    });
+  const timelineForm = document.getElementById("wholesaleTimelineForm");
+  if (timelineForm) {
+    timelineForm.addEventListener("submit", (event) =>
+      handleWholesaleTimelineSubmit(event, request.id),
+    );
+  }
+}
+
+async function updateWholesaleRequest(id, payload, options = {}) {
+  if (!id) return null;
+  const actor = getCurrentActor();
+  const body = {
+    ...payload,
+    actorName: actor.name,
+    actorEmail: actor.email,
+  };
+  try {
+    const res = await fetch(
+      `/api/wholesale/requests/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    if (Array.isArray(wholesaleState.requests)) {
+      wholesaleState.requests = wholesaleState.requests.map((item) =>
+        item.id === data.request.id ? data.request : item,
+      );
+    }
+    wholesaleState.detail = data.request;
+    renderWholesaleTable();
+    renderWholesaleDetail(data.request);
+    if (options.successMessage && window.showToast) {
+      showToast(options.successMessage);
+    }
+    if (data.emailSent && window.showToast) {
+      showToast("Correo enviado al solicitante");
+    }
+    if (data.credentials && data.credentials.tempPassword) {
+      alert(`Clave provisoria generada: ${data.credentials.tempPassword}`);
+    }
+    return data.request;
+  } catch (err) {
+    console.error("wholesale-update", err);
+    if (window.showToast) {
+      showToast("No se pudo actualizar la solicitud");
+    }
+    throw err;
+  }
+}
+
+async function handleWholesaleDecision(status, trigger) {
+  const detail = wholesaleState.detail;
+  if (!detail || !detail.id) return;
+  const nextStatus =
+    status === "archived" && detail.status === "archived"
+      ? "pending_review"
+      : status;
+  const confirmMessage =
+    nextStatus === "approved"
+      ? "¿Aprobar la solicitud mayorista?"
+      : nextStatus === "rejected"
+      ? "¿Rechazar la solicitud mayorista?"
+      : nextStatus === "waiting_documents"
+      ? "¿Marcar la solicitud como pendiente de documentación?"
+      : nextStatus === "archived"
+      ? "¿Archivar la solicitud mayorista?"
+      : null;
+  if (confirmMessage && !confirm(confirmMessage)) {
+    return;
+  }
+  if (trigger) trigger.disabled = true;
+  try {
+    const notifyCheckbox = document.getElementById(
+      "wholesaleNotifyApplicant",
+    );
+    const subjectInput = document.getElementById("wholesaleEmailSubject");
+    const messageInput = document.getElementById("wholesaleDecisionMessage");
+    const createCheckbox = document.getElementById("wholesaleCreateAccount");
+    const subjectValue = subjectInput ? subjectInput.value.trim() : "";
+    const messageValue = messageInput ? messageInput.value.trim() : "";
+    await updateWholesaleRequest(
+      detail.id,
+      {
+        status: nextStatus,
+        decisionNote: messageValue,
+        emailSubject: subjectValue || undefined,
+        emailMessage: messageValue || undefined,
+        notifyApplicant: notifyCheckbox ? notifyCheckbox.checked : false,
+        createAccount:
+          nextStatus === "approved" && createCheckbox
+            ? createCheckbox.checked
+            : undefined,
+      },
+      {
+        successMessage:
+          nextStatus === "approved"
+            ? "Solicitud aprobada"
+            : nextStatus === "rejected"
+            ? "Solicitud rechazada"
+            : nextStatus === "waiting_documents"
+            ? "Estado actualizado"
+            : nextStatus === "archived"
+            ? "Solicitud archivada"
+            : "Solicitud actualizada",
+      },
+    );
+  } catch (err) {
+    // Manejado por updateWholesaleRequest
+  } finally {
+    if (trigger) trigger.disabled = false;
+  }
+}
+
+async function handleWholesaleDocumentUpload(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const fileInput = form.querySelector("#wholesaleDocumentFile");
+  if (!fileInput || !fileInput.files || !fileInput.files.length) {
+    if (window.showToast) showToast("Seleccioná un archivo");
+    return;
+  }
+  const labelInput = form.querySelector("#wholesaleDocumentLabel");
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+  if (labelInput && labelInput.value.trim()) {
+    formData.append("label", labelInput.value.trim());
+  }
+  const actor = getCurrentActor();
+  formData.append("actorName", actor.name || "");
+  if (actor.email) formData.append("actorEmail", actor.email);
+  try {
+    const res = await fetch(
+      `/api/wholesale/requests/${encodeURIComponent(id)}/documents`,
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    wholesaleState.requests = wholesaleState.requests.map((item) =>
+      item.id === data.request.id ? data.request : item,
+    );
+    wholesaleState.detail = data.request;
+    renderWholesaleTable();
+    renderWholesaleDetail(data.request);
+    form.reset();
+    if (window.showToast) showToast("Documento adjuntado");
+  } catch (err) {
+    console.error("wholesale-doc-upload", err);
+    if (window.showToast) showToast("No se pudo adjuntar el documento");
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function handleWholesaleDocumentRemove(id, docId, trigger) {
+  if (!docId) return;
+  if (!confirm("¿Eliminar el documento adjunto?")) return;
+  if (trigger) trigger.disabled = true;
+  try {
+    const res = await fetch(
+      `/api/wholesale/requests/${encodeURIComponent(id)}/documents/${encodeURIComponent(
+        docId,
+      )}`,
+      { method: "DELETE" },
+    );
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    wholesaleState.requests = wholesaleState.requests.map((item) =>
+      item.id === data.request.id ? data.request : item,
+    );
+    wholesaleState.detail = data.request;
+    renderWholesaleTable();
+    renderWholesaleDetail(data.request);
+    if (window.showToast) showToast("Documento eliminado");
+  } catch (err) {
+    console.error("wholesale-doc-remove", err);
+    if (window.showToast) showToast("No se pudo eliminar el documento");
+  } finally {
+    if (trigger) trigger.disabled = false;
+  }
+}
+
+async function handleWholesaleTimelineSubmit(event, id) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const typeSelect = form.querySelector("#wholesaleTimelineType");
+  const noteInput = form.querySelector("#wholesaleTimelineNote");
+  const note = noteInput ? noteInput.value.trim() : "";
+  if (!note) {
+    if (window.showToast) showToast("Ingresá un detalle para el seguimiento");
+    return;
+  }
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    await updateWholesaleRequest(
+      id,
+      {
+        timelineEntry: {
+          type: typeSelect ? typeSelect.value : "note",
+          note,
+        },
+      },
+      { successMessage: "Seguimiento registrado" },
+    );
+    form.reset();
+  } catch (err) {
+    // manejado en updateWholesaleRequest
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 

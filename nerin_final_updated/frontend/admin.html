@@ -192,6 +192,9 @@
         <button data-target="clientsSection" data-i18n="nav.clients">
           Clientes
         </button>
+        <button data-target="wholesaleSection" data-i18n="nav.wholesale">
+          Mayoristas
+        </button>
         <button data-target="metricsSection" data-i18n="nav.metrics">
           Métricas
         </button>
@@ -476,6 +479,71 @@
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+      </section>
+      <section id="wholesaleSection" class="admin-section" style="display: none">
+        <div class="wholesale-header">
+          <div>
+            <h3>Solicitudes mayoristas</h3>
+            <p class="wholesale-subtitle">
+              Gestioná verificaciones, adjuntos y aprobaciones de cuentas corporativas.
+            </p>
+          </div>
+          <div class="wholesale-header-actions">
+            <button id="wholesaleRefreshBtn" class="button">Actualizar</button>
+          </div>
+        </div>
+        <div class="wholesale-filters">
+          <label class="filter">
+            <span>Estado</span>
+            <select id="wholesaleStatusFilter">
+              <option value="all">Todos</option>
+              <option value="pending_review">Pendiente</option>
+              <option value="waiting_documents">Requiere documentos</option>
+              <option value="approved">Aprobada</option>
+              <option value="rejected">Rechazada</option>
+              <option value="archived">Archivada</option>
+            </select>
+          </label>
+          <label class="filter">
+            <span>Búsqueda</span>
+            <input
+              type="search"
+              id="wholesaleSearchInput"
+              placeholder="Filtrar por razón social, CUIT o correo"
+            />
+          </label>
+        </div>
+        <div class="wholesale-grid">
+          <div class="wholesale-list">
+            <div class="table-wrapper">
+              <table class="admin-table" id="wholesaleTable">
+                <thead>
+                  <tr>
+                    <th>Solicitud</th>
+                    <th>Estado</th>
+                    <th>Razón social</th>
+                    <th>Correo</th>
+                    <th>Actualizado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td colspan="5">Cargá las solicitudes para comenzar.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="wholesale-detail" id="wholesaleDetail">
+            <div class="wholesale-empty">
+              <h4>Seleccioná una solicitud</h4>
+              <p>
+                Elegí un registro de la lista para revisar los datos enviados, agregar
+                documentación y completar la aprobación.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
       <section id="metricsSection" class="admin-section" style="display: none">
