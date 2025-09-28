@@ -153,6 +153,367 @@ function normalizeEmailInput(value) {
   return text ? text.toLowerCase() : "";
 }
 
+function escapeHtml(str) {
+  if (!str && str !== 0) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+const WHOLESALE_ALLOWED_STATUSES = new Set([
+  "code_sent",
+  "pending_review",
+  "waiting_documents",
+  "approved",
+  "rejected",
+  "archived",
+]);
+
+function generateWholesaleId() {
+  if (typeof crypto.randomUUID === "function") {
+    return `whr_${crypto.randomUUID()}`;
+  }
+  return `whr_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+function generateHistoryId() {
+  if (typeof crypto.randomUUID === "function") {
+    return `hst_${crypto.randomUUID()}`;
+  }
+  return `hst_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+function generateDocumentId() {
+  if (typeof crypto.randomUUID === "function") {
+    return `doc_${crypto.randomUUID()}`;
+  }
+  return `doc_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+function normalizeWholesaleHistoryEntry(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
+  const copy = { ...entry };
+  let changed = false;
+  if (!copy.id) {
+    copy.id = generateHistoryId();
+    changed = true;
+  }
+  copy.action = normalizeTextInput(copy.action) || "note";
+  copy.at = copy.at && !Number.isNaN(Date.parse(copy.at))
+    ? copy.at
+    : new Date().toISOString();
+  if (copy.by && typeof copy.by === "object") {
+    copy.by = {
+      name: normalizeTextInput(copy.by.name) || undefined,
+      email: normalizeEmailInput(copy.by.email) || undefined,
+    };
+  } else if (copy.by) {
+    copy.by = { name: normalizeTextInput(copy.by) };
+  }
+  if (copy.note != null) {
+    copy.note = normalizeTextInput(copy.note);
+  }
+  if (copy.status && !WHOLESALE_ALLOWED_STATUSES.has(copy.status)) {
+    delete copy.status;
+    changed = true;
+  }
+  if (copy.meta && typeof copy.meta === "object") {
+    copy.meta = Object.entries(copy.meta).reduce((acc, [key, value]) => {
+      acc[key] = normalizeTextInput(value);
+      return acc;
+    }, {});
+  }
+  return { entry: copy, changed };
+}
+
+function normalizeWholesaleDocumentEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const copy = { ...entry };
+  let changed = false;
+  if (!copy.id) {
+    copy.id = generateDocumentId();
+    changed = true;
+  }
+  copy.label = normalizeTextInput(copy.label);
+  copy.filename = normalizeTextInput(copy.filename);
+  copy.originalName = normalizeTextInput(copy.originalName || copy.label);
+  copy.url = normalizeTextInput(copy.url);
+  copy.mimetype = normalizeTextInput(copy.mimetype);
+  copy.uploadedAt =
+    copy.uploadedAt && !Number.isNaN(Date.parse(copy.uploadedAt))
+      ? copy.uploadedAt
+      : new Date().toISOString();
+  if (copy.uploadedBy && typeof copy.uploadedBy === "object") {
+    copy.uploadedBy = {
+      name: normalizeTextInput(copy.uploadedBy.name) || undefined,
+      email: normalizeEmailInput(copy.uploadedBy.email) || undefined,
+    };
+  } else if (copy.uploadedBy) {
+    copy.uploadedBy = { name: normalizeTextInput(copy.uploadedBy) };
+  }
+  const sizeNumber = Number(copy.size);
+  copy.size = Number.isFinite(sizeNumber) && sizeNumber >= 0 ? sizeNumber : 0;
+  return { document: copy, changed };
+}
+
+function normalizeWholesaleRequestEntry(entry) {
+  const nowIso = new Date().toISOString();
+  const source = entry && typeof entry === "object" ? entry : {};
+  const copy = { ...source };
+  let changed = false;
+
+  if (!copy.id) {
+    copy.id = generateWholesaleId();
+    changed = true;
+  }
+
+  copy.email = normalizeEmailInput(copy.email);
+  copy.legalName = normalizeTextInput(copy.legalName);
+  copy.taxId = normalizeTextInput(copy.taxId);
+  copy.contactName = normalizeTextInput(copy.contactName);
+  copy.phone = normalizeTextInput(copy.phone);
+  copy.province = normalizeTextInput(copy.province);
+  copy.website = normalizeTextInput(copy.website);
+  copy.companyType = normalizeTextInput(copy.companyType);
+  copy.salesChannel = normalizeTextInput(copy.salesChannel);
+  copy.monthlyVolume = normalizeTextInput(copy.monthlyVolume);
+  copy.systems = normalizeTextInput(copy.systems);
+  copy.afipUrl = normalizeTextInput(copy.afipUrl);
+  copy.notes = normalizeTextInput(copy.notes);
+  copy.internalNotes = normalizeTextInput(copy.internalNotes);
+  copy.assignedTo = normalizeTextInput(copy.assignedTo);
+
+  const status = normalizeTextInput(copy.status) || "pending_review";
+  if (!WHOLESALE_ALLOWED_STATUSES.has(status)) {
+    copy.status = "pending_review";
+    changed = true;
+  } else {
+    copy.status = status;
+  }
+
+  copy.createdAt =
+    copy.createdAt && !Number.isNaN(Date.parse(copy.createdAt))
+      ? copy.createdAt
+      : nowIso;
+  copy.updatedAt =
+    copy.updatedAt && !Number.isNaN(Date.parse(copy.updatedAt))
+      ? copy.updatedAt
+      : copy.createdAt;
+  copy.submittedAt =
+    copy.submittedAt && !Number.isNaN(Date.parse(copy.submittedAt))
+      ? copy.submittedAt
+      : copy.createdAt;
+
+  const docs = Array.isArray(copy.documents) ? copy.documents : [];
+  const normalizedDocs = [];
+  let docsChanged = false;
+  for (const doc of docs) {
+    const normalized = normalizeWholesaleDocumentEntry(doc);
+    if (normalized) {
+      normalizedDocs.push(normalized.document);
+      if (normalized.changed) docsChanged = true;
+    } else {
+      docsChanged = true;
+    }
+  }
+  if (docsChanged || normalizedDocs.length !== docs.length) {
+    changed = true;
+  }
+  copy.documents = normalizedDocs;
+
+  const history = Array.isArray(copy.history) ? copy.history : [];
+  const normalizedHistory = [];
+  let historyChanged = false;
+  for (const item of history) {
+    const normalized = normalizeWholesaleHistoryEntry(item);
+    if (normalized) {
+      normalizedHistory.push(normalized.entry);
+      if (normalized.changed) historyChanged = true;
+    } else {
+      historyChanged = true;
+    }
+  }
+  normalizedHistory.sort((a, b) => {
+    const tA = Date.parse(a.at || nowIso) || 0;
+    const tB = Date.parse(b.at || nowIso) || 0;
+    return tA - tB;
+  });
+  if (historyChanged || normalizedHistory.length !== history.length) {
+    changed = true;
+  }
+  copy.history = normalizedHistory;
+
+  const tags = Array.isArray(copy.tags) ? copy.tags : [];
+  const normalizedTags = Array.from(
+    new Set(
+      tags
+        .map((tag) => normalizeTextInput(tag))
+        .filter((tag) => tag && tag.length <= 40),
+    ),
+  );
+  if (normalizedTags.length !== tags.length) {
+    changed = true;
+  }
+  copy.tags = normalizedTags;
+
+  if (!copy.verification || typeof copy.verification !== "object") {
+    copy.verification = {};
+    changed = true;
+  } else {
+    copy.verification = {
+      code: copy.verification.code || undefined,
+      sentAt: copy.verification.sentAt,
+      expiresAt: copy.verification.expiresAt,
+      confirmed: Boolean(copy.verification.confirmed),
+      confirmedAt: copy.verification.confirmedAt,
+    };
+  }
+
+  if (!copy.review) {
+    copy.review = {};
+  } else if (typeof copy.review === "object") {
+    copy.review = {
+      decisionNote: normalizeTextInput(copy.review.decisionNote),
+      decidedAt: copy.review.decidedAt,
+      decidedBy: copy.review.decidedBy,
+    };
+  }
+
+  return { record: copy, changed };
+}
+
+function sanitizeWholesaleRequestForResponse(request) {
+  if (!request || typeof request !== "object") return {};
+  const sanitized = JSON.parse(JSON.stringify(request));
+  if (sanitized.verification) {
+    delete sanitized.verification.code;
+  }
+  return sanitized;
+}
+
+function createWholesaleRequestSeed(payload = {}) {
+  const nowIso = new Date().toISOString();
+  const createdAt =
+    payload.createdAt && !Number.isNaN(Date.parse(payload.createdAt))
+      ? payload.createdAt
+      : nowIso;
+  const submittedAt =
+    payload.submittedAt && !Number.isNaN(Date.parse(payload.submittedAt))
+      ? payload.submittedAt
+      : createdAt;
+  const base = {
+    id: generateWholesaleId(),
+    email: normalizeEmailInput(payload.email),
+    legalName: normalizeTextInput(payload.legalName),
+    contactName: normalizeTextInput(payload.contactName),
+    phone: normalizeTextInput(payload.phone),
+    taxId: normalizeTextInput(payload.taxId),
+    province: normalizeTextInput(payload.province),
+    website: normalizeTextInput(payload.website),
+    companyType: normalizeTextInput(payload.companyType),
+    salesChannel: normalizeTextInput(payload.salesChannel),
+    monthlyVolume: normalizeTextInput(payload.monthlyVolume),
+    systems: normalizeTextInput(payload.systems),
+    afipUrl: normalizeTextInput(payload.afipUrl),
+    notes: normalizeTextInput(payload.notes),
+    createdAt,
+    updatedAt:
+      payload.updatedAt && !Number.isNaN(Date.parse(payload.updatedAt))
+        ? payload.updatedAt
+        : nowIso,
+    submittedAt,
+    status: payload.status || "pending_review",
+    documents: Array.isArray(payload.documents) ? payload.documents : [],
+    history: Array.isArray(payload.history) ? payload.history : [],
+    tags: Array.isArray(payload.tags) ? payload.tags : [],
+    verification:
+      payload.verification && typeof payload.verification === "object"
+        ? { ...payload.verification }
+        : {},
+    internalNotes: normalizeTextInput(payload.internalNotes),
+    assignedTo: normalizeTextInput(payload.assignedTo),
+    review:
+      payload.review && typeof payload.review === "object"
+        ? { ...payload.review }
+        : {},
+  };
+  return normalizeWholesaleRequestEntry(base).record;
+}
+
+function generateTempPassword() {
+  let candidate = crypto.randomBytes(12).toString("base64");
+  candidate = candidate.replace(/[^a-zA-Z0-9]/g, "");
+  if (candidate.length < 10) {
+    candidate += crypto.randomBytes(6).toString("hex");
+  }
+  return candidate.slice(0, 12);
+}
+
+function defaultWholesaleEmailSubject(status) {
+  switch (status) {
+    case "approved":
+      return "Cuenta mayorista aprobada – NERIN Parts";
+    case "waiting_documents":
+      return "Información adicional requerida para tu solicitud mayorista";
+    case "rejected":
+      return "Actualización sobre tu solicitud mayorista";
+    default:
+      return "Actualización de tu solicitud mayorista";
+  }
+}
+
+function defaultWholesaleEmailBody(status, request, message, credentials) {
+  const lines = [];
+  const greeting = request.contactName
+    ? `Hola ${escapeHtml(request.contactName)},`
+    : "Hola,";
+  lines.push(`<p>${greeting}</p>`);
+  const custom = message ? escapeHtml(message).replace(/\n/g, "<br />") : null;
+  if (custom) {
+    lines.push(`<p>${custom}</p>`);
+  } else {
+    if (status === "approved") {
+      lines.push(
+        "<p>¡Buenas noticias! Tu cuenta mayorista fue aprobada y ya podés acceder a nuestra lista de precios exclusiva.</p>",
+      );
+    } else if (status === "waiting_documents") {
+      lines.push(
+        "<p>Para continuar necesitamos documentación adicional. Respondé este correo adjuntando la constancia solicitada o indicanos cómo prefieres compartirla.</p>",
+      );
+    } else if (status === "rejected") {
+      lines.push(
+        "<p>En esta instancia no podemos habilitar la cuenta mayorista. Si contás con más información que ayude a la validación, por favor respondenos este mensaje.</p>",
+      );
+    } else {
+      lines.push(
+        "<p>Tenemos novedades sobre tu solicitud mayorista. Respondé este correo si necesitás más información.</p>",
+      );
+    }
+  }
+
+  if (status === "approved") {
+    lines.push(
+      "<p>Ingresá a <a href=\"https://nerin.com.ar/login.html\">nerin.com.ar/login</a> con tu correo registrado para ver precios mayoristas y realizar pedidos.</p>",
+    );
+  }
+
+  if (credentials && credentials.tempPassword) {
+    lines.push(
+      `<p>Tu clave provisoria es: <strong>${escapeHtml(
+        credentials.tempPassword,
+      )}</strong>. Te recomendamos cambiarla luego de iniciar sesión.</p>`,
+    );
+  }
+
+  lines.push("<p>Gracias por confiar en NERIN Parts.</p>");
+  return lines.join("\n");
+}
+
 const PRODUCT_TEMPLATE_PATH = path.join(
   __dirname,
   "..",
@@ -1115,7 +1476,18 @@ function getWholesaleRequests() {
   try {
     const file = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(file);
-    return Array.isArray(parsed.requests) ? parsed.requests : [];
+    const rawList = Array.isArray(parsed.requests) ? parsed.requests : [];
+    const normalized = [];
+    let needsSave = false;
+    for (const item of rawList) {
+      const { record, changed } = normalizeWholesaleRequestEntry(item);
+      normalized.push(record);
+      if (changed) needsSave = true;
+    }
+    if (needsSave) {
+      saveWholesaleRequests(normalized);
+    }
+    return normalized;
   } catch (err) {
     return [];
   }
@@ -1123,8 +1495,11 @@ function getWholesaleRequests() {
 
 function saveWholesaleRequests(requests) {
   const filePath = dataPath("wholesale_requests.json");
+  const normalizedList = Array.isArray(requests)
+    ? requests.map((req) => normalizeWholesaleRequestEntry(req).record)
+    : [];
   const payload = {
-    requests: Array.isArray(requests) ? requests : [],
+    requests: normalizedList,
   };
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
 }
@@ -1830,14 +2205,14 @@ async function requestHandler(req, res) {
             history,
           };
         } else {
-          requests.push({
+          const seed = createWholesaleRequestSeed({
             email,
             legalName,
             contactName,
             phone,
-            createdAt: nowIso,
-            updatedAt: nowIso,
             status: "code_sent",
+            createdAt: nowIso,
+            submittedAt: nowIso,
             verification: {
               code,
               sentAt: nowIso,
@@ -1846,6 +2221,7 @@ async function requestHandler(req, res) {
             },
             history: [historyEntry],
           });
+          requests.push(seed);
         }
 
         saveWholesaleRequests(requests);
@@ -2012,6 +2388,438 @@ async function requestHandler(req, res) {
       }
     });
     return;
+  }
+
+  if (pathname === "/api/wholesale/requests" && req.method === "GET") {
+    const requests = getWholesaleRequests();
+    const sorted = [...requests].sort((a, b) => {
+      const tA = Date.parse(a.updatedAt || a.createdAt || 0) || 0;
+      const tB = Date.parse(b.updatedAt || b.createdAt || 0) || 0;
+      return tB - tA;
+    });
+    const sanitized = sorted.map((item) => sanitizeWholesaleRequestForResponse(item));
+    return sendJson(res, 200, { requests: sanitized });
+  }
+
+  const wholesaleMatch = pathname.match(/^\/api\/wholesale\/requests\/([^/]+)$/);
+  if (wholesaleMatch && req.method === "GET") {
+    const id = normalizeTextInput(decodeURIComponent(wholesaleMatch[1]));
+    const requests = getWholesaleRequests();
+    const requestEntry = requests.find(
+      (r) => r.id === id || (id && r.email === id.toLowerCase()),
+    );
+    if (!requestEntry) {
+      return sendJson(res, 404, { error: "Solicitud no encontrada" });
+    }
+    return sendJson(res, 200, {
+      request: sanitizeWholesaleRequestForResponse(requestEntry),
+    });
+  }
+
+  if (wholesaleMatch && req.method === "PATCH") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const id = normalizeTextInput(decodeURIComponent(wholesaleMatch[1]));
+        const requests = getWholesaleRequests();
+        const idx = requests.findIndex(
+          (r) => r.id === id || (id && r.email === id.toLowerCase()),
+        );
+        if (idx === -1) {
+          return sendJson(res, 404, { error: "Solicitud no encontrada" });
+        }
+        const current = { ...requests[idx] };
+        const nowIso = new Date().toISOString();
+        const actorName = normalizeTextInput(
+          payload.actorName || (payload.actor && payload.actor.name),
+        );
+        const actorEmail = normalizeEmailInput(
+          payload.actorEmail || (payload.actor && payload.actor.email),
+        );
+        const actor = {};
+        if (actorName) actor.name = actorName;
+        if (actorEmail) actor.email = actorEmail;
+        const actorForHistory = Object.keys(actor).length ? actor : undefined;
+
+        let modified = false;
+        let tempCredentials = null;
+        let emailSent = false;
+
+        if (typeof payload.internalNotes === "string") {
+          current.internalNotes = normalizeTextInput(payload.internalNotes);
+          modified = true;
+        }
+
+        if (typeof payload.assignedTo === "string") {
+          current.assignedTo = normalizeTextInput(payload.assignedTo);
+          modified = true;
+        }
+
+        if (Array.isArray(payload.tags)) {
+          const tags = Array.from(
+            new Set(
+              payload.tags
+                .map((tag) => normalizeTextInput(tag))
+                .filter((tag) => tag && tag.length <= 40),
+            ),
+          );
+          current.tags = tags;
+          modified = true;
+        }
+
+        if (payload.timelineEntry && typeof payload.timelineEntry === "object") {
+          const timelineNote = normalizeTextInput(payload.timelineEntry.note);
+          const timelineType =
+            normalizeTextInput(payload.timelineEntry.type) || "note";
+          if (timelineNote) {
+            const timelineHistory = {
+              action: `timeline_${timelineType}`,
+              at: nowIso,
+              note: timelineNote,
+              meta: { type: timelineType },
+            };
+            if (actorForHistory) {
+              timelineHistory.by = actorForHistory;
+            }
+            const normalizedTimeline = normalizeWholesaleHistoryEntry(
+              timelineHistory,
+            );
+            if (normalizedTimeline) {
+              current.history = Array.isArray(current.history)
+                ? [...current.history, normalizedTimeline.entry]
+                : [normalizedTimeline.entry];
+              modified = true;
+            }
+          }
+        }
+
+        let desiredStatus = null;
+        if (payload.status) {
+          const statusCandidate = normalizeTextInput(payload.status);
+          if (!WHOLESALE_ALLOWED_STATUSES.has(statusCandidate)) {
+            return sendJson(res, 400, { error: "Estado inválido" });
+          }
+          desiredStatus = statusCandidate;
+        }
+
+        const decisionNote = normalizeTextInput(payload.decisionNote);
+
+        if (desiredStatus && desiredStatus !== current.status) {
+          current.status = desiredStatus;
+          current.updatedAt = nowIso;
+          const statusEntry = {
+            action: "status_changed",
+            status: desiredStatus,
+            at: nowIso,
+            note: decisionNote,
+          };
+          if (actorForHistory) statusEntry.by = actorForHistory;
+          const normalizedStatus = normalizeWholesaleHistoryEntry(statusEntry);
+          if (normalizedStatus) {
+            current.history = Array.isArray(current.history)
+              ? [...current.history, normalizedStatus.entry]
+              : [normalizedStatus.entry];
+          }
+          current.review = {
+            decisionNote,
+            decidedAt: nowIso,
+            decidedBy: actorForHistory,
+          };
+          if (desiredStatus === "approved") {
+            current.approvedAt = nowIso;
+          } else if (desiredStatus === "rejected") {
+            current.rejectedAt = nowIso;
+          }
+          modified = true;
+        } else if (decisionNote) {
+          current.review = {
+            ...(current.review || {}),
+            decisionNote,
+            decidedAt: nowIso,
+            decidedBy: actorForHistory || (current.review || {}).decidedBy,
+          };
+          modified = true;
+        }
+
+        const effectiveStatus = desiredStatus || current.status;
+        if (effectiveStatus === "approved" && payload.createAccount) {
+          const email = current.email;
+          if (!email) {
+            return sendJson(res, 400, {
+              error: "No se puede crear la cuenta sin correo válido",
+            });
+          }
+          const users = getUsers();
+          const userExists =
+            USERS.some((u) => u.email === email) ||
+            users.some((u) => u.email === email);
+          if (!userExists) {
+            const tempPassword = generateTempPassword();
+            const name =
+              current.contactName || current.legalName || "Cliente Mayorista";
+            users.push({
+              email,
+              password: tempPassword,
+              role: "mayorista",
+              name,
+            });
+            saveUsers(users);
+            tempCredentials = { tempPassword };
+            const accountEntry = {
+              action: "account_created",
+              at: nowIso,
+              note: "Cuenta generada desde el panel de administración",
+            };
+            if (actorForHistory) accountEntry.by = actorForHistory;
+            const normalizedAccount = normalizeWholesaleHistoryEntry(
+              accountEntry,
+            );
+            if (normalizedAccount) {
+              current.history = Array.isArray(current.history)
+                ? [...current.history, normalizedAccount.entry]
+                : [normalizedAccount.entry];
+            }
+            current.account = {
+              createdAt: nowIso,
+              createdBy: actorForHistory,
+            };
+
+            const clients = getClients();
+            const clientIdx = clients.findIndex((c) => c.email === email);
+            if (clientIdx >= 0) {
+              const existing = clients[clientIdx];
+              clients[clientIdx] = {
+                ...existing,
+                name: existing.name || name,
+                phone: existing.phone || current.phone || existing.phone,
+                cuit: existing.cuit || current.taxId || existing.cuit,
+                notes: existing.notes
+                  ? `${existing.notes}\nAlta mayorista ${nowIso}`
+                  : `Alta mayorista ${nowIso}`,
+              };
+            } else {
+              clients.push({
+                email,
+                name,
+                cuit: current.taxId || "",
+                condicion_iva: "Responsable Inscripto",
+                balance: 0,
+                limit: 150000,
+                phone: current.phone || "",
+                address: "",
+                city: "",
+                country: "Argentina",
+                returnCount: 0,
+                blockedReturns: false,
+                blocked: false,
+                notes: `Alta mayorista ${nowIso}`,
+              });
+            }
+            saveClients(clients);
+            modified = true;
+          }
+        }
+
+        const shouldNotify = Boolean(payload.notifyApplicant);
+        const notifyStatus = desiredStatus || current.status;
+        if (shouldNotify && current.email) {
+          const subject =
+            normalizeTextInput(payload.emailSubject) ||
+            defaultWholesaleEmailSubject(notifyStatus);
+          const message = normalizeTextInput(payload.emailMessage);
+          try {
+            const html = defaultWholesaleEmailBody(
+              notifyStatus,
+              current,
+              message,
+              tempCredentials,
+            );
+            await sendEmail({
+              to: current.email,
+              subject,
+              html,
+              type: "no-reply",
+            });
+            emailSent = true;
+            const emailEntry = {
+              action: "notification_sent",
+              at: nowIso,
+              note: subject,
+              meta: { status: notifyStatus },
+            };
+            if (actorForHistory) emailEntry.by = actorForHistory;
+            const normalizedEmail = normalizeWholesaleHistoryEntry(emailEntry);
+            if (normalizedEmail) {
+              current.history = Array.isArray(current.history)
+                ? [...current.history, normalizedEmail.entry]
+                : [normalizedEmail.entry];
+            }
+          } catch (err) {
+            console.warn("wholesale-notification", err?.message || err);
+          }
+        }
+
+        if (modified) {
+          current.updatedAt = nowIso;
+        }
+        const { record } = normalizeWholesaleRequestEntry(current);
+        requests[idx] = record;
+        if (modified || emailSent || tempCredentials) {
+          saveWholesaleRequests(requests);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          request: sanitizeWholesaleRequestForResponse(record),
+          emailSent,
+          credentials: tempCredentials,
+        });
+      } catch (error) {
+        console.error("wholesale-request-update", error);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
+  }
+
+  const wholesaleDocsMatch = pathname.match(
+    /^\/api\/wholesale\/requests\/([^/]+)\/documents$/,
+  );
+  if (wholesaleDocsMatch && req.method === "POST") {
+    const id = normalizeTextInput(decodeURIComponent(wholesaleDocsMatch[1]));
+    const requests = getWholesaleRequests();
+    const idx = requests.findIndex(
+      (r) => r.id === id || (id && r.email === id.toLowerCase()),
+    );
+    if (idx === -1) {
+      return sendJson(res, 404, { error: "Solicitud no encontrada" });
+    }
+    generalUpload.single("file")(req, res, (err) => {
+      if (err) {
+        console.error("wholesale-doc-upload", err);
+        return sendJson(res, 400, { error: err.message || "Error al subir" });
+      }
+      if (!req.file) {
+        return sendJson(res, 400, { error: "No se recibió archivo" });
+      }
+      try {
+        const nowIso = new Date().toISOString();
+        const label = normalizeTextInput(req.body && req.body.label);
+        const actorName = normalizeTextInput(
+          (req.body && req.body.actorName) ||
+            (req.body && req.body.actor && req.body.actor.name),
+        );
+        const actorEmail = normalizeEmailInput(
+          (req.body && req.body.actorEmail) ||
+            (req.body && req.body.actor && req.body.actor.email),
+        );
+        const actor = {};
+        if (actorName) actor.name = actorName;
+        if (actorEmail) actor.email = actorEmail;
+        const actorForHistory = Object.keys(actor).length ? actor : undefined;
+
+        const doc = {
+          label,
+          filename: req.file.filename,
+          originalName: req.file.originalname,
+          size: req.file.size,
+          mimetype: req.file.mimetype,
+          uploadedAt: nowIso,
+          url: `/uploads/${encodeURIComponent(req.file.filename)}`,
+        };
+        if (actorForHistory) {
+          doc.uploadedBy = actorForHistory;
+        }
+        const normalizedDoc = normalizeWholesaleDocumentEntry(doc);
+        const requestEntry = {
+          ...requests[idx],
+        };
+        requestEntry.updatedAt = nowIso;
+        requestEntry.documents = Array.isArray(requestEntry.documents)
+          ? [...requestEntry.documents, normalizedDoc.document]
+          : [normalizedDoc.document];
+        const historyEntry = {
+          action: "document_added",
+          at: nowIso,
+          note: normalizedDoc.document.label || normalizedDoc.document.originalName,
+        };
+        if (actorForHistory) historyEntry.by = actorForHistory;
+        const normalizedHistory = normalizeWholesaleHistoryEntry(historyEntry);
+        if (normalizedHistory) {
+          requestEntry.history = Array.isArray(requestEntry.history)
+            ? [...requestEntry.history, normalizedHistory.entry]
+            : [normalizedHistory.entry];
+        }
+        const { record } = normalizeWholesaleRequestEntry(requestEntry);
+        requests[idx] = record;
+        saveWholesaleRequests(requests);
+        return sendJson(res, 201, {
+          success: true,
+          document: normalizedDoc.document,
+          request: sanitizeWholesaleRequestForResponse(record),
+        });
+      } catch (error) {
+        console.error("wholesale-documents", error);
+        return sendJson(res, 500, { error: "No se pudo adjuntar el archivo" });
+      }
+    });
+    return;
+  }
+
+  const wholesaleDocDeleteMatch = pathname.match(
+    /^\/api\/wholesale\/requests\/([^/]+)\/documents\/([^/]+)$/,
+  );
+  if (wholesaleDocDeleteMatch && req.method === "DELETE") {
+    const id = normalizeTextInput(decodeURIComponent(wholesaleDocDeleteMatch[1]));
+    const docId = normalizeTextInput(
+      decodeURIComponent(wholesaleDocDeleteMatch[2]),
+    );
+    const requests = getWholesaleRequests();
+    const idx = requests.findIndex(
+      (r) => r.id === id || (id && r.email === id.toLowerCase()),
+    );
+    if (idx === -1) {
+      return sendJson(res, 404, { error: "Solicitud no encontrada" });
+    }
+    const requestEntry = { ...requests[idx] };
+    const docs = Array.isArray(requestEntry.documents)
+      ? [...requestEntry.documents]
+      : [];
+    const docIndex = docs.findIndex((doc) => doc.id === docId);
+    if (docIndex === -1) {
+      return sendJson(res, 404, { error: "Documento no encontrado" });
+    }
+    const [removed] = docs.splice(docIndex, 1);
+    requestEntry.documents = docs;
+    const nowIso = new Date().toISOString();
+    requestEntry.updatedAt = nowIso;
+    const historyEntry = {
+      action: "document_removed",
+      at: nowIso,
+      note: removed ? removed.label || removed.originalName : "",
+    };
+    const normalizedHistory = normalizeWholesaleHistoryEntry(historyEntry);
+    if (normalizedHistory) {
+      requestEntry.history = Array.isArray(requestEntry.history)
+        ? [...requestEntry.history, normalizedHistory.entry]
+        : [normalizedHistory.entry];
+    }
+    const { record } = normalizeWholesaleRequestEntry(requestEntry);
+    requests[idx] = record;
+    saveWholesaleRequests(requests);
+    if (removed && removed.filename) {
+      const absPath = path.join(UPLOADS_DIR, removed.filename);
+      if (absPath.startsWith(UPLOADS_DIR)) {
+        fs.unlink(absPath, () => {});
+      }
+    }
+    return sendJson(res, 200, {
+      success: true,
+      request: sanitizeWholesaleRequestForResponse(record),
+    });
   }
 
   // API: registro de un nuevo usuario (clientes)

@@ -54,6 +54,31 @@ npm install
 npm test
 ```
 
+GESTIÓN DE MAYORISTAS DESDE EL ADMIN
+------------------------------------
+
+El panel de administración (`/admin`) incorpora una sección dedicada a las
+solicitudes mayoristas. Desde allí podés:
+
+- Filtrar y buscar solicitudes por estado, razón social, CUIT o correo.
+- Revisar los datos enviados por el postulante, incluyendo historial y notas
+  internas.
+- Adjuntar o eliminar documentación respaldatoria.
+- Cambiar el estado (pendiente, requiere documentación, aprobada, rechazada o
+  archivada) y enviar el correo correspondiente desde el mismo formulario.
+- Crear la cuenta del cliente con credenciales provisorias al aprobar la
+  solicitud.
+
+Para probar el flujo end-to-end:
+
+1. Generá una solicitud mayorista desde `/register.html` completando la sección
+   "Mayoristas".
+2. Ingresá en `/admin`, abrí la pestaña **Mayoristas** y actualizá la tabla.
+3. Seleccioná la solicitud para revisar los datos, subir documentos o dejar
+   notas internas.
+4. Cambiá el estado según corresponda; si seleccionás *Aprobada* marcá la
+   opción *Crear cuenta y enviar clave provisoria* para generar el usuario.
+
 RENDER ROUTING
 --------------
 
