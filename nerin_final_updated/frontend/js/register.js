@@ -99,6 +99,25 @@ if (retailForm) {
       localStorage.setItem("nerinUserRole", data.role);
       localStorage.setItem("nerinUserName", name || "Cliente");
       localStorage.setItem("nerinUserEmail", email);
+      try {
+        const [firstName = "", ...rest] = (name || "").trim().split(/\s+/);
+        const baseProfile = {
+          nombre: firstName || name || "",
+          apellido: rest.join(" ") || "",
+          email,
+          telefono: "",
+          provincia: "",
+          localidad: "",
+          calle: "",
+          numero: "",
+          piso: "",
+          cp: "",
+          metodo: "",
+        };
+        localStorage.setItem("nerinUserProfile", JSON.stringify(baseProfile));
+      } catch (profileError) {
+        console.warn("No se pudo inicializar el perfil del usuario", profileError);
+      }
 
       showFormStatus(
         retailStatus,

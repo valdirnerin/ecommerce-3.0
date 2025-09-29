@@ -18,19 +18,63 @@ if (cart.length === 0) {
 
 let datos = {};
 let envio = {};
-const saved = JSON.parse(localStorage.getItem('nerinUserInfo') || 'null');
-if (saved) {
-  document.getElementById('nombre').value = saved.nombre || '';
-  document.getElementById('apellido').value = saved.apellido || '';
-  document.getElementById('email').value = saved.email || '';
-  document.getElementById('telefono').value = saved.telefono || '';
-  document.getElementById('provincia').value = saved.provincia || '';
-  document.getElementById('localidad').value = saved.localidad || '';
-  document.getElementById('calle').value = saved.calle || '';
-  document.getElementById('numero').value = saved.numero || '';
-  document.getElementById('piso').value = saved.piso || '';
-  document.getElementById('cp').value = saved.cp || '';
-  if (saved.metodo) document.getElementById('metodo').value = saved.metodo;
+function safeParseLocalStorage(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn(`No se pudo leer ${key} desde localStorage`, error);
+    return null;
+  }
+}
+
+function setFieldValue(id, value) {
+  if (value == null) return;
+  const el = document.getElementById(id);
+  if (el) {
+    el.value = value;
+  }
+}
+
+const storedCheckout = safeParseLocalStorage('nerinUserInfo');
+const storedProfile = storedCheckout || safeParseLocalStorage('nerinUserProfile');
+const fallbackName = (localStorage.getItem('nerinUserName') || '').trim();
+const fallbackEmail = (localStorage.getItem('nerinUserEmail') || '').trim();
+const initialData = storedProfile && typeof storedProfile === 'object' ? { ...storedProfile } : {};
+
+if (!initialData.nombre && fallbackName) {
+  const [first = '', ...rest] = fallbackName.split(/\s+/);
+  initialData.nombre = first || fallbackName;
+  initialData.apellido = initialData.apellido || rest.join(' ');
+}
+
+if (!initialData.email && fallbackEmail) {
+  initialData.email = fallbackEmail;
+}
+
+const address =
+  initialData.direccion ||
+  initialData.address ||
+  initialData.direccion_envio ||
+  {};
+
+setFieldValue('nombre', initialData.nombre || initialData.name || '');
+setFieldValue('apellido', initialData.apellido || initialData.lastName || initialData.apellidos || '');
+setFieldValue('email', initialData.email || initialData.mail || '');
+setFieldValue('telefono', initialData.telefono || initialData.phone || initialData.celular || '');
+setFieldValue(
+  'provincia',
+  initialData.provincia || address.provincia || address.estado || initialData.state || ''
+);
+setFieldValue('localidad', initialData.localidad || address.localidad || address.ciudad || '');
+setFieldValue('calle', initialData.calle || address.calle || address.street || '');
+setFieldValue('numero', initialData.numero || address.numero || address.number || '');
+setFieldValue('piso', initialData.piso || address.piso || address.apartamento || '');
+setFieldValue('cp', initialData.cp || address.cp || address.zip || address.codigo_postal || '');
+const metodoPreferido =
+  initialData.metodo || initialData.metodo_envio || initialData.shippingMethod || envio.metodo;
+if (metodoPreferido) {
+  setFieldValue('metodo', metodoPreferido);
 }
 
 
@@ -164,6 +208,11 @@ confirmarBtn.addEventListener('click', async () => {
         localStorage.setItem('mp_last_pref', data.preferenceId || '');
         localStorage.setItem('mp_last_nrn', data.nrn || data.orderId || '');
         localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
+        try {
+          localStorage.setItem('nerinUserProfile', JSON.stringify(customer));
+        } catch (profileError) {
+          console.warn('No se pudieron guardar los datos del cliente', profileError);
+        }
         localStorage.removeItem('nerinCart');
         window.location.href = data.init_point;
       } else {

@@ -626,12 +626,54 @@ const USERS = [
     password: "admin123",
     role: "admin",
     name: "Valdir",
+    profile: {
+      nombre: "Valdir",
+      apellido: "Nerin",
+      email: "admin@nerin.com",
+      telefono: "+54 11 4555-1234",
+      provincia: "Ciudad Autónoma de Buenos Aires",
+      localidad: "Buenos Aires",
+      calle: "Av. Entre Ríos",
+      numero: "425",
+      piso: "7",
+      cp: "1080",
+      metodo: "retiro",
+      direccion: {
+        calle: "Av. Entre Ríos",
+        numero: "425",
+        piso: "7",
+        localidad: "Buenos Aires",
+        provincia: "Ciudad Autónoma de Buenos Aires",
+        cp: "1080",
+      },
+    },
   },
   {
     email: "mayorista@nerin.com",
     password: "clave123",
     role: "mayorista",
     name: "Cliente Mayorista",
+    profile: {
+      nombre: "Carolina",
+      apellido: "Gómez",
+      email: "mayorista@nerin.com",
+      telefono: "+54 11 6000-9988",
+      provincia: "Buenos Aires",
+      localidad: "Quilmes",
+      calle: "Hipólito Yrigoyen",
+      numero: "850",
+      piso: "2",
+      cp: "1878",
+      metodo: "estandar",
+      direccion: {
+        calle: "Hipólito Yrigoyen",
+        numero: "850",
+        piso: "2",
+        localidad: "Quilmes",
+        provincia: "Buenos Aires",
+        cp: "1878",
+      },
+    },
   },
 ];
 
@@ -642,7 +684,13 @@ app.post("/api/login", (req, res) => {
   if (user) {
     // Generar un token simple (no seguro, solo para demostración)
     const token = Buffer.from(`${user.email}:${Date.now()}`).toString("base64");
-    res.json({ success: true, token, role: user.role, name: user.name });
+    res.json({
+      success: true,
+      token,
+      role: user.role,
+      name: user.name,
+      profile: user.profile || null,
+    });
   } else {
     res
       .status(401)

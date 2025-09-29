@@ -46,6 +46,13 @@ export async function login(email, password) {
     // También guardamos el nombre y correo del usuario para futuras operaciones
     localStorage.setItem("nerinUserName", data.name);
     localStorage.setItem("nerinUserEmail", email);
+    if (data.profile && typeof data.profile === "object") {
+      try {
+        localStorage.setItem("nerinUserProfile", JSON.stringify(data.profile));
+      } catch (storageError) {
+        console.warn("No se pudo guardar el perfil del usuario", storageError);
+      }
+    }
     // Registrar la fecha y hora del último inicio de sesión
     localStorage.setItem("nerinLastLogin", new Date().toISOString());
     return data;
