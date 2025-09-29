@@ -2234,12 +2234,21 @@ async function requestHandler(req, res) {
         }
 
         try {
+          saveWholesaleRequests(nextRequests);
+        } catch (error) {
+          console.error("wholesale send-code save", error);
+          return sendJson(res, 500, {
+            error:
+              "No pudimos registrar la solicitud en este momento. Intentá nuevamente más tarde.",
+          });
+        }
+
+        try {
           await sendWholesaleVerificationEmail({
             to: email,
             code,
             contactName: updatedEntry.contactName,
           });
-          saveWholesaleRequests(nextRequests);
           console.log(`[wholesale] Código de verificación enviado a ${email}`);
         } catch (error) {
           const rawMessage =
@@ -2256,7 +2265,10 @@ async function requestHandler(req, res) {
             friendlyMessage =
               "No pudimos enviar el código de verificación. Verificá tu correo o intentá nuevamente en unos minutos.";
           }
-          return sendJson(res, 502, { error: friendlyMessage });
+          return sendJson(res, 502, {
+            error: friendlyMessage,
+            saved: true,
+          });
         }
 
         return sendJson(res, 200, {
