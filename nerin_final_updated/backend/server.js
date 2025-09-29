@@ -19,6 +19,8 @@ const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
 const {
   sendEmail,
   sendOrderPreparing,
+  sendWholesaleVerificationEmail,
+  sendWholesaleApplicationReceived,
 } = require("./services/emailNotifications");
 const {
   STATUS_ES_TO_CODE,
@@ -2183,12 +2185,15 @@ async function requestHandler(req, res) {
 
         const historyEntry = { action: "code_sent", at: nowIso };
 
+        let updatedEntry;
+        let nextRequests;
+
         if (idx >= 0) {
           const current = requests[idx];
           const history = Array.isArray(current.history)
             ? [...current.history, historyEntry]
             : [historyEntry];
-          requests[idx] = {
+          updatedEntry = {
             ...current,
             email,
             legalName: legalName || current.legalName || "",
@@ -2204,8 +2209,11 @@ async function requestHandler(req, res) {
             },
             history,
           };
+          nextRequests = requests.map((entry, entryIdx) =>
+            entryIdx === idx ? updatedEntry : entry,
+          );
         } else {
-          const seed = createWholesaleRequestSeed({
+          updatedEntry = createWholesaleRequestSeed({
             email,
             legalName,
             contactName,
@@ -2221,30 +2229,33 @@ async function requestHandler(req, res) {
             },
             history: [historyEntry],
           });
-          requests.push(seed);
+          nextRequests = [...requests, updatedEntry];
         }
 
-        saveWholesaleRequests(requests);
-        console.log(`[wholesale] Código de verificación enviado a ${email}`);
-
         try {
-          const greeting = contactName ? `Hola ${contactName},` : "Hola,";
-          const html = `
-            <p>${greeting}</p>
-            <p>Gracias por solicitar acceso mayorista en NERIN Parts.</p>
-            <p>Tu código de verificación es:</p>
-            <p style="font-size: 24px; font-weight: 700; letter-spacing: 4px;">${code}</p>
-            <p>Ingresalo en el formulario dentro de los próximos 30 minutos para continuar con la solicitud.</p>
-            <p>Si no solicitaste este código podés ignorar este mensaje.</p>
-          `;
-          await sendEmail({
+          await sendWholesaleVerificationEmail({
             to: email,
-            subject: "Código de verificación mayorista – NERIN Parts",
-            html,
-            type: "no-reply",
+            code,
+            contactName: updatedEntry.contactName,
           });
+          saveWholesaleRequests(nextRequests);
+          console.log(`[wholesale] Código de verificación enviado a ${email}`);
         } catch (error) {
-          console.warn("wholesale send-code email", error?.message || error);
+          const rawMessage =
+            typeof error === "string"
+              ? error
+              : error?.message || "";
+          console.warn("wholesale send-code email", rawMessage || error);
+          let friendlyMessage = rawMessage;
+          if (
+            !friendlyMessage ||
+            /email service not configured/i.test(friendlyMessage) ||
+            /resend/i.test(friendlyMessage)
+          ) {
+            friendlyMessage =
+              "No pudimos enviar el código de verificación. Verificá tu correo o intentá nuevamente en unos minutos.";
+          }
+          return sendJson(res, 502, { error: friendlyMessage });
         }
 
         return sendJson(res, 200, {
@@ -2359,20 +2370,9 @@ async function requestHandler(req, res) {
         );
 
         try {
-          const greeting = requests[idx].contactName
-            ? `Hola ${requests[idx].contactName},`
-            : "Hola,";
-          const html = `
-            <p>${greeting}</p>
-            <p>Recibimos tu solicitud para acceder a nuestra tienda mayorista.</p>
-            <p>En un plazo de 24 a 48 hs hábiles nuestro equipo validará la información y te responderá por correo.</p>
-            <p>Gracias por confiar en NERIN Parts.</p>
-          `;
-          await sendEmail({
+          await sendWholesaleApplicationReceived({
             to: email,
-            subject: "Solicitud mayorista recibida – NERIN Parts",
-            html,
-            type: "no-reply",
+            contactName: requests[idx].contactName,
           });
         } catch (error) {
           console.warn("wholesale apply confirmation email", error?.message || error);

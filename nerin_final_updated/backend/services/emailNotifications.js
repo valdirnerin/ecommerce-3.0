@@ -320,6 +320,46 @@ async function sendOrderPreparing({ to, order } = {}) {
   });
 }
 
+async function sendWholesaleVerificationEmail({ to, code, contactName } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const normalizedName = normalizeString(contactName);
+  const greeting = normalizedName ? `Hola ${normalizedName},` : 'Hola,';
+  const html = `
+    <p>${greeting}</p>
+    <p>Gracias por solicitar acceso mayorista en NERIN Parts.</p>
+    <p>Tu código de verificación es:</p>
+    <p style="font-size: 24px; font-weight: 700; letter-spacing: 4px;">${code}</p>
+    <p>Ingresalo en el formulario dentro de los próximos 30 minutos para continuar con la solicitud.</p>
+    <p>Si no solicitaste este código podés ignorar este mensaje.</p>
+  `;
+  return sendEmail({
+    to: recipients,
+    subject: 'Código de verificación mayorista – NERIN Parts',
+    html,
+    type: 'no-reply',
+  });
+}
+
+async function sendWholesaleApplicationReceived({ to, contactName } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const normalizedName = normalizeString(contactName);
+  const greeting = normalizedName ? `Hola ${normalizedName},` : 'Hola,';
+  const html = `
+    <p>${greeting}</p>
+    <p>Recibimos tu solicitud para acceder a nuestra tienda mayorista.</p>
+    <p>En un plazo de 24 a 48 hs hábiles nuestro equipo validará la información y te responderá por correo.</p>
+    <p>Gracias por confiar en NERIN Parts.</p>
+  `;
+  return sendEmail({
+    to: recipients,
+    subject: 'Solicitud mayorista recibida – NERIN Parts',
+    html,
+    type: 'no-reply',
+  });
+}
+
 module.exports = {
   getFrom,
   getEmailConfig,
@@ -328,4 +368,6 @@ module.exports = {
   sendPaymentPending,
   sendPaymentRejected,
   sendOrderPreparing,
+  sendWholesaleVerificationEmail,
+  sendWholesaleApplicationReceived,
 };
