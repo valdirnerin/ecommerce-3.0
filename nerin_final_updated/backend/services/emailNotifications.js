@@ -357,6 +357,159 @@ async function sendOrderPreparing({ to, order } = {}) {
   });
 }
 
+async function sendOrderShipped({
+  to,
+  order,
+  carrier,
+  tracking,
+  trackingUrl,
+  statusUrl,
+} = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(order);
+  const orderNumber = resolveOrderNumber(order);
+  const supportEmail = getSupportEmail();
+  const normalizedCarrier = normalizeString(carrier)
+    || normalizeString(order?.carrier)
+    || normalizeString(order?.transportista);
+  const normalizedTracking = normalizeString(tracking)
+    || normalizeString(order?.tracking)
+    || normalizeString(order?.seguimiento)
+    || normalizeString(order?.tracking_number)
+    || normalizeString(order?.trackingNumber);
+  const links = [];
+  if (trackingUrl) {
+    links.push(
+      `<a href="${escapeHtml(trackingUrl)}" style="color: #2563eb;">Seguir envío</a>`,
+    );
+  }
+  if (statusUrl) {
+    links.push(
+      `<a href="${escapeHtml(statusUrl)}" style="color: #2563eb;">Ver estado del pedido</a>`,
+    );
+  }
+  const extra = [];
+  if (normalizedCarrier) {
+    extra.push(
+      `Transporte: <strong>${escapeHtml(normalizedCarrier)}</strong>`,
+    );
+  }
+  if (normalizedTracking) {
+    extra.push(
+      `Número de seguimiento: <strong>${escapeHtml(normalizedTracking)}</strong>`,
+    );
+  }
+  let message = 'Ya despachamos tu compra y está en camino.';
+  if (extra.length) {
+    message += `<br /><br />${extra.join('<br />')}`;
+  }
+  if (links.length) {
+    message += `<br /><br />${links.join('<br />')}`;
+  }
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás ayuda con el envío, escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Tu pedido está en camino, ${customer}`,
+    message,
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Tu pedido fue despachado - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
+async function sendOrderDelivered({
+  to,
+  order,
+  statusUrl,
+  trackingUrl,
+} = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(order);
+  const orderNumber = resolveOrderNumber(order);
+  const supportEmail = getSupportEmail();
+  const links = [];
+  if (statusUrl) {
+    links.push(
+      `<a href="${escapeHtml(statusUrl)}" style="color: #2563eb;">Ver estado del pedido</a>`,
+    );
+  }
+  if (trackingUrl) {
+    links.push(
+      `<a href="${escapeHtml(trackingUrl)}" style="color: #2563eb;">Ver seguimiento</a>`,
+    );
+  }
+  let message = '¡Buenas noticias! Confirmamos que tu pedido ya fue entregado.';
+  if (links.length) {
+    message += `<br /><br />${links.join('<br />')}`;
+  }
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si tenés alguna consulta, respondé este correo o escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Tu pedido ya llegó, ${customer}`,
+    message,
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Tu pedido ya fue entregado - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
+async function sendInvoiceUploaded({
+  to,
+  order,
+  invoiceUrl,
+  statusUrl,
+} = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(order);
+  const orderNumber = resolveOrderNumber(order);
+  const supportEmail = getSupportEmail();
+  const links = [];
+  if (invoiceUrl) {
+    links.push(
+      `<a href="${escapeHtml(invoiceUrl)}" style="color: #2563eb;">Descargar factura</a>`,
+    );
+  }
+  if (statusUrl) {
+    links.push(
+      `<a href="${escapeHtml(statusUrl)}" style="color: #2563eb;">Ver estado del pedido</a>`,
+    );
+  }
+  let message = 'Ya podés acceder a la factura de tu compra.';
+  if (links.length) {
+    message += `<br /><br />${links.join('<br />')}`;
+  }
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás otra copia o tenés dudas sobre tu comprobante, escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Factura disponible, ${customer}`,
+    message,
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Factura disponible - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
 async function sendWholesaleVerificationEmail({ to, code, contactName } = {}) {
   const recipients = ensureArray(to);
   if (!recipients.length) return null;
@@ -502,6 +655,9 @@ module.exports = {
   sendPaymentPending,
   sendPaymentRejected,
   sendOrderPreparing,
+  sendOrderShipped,
+  sendOrderDelivered,
+  sendInvoiceUploaded,
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
   sendWholesaleInternalNotification,

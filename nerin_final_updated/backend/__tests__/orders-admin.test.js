@@ -17,6 +17,9 @@ jest.mock('../db', () => ({
 jest.mock('../services/emailNotifications', () => ({
   sendEmail: jest.fn(),
   sendOrderPreparing: jest.fn().mockResolvedValue(undefined),
+  sendOrderShipped: jest.fn().mockResolvedValue(undefined),
+  sendOrderDelivered: jest.fn().mockResolvedValue(undefined),
+  sendInvoiceUploaded: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe('Orders admin endpoints', () => {
@@ -122,6 +125,34 @@ describe('Orders admin endpoints', () => {
     );
   });
 
+  test('PATCH /api/orders/:id envía email cuando pasa a enviado', async () => {
+    const res = await request(server)
+      .patch('/api/orders/ORDER-123')
+      .send({ shipping_status: 'enviado', tracking: '12345', carrier: 'Andreani' });
+
+    expect(res.status).toBe(200);
+    expect(emailNotifications.sendOrderShipped).toHaveBeenCalledTimes(1);
+    expect(emailNotifications.sendOrderShipped).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'cliente@example.com',
+        tracking: '12345',
+        carrier: 'Andreani',
+      }),
+    );
+  });
+
+  test('PATCH /api/orders/:id envía email cuando pasa a entregado', async () => {
+    const res = await request(server)
+      .patch('/api/orders/ORDER-123')
+      .send({ shipping_status: 'entregado' });
+
+    expect(res.status).toBe(200);
+    expect(emailNotifications.sendOrderDelivered).toHaveBeenCalledTimes(1);
+    expect(emailNotifications.sendOrderDelivered).toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'cliente@example.com' }),
+    );
+  });
+
   test('POST /api/orders/:id/invoices guarda y lista facturas', async () => {
     const dummyPdfPath = path.join(tmpDir, 'factura.pdf');
     fs.writeFileSync(
@@ -149,5 +180,12 @@ describe('Orders admin endpoints', () => {
     const active = listRes.body.invoices.find((inv) => !inv.deleted_at);
     expect(active).toBeDefined();
     expect(active.url).toContain('/files/invoices/');
+    expect(emailNotifications.sendInvoiceUploaded).toHaveBeenCalledTimes(1);
+    expect(emailNotifications.sendInvoiceUploaded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'cliente@example.com',
+        invoiceUrl: expect.stringContaining('/files/invoices/'),
+      }),
+    );
   });
 });
