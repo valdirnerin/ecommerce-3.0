@@ -35,6 +35,18 @@ function ensureArray(value) {
   return [];
 }
 
+function normalizeEmailList(value) {
+  if (!value && value !== 0) return [];
+  const base = Array.isArray(value)
+    ? value
+    : String(value)
+        .split(/[,;\n]+/)
+        .map((item) => item.trim());
+  return base
+    .map((item) => normalizeString(item)?.toLowerCase())
+    .filter(Boolean);
+}
+
 function normalizeString(value) {
   if (value == null) return null;
   if (typeof value === 'string') {
@@ -202,6 +214,31 @@ function getSupportEmail() {
   return replyTo || null;
 }
 
+function getWholesaleNotificationRecipients() {
+  const envList = normalizeEmailList(process.env.WHOLESALE_NOTIFICATION_EMAILS);
+  if (envList.length) return envList;
+  const cfg = readConfigFile();
+  const cfgList = normalizeEmailList(
+    cfg?.wholesaleNotificationEmails || cfg?.wholesaleNotifications,
+  );
+  if (cfgList.length) return cfgList;
+  const supportFallback = normalizeEmailList(process.env.SUPPORT_EMAIL);
+  if (supportFallback.length) return supportFallback;
+  const configSupport = normalizeEmailList(cfg?.supportEmail);
+  if (configSupport.length) return configSupport;
+  return [];
+}
+
+function escapeHtml(value) {
+  if (value == null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function sendEmail({ to, subject, html, type = 'no-reply', replyTo } = {}) {
   const recipients = ensureArray(to);
   if (!recipients.length) return null;
@@ -360,6 +397,103 @@ async function sendWholesaleApplicationReceived({ to, contactName } = {}) {
   });
 }
 
+async function sendWholesaleInternalNotification({ request, baseUrl } = {}) {
+  const recipients = getWholesaleNotificationRecipients();
+  if (!recipients.length) return null;
+  if (!request || typeof request !== 'object') return null;
+  const normalized = { ...request };
+  const contact = normalizeString(normalized.contactName);
+  const legalName = normalizeString(normalized.legalName);
+  const taxId = normalizeString(normalized.taxId);
+  const email = normalizeString(normalized.email);
+  const phone = normalizeString(normalized.phone);
+  const province = normalizeString(normalized.province);
+  const website = normalizeString(normalized.website);
+  const companyType = normalizeString(normalized.companyType);
+  const salesChannel = normalizeString(normalized.salesChannel);
+  const monthlyVolume = normalizeString(normalized.monthlyVolume);
+  const systems = normalizeString(normalized.systems);
+  const notes = normalizeString(normalized.notes);
+  const submittedAt = normalizeString(normalized.submittedAt || normalized.createdAt);
+  const formattedDate = submittedAt
+    ? new Date(submittedAt).toLocaleString('es-AR', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    : null;
+
+  const displayName = legalName || contact || email || 'Nueva solicitud mayorista';
+  const details = [
+    ['Razón social', legalName],
+    ['Contacto', contact],
+    ['Correo', email],
+    ['Teléfono', phone],
+    ['CUIT', taxId],
+    ['Provincia', province],
+    ['Sitio web', website],
+    ['Tipo de empresa', companyType],
+    ['Canal de ventas', salesChannel],
+    ['Volumen mensual', monthlyVolume],
+    ['Sistemas', systems],
+    ['Notas', notes],
+    ['Enviado', formattedDate],
+  ].filter(([, value]) => Boolean(value));
+
+  const manageLink = baseUrl
+    ? `${baseUrl.replace(/\/+$/, '')}/admin.html`
+    : null;
+
+  const rows = details
+    .map(
+      ([label, value]) => `
+        <tr>
+          <td style="padding: 4px 8px; font-weight: 600; color: #0f172a; white-space: nowrap;">${escapeHtml(
+            label,
+          )}</td>
+          <td style="padding: 4px 8px; color: #334155;">${escapeHtml(value)}</td>
+        </tr>
+      `,
+    )
+    .join('');
+
+  const html = `
+    <div style="font-family: Arial, Helvetica, sans-serif; background: #f8fafc; padding: 24px; color: #0f172a;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 640px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden;">
+        <tr>
+          <td style="padding: 32px;">
+            <h1 style="font-size: 20px; margin: 0 0 16px;">Nueva solicitud mayorista</h1>
+            <p style="font-size: 16px; line-height: 24px; margin: 0 0 16px;">Se recibió una nueva solicitud para acceder a la tienda mayorista.</p>
+            <p style="font-size: 15px; line-height: 22px; margin: 0 0 16px; color: #475569;"><strong>${escapeHtml(
+              displayName,
+            )}</strong></p>
+            ${
+              rows
+                ? `<table role="presentation" cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse; font-size: 14px; line-height: 20px;">${rows}</table>`
+                : ''
+            }
+            ${
+              manageLink
+                ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Gestioná la solicitud desde el <a href="${escapeHtml(
+                    manageLink,
+                  )}" style="color: #2563eb;">panel de administración</a>.</p>`
+                : ''
+            }
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+
+  const subject = `Nueva solicitud mayorista – ${displayName}`;
+
+  return sendEmail({
+    to: recipients,
+    subject,
+    html,
+    type: 'contacto',
+  });
+}
+
 module.exports = {
   getFrom,
   getEmailConfig,
@@ -370,4 +504,5 @@ module.exports = {
   sendOrderPreparing,
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
+  sendWholesaleInternalNotification,
 };
