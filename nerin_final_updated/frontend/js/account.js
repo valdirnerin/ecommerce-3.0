@@ -1013,6 +1013,12 @@ async function loadUserReturns(email) {
 }
 
 async function initAccount() {
+  const role = localStorage.getItem("nerinUserRole");
+  if (role && !["mayorista", "admin", "vip", "vendedor"].includes(role)) {
+    window.location.replace("/account-minorista.html");
+    return;
+  }
+
   const email = localStorage.getItem("nerinUserEmail");
   const name = localStorage.getItem("nerinUserName");
   if (!email) {

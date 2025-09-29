@@ -98,7 +98,7 @@
           {
             title: "Cuenta",
             links: [
-              { label: "Mi cuenta", href: "/account.html" },
+              { label: "Mi cuenta", href: "/account-minorista.html" },
               { label: "Mayoristas", href: "/mayoristas" },
               { label: "Soporte técnico", href: "/soporte" },
             ],

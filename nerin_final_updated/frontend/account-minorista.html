@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Mi cuenta minorista – NERIN</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
+    />
+    <link rel="stylesheet" href="/style.css?v=mobfix-1" />
+    <link rel="stylesheet" href="/components/np-footer.css?v=np-r1" />
+    <script src="/components/np-footer.js?v=np-r1" defer></script>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo">
+          <a href="/index.html" class="brand"
+            ><img
+              src="../assets/IMG_3086.png"
+              alt="NERIN"
+              class="site-logo"
+          /></a>
+        </div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/account-minorista.html" class="active">Mi cuenta</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container account-dashboard account-dashboard--minorista">
+      <section class="account-hero">
+        <div class="account-hero__content">
+          <p class="account-hero__tag">Canal minorista NERIN</p>
+          <h1>Mi cuenta minorista</h1>
+          <p id="heroSubtitle">
+            Accedé a tus pedidos, devoluciones y beneficios personalizados en un
+            mismo lugar.
+          </p>
+          <div class="account-hero__cta">
+            <a href="/shop.html" class="button primary">Seguir comprando</a>
+            <a href="/seguimiento.html" class="button outline">Seguir envío</a>
+          </div>
+        </div>
+        <div class="account-hero__stats">
+          <div class="hero-stat">
+            <span class="hero-stat__label">Cliente</span>
+            <span class="hero-stat__value" id="heroName">—</span>
+            <span class="hero-stat__meta" id="heroLevel">Nuevo cliente</span>
+          </div>
+          <div class="hero-stat">
+            <span class="hero-stat__label">Compras</span>
+            <span class="hero-stat__value" id="heroOrders">0</span>
+            <span class="hero-stat__meta" id="heroTotal">$0 acumulado</span>
+          </div>
+          <div class="hero-stat">
+            <span class="hero-stat__label">Último pedido</span>
+            <span class="hero-stat__value" id="heroLastOrder">—</span>
+            <span class="hero-stat__meta" id="heroLastStatus">Sin envíos</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="account-section account-card" id="quickActionsSection">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Gestioná tu cuenta</p>
+            <h2>Acciones rápidas</h2>
+          </div>
+        </div>
+        <div class="action-grid">
+          <button class="action-tile" type="button" data-action="orders">
+            <span class="action-icon">🧾</span>
+            <div>
+              <strong>Ver mis pedidos</strong>
+              <p>Repasá el detalle y descargas de tus compras.</p>
+            </div>
+          </button>
+          <button class="action-tile" type="button" data-action="track">
+            <span class="action-icon">🚚</span>
+            <div>
+              <strong>Seguir envíos</strong>
+              <p>Consultá el estado y estimado de entrega.</p>
+            </div>
+          </button>
+          <button class="action-tile" type="button" data-action="profile">
+            <span class="action-icon">👤</span>
+            <div>
+              <strong>Actualizar mis datos</strong>
+              <p>Mantené tu dirección y teléfono al día.</p>
+            </div>
+          </button>
+          <button class="action-tile" type="button" data-action="support">
+            <span class="action-icon">💬</span>
+            <div>
+              <strong>Contactar soporte</strong>
+              <p>Recibí ayuda inmediata de nuestro equipo.</p>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <section class="account-section account-card" id="purchaseSummary">
+        <div class="card-header">
+          <h3>Resumen de compras</h3>
+          <span class="badge" id="loyaltyBadge">Nuevo</span>
+        </div>
+        <div class="insight-grid">
+          <article class="insight-card">
+            <p class="insight-label">Total invertido</p>
+            <p class="insight-value" id="totalSpent">$0</p>
+            <p class="insight-meta" id="avgTicket">Ticket promedio $0</p>
+          </article>
+          <article class="insight-card">
+            <p class="insight-label">Compras concretadas</p>
+            <p class="insight-value" id="ordersCount">0</p>
+            <p class="insight-meta" id="ordersFrequency">Tu próxima compra desbloquea beneficios.</p>
+          </article>
+          <article class="insight-card">
+            <p class="insight-label">Entrega estimada</p>
+            <p class="insight-value" id="nextDelivery">—</p>
+            <p class="insight-meta" id="deliveryMeta">Aún no hay envíos en curso.</p>
+          </article>
+        </div>
+        <div class="progress-track">
+          <div class="progress-track__header">
+            <h4>Tu progreso como cliente</h4>
+            <span id="progressLabel">0% hacia nivel Frecuente</span>
+          </div>
+          <div class="progress-track__bar">
+            <div class="progress-track__fill" id="loyaltyProgress"></div>
+          </div>
+          <p class="microcopy" id="progressMessage">
+            Realizá tu primera compra para empezar a sumar beneficios.
+          </p>
+        </div>
+      </section>
+
+      <section class="account-section account-card" id="ordersSection">
+        <div class="card-header">
+          <h3>Pedidos recientes</h3>
+          <p class="helper-text">Descargá comprobantes y repetí tus compras favoritas.</p>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="ordersTable">
+            <thead>
+              <tr>
+                <th>Pedido</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Total</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="5">Cargando pedidos...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="account-section account-card" id="benefitsSection">
+        <div class="card-header">
+          <h3>Beneficios para vos</h3>
+          <p class="helper-text">
+            Te acompañamos con envíos rápidos, soporte técnico y promociones
+            exclusivas.
+          </p>
+        </div>
+        <ul class="benefits-list" id="benefitsList">
+          <li>
+            <span class="benefit-icon">⚡</span>
+            <div>
+              <strong>Envío prioritario</strong>
+              <p>Despachamos pedidos minoristas en menos de 24 horas hábiles.</p>
+            </div>
+          </li>
+          <li>
+            <span class="benefit-icon">🎁</span>
+            <div>
+              <strong>Promos por volumen</strong>
+              <p>Sumá descuentos extra al comprar kits o repuestos combinados.</p>
+            </div>
+          </li>
+          <li>
+            <span class="benefit-icon">🛠️</span>
+            <div>
+              <strong>Asistencia técnica</strong>
+              <p>Recibí ayuda de nuestros especialistas para instalar repuestos.</p>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="account-section account-card" id="helpSection">
+        <div class="card-header">
+          <h3>¿Necesitás ayuda?</h3>
+          <p class="helper-text">Estamos disponibles de lunes a viernes de 9 a 18 h.</p>
+        </div>
+        <div class="support-actions support-actions--stacked">
+          <a id="supportBtn" class="button primary" target="_blank">Hablar por WhatsApp</a>
+          <a href="mailto:hola@nerinparts.com.ar" class="button secondary"
+            >Enviar correo</a
+          >
+        </div>
+        <ul class="link-list">
+          <li><a href="/seguimiento.html">¿Dónde está mi pedido?</a></li>
+          <li><a href="/politicas/devoluciones.html">Política de cambios</a></li>
+          <li><a href="/faq.html">Preguntas frecuentes</a></li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="/js/account-minorista.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/config.js"></script>
+  </body>
+</html>
