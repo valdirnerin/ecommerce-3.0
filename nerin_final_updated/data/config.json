@@ -9,6 +9,7 @@
   "afipKey": "",
   "resendApiKey": "",
   "supportEmail": "",
+  "wholesaleNotificationEmails": [],
   "publicUrl": "https://nerinparts.com.ar",
   "apiBase": ""
 }

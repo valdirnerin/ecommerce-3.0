@@ -21,6 +21,7 @@ const {
   sendOrderPreparing,
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
+  sendWholesaleInternalNotification,
 } = require("./services/emailNotifications");
 const {
   STATUS_ES_TO_CODE,
@@ -2376,6 +2377,15 @@ async function requestHandler(req, res) {
           });
         } catch (error) {
           console.warn("wholesale apply confirmation email", error?.message || error);
+        }
+
+        try {
+          await sendWholesaleInternalNotification({
+            request: sanitizeWholesaleRequestForResponse(requests[idx]),
+            baseUrl: getPublicBaseUrl(getConfig()),
+          });
+        } catch (error) {
+          console.warn("wholesale apply admin email", error?.message || error);
         }
 
         return sendJson(res, 201, {
