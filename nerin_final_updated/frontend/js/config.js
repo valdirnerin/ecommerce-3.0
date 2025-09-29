@@ -239,6 +239,9 @@ function updateNav() {
         if (role === "admin" || role === "vendedor") {
           a.textContent = "Admin";
           a.setAttribute("href", "/admin.html");
+        } else if (role === "minorista") {
+          a.textContent = "Mi cuenta";
+          a.setAttribute("href", "/account-minorista.html");
         } else {
           a.textContent = "Mi cuenta";
           a.setAttribute("href", "/account.html");
