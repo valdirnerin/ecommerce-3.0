@@ -3,6 +3,61 @@ document.addEventListener("DOMContentLoaded", () => {
   const loading = document.getElementById("loading");
   if (!form) return;
 
+  function safeParseLocalStorage(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      console.warn(`No se pudo leer ${key} desde localStorage`, error);
+      return null;
+    }
+  }
+
+  function setFieldValue(id, value) {
+    if (value == null) return;
+    const el = document.getElementById(id);
+    if (el) {
+      el.value = value;
+    }
+  }
+
+  const storedCheckout = safeParseLocalStorage("nerinUserInfo");
+  const storedProfile = storedCheckout || safeParseLocalStorage("nerinUserProfile");
+  const fallbackName = (localStorage.getItem("nerinUserName") || "").trim();
+  const fallbackEmail = (localStorage.getItem("nerinUserEmail") || "").trim();
+
+  const profile =
+    storedProfile && typeof storedProfile === "object" ? { ...storedProfile } : {};
+
+  if (!profile.nombre && fallbackName) {
+    const [first = "", ...rest] = fallbackName.split(/\s+/);
+    profile.nombre = first || fallbackName;
+    profile.apellido = profile.apellido || rest.join(" ");
+  }
+
+  if (!profile.email && fallbackEmail) {
+    profile.email = fallbackEmail;
+  }
+
+  const address = profile.direccion || profile.address || {};
+
+  setFieldValue("nombre", profile.nombre || profile.name || "");
+  setFieldValue("email", profile.email || profile.mail || "");
+  setFieldValue("telefono", profile.telefono || profile.phone || profile.celular || "");
+  setFieldValue("calle", profile.calle || address.calle || address.street || "");
+  setFieldValue("numero", profile.numero || address.numero || address.number || "");
+  setFieldValue("piso", profile.piso || address.piso || address.apartamento || "");
+  setFieldValue("localidad", profile.localidad || address.localidad || address.ciudad || "");
+  setFieldValue(
+    "provincia",
+    profile.provincia || address.provincia || address.estado || profile.state || "",
+  );
+  setFieldValue("cp", profile.cp || address.cp || address.zip || address.codigo_postal || "");
+  setFieldValue(
+    "metodo_envio",
+    profile.metodo || profile.metodo_envio || profile.shippingMethod || "",
+  );
+
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
 
@@ -52,6 +107,24 @@ document.addEventListener("DOMContentLoaded", () => {
         metodo_envio: document.getElementById("metodo_envio").value,
         comentarios: document.getElementById("comentarios").value.trim(),
       };
+
+      try {
+        const profileToStore = {
+          nombre: cliente.nombre,
+          email: cliente.email,
+          telefono: cliente.telefono,
+          provincia: cliente.direccion.provincia,
+          localidad: cliente.direccion.localidad,
+          calle: cliente.direccion.calle,
+          numero: cliente.direccion.numero,
+          piso: cliente.direccion.piso,
+          cp: cliente.direccion.cp,
+          metodo: payload.metodo_envio,
+        };
+        localStorage.setItem("nerinUserProfile", JSON.stringify(profileToStore));
+      } catch (profileError) {
+        console.warn("No se pudo actualizar el perfil de envío", profileError);
+      }
 
       if (loading) loading.classList.add("active");
       const res = await fetch("/api/orders", {
