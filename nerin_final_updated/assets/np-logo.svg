@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NERIN Parts logo">
+  <circle cx="256" cy="256" r="256" fill="#4D4D4D" />
+  <rect x="120" y="140" width="60" height="232" fill="#FFFFFF" />
+  <polygon points="180,140 240,140 360,372 300,372" fill="#FFFFFF" />
+  <rect x="300" y="140" width="60" height="232" fill="#FFFFFF" />
+  <rect x="360" y="140" width="152" height="152" rx="76" ry="76" fill="#FFFFFF" />
+  <rect x="384" y="164" width="104" height="104" rx="52" ry="52" fill="#4D4D4D" />
+</svg>
