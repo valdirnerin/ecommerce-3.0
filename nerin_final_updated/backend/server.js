@@ -19,6 +19,9 @@ const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
 const {
   sendEmail,
   sendOrderPreparing,
+  sendOrderShipped,
+  sendOrderDelivered,
+  sendInvoiceUploaded,
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
   sendWholesaleInternalNotification,
@@ -1786,22 +1789,144 @@ function resolveOrderCustomerEmail(order = {}) {
 }
 
 // Enviar email cuando el pedido se despacha
-function sendOrderShippedEmail(order) {
-  if (!resend || !order.cliente || !order.cliente.email) return;
+function prepareOrderForEmail(order) {
+  if (!order) return order;
+  let normalizedCustomer = null;
   try {
-    const subject = "Tu pedido fue enviado";
-    const body = `Seguimiento: ${order.seguimiento || ""}`;
-    resend.emails
-      .send({
-        from: "no-reply@nerin.com",
-        to: order.cliente.email,
-        subject,
-        html: `<p>${body}</p>`,
-      })
-      .catch((e) => console.error("Email error", e));
-  } catch (e) {
-    console.error("send email failed", e);
+    normalizedCustomer =
+      typeof ordersRepo.normalizeCustomer === "function"
+        ? ordersRepo.normalizeCustomer(order)
+        : null;
+  } catch {
+    normalizedCustomer = null;
   }
+  if (
+    normalizedCustomer &&
+    (!order.customer || order.customer !== normalizedCustomer)
+  ) {
+    return { ...order, customer: normalizedCustomer };
+  }
+  return order;
+}
+
+function resolveOrderTrackingCode(order = {}) {
+  const candidates = [
+    order.tracking,
+    order.seguimiento,
+    order.tracking_number,
+    order.trackingNumber,
+    order.numero_seguimiento,
+    order.numeroSeguimiento,
+    order.shipping_tracking,
+    order.shippingTracking,
+  ];
+  for (const candidate of candidates) {
+    const value = normalizeTextInput(candidate);
+    if (value) return value;
+  }
+  return null;
+}
+
+function resolveOrderCarrier(order = {}) {
+  const candidates = [
+    order.carrier,
+    order.transportista,
+    order.shipping_carrier,
+    order.shippingCarrier,
+  ];
+  for (const candidate of candidates) {
+    const value = normalizeTextInput(candidate);
+    if (value) return value;
+  }
+  return null;
+}
+
+function resolveOrderTrackingUrl(order = {}) {
+  const candidates = [
+    order.tracking_url,
+    order.trackingUrl,
+    order.seguimiento_url,
+    order.seguimientoUrl,
+    order.tracking_link,
+    order.trackingLink,
+    order.link_seguimiento,
+    order.linkSeguimiento,
+  ];
+  for (const candidate of candidates) {
+    const value = normalizeTextInput(candidate);
+    if (value) return value;
+  }
+  return null;
+}
+
+function buildAbsoluteUrl(baseUrl, target) {
+  if (!target && target !== 0) return null;
+  const text = normalizeTextInput(target);
+  if (!text) return null;
+  try {
+    return new URL(text).toString();
+  } catch {
+    const base = baseUrl || FALLBACK_BASE_URL;
+    if (!base) return null;
+    try {
+      return new URL(text, base).toString();
+    } catch {
+      return null;
+    }
+  }
+}
+
+function buildOrderStatusUrl(order, email, baseUrl) {
+  if (!order) return null;
+  const idCandidates = [
+    order.id,
+    order.order_number,
+    order.orderNumber,
+    order.external_reference,
+    order.externalReference,
+  ];
+  let orderId = null;
+  for (const candidate of idCandidates) {
+    const value = normalizeTextInput(candidate);
+    if (value) {
+      orderId = value;
+      break;
+    }
+  }
+  if (!orderId) return null;
+  const recipient = normalizeEmailInput(email || resolveOrderCustomerEmail(order));
+  const base = baseUrl || FALLBACK_BASE_URL;
+  if (!base) return null;
+  try {
+    const url = new URL(base);
+    url.pathname = "/seguimiento";
+    url.search = "";
+    url.searchParams.set("order", orderId);
+    if (recipient) url.searchParams.set("email", recipient);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function prepareOrderEmailPayload(order) {
+  const recipient = resolveOrderCustomerEmail(order);
+  if (!recipient) return null;
+  const normalizedOrder = prepareOrderForEmail(order);
+  const baseUrl = getPublicBaseUrl(getConfig());
+  const statusUrl = buildOrderStatusUrl(order, recipient, baseUrl);
+  const trackingUrl = buildAbsoluteUrl(baseUrl, resolveOrderTrackingUrl(order));
+  const tracking = resolveOrderTrackingCode(order);
+  const carrier = resolveOrderCarrier(order);
+  return {
+    recipient,
+    order: normalizedOrder,
+    baseUrl,
+    statusUrl,
+    trackingUrl,
+    tracking,
+    carrier,
+  };
 }
 
 // Configuración de subida de imágenes de productos
@@ -3714,24 +3839,13 @@ async function requestHandler(req, res) {
           nextShippingCode === "preparing" &&
           prevShippingCode !== "preparing"
         ) {
-          const recipient = resolveOrderCustomerEmail(orders[index]);
-          if (recipient) {
-            let customerInfo = null;
+          const payload = prepareOrderEmailPayload(orders[index]);
+          if (payload) {
             try {
-              customerInfo =
-                typeof ordersRepo.normalizeCustomer === "function"
-                  ? ordersRepo.normalizeCustomer(orders[index])
-                  : null;
-            } catch {
-              customerInfo = null;
-            }
-            const orderForEmail =
-              customerInfo &&
-              (!orders[index].customer || orders[index].customer !== customerInfo)
-                ? { ...orders[index], customer: customerInfo }
-                : orders[index];
-            try {
-              await sendOrderPreparing({ to: recipient, order: orderForEmail });
+              await sendOrderPreparing({
+                to: payload.recipient,
+                order: payload.order,
+              });
             } catch (emailErr) {
               console.error("order preparing email failed", emailErr);
             }
@@ -3742,7 +3856,40 @@ async function requestHandler(req, res) {
           nextShippingCode === "shipped" &&
           prevShippingCode !== "shipped"
         ) {
-          sendOrderShippedEmail(orders[index]);
+          const payload = prepareOrderEmailPayload(orders[index]);
+          if (payload) {
+            try {
+              await sendOrderShipped({
+                to: payload.recipient,
+                order: payload.order,
+                carrier: payload.carrier,
+                tracking: payload.tracking,
+                trackingUrl: payload.trackingUrl,
+                statusUrl: payload.statusUrl,
+              });
+            } catch (emailErr) {
+              console.error("order shipped email failed", emailErr);
+            }
+          }
+        }
+        if (
+          incomingShippingStatus != null &&
+          nextShippingCode === "delivered" &&
+          prevShippingCode !== "delivered"
+        ) {
+          const payload = prepareOrderEmailPayload(orders[index]);
+          if (payload) {
+            try {
+              await sendOrderDelivered({
+                to: payload.recipient,
+                order: payload.order,
+                statusUrl: payload.statusUrl,
+                trackingUrl: payload.trackingUrl,
+              });
+            } catch (emailErr) {
+              console.error("order delivered email failed", emailErr);
+            }
+          }
         }
         return sendJson(res, 200, { success: true, order: orders[index] });
       } catch (err) {
@@ -3965,10 +4112,24 @@ async function requestHandler(req, res) {
           uploaded_at: uploadedAt,
           original_name: req.file.originalname || undefined,
         };
-        await ordersRepo.appendInvoice(orderId, record);
+        const updatedOrder = await ordersRepo.appendInvoice(orderId, record);
         const invoices = await ordersRepo.listInvoices(orderId, {
           includeDeleted: true,
         });
+        const payload = prepareOrderEmailPayload(updatedOrder);
+        if (payload) {
+          const invoiceUrl = buildAbsoluteUrl(payload.baseUrl, record.url);
+          try {
+            await sendInvoiceUploaded({
+              to: payload.recipient,
+              order: payload.order,
+              invoiceUrl,
+              statusUrl: payload.statusUrl,
+            });
+          } catch (emailErr) {
+            console.error("invoice upload email failed", emailErr);
+          }
+        }
         return sendJson(res, 201, { invoice: record, invoices });
       } catch (error) {
         console.error(error);
