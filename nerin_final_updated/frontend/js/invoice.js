@@ -8,6 +8,8 @@
  * navegador).
  */
 
+import { apiFetch } from "./api.js";
+
 async function loadInvoice() {
   const params = new URLSearchParams(window.location.search);
   const orderId = params.get("orderId");
@@ -18,7 +20,7 @@ async function loadInvoice() {
     return;
   }
   try {
-    const res = await fetch(`/api/invoices/${encodeURIComponent(orderId)}`);
+    const res = await apiFetch(`/api/invoices/${encodeURIComponent(orderId)}`);
     if (!res.ok) {
       const dataErr = await res.json().catch(() => ({}));
       container.innerHTML = `<p>${dataErr.error || "Factura no encontrada"}</p>`;

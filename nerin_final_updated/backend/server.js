@@ -749,11 +749,20 @@ function buildSitemapXml(baseUrl, products = []) {
 const UPLOADS_DIR = path.join(dataDir, 'uploads');
 const INVOICES_DIR = path.join(dataDir, 'invoices');
 const PRODUCT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'products');
+const ACCOUNT_DOCS_DIR = path.join(UPLOADS_DIR, 'account-docs');
+const ACCOUNT_DOCUMENT_KEYS = ["afip", "iva", "bank", "agreement"];
+const ACCOUNT_DOCUMENT_ALLOWED_STATUSES = new Set([
+  "pending",
+  "submitted",
+  "approved",
+  "rejected",
+]);
 // Crear directorios si no existen (modo persistente)
 try {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   fs.mkdirSync(INVOICES_DIR, { recursive: true });
   fs.mkdirSync(PRODUCT_UPLOADS_DIR, { recursive: true });
+  fs.mkdirSync(ACCOUNT_DOCS_DIR, { recursive: true });
 } catch (e) {
   // En entornos donde no haya permisos, los directorios se crearán al primer uso
 }
@@ -1477,6 +1486,223 @@ function saveClients(clients) {
   fs.writeFileSync(filePath, JSON.stringify({ clients }, null, 2), "utf8");
 }
 
+function normalizeAccountDocumentActor(actor) {
+  if (!actor || typeof actor !== "object") return undefined;
+  const name = normalizeTextInput(actor.name);
+  const email = normalizeEmailInput(actor.email);
+  const result = {};
+  if (name) result.name = name;
+  if (email) result.email = email;
+  return Object.keys(result).length ? result : undefined;
+}
+
+function normalizeAccountDocumentFile(file) {
+  if (!file || typeof file !== "object") return null;
+  const id = normalizeTextInput(file.id || file.fileId || file.file_id);
+  const filename = normalizeTextInput(file.filename || file.file || file.path);
+  const url = normalizeTextInput(file.url);
+  if (!id || !filename || !url) return null;
+  const originalName =
+    normalizeTextInput(file.originalName || file.original_name || file.name) || filename;
+  const uploadedAt = file.uploadedAt || file.uploaded_at || null;
+  const size =
+    typeof file.size === "number"
+      ? file.size
+      : Number(file.size || file.filesize || file.file_size) || null;
+  const uploadedBy = normalizeAccountDocumentActor(file.uploadedBy || file.uploaded_by);
+  return {
+    id,
+    filename,
+    url,
+    originalName,
+    uploadedAt,
+    size,
+    uploadedBy,
+  };
+}
+
+function normalizeAccountDocumentEntry(entry) {
+  const statusRaw = normalizeTextInput(entry?.status).toLowerCase();
+  const status = ACCOUNT_DOCUMENT_ALLOWED_STATUSES.has(statusRaw)
+    ? statusRaw
+    : "pending";
+  const notes = normalizeTextInput(entry?.notes).slice(0, 400);
+  const reviewedAt = entry?.reviewedAt || entry?.reviewed_at || null;
+  const reviewedBy = normalizeAccountDocumentActor(entry?.reviewedBy || entry?.reviewed_by);
+  const updatedAt = entry?.updatedAt || entry?.updated_at || null;
+  const files = Array.isArray(entry?.files)
+    ? entry.files
+        .map((file) => normalizeAccountDocumentFile(file))
+        .filter(Boolean)
+        .sort((a, b) => {
+          const timeA = Date.parse(a.uploadedAt || 0) || 0;
+          const timeB = Date.parse(b.uploadedAt || 0) || 0;
+          return timeB - timeA;
+        })
+    : [];
+  return {
+    status,
+    notes,
+    files,
+    reviewedAt,
+    reviewedBy,
+    updatedAt,
+  };
+}
+
+function createEmptyAccountDocumentRecord(email) {
+  const normalizedEmail = normalizeEmailInput(email);
+  if (!normalizedEmail) return null;
+  const documents = {};
+  ACCOUNT_DOCUMENT_KEYS.forEach((key) => {
+    documents[key] = normalizeAccountDocumentEntry({});
+  });
+  return {
+    email: normalizedEmail,
+    documents,
+    updatedAt: null,
+    history: [],
+  };
+}
+
+function normalizeAccountDocumentRecord(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const base = createEmptyAccountDocumentRecord(raw.email);
+  if (!base) return null;
+  const history = Array.isArray(raw.history)
+    ? raw.history.filter((event) => event && typeof event === "object")
+    : [];
+  base.history = history.slice(-120);
+  base.updatedAt = raw.updatedAt || raw.updated_at || null;
+  ACCOUNT_DOCUMENT_KEYS.forEach((key) => {
+    if (raw.documents && raw.documents[key]) {
+      base.documents[key] = normalizeAccountDocumentEntry(raw.documents[key]);
+    }
+  });
+  return base;
+}
+
+function getAccountDocumentRecords() {
+  const filePath = dataPath("account_documents.json");
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(file);
+    const rawList = Array.isArray(parsed.records) ? parsed.records : [];
+    const normalized = [];
+    rawList.forEach((item) => {
+      const record = normalizeAccountDocumentRecord(item);
+      if (record) normalized.push(record);
+    });
+    return normalized;
+  } catch (err) {
+    return [];
+  }
+}
+
+function saveAccountDocumentRecords(records) {
+  const filePath = dataPath("account_documents.json");
+  const payload = {
+    records: Array.isArray(records)
+      ? records
+          .map((record) => normalizeAccountDocumentRecord(record))
+          .filter(Boolean)
+      : [],
+  };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function findAccountDocumentRecord(records, email) {
+  const normalizedEmail = normalizeEmailInput(email);
+  if (!normalizedEmail) return null;
+  const record = Array.isArray(records)
+    ? records.find((item) => item.email === normalizedEmail)
+    : null;
+  if (!record) return null;
+  ACCOUNT_DOCUMENT_KEYS.forEach((key) => {
+    if (!record.documents[key]) {
+      record.documents[key] = normalizeAccountDocumentEntry({});
+    }
+  });
+  return record;
+}
+
+function ensureAccountDocumentRecord(records, email) {
+  const normalizedEmail = normalizeEmailInput(email);
+  if (!normalizedEmail) return null;
+  let record = findAccountDocumentRecord(records, normalizedEmail);
+  if (!record) {
+    record = createEmptyAccountDocumentRecord(normalizedEmail);
+    if (!Array.isArray(records)) return record;
+    records.push(record);
+  }
+  return record;
+}
+
+function appendAccountDocumentHistory(record, event) {
+  if (!record || !event) return;
+  if (!Array.isArray(record.history)) record.history = [];
+  const docKey = normalizeTextInput(event.docKey).toLowerCase();
+  if (!ACCOUNT_DOCUMENT_KEYS.includes(docKey)) return;
+  const action = normalizeTextInput(event.action) || "update";
+  const at = event.at || new Date().toISOString();
+  const historyEntry = {
+    id: generateHistoryId(),
+    action,
+    docKey,
+    at,
+  };
+  const actor = normalizeAccountDocumentActor(event.by);
+  if (actor) historyEntry.by = actor;
+  const status = normalizeTextInput(event.status).toLowerCase();
+  if (ACCOUNT_DOCUMENT_ALLOWED_STATUSES.has(status)) {
+    historyEntry.status = status;
+  }
+  const notes = normalizeTextInput(event.notes);
+  if (notes) historyEntry.notes = notes.slice(0, 400);
+  const fileId = normalizeTextInput(event.fileId);
+  if (fileId) historyEntry.fileId = fileId;
+  record.history.push(historyEntry);
+  if (record.history.length > 120) {
+    record.history = record.history.slice(-120);
+  }
+}
+
+function publicAccountDocumentRecord(record) {
+  const base = record ? normalizeAccountDocumentRecord(record) : null;
+  if (!base) return null;
+  const documents = {};
+  ACCOUNT_DOCUMENT_KEYS.forEach((key) => {
+    const entry = base.documents[key] || normalizeAccountDocumentEntry({});
+    documents[key] = {
+      status: entry.status,
+      notes: entry.notes,
+      files: entry.files.map((file) => ({
+        id: file.id,
+        url: file.url,
+        originalName: file.originalName,
+        uploadedAt: file.uploadedAt,
+        size: file.size,
+      })),
+      reviewedAt: entry.reviewedAt,
+      reviewedBy: entry.reviewedBy,
+      updatedAt: entry.updatedAt,
+    };
+  });
+  return {
+    email: base.email,
+    updatedAt: base.updatedAt,
+    documents,
+  };
+}
+
+function cleanupAccountDocumentUpload(file) {
+  if (!file) return;
+  const targetPath = file.path || path.join(ACCOUNT_DOCS_DIR, file.filename || "");
+  if (!targetPath) return;
+  if (!targetPath.startsWith(ACCOUNT_DOCS_DIR)) return;
+  fsp.unlink(targetPath).catch(() => {});
+}
+
 function getWholesaleRequests() {
   const filePath = dataPath("wholesale_requests.json");
   try {
@@ -2032,6 +2258,32 @@ const invoiceUpload = multer({
   },
 });
 
+const accountDocsUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(ACCOUNT_DOCS_DIR, { recursive: true });
+      cb(null, ACCOUNT_DOCS_DIR);
+    },
+    filename: (req, file, cb) => {
+      const docKeyRaw =
+        (req?.body?.docKey || req?.body?.document || file?.fieldname || 'document')
+          .toString()
+          .toLowerCase();
+      const safeKey = docKeyRaw.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'documento';
+      const unique = `${Date.now().toString(36)}${Math.random().toString(16).slice(2, 10)}`;
+      const ext = path.extname(file.originalname || '').toLowerCase() || '.dat';
+      cb(null, `${safeKey.slice(0, 32)}-${unique}${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const allowed = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error('Formato de archivo no permitido'));
+  },
+});
+
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
 function hydrateHtmlSeo(buffer) {
   try {
@@ -2280,6 +2532,221 @@ async function requestHandler(req, res) {
       return sendJson(res, 201, { filename: req.file.filename });
     });
     return;
+  }
+
+  if (pathname === "/api/account/documents/upload" && req.method === "POST") {
+    accountDocsUpload.single("file")(req, res, async (err) => {
+      if (err) {
+        console.error("account-doc-upload", err);
+        return sendJson(res, 400, { error: err.message || "No se pudo subir el archivo" });
+      }
+      const email = normalizeEmailInput(req.body?.email);
+      const docKey = normalizeTextInput(req.body?.docKey || req.body?.document).toLowerCase();
+      if (!email) {
+        cleanupAccountDocumentUpload(req.file);
+        return sendJson(res, 400, { error: "Correo inválido" });
+      }
+      if (!ACCOUNT_DOCUMENT_KEYS.includes(docKey)) {
+        cleanupAccountDocumentUpload(req.file);
+        return sendJson(res, 400, { error: "Documento no reconocido" });
+      }
+      if (!req.file) {
+        return sendJson(res, 400, { error: "Archivo requerido" });
+      }
+      try {
+        const records = getAccountDocumentRecords();
+        const record = ensureAccountDocumentRecord(records, email);
+        if (!record) {
+          cleanupAccountDocumentUpload(req.file);
+          return sendJson(res, 400, { error: "No se pudo crear el registro" });
+        }
+        const nowIso = new Date().toISOString();
+        const entry = record.documents[docKey] || normalizeAccountDocumentEntry({});
+        const fileId = generateDocumentId();
+        const fileRecord = {
+          id: fileId,
+          filename: req.file.filename,
+          url: `/uploads/account-docs/${encodeURIComponent(req.file.filename)}`,
+          originalName: req.file.originalname || req.file.filename,
+          uploadedAt: nowIso,
+          size: req.file.size || null,
+          uploadedBy: { email },
+        };
+        entry.files = [fileRecord, ...entry.files];
+        entry.status = "submitted";
+        entry.reviewedAt = null;
+        entry.reviewedBy = undefined;
+        entry.updatedAt = nowIso;
+        record.documents[docKey] = normalizeAccountDocumentEntry(entry);
+        record.updatedAt = nowIso;
+        appendAccountDocumentHistory(record, {
+          action: "file_uploaded",
+          docKey,
+          at: nowIso,
+          by: { email },
+          fileId,
+        });
+        saveAccountDocumentRecords(records);
+        const payload = publicAccountDocumentRecord(record);
+        return sendJson(res, 201, {
+          success: true,
+          document: payload.documents[docKey],
+          record: payload,
+        });
+      } catch (uploadErr) {
+        console.error("account-documents-upload", uploadErr);
+        cleanupAccountDocumentUpload(req.file);
+        return sendJson(res, 500, { error: "No se pudo guardar el archivo" });
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/account/documents" && req.method === "GET") {
+    const emailParam = parsedUrl.query.email || "";
+    const email = normalizeEmailInput(emailParam);
+    if (!email) {
+      return sendJson(res, 400, { error: "Correo inválido" });
+    }
+    const records = getAccountDocumentRecords();
+    const record = findAccountDocumentRecord(records, email);
+    const payload =
+      record ? publicAccountDocumentRecord(record) : publicAccountDocumentRecord(createEmptyAccountDocumentRecord(email));
+    return sendJson(res, 200, { record: payload });
+  }
+
+  const accountDocsMatch = pathname.match(
+    /^\/api\/account\/documents\/([^/]+)$/,
+  );
+  if (accountDocsMatch && req.method === "PUT") {
+    const email = normalizeEmailInput(decodeURIComponent(accountDocsMatch[1]));
+    if (!email) {
+      return sendJson(res, 400, { error: "Correo inválido" });
+    }
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const updates = payload.documents;
+        if (!updates || typeof updates !== "object") {
+          return sendJson(res, 400, { error: "Datos inválidos" });
+        }
+        const actor = normalizeAccountDocumentActor(payload.actor);
+        const records = getAccountDocumentRecords();
+        const record = ensureAccountDocumentRecord(records, email);
+        if (!record) {
+          return sendJson(res, 400, { error: "No se pudo actualizar el registro" });
+        }
+        const nowIso = new Date().toISOString();
+        let changed = false;
+        Object.entries(updates).forEach(([key, value]) => {
+          const docKey = normalizeTextInput(key).toLowerCase();
+          if (!ACCOUNT_DOCUMENT_KEYS.includes(docKey)) return;
+          const entry = record.documents[docKey] || normalizeAccountDocumentEntry({});
+          let entryChanged = false;
+          if (value && typeof value === "object") {
+            if (value.status) {
+              const status = normalizeTextInput(value.status).toLowerCase();
+              if (!ACCOUNT_DOCUMENT_ALLOWED_STATUSES.has(status)) {
+                throw new Error(`Estado inválido para ${docKey}`);
+              }
+              if (entry.status !== status) {
+                entry.status = status;
+                entryChanged = true;
+                if (status === "approved" || status === "rejected") {
+                  entry.reviewedAt = nowIso;
+                  entry.reviewedBy = actor;
+                } else {
+                  entry.reviewedAt = null;
+                  entry.reviewedBy = undefined;
+                }
+              }
+            }
+            if (Object.prototype.hasOwnProperty.call(value, "notes")) {
+              const notes = normalizeTextInput(value.notes).slice(0, 400);
+              if (entry.notes !== notes) {
+                entry.notes = notes;
+                entryChanged = true;
+              }
+            }
+          }
+          if (entryChanged) {
+            entry.updatedAt = nowIso;
+            record.documents[docKey] = normalizeAccountDocumentEntry(entry);
+            appendAccountDocumentHistory(record, {
+              action: "status_updated",
+              docKey,
+              status: record.documents[docKey].status,
+              notes: record.documents[docKey].notes,
+              at: nowIso,
+              by: actor,
+            });
+            changed = true;
+          }
+        });
+        if (changed) {
+          record.updatedAt = nowIso;
+          saveAccountDocumentRecords(records);
+        }
+        const response = publicAccountDocumentRecord(record);
+        return sendJson(res, 200, { record: response, success: changed });
+      } catch (updateErr) {
+        console.error("account-documents-update", updateErr);
+        const message =
+          updateErr instanceof Error ? updateErr.message : "No se pudieron actualizar los documentos";
+        return sendJson(res, 400, { error: message });
+      }
+    });
+    return;
+  }
+
+  const accountDocDeleteMatch = pathname.match(
+    /^\/api\/account\/documents\/([^/]+)\/([^/]+)\/([^/]+)$/,
+  );
+  if (accountDocDeleteMatch && req.method === "DELETE") {
+    const email = normalizeEmailInput(decodeURIComponent(accountDocDeleteMatch[1]));
+    const docKey = normalizeTextInput(decodeURIComponent(accountDocDeleteMatch[2])).toLowerCase();
+    const fileId = normalizeTextInput(decodeURIComponent(accountDocDeleteMatch[3]));
+    if (!email || !ACCOUNT_DOCUMENT_KEYS.includes(docKey) || !fileId) {
+      return sendJson(res, 400, { error: "Solicitud inválida" });
+    }
+    try {
+      const records = getAccountDocumentRecords();
+      const record = findAccountDocumentRecord(records, email);
+      if (!record) {
+        return sendJson(res, 404, { error: "Registro no encontrado" });
+      }
+      const entry = record.documents[docKey] || normalizeAccountDocumentEntry({});
+      const index = entry.files.findIndex((file) => file.id === fileId);
+      if (index === -1) {
+        return sendJson(res, 404, { error: "Archivo no encontrado" });
+      }
+      const [removed] = entry.files.splice(index, 1);
+      if (removed?.filename) {
+        const abs = path.join(ACCOUNT_DOCS_DIR, removed.filename);
+        if (abs.startsWith(ACCOUNT_DOCS_DIR)) {
+          fsp.unlink(abs).catch(() => {});
+        }
+      }
+      const nowIso = new Date().toISOString();
+      entry.updatedAt = nowIso;
+      record.documents[docKey] = normalizeAccountDocumentEntry(entry);
+      record.updatedAt = nowIso;
+      appendAccountDocumentHistory(record, {
+        action: "file_deleted",
+        docKey,
+        at: nowIso,
+        fileId,
+      });
+      saveAccountDocumentRecords(records);
+      return sendJson(res, 200, { record: publicAccountDocumentRecord(record) });
+    } catch (deleteErr) {
+      console.error("account-documents-delete", deleteErr);
+      return sendJson(res, 500, { error: "No se pudo eliminar el archivo" });
+    }
   }
 
   if (pathname === "/api/wholesale/send-code" && req.method === "POST") {

@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 /*
  * Carga la configuración global desde el backend y aplica ajustes en la
  * interfaz (número de WhatsApp, Google Analytics, Meta Pixel). Esta
@@ -82,7 +84,7 @@ function applySeoConfig(cfg = {}) {
 async function loadConfig() {
   let cfg = {};
   try {
-    const res = await fetch("/api/config");
+    const res = await apiFetch("/api/config");
     if (!res.ok) throw new Error("No se pudo obtener la configuración");
     cfg = await res.json();
     // Exponer a nivel global

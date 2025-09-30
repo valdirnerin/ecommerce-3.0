@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 const receipt = document.getElementById('card');
 
 function showToast(message) {
@@ -193,7 +195,7 @@ async function init() {
   }
   let data = {};
   try {
-    const res = await fetch(`/api/orders/${encodeURIComponent(id)}`);
+    const res = await apiFetch(`/api/orders/${encodeURIComponent(id)}`);
     if (res.ok) data = await res.json();
   } catch (_) {}
   const info = mapData(data, id);
