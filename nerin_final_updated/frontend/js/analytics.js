@@ -1,9 +1,11 @@
+import { apiFetch } from "./api.js";
+
 export async function renderAnalyticsDashboard(containerId = 'analytics-dashboard') {
   const container = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
   if (!container) return;
   container.innerHTML = '<p>Cargando...</p>';
   try {
-    const res = await fetch('/api/analytics/detailed');
+    const res = await apiFetch('/api/analytics/detailed');
     const { analytics } = await res.json();
     container.innerHTML = '';
 

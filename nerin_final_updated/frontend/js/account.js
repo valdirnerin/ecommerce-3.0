@@ -5,6 +5,8 @@
  * control documental y accesos rápidos para clientes mayoristas.
  */
 
+import { apiFetch } from "./api.js";
+
 const DOCUMENT_KEYS = ["afip", "iva", "bank", "agreement"];
 const TOAST_STYLES = {
   success: "linear-gradient(135deg,#10b981,#22c55e)",
@@ -395,15 +397,74 @@ function renderTimeline(listEl, email, orders, clientData, reminders, lastLogin)
 }
 
 function initDocumentChecklist(email, summaryEl, onChange) {
-  const storageKey = `nerinWholesaleDocs:${email}`;
-  let state = safeParseJSON(localStorage.getItem(storageKey), {});
-  if (!state || typeof state !== "object") state = {};
-  const checkboxes = document.querySelectorAll('[data-doc-check]');
-  const total = checkboxes.length || DOCUMENT_KEYS.length;
+  const total = DOCUMENT_KEYS.length;
   let completed = 0;
+  const state = {};
+  const rows = {};
+
+  DOCUMENT_KEYS.forEach((docKey) => {
+    const row = document.querySelector(`[data-doc-row="${docKey}"]`);
+    if (!row) return;
+    rows[docKey] = {
+      row,
+      statusChip: row.querySelector(`[data-doc-status="${docKey}"]`),
+      uploadBtn: row.querySelector(`[data-doc-upload="${docKey}"]`),
+      latestBtn: row.querySelector(`[data-doc-latest="${docKey}"]`),
+      fileInput: row.querySelector(`[data-doc-input="${docKey}"]`),
+      filesList: row.querySelector(`[data-doc-files="${docKey}"]`),
+      noteEl: row.querySelector(`[data-doc-note="${docKey}"]`),
+    };
+  });
+
+  function normalizeEntry(entry) {
+    const safeEntry = {
+      status: (entry?.status || "pending").toLowerCase(),
+      notes: entry?.notes || "",
+      files: Array.isArray(entry?.files)
+        ? entry.files
+            .map((file) => ({
+              id: file?.id || null,
+              url: file?.url || null,
+              originalName: file?.originalName || file?.name || "Archivo adjunto",
+              uploadedAt: file?.uploadedAt || file?.uploaded_at || null,
+              size:
+                typeof file?.size === "number"
+                  ? file.size
+                  : Number(file?.size || file?.filesize) || null,
+            }))
+            .filter((file) => file.id && file.url)
+        : [],
+      reviewedAt: entry?.reviewedAt || entry?.reviewed_at || null,
+      reviewedBy: entry?.reviewedBy || entry?.reviewed_by || null,
+      updatedAt: entry?.updatedAt || entry?.updated_at || null,
+    };
+    safeEntry.files.sort((a, b) => {
+      const timeA = Date.parse(a.uploadedAt || 0) || 0;
+      const timeB = Date.parse(b.uploadedAt || 0) || 0;
+      return timeB - timeA;
+    });
+    return safeEntry;
+  }
+
+  function getStatusMeta(status) {
+    switch ((status || "").toLowerCase()) {
+      case "approved":
+        return { label: "Aprobado", state: "complete" };
+      case "submitted":
+        return { label: "En revisión", state: "review" };
+      case "rejected":
+        return { label: "Observaciones", state: "danger" };
+      default:
+        return { label: "Pendiente", state: null };
+    }
+  }
 
   function updateSummary() {
-    completed = Object.values(state).filter(Boolean).length;
+    completed = DOCUMENT_KEYS.filter((docKey) => {
+      const entry = state[docKey];
+      if (!entry) return false;
+      return entry.status === "submitted" || entry.status === "approved";
+    }).length;
     if (summaryEl) {
       summaryEl.textContent = `${completed} de ${total} documentos recibidos.`;
     }
@@ -412,38 +473,190 @@ function initDocumentChecklist(email, summaryEl, onChange) {
     }
   }
 
-  function updateChip(docKey, checked) {
-    const chip = document.querySelector(`[data-doc-status="${docKey}"]`);
-    if (!chip) return;
-    chip.textContent = checked ? "Recibido" : "Pendiente";
-    if (checked) chip.dataset.state = "complete";
-    else delete chip.dataset.state;
+  function renderFiles(docKey, entry) {
+    const row = rows[docKey];
+    if (!row?.filesList) return;
+    if (!entry.files.length) {
+      row.filesList.innerHTML = '<li class="empty">Sin archivos cargados.</li>';
+      return;
+    }
+    row.filesList.innerHTML = entry.files
+      .map((file) => {
+        const timeLabel = formatDateTime(file.uploadedAt);
+        return `
+          <li>
+            <a href="${escapeHtml(file.url)}" target="_blank" rel="noopener">
+              ${escapeHtml(file.originalName || "Archivo adjunto")}
+            </a>
+            <small>${escapeHtml(timeLabel === "—" ? "Sin fecha" : timeLabel)}</small>
+          </li>
+        `;
+      })
+      .join("");
   }
 
-  checkboxes.forEach((checkbox) => {
-    const docKey = checkbox.getAttribute("data-doc-check");
-    const isChecked = Boolean(state[docKey]);
-    checkbox.checked = isChecked;
-    updateChip(docKey, isChecked);
-    checkbox.addEventListener("change", () => {
-      state[docKey] = checkbox.checked;
-      updateChip(docKey, checkbox.checked);
-      localStorage.setItem(storageKey, JSON.stringify(state));
-      showToast(
-        checkbox.checked
-          ? "Documento marcado como recibido."
-          : "Documento marcado como pendiente.",
-        checkbox.checked ? "success" : "info",
-      );
-      updateSummary();
-    });
-  });
+  function renderDoc(docKey) {
+    const row = rows[docKey];
+    if (!row) return;
+    const entry = normalizeEntry(state[docKey] || {});
+    state[docKey] = entry;
+    if (row.statusChip) {
+      const meta = getStatusMeta(entry.status);
+      row.statusChip.textContent = meta.label;
+      if (meta.state) row.statusChip.dataset.state = meta.state;
+      else delete row.statusChip.dataset.state;
+    }
+    if (row.noteEl) {
+      const pieces = [];
+      if (entry.notes) pieces.push(entry.notes);
+      if (entry.reviewedBy && (entry.reviewedBy.name || entry.reviewedBy.email)) {
+        const reviewer = entry.reviewedBy.name || entry.reviewedBy.email;
+        pieces.push(`Revisado por ${reviewer}`);
+      }
+      if (entry.reviewedAt) {
+        pieces.push(`Actualizado ${formatDateTime(entry.reviewedAt)}`);
+      }
+      if (pieces.length) {
+        row.noteEl.textContent = pieces.join(" · ");
+        row.noteEl.hidden = false;
+      } else {
+        row.noteEl.textContent = "";
+        row.noteEl.hidden = true;
+      }
+    }
+    renderFiles(docKey, entry);
+    if (row.latestBtn) {
+      if (entry.files.length) {
+        const latest = entry.files[0];
+        row.latestBtn.hidden = false;
+        row.latestBtn.onclick = () => {
+          window.open(latest.url, "_blank", "noopener");
+        };
+      } else {
+        row.latestBtn.hidden = true;
+        row.latestBtn.onclick = null;
+      }
+    }
+  }
 
-  updateSummary();
+  function renderAll() {
+    DOCUMENT_KEYS.forEach((docKey) => renderDoc(docKey));
+  }
+
+  async function refreshFromServer() {
+    if (!email) {
+      DOCUMENT_KEYS.forEach((docKey) => {
+        if (!state[docKey]) state[docKey] = normalizeEntry({});
+      });
+      renderAll();
+      updateSummary();
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/account/documents?email=${encodeURIComponent(email)}`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const documents = data?.record?.documents || {};
+        DOCUMENT_KEYS.forEach((docKey) => {
+          state[docKey] = normalizeEntry(documents[docKey] || {});
+        });
+      }
+    } catch (err) {
+      console.error("account-documents-fetch", err);
+    } finally {
+      renderAll();
+      updateSummary();
+    }
+  }
+
+  async function handleUpload(docKey, file, controls) {
+    const { uploadBtn } = controls;
+    if (!email) {
+      showToast("Iniciá sesión para adjuntar tu documentación fiscal.", "warning");
+      return;
+    }
+    if (!file) return;
+    const maxSize = 8 * 1024 * 1024;
+    if (file.size > maxSize) {
+      showToast("El archivo supera el límite de 8 MB.", "warning");
+      return;
+    }
+    const originalLabel = uploadBtn ? uploadBtn.textContent : "";
+    if (uploadBtn) {
+      uploadBtn.disabled = true;
+      uploadBtn.textContent = "Subiendo...";
+    }
+    try {
+      const formData = new FormData();
+      formData.append("email", email);
+      formData.append("docKey", docKey);
+      formData.append("file", file);
+      const res = await apiFetch("/api/account/documents/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "No se pudo subir el archivo");
+      }
+      const data = await res.json();
+      const entry = data?.document || data?.record?.documents?.[docKey];
+      if (entry) {
+        state[docKey] = normalizeEntry(entry);
+        renderDoc(docKey);
+        updateSummary();
+        showToast("Documento cargado correctamente. Lo revisaremos en breve.", "success");
+      } else {
+        await refreshFromServer();
+      }
+    } catch (err) {
+      console.error("account-documents-upload", err);
+      showToast(err?.message || "No se pudo subir el archivo.", "danger");
+    } finally {
+      if (uploadBtn) {
+        uploadBtn.disabled = false;
+        if (originalLabel) uploadBtn.textContent = originalLabel;
+      }
+    }
+  }
+
+  function attachHandlers() {
+    DOCUMENT_KEYS.forEach((docKey) => {
+      const controls = rows[docKey];
+      if (!controls) return;
+      const { uploadBtn, fileInput } = controls;
+      if (uploadBtn && !email) {
+        uploadBtn.disabled = true;
+        uploadBtn.title = "Iniciá sesión para subir documentos";
+      }
+      if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener("click", () => {
+          if (!email) {
+            showToast("Iniciá sesión para adjuntar tu documentación fiscal.", "warning");
+            return;
+          }
+          fileInput.click();
+        });
+        fileInput.addEventListener("change", async (event) => {
+          const file = event.target.files?.[0];
+          await handleUpload(docKey, file, controls);
+          event.target.value = "";
+        });
+      }
+    });
+  }
+
+  attachHandlers();
+
+  const ready = refreshFromServer();
 
   return {
     getCompleted: () => completed,
     getTotal: () => total,
+    ready,
+    refresh: refreshFromServer,
   };
 }
 
@@ -912,7 +1125,7 @@ async function renderOrders(orders, email, invoiceList) {
       invoiceBtn.addEventListener("click", async () => {
         const oid = numero;
         try {
-          const resp = await fetch(`/api/invoices/${encodeURIComponent(oid)}`, {
+          const resp = await apiFetch(`/api/invoices/${encodeURIComponent(oid)}`, {
             method: "POST",
           });
           if (resp.ok) {
@@ -929,7 +1142,7 @@ async function renderOrders(orders, email, invoiceList) {
 
     try {
       const oid = numero;
-      const resp = await fetch(`/api/invoices/${encodeURIComponent(oid)}`);
+      const resp = await apiFetch(`/api/invoices/${encodeURIComponent(oid)}`);
       if (resp.ok) {
         if (invoiceBtn) invoiceBtn.textContent = "Ver factura";
         const { invoice } = await resp.json();
@@ -980,7 +1193,7 @@ async function loadUserReturns(email) {
   if (!returnsTbody) return;
   returnsTbody.innerHTML = "";
   try {
-    const res = await fetch(`/api/returns?email=${encodeURIComponent(email)}`);
+    const res = await apiFetch(`/api/returns?email=${encodeURIComponent(email)}`);
     if (!res.ok) throw new Error();
     const data = await res.json();
     const returns = data?.returns || [];
@@ -1066,8 +1279,8 @@ async function initAccount() {
 
   try {
     const [clientsRes, ordersRes] = await Promise.all([
-      fetch("/api/clients"),
-      fetch(`/api/orders?email=${encodeURIComponent(email)}`),
+      apiFetch("/api/clients"),
+      apiFetch(`/api/orders?email=${encodeURIComponent(email)}`),
     ]);
     if (clientsRes.ok) {
       const { clients } = await clientsRes.json();
@@ -1112,6 +1325,11 @@ async function initAccount() {
     documentCompletion = { completed, total };
     refreshHero();
   });
+  try {
+    await docsState.ready;
+  } catch (err) {
+    console.error("account-documents-ready", err);
+  }
   documentCompletion = {
     completed: docsState.getCompleted(),
     total: docsState.getTotal(),
@@ -1247,7 +1465,7 @@ async function initAccount() {
         cuit: document.getElementById("pCUIT").value,
       };
       try {
-        const res = await fetch(`/api/clients/${encodeURIComponent(email)}`, {
+        const res = await apiFetch(`/api/clients/${encodeURIComponent(email)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(update),

@@ -11,7 +11,7 @@
 // Al evaluarse en tiempo de ejecución siempre reflejará la última
 // configuración disponible, aun cuando config.js cargue después que este
 // módulo.
-function getApiBase() {
+export function getApiBase() {
   return (
     (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) ||
     window.API_BASE_URL ||
@@ -19,9 +19,24 @@ function getApiBase() {
   );
 }
 
+export function buildApiUrl(path = "") {
+  if (!path) return getApiBase();
+  const isAbsolute = /^https?:\/\//i.test(path);
+  if (isAbsolute) return path;
+  const safePath = path.startsWith("/") ? path : `/${path}`;
+  const base = getApiBase();
+  if (!base) return safePath;
+  const trimmedBase = base.replace(/\/+$/, "");
+  return `${trimmedBase}${safePath}`;
+}
+
+export function apiFetch(path, options) {
+  return fetch(buildApiUrl(path), options);
+}
+
 // Obtener la lista de productos desde el backend
 export async function fetchProducts() {
-  const res = await fetch(`${getApiBase()}/api/products`);
+  const res = await apiFetch("/api/products");
   if (!res.ok) {
     throw new Error("No se pudieron obtener los productos");
   }
@@ -31,7 +46,7 @@ export async function fetchProducts() {
 
 // Iniciar sesión. Devuelve objeto con success, token y role
 export async function login(email, password) {
-  const res = await fetch(`${getApiBase()}/api/login`, {
+  const res = await apiFetch("/api/login", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -79,4 +94,13 @@ export function isWholesale() {
   const role = getUserRole();
   // Los clientes VIP también acceden a precios mayoristas y descuentos
   return role === "mayorista" || role === "admin" || role === "vip";
+}
+
+if (typeof window !== "undefined") {
+  if (!window.NERIN_BUILD_API_URL) {
+    window.NERIN_BUILD_API_URL = buildApiUrl;
+  }
+  if (!window.NERIN_API_FETCH) {
+    window.NERIN_API_FETCH = apiFetch;
+  }
 }

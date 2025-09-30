@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
 const step2 = document.getElementById('step2');
@@ -95,7 +97,7 @@ async function validateEmail() {
   }
   try {
     console.log('Validando email', email);
-    const res = await fetch(`/api/validate-email?email=${encodeURIComponent(email)}`);
+    const res = await apiFetch(`/api/validate-email?email=${encodeURIComponent(email)}`);
     const data = await res.json();
     console.log('Respuesta validar email', { status: res.status, data });
     if (!data.valid) {
@@ -131,7 +133,7 @@ async function updateCosto() {
   if (!provincia) return;
   try {
     console.log('Calculando costo de envío', provincia);
-    const res = await fetch(`/api/shipping-cost?provincia=${encodeURIComponent(provincia)}`);
+    const res = await apiFetch(`/api/shipping-cost?provincia=${encodeURIComponent(provincia)}`);
     if (res.ok) {
       const data = await res.json();
       console.log('Respuesta costo envío', { status: res.status, data });
@@ -195,7 +197,7 @@ confirmarBtn.addEventListener('click', async () => {
       cantidad: quantity,
     }));
     console.log('carritoBackend', carritoBackend);
-    const res = await fetch('/api/mercado-pago/crear-preferencia', {
+    const res = await apiFetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ carrito: carritoBackend, usuario: customer }),

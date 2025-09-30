@@ -138,44 +138,104 @@
             </p>
           </div>
           <ul class="document-list" id="documentChecklist">
-            <li>
-              <label class="doc-toggle">
-                <input type="checkbox" data-doc-check="afip" />
-                <span>
+            <li data-doc-row="afip">
+              <div class="doc-main">
+                <div class="doc-info">
                   <strong>Constancia AFIP</strong>
                   <small>Última actualización de responsable inscripto.</small>
-                </span>
-              </label>
+                  <p class="doc-note" data-doc-note="afip" hidden></p>
+                  <ul class="doc-files" data-doc-files="afip"></ul>
+                  <input
+                    type="file"
+                    data-doc-input="afip"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    hidden
+                  />
+                </div>
+                <div class="doc-actions">
+                  <button type="button" class="button secondary small" data-doc-upload="afip">
+                    Adjuntar archivo
+                  </button>
+                  <button type="button" class="button small" data-doc-latest="afip" hidden>
+                    Ver último
+                  </button>
+                </div>
+              </div>
               <span class="doc-chip" data-doc-status="afip">Pendiente</span>
             </li>
-            <li>
-              <label class="doc-toggle">
-                <input type="checkbox" data-doc-check="iva" />
-                <span>
+            <li data-doc-row="iva">
+              <div class="doc-main">
+                <div class="doc-info">
                   <strong>Padrón IVA</strong>
                   <small>Necesario para facturación exenta o M.</small>
-                </span>
-              </label>
+                  <p class="doc-note" data-doc-note="iva" hidden></p>
+                  <ul class="doc-files" data-doc-files="iva"></ul>
+                  <input
+                    type="file"
+                    data-doc-input="iva"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    hidden
+                  />
+                </div>
+                <div class="doc-actions">
+                  <button type="button" class="button secondary small" data-doc-upload="iva">
+                    Adjuntar archivo
+                  </button>
+                  <button type="button" class="button small" data-doc-latest="iva" hidden>
+                    Ver último
+                  </button>
+                </div>
+              </div>
               <span class="doc-chip" data-doc-status="iva">Pendiente</span>
             </li>
-            <li>
-              <label class="doc-toggle">
-                <input type="checkbox" data-doc-check="bank" />
-                <span>
+            <li data-doc-row="bank">
+              <div class="doc-main">
+                <div class="doc-info">
                   <strong>Datos bancarios</strong>
                   <small>CBU/CVU para devoluciones y notas de crédito.</small>
-                </span>
-              </label>
+                  <p class="doc-note" data-doc-note="bank" hidden></p>
+                  <ul class="doc-files" data-doc-files="bank"></ul>
+                  <input
+                    type="file"
+                    data-doc-input="bank"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    hidden
+                  />
+                </div>
+                <div class="doc-actions">
+                  <button type="button" class="button secondary small" data-doc-upload="bank">
+                    Adjuntar archivo
+                  </button>
+                  <button type="button" class="button small" data-doc-latest="bank" hidden>
+                    Ver último
+                  </button>
+                </div>
+              </div>
               <span class="doc-chip" data-doc-status="bank">Pendiente</span>
             </li>
-            <li>
-              <label class="doc-toggle">
-                <input type="checkbox" data-doc-check="agreement" />
-                <span>
+            <li data-doc-row="agreement">
+              <div class="doc-main">
+                <div class="doc-info">
                   <strong>Contrato de revendedor</strong>
                   <small>Firmado digitalmente por el titular de la cuenta.</small>
-                </span>
-              </label>
+                  <p class="doc-note" data-doc-note="agreement" hidden></p>
+                  <ul class="doc-files" data-doc-files="agreement"></ul>
+                  <input
+                    type="file"
+                    data-doc-input="agreement"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    hidden
+                  />
+                </div>
+                <div class="doc-actions">
+                  <button type="button" class="button secondary small" data-doc-upload="agreement">
+                    Adjuntar archivo
+                  </button>
+                  <button type="button" class="button small" data-doc-latest="agreement" hidden>
+                    Ver último
+                  </button>
+                </div>
+              </div>
               <span class="doc-chip" data-doc-status="agreement">Pendiente</span>
             </li>
           </ul>

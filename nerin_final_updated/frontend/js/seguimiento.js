@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 // Módulo para consultar el estado de un pedido
 
 const form = document.getElementById('trackForm');
@@ -226,7 +228,7 @@ async function fetchInvoice(orderId) {
     return;
   }
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/orders/${encodeURIComponent(orderId)}/invoices`,
     );
     if (!res.ok) {
@@ -449,7 +451,9 @@ async function pollOrder() {
   if (!currentOrderId) return;
   try {
     const headers = lastEtag ? { 'If-None-Match': lastEtag } : {};
-    const res = await fetch(`/api/orders/${encodeURIComponent(currentOrderId)}`, { headers });
+    const res = await apiFetch(`/api/orders/${encodeURIComponent(currentOrderId)}`, {
+      headers,
+    });
     if (res.status === 304) return;
     if (res.status === 404) {
       stopPolling();
@@ -489,7 +493,7 @@ async function fetchOrder(email, id) {
   currentOrderId = null;
   lastEtag = null;
   try {
-    const res = await fetch('/api/track-order', {
+    const res = await apiFetch('/api/track-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, id }),

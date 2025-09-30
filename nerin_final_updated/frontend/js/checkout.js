@@ -1,3 +1,20 @@
+function buildApiUrl(path) {
+  const builder = window.NERIN_BUILD_API_URL;
+  if (typeof builder === "function") return builder(path);
+  const base =
+    (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) || window.API_BASE_URL || "";
+  const safePath = path.startsWith("/") ? path : `/${path}`;
+  if (!base) return safePath;
+  return `${base.replace(/\/+$/, "")}${safePath}`;
+}
+
+function apiFetch(path, options) {
+  if (typeof window.NERIN_API_FETCH === "function") {
+    return window.NERIN_API_FETCH(path, options);
+  }
+  return fetch(buildApiUrl(path), options);
+}
+
 document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
@@ -7,7 +24,7 @@ document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
   const quantity = Number(localStorage.getItem("mp_quantity")) || 1;
 
   try {
-    const res = await fetch("/crear-preferencia", {
+    const res = await apiFetch("/crear-preferencia", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

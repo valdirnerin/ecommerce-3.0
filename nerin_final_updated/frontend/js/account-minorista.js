@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 const TOAST_STYLES = {
   success: "linear-gradient(135deg,#10b981,#22c55e)",
   info: "linear-gradient(135deg,#3b82f6,#6366f1)",
@@ -236,7 +238,7 @@ async function renderOrders(orders, email) {
               showToast("No pudimos encontrar el número de pedido.", "warning");
               return;
             }
-            const resp = await fetch(`/api/invoices/${encodeURIComponent(oid)}`, {
+            const resp = await apiFetch(`/api/invoices/${encodeURIComponent(oid)}`, {
               method: "POST",
             });
             if (resp.ok) {
@@ -310,7 +312,7 @@ async function initMinorAccount() {
 
   let orders = [];
   try {
-    const res = await fetch(`/api/orders?email=${encodeURIComponent(email)}`);
+    const res = await apiFetch(`/api/orders?email=${encodeURIComponent(email)}`);
     if (res.ok) {
       const data = await res.json();
       orders = Array.isArray(data?.orders) ? data.orders : [];

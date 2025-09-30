@@ -1,3 +1,5 @@
+import { apiFetch } from "./api.js";
+
 /*
  * Registro de cuentas NERIN
  * - Registro inmediato para clientes minoristas.
@@ -50,7 +52,7 @@ function notify(message, type = "info") {
 }
 
 async function postJson(url, payload) {
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

@@ -6,7 +6,7 @@
  * crear/editar/eliminar productos y actualizar estados de pedidos.
  */
 
-import { getUserRole, logout } from "./api.js";
+import { apiFetch, getUserRole, logout } from "./api.js";
 import { renderAnalyticsDashboard } from "./analytics.js";
 
 const ADMIN_BUILD_FALLBACK =
@@ -19,7 +19,7 @@ if (typeof window !== "undefined" && !window.__NERIN_ADMIN_BUILD__) {
 async function logAdminBuildVersion() {
   let buildId = ADMIN_BUILD_FALLBACK;
   try {
-    const res = await fetch("/api/version", { cache: "no-store" });
+    const res = await apiFetch("/api/version", { cache: "no-store" });
     if (res.ok) {
       const data = await res.json();
       if (data && data.build) {
@@ -179,12 +179,338 @@ const currentAdminActor = {
   email: (typeof localStorage !== "undefined" && localStorage.getItem("nerinUserEmail")) || "",
 };
 
+const ACCOUNT_DOCUMENT_KEYS = ["afip", "iva", "bank", "agreement"];
+const ACCOUNT_DOCUMENT_LABELS = {
+  afip: {
+    title: "Constancia AFIP",
+    description: "Última constancia de inscripción del contribuyente.",
+  },
+  iva: {
+    title: "Padrón IVA",
+    description: "Certificado necesario para facturación exenta o M.",
+  },
+  bank: {
+    title: "Datos bancarios",
+    description: "CBU/CVU para devoluciones y notas de crédito.",
+  },
+  agreement: {
+    title: "Contrato de revendedor",
+    description: "Contrato firmado digitalmente por el responsable.",
+  },
+};
+
+const ACCOUNT_DOCUMENT_STATUS_OPTIONS = [
+  { value: "pending", label: "Pendiente" },
+  { value: "submitted", label: "En revisión" },
+  { value: "approved", label: "Aprobado" },
+  { value: "rejected", label: "Rechazado" },
+];
+
+const ACCOUNT_DOCUMENT_STATUS_META = {
+  pending: { tone: "muted" },
+  submitted: { tone: "info" },
+  approved: { tone: "success" },
+  rejected: { tone: "danger" },
+};
+
+const clientDocumentsModal = document.getElementById("clientDocumentsModal");
+const clientDocumentsTitle = document.getElementById("clientDocumentsTitle");
+const clientDocumentsSubtitle = document.getElementById("clientDocumentsSubtitle");
+const clientDocumentsBody = document.getElementById("clientDocumentsBody");
+const clientDocumentsRefreshBtn = document.getElementById("refreshClientDocumentsBtn");
+const clientDocumentsCloseBtn = document.getElementById("closeClientDocumentsBtn");
+
+const clientDocumentsState = {
+  email: null,
+  name: null,
+  record: null,
+  loading: false,
+};
+
 function getCurrentActor() {
   const actor = { ...currentAdminActor };
   if (!actor.name) actor.name = "Administrador";
   if (!actor.email) delete actor.email;
   return actor;
 }
+
+function closeClientDocumentsModal() {
+  if (!clientDocumentsModal) return;
+  clientDocumentsModal.classList.add("hidden");
+  clientDocumentsModal.dataset.email = "";
+  clientDocumentsState.email = null;
+  clientDocumentsState.name = null;
+  clientDocumentsState.record = null;
+}
+
+function getDocumentStatusLabel(value) {
+  const option = ACCOUNT_DOCUMENT_STATUS_OPTIONS.find((item) => item.value === value);
+  return option ? option.label : value || "Pendiente";
+}
+
+function renderClientDocuments() {
+  if (!clientDocumentsBody) return;
+  const record = clientDocumentsState.record;
+  if (!record) {
+    clientDocumentsBody.innerHTML = '<p class="modal-empty">Sin documentos registrados.</p>';
+    return;
+  }
+  const documents = record.documents || {};
+  const grid = document.createElement("div");
+  grid.className = "client-documents-grid";
+
+  ACCOUNT_DOCUMENT_KEYS.forEach((docKey) => {
+    const meta = ACCOUNT_DOCUMENT_LABELS[docKey] || { title: docKey, description: "" };
+    const entry = documents[docKey] || {};
+    const status = (entry.status || "pending").toLowerCase();
+    const statusMeta = ACCOUNT_DOCUMENT_STATUS_META[status] || ACCOUNT_DOCUMENT_STATUS_META.pending;
+    const files = Array.isArray(entry.files) ? entry.files : [];
+
+    const card = document.createElement("article");
+    card.className = "client-doc-card";
+    card.dataset.docKey = docKey;
+
+    const filesMarkup = files
+      .map((file) => {
+        const uploadedAt = formatDateTimeDisplay(file.uploadedAt || file.uploaded_at || null);
+        const id = escapeHtml(file.id || "");
+        const url = escapeHtml(file.url || "#");
+        const name = escapeHtml(file.originalName || file.name || "Archivo adjunto");
+        return `
+          <li>
+            <a href="${url}" target="_blank" rel="noopener">${name}</a>
+            <span class="doc-file-meta">${uploadedAt || "Sin fecha"}</span>
+            <button type="button" class="link-button link-button--danger" data-doc-remove="${id}">
+              Eliminar
+            </button>
+          </li>
+        `;
+      })
+      .join("");
+
+    card.innerHTML = `
+      <div class="client-doc-card__header">
+        <div>
+          <h5>${escapeHtml(meta.title)}</h5>
+          <p>${escapeHtml(meta.description || "")}</p>
+        </div>
+        <span class="doc-badge doc-badge--${statusMeta.tone}">${escapeHtml(getDocumentStatusLabel(status))}</span>
+      </div>
+      <div class="client-doc-card__controls">
+        <label>
+          <span>Estado</span>
+          <select data-doc-status>
+            ${ACCOUNT_DOCUMENT_STATUS_OPTIONS.map(
+              (option) => `
+                <option value="${option.value}" ${option.value === status ? "selected" : ""}>
+                  ${escapeHtml(option.label)}
+                </option>
+              `,
+            ).join("")}
+          </select>
+        </label>
+        <label>
+          <span>Notas para el cliente</span>
+          <textarea data-doc-notes rows="2" maxlength="400">${escapeHtml(entry.notes || "")}</textarea>
+        </label>
+      </div>
+      <div class="client-doc-card__files">
+        <h6>Archivos cargados</h6>
+        <ul>${filesMarkup || '<li class="empty">Sin archivos adjuntos.</li>'}</ul>
+      </div>
+      <div class="client-doc-card__actions">
+        <button type="button" class="button primary small" data-doc-save>Guardar</button>
+      </div>
+    `;
+
+    const statusSelect = card.querySelector("[data-doc-status]");
+    const notesInput = card.querySelector("[data-doc-notes]");
+    const saveButton = card.querySelector("[data-doc-save]");
+    const fileButtons = card.querySelectorAll("[data-doc-remove]");
+
+    if (statusSelect) {
+      statusSelect.addEventListener("change", () => {
+        const badge = card.querySelector(".doc-badge");
+        const newStatus = statusSelect.value;
+        const metaStatus = ACCOUNT_DOCUMENT_STATUS_META[newStatus] || ACCOUNT_DOCUMENT_STATUS_META.pending;
+        if (badge) {
+          badge.textContent = getDocumentStatusLabel(newStatus);
+          badge.className = `doc-badge doc-badge--${metaStatus.tone}`;
+        }
+      });
+    }
+
+    if (saveButton) {
+      saveButton.addEventListener("click", async () => {
+        if (clientDocumentsState.loading) return;
+        saveButton.disabled = true;
+        const original = saveButton.textContent;
+        saveButton.textContent = "Guardando...";
+        try {
+          await updateClientDocument(docKey, {
+            status: statusSelect ? statusSelect.value : status,
+            notes: notesInput ? notesInput.value : entry.notes || "",
+          }).catch(() => {});
+        } finally {
+          saveButton.disabled = false;
+          saveButton.textContent = original;
+        }
+      });
+    }
+
+    fileButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const fileId = button.getAttribute("data-doc-remove");
+        if (!fileId) return;
+        button.disabled = true;
+        const original = button.textContent;
+        button.textContent = "Eliminando...";
+        try {
+          await removeClientDocumentFile(docKey, fileId).catch(() => {});
+        } finally {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+    });
+
+    grid.appendChild(card);
+  });
+
+  clientDocumentsBody.innerHTML = "";
+  clientDocumentsBody.appendChild(grid);
+}
+
+async function updateClientDocument(docKey, payload) {
+  if (!clientDocumentsState.email) return;
+  try {
+    const res = await apiFetch(
+      `/api/account/documents/${encodeURIComponent(clientDocumentsState.email)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actor: getCurrentActor(),
+          documents: {
+            [docKey]: {
+              status: payload.status,
+              notes: payload.notes,
+            },
+          },
+        }),
+      },
+    );
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || "No se pudo actualizar el documento");
+    }
+    const data = await res.json();
+    clientDocumentsState.record = data?.record || clientDocumentsState.record;
+    renderClientDocuments();
+    if (window.showToast) window.showToast("Documento actualizado correctamente.");
+  } catch (err) {
+    console.error("client-documents-update", err);
+    if (window.showToast) {
+      window.showToast(err?.message || "No se pudo actualizar el documento.");
+    }
+    throw err;
+  }
+}
+
+async function removeClientDocumentFile(docKey, fileId) {
+  if (!clientDocumentsState.email || !fileId) return;
+  try {
+    const res = await apiFetch(
+      `/api/account/documents/${encodeURIComponent(clientDocumentsState.email)}/${encodeURIComponent(docKey)}/${encodeURIComponent(fileId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || "No se pudo eliminar el archivo");
+    }
+    const data = await res.json();
+    clientDocumentsState.record = data?.record || clientDocumentsState.record;
+    renderClientDocuments();
+    if (window.showToast) window.showToast("Archivo eliminado.");
+  } catch (err) {
+    console.error("client-documents-delete", err);
+    if (window.showToast) {
+      window.showToast(err?.message || "No se pudo eliminar el archivo.");
+    }
+    throw err;
+  }
+}
+
+async function loadClientDocuments(email, options = {}) {
+  if (!clientDocumentsBody || !email) return;
+  clientDocumentsState.loading = true;
+  if (!options.silent) {
+    clientDocumentsBody.innerHTML = '<p class="modal-loading">Cargando documentación…</p>';
+  }
+  if (clientDocumentsRefreshBtn) clientDocumentsRefreshBtn.disabled = true;
+  try {
+    const res = await apiFetch(`/api/account/documents?email=${encodeURIComponent(email)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    clientDocumentsState.record = data?.record || null;
+    renderClientDocuments();
+  } catch (err) {
+    console.error("client-documents-fetch", err);
+    clientDocumentsBody.innerHTML = '<p class="modal-error">No se pudieron cargar los documentos.</p>';
+  } finally {
+    clientDocumentsState.loading = false;
+    if (clientDocumentsRefreshBtn) clientDocumentsRefreshBtn.disabled = false;
+  }
+}
+
+function openClientDocumentsModal(client) {
+  if (!clientDocumentsModal || !client) return;
+  clientDocumentsState.email = client.email;
+  clientDocumentsState.name = client.name || "";
+  clientDocumentsModal.dataset.email = client.email || "";
+  clientDocumentsModal.classList.remove("hidden");
+  if (clientDocumentsTitle) clientDocumentsTitle.textContent = "Documentación fiscal";
+  if (clientDocumentsSubtitle) {
+    const pieces = [];
+    if (client.name) pieces.push(client.name);
+    if (client.email) pieces.push(client.email);
+    clientDocumentsSubtitle.textContent = pieces.join(" · ");
+  }
+  loadClientDocuments(client.email);
+}
+
+if (clientDocumentsCloseBtn) {
+  clientDocumentsCloseBtn.addEventListener("click", closeClientDocumentsModal);
+}
+
+if (clientDocumentsRefreshBtn) {
+  clientDocumentsRefreshBtn.addEventListener("click", () => {
+    if (clientDocumentsState.email) {
+      loadClientDocuments(clientDocumentsState.email, { silent: false });
+    }
+  });
+}
+
+if (clientDocumentsModal) {
+  clientDocumentsModal.addEventListener("click", (event) => {
+    if (event.target === clientDocumentsModal) {
+      closeClientDocumentsModal();
+    }
+  });
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && clientDocumentsModal && !clientDocumentsModal.classList.contains("hidden")) {
+    closeClientDocumentsModal();
+  }
+});
 
 const WHOLESALE_STATUS_META = {
   code_sent: { label: "Verificación enviada", tone: "info" },
@@ -402,7 +728,7 @@ async function uploadProductImages(fileList) {
       imagePreview.classList.add("is-uploading");
       const fd = new FormData();
       fd.append("images", file);
-      const resp = await fetch(
+      const resp = await apiFetch(
         `/api/product-image/${encodeURIComponent(sku)}`,
         {
           method: "POST",
@@ -521,7 +847,7 @@ function setLoading(state) {
 }
 
 async function loadProduct(id) {
-  const r = await fetch(`${API_BASE}/${id}`, { headers: { Accept: "application/json" } });
+  const r = await apiFetch(`${API_BASE}/${id}`, { headers: { Accept: "application/json" } });
   if (!r.ok) throw new Error(`GET ${id} failed: ${r.status}`);
   return await r.json();
 }
@@ -612,7 +938,7 @@ async function openProductModal(id) {
   const supplierSelect = document.getElementById("productSupplier");
   if (suppliersCache.length === 0) {
     try {
-      const resp = await fetch("/api/suppliers");
+      const resp = await apiFetch("/api/suppliers");
       if (resp.ok) {
         const data = await resp.json();
         suppliersCache = data.suppliers;
@@ -685,13 +1011,13 @@ async function saveProduct(e) {
         productModal.classList.add("hidden");
         return;
       }
-      res = await fetch(`${API_BASE}/${data.id}`, {
+      res = await apiFetch(`${API_BASE}/${data.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
     } else {
-      res = await fetch(API_BASE, {
+      res = await apiFetch(API_BASE, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -713,7 +1039,7 @@ productForm.addEventListener("submit", saveProduct);
 
 async function loadProducts() {
   try {
-    const res = await fetch("/api/products");
+    const res = await apiFetch("/api/products");
     const data = await res.json();
     productsCache = data.products;
     productsTableBody.innerHTML = "";
@@ -788,7 +1114,7 @@ function debounce(fn, t = 600) {
 async function patchField(id, field, value, input) {
   const old = input.dataset.original;
   try {
-    const r = await fetch(`${API_BASE}/${id}`, {
+    const r = await apiFetch(`${API_BASE}/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value }),
@@ -843,12 +1169,12 @@ applyBulkBtn.addEventListener("click", async () => {
   if (action === "delete") {
     if (!confirm("¿Eliminar productos seleccionados?")) return;
     for (const id of selected) {
-      await fetch(`/api/products/${id}`, { method: "DELETE" });
+      await apiFetch(`/api/products/${id}`, { method: "DELETE" });
     }
   } else if (action.startsWith("vis-")) {
     const vis = action.split("-")[1];
     for (const id of selected) {
-      await fetch(`/api/products/${id}`, {
+      await apiFetch(`/api/products/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ visibility: vis }),
@@ -867,7 +1193,7 @@ applyBulkBtn.addEventListener("click", async () => {
       const factor = action === "price-inc" ? 1 + pct / 100 : 1 - pct / 100;
       const newMinor = Math.round(parseFloat(minorInput.value) * factor);
       const newMayor = Math.round(parseFloat(mayorInput.value) * factor);
-      await fetch(`/api/products/${id}`, {
+      await apiFetch(`/api/products/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -882,7 +1208,7 @@ applyBulkBtn.addEventListener("click", async () => {
 
 async function deleteProduct(id) {
   if (!confirm("¿Estás seguro de eliminar este producto?")) return;
-  const resp = await fetch(`/api/products/${id}`, { method: "DELETE" });
+  const resp = await apiFetch(`/api/products/${id}`, { method: "DELETE" });
   if (resp.ok) {
     loadProducts();
   } else {
@@ -893,7 +1219,7 @@ async function deleteProduct(id) {
 deleteProductBtn.addEventListener("click", async () => {
   const id = productForm.elements.id.value;
   if (!id || !confirm("¿Eliminar producto?")) return;
-  const resp = await fetch(`${API_BASE}/${id}`, { method: "DELETE" });
+  const resp = await apiFetch(`${API_BASE}/${id}`, { method: "DELETE" });
   if (resp.ok) {
     productModal.classList.add("hidden");
     loadProducts();
@@ -905,7 +1231,7 @@ deleteProductBtn.addEventListener("click", async () => {
 duplicateProductBtn.addEventListener("click", async () => {
   const id = productForm.elements.id.value;
   if (!id) return;
-  const resp = await fetch(`${API_BASE}/${id}/duplicate`, {
+  const resp = await apiFetch(`${API_BASE}/${id}/duplicate`, {
     method: "POST",
   });
   if (resp.ok) {
@@ -922,7 +1248,7 @@ const addSupplierForm = document.getElementById("addSupplierForm");
 
 async function loadSuppliers() {
   try {
-    const res = await fetch("/api/suppliers");
+    const res = await apiFetch("/api/suppliers");
     const data = await res.json();
     suppliersTableBody.innerHTML = "";
     data.suppliers.forEach((sup) => {
@@ -969,7 +1295,7 @@ async function loadSuppliers() {
           payment_terms: terms,
           rating: rating !== "" ? parseFloat(rating) : null,
         };
-        const resp = await fetch(`/api/suppliers/${sup.id}`, {
+        const resp = await apiFetch(`/api/suppliers/${sup.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(update),
@@ -986,7 +1312,7 @@ async function loadSuppliers() {
         "click",
         async () => {
           if (!confirm("¿Deseas eliminar este proveedor?")) return;
-          const resp = await fetch(`/api/suppliers/${sup.id}`, {
+          const resp = await apiFetch(`/api/suppliers/${sup.id}`, {
             method: "DELETE",
           });
           if (resp.ok) {
@@ -1022,7 +1348,7 @@ if (addSupplierForm) {
       rating: parseFloat(document.getElementById("supRating").value) || null,
     };
     try {
-      const resp = await fetch("/api/suppliers", {
+      const resp = await apiFetch("/api/suppliers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newSup),
@@ -1087,7 +1413,7 @@ function addPoItemRow() {
 
 async function loadPurchaseOrders() {
   try {
-    const res = await fetch("/api/purchase-orders");
+    const res = await apiFetch("/api/purchase-orders");
     const data = await res.json();
     purchaseOrdersTableBody.innerHTML = "";
     data.purchaseOrders.forEach((po) => {
@@ -1117,7 +1443,7 @@ async function loadPurchaseOrders() {
           );
           if (!newStatus) return;
           const update = { status: newStatus.toLowerCase() };
-          const resp = await fetch(`/api/purchase-orders/${po.id}`, {
+          const resp = await apiFetch(`/api/purchase-orders/${po.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(update),
@@ -1133,7 +1459,7 @@ async function loadPurchaseOrders() {
       // Eliminar
       tr.querySelector(".delete-po").addEventListener("click", async () => {
         if (!confirm("¿Eliminar esta orden de compra?")) return;
-        const resp = await fetch(`/api/purchase-orders/${po.id}`, {
+        const resp = await apiFetch(`/api/purchase-orders/${po.id}`, {
           method: "DELETE",
         });
         if (resp.ok) {
@@ -1183,7 +1509,7 @@ if (addPoForm) {
       eta: document.getElementById("poEta").value || "",
     };
     try {
-      const resp = await fetch("/api/purchase-orders", {
+      const resp = await apiFetch("/api/purchase-orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(order),
@@ -1984,7 +2310,7 @@ const OrdersUI = (() => {
           saveBtn.disabled = true;
           saveBtn.textContent = "Guardando…";
           try {
-            const res = await fetch(
+            const res = await apiFetch(
               `/api/orders/${encodeURIComponent(String(identifierToUpdate))}`,
               {
                 method: "PUT",
@@ -2031,7 +2357,7 @@ const OrdersUI = (() => {
           invoiceUploadBtn.disabled = true;
           invoiceUploadBtn.textContent = 'Subiendo…';
           try {
-            const res = await fetch(
+            const res = await apiFetch(
               `/api/orders/${encodeURIComponent(String(identifierToUpdate))}/invoices`,
               {
                 method: 'POST',
@@ -2065,7 +2391,7 @@ const OrdersUI = (() => {
           btn.disabled = true;
           btn.textContent = 'Eliminando…';
           try {
-            const res = await fetch(
+            const res = await apiFetch(
               `/api/orders/${encodeURIComponent(String(identifierToUpdate))}/invoices/${encodeURIComponent(
                 fileName,
               )}`,
@@ -2087,7 +2413,7 @@ const OrdersUI = (() => {
   async function loadDetail(identifier) {
     if (!identifier) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/orders/${encodeURIComponent(String(identifier))}`,
       );
       if (!res.ok) throw new Error("No se pudo obtener el detalle");
@@ -2125,7 +2451,7 @@ const OrdersUI = (() => {
     );
     if (!confirmed) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/orders/${encodeURIComponent(String(identifier))}`,
         { method: "DELETE" },
       );
@@ -2144,7 +2470,7 @@ const OrdersUI = (() => {
     const identifier = getIdentifier(order);
     if (!identifier) return;
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/orders/${encodeURIComponent(String(identifier))}`,
         {
           method: "PATCH",
@@ -2192,7 +2518,7 @@ const OrdersUI = (() => {
         dateParam,
       )}${statusQuery}&q=${encodeURIComponent(q)}${includeDeleted ? "&includeDeleted=1" : ""}`;
       console.info("orders-fetch:url", url);
-      res = await fetch(url);
+      res = await apiFetch(url);
       if (!res.ok) {
         if (typeof res.text === "function") {
           try {
@@ -2303,7 +2629,7 @@ const clientsTableBody = document.querySelector("#clientsTable tbody");
 
 async function loadClients() {
   try {
-    const res = await fetch("/api/clients");
+    const res = await apiFetch("/api/clients");
     if (!res.ok) throw new Error("No se pudieron obtener los clientes");
     const data = await res.json();
     clientsTableBody.innerHTML = "";
@@ -2318,6 +2644,7 @@ async function loadClients() {
       const limitTd = document.createElement("td");
       limitTd.textContent = `$${client.limit.toLocaleString("es-AR")}`;
       const actionTd = document.createElement("td");
+      actionTd.classList.add("table-actions");
       const payBtn = document.createElement("button");
       payBtn.textContent = "Registrar pago";
       payBtn.addEventListener("click", async () => {
@@ -2330,7 +2657,7 @@ async function loadClients() {
         }
         const newBalance = client.balance - amount;
         // Enviar actualización al servidor
-        const resp = await fetch(
+        const resp = await apiFetch(
           `/api/clients/${encodeURIComponent(client.email)}`,
           {
             method: "PUT",
@@ -2346,6 +2673,17 @@ async function loadClients() {
         }
       });
       actionTd.appendChild(payBtn);
+
+      if (client.email) {
+        const docsBtn = document.createElement("button");
+        docsBtn.textContent = "Ver documentos";
+        docsBtn.className = "button secondary";
+        docsBtn.addEventListener("click", () => {
+          openClientDocumentsModal(client);
+        });
+        actionTd.appendChild(docsBtn);
+      }
+
       tr.appendChild(emailTd);
       tr.appendChild(nameTd);
       tr.appendChild(balanceTd);
@@ -2471,7 +2809,7 @@ async function loadWholesaleRequests(options = {}) {
   wholesaleState.loading = true;
   renderWholesaleTable({ loading: true });
   try {
-    const res = await fetch("/api/wholesale/requests");
+    const res = await apiFetch("/api/wholesale/requests");
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -2512,7 +2850,7 @@ async function selectWholesaleRequest(id) {
       '<div class="wh-detail-loading">Cargando solicitud…</div>';
   }
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/wholesale/requests/${encodeURIComponent(id)}`,
     );
     if (!res.ok) {
@@ -2905,7 +3243,7 @@ async function updateWholesaleRequest(id, payload, options = {}) {
     actorEmail: actor.email,
   };
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/wholesale/requests/${encodeURIComponent(id)}`,
       {
         method: "PATCH",
@@ -3027,7 +3365,7 @@ async function handleWholesaleDocumentUpload(event, id) {
   formData.append("actorName", actor.name || "");
   if (actor.email) formData.append("actorEmail", actor.email);
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/wholesale/requests/${encodeURIComponent(id)}/documents`,
       {
         method: "POST",
@@ -3059,7 +3397,7 @@ async function handleWholesaleDocumentRemove(id, docId, trigger) {
   if (!confirm("¿Eliminar el documento adjunto?")) return;
   if (trigger) trigger.disabled = true;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       `/api/wholesale/requests/${encodeURIComponent(id)}/documents/${encodeURIComponent(
         docId,
       )}`,
@@ -3215,7 +3553,7 @@ function renderMetrics(m) {
 async function loadMetrics() {
   let m;
   try {
-    const res = await fetch("/api/metrics");
+    const res = await apiFetch("/api/metrics");
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     m = data.metrics;
@@ -3240,7 +3578,7 @@ const returnsTableBody = document.querySelector("#returnsTable tbody");
  */
 async function loadReturns() {
   try {
-    const res = await fetch("/api/returns");
+    const res = await apiFetch("/api/returns");
     if (!res.ok) throw new Error("No se pudieron obtener las devoluciones");
     const data = await res.json();
     returnsTableBody.innerHTML = "";
@@ -3273,7 +3611,7 @@ async function loadReturns() {
         rejectBtn.className = "delete-btn";
         approveBtn.addEventListener("click", async () => {
           if (!confirm("¿Aprobar esta devolución?")) return;
-          const resp = await fetch(`/api/returns/${ret.id}`, {
+          const resp = await apiFetch(`/api/returns/${ret.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "aprobado" }),
@@ -3287,7 +3625,7 @@ async function loadReturns() {
         });
         rejectBtn.addEventListener("click", async () => {
           if (!confirm("¿Rechazar esta devolución?")) return;
-          const resp = await fetch(`/api/returns/${ret.id}`, {
+          const resp = await apiFetch(`/api/returns/${ret.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "rechazado" }),
@@ -3326,7 +3664,7 @@ const shippingAlert = document.getElementById("shippingAlert");
  */
 async function loadConfigForm() {
   try {
-    const res = await fetch("/api/config");
+    const res = await apiFetch("/api/config");
     if (!res.ok) throw new Error("No se pudo obtener la configuración");
     const cfg = await res.json();
     gaInput.value = cfg.googleAnalyticsId || "";
@@ -3341,7 +3679,7 @@ async function loadConfigForm() {
 
 async function loadShippingTable() {
   try {
-    const res = await fetch("/api/shipping-table");
+    const res = await apiFetch("/api/shipping-table");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "error");
     shippingTableBody.innerHTML = "";
@@ -3383,7 +3721,7 @@ if (configForm) {
         .filter((s) => s.length > 0),
     };
     try {
-      const resp = await fetch("/api/config", {
+      const resp = await apiFetch("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newCfg),
@@ -3425,7 +3763,7 @@ if (saveShippingBtn) {
       return;
     }
     try {
-      const resp = await fetch("/api/shipping-table", {
+      const resp = await apiFetch("/api/shipping-table", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ costos }),

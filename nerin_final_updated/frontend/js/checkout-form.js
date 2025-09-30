@@ -1,4 +1,21 @@
 document.addEventListener("DOMContentLoaded", () => {
+  function buildApiUrl(path) {
+    const builder = window.NERIN_BUILD_API_URL;
+    if (typeof builder === "function") return builder(path);
+    const base =
+      (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) || window.API_BASE_URL || "";
+    const safePath = path.startsWith("/") ? path : `/${path}`;
+    if (!base) return safePath;
+    return `${base.replace(/\/+$/, "")}${safePath}`;
+  }
+
+  function apiFetch(path, options) {
+    if (typeof window.NERIN_API_FETCH === "function") {
+      return window.NERIN_API_FETCH(path, options);
+    }
+    return fetch(buildApiUrl(path), options);
+  }
+
   const form = document.querySelector("form.shipping-form");
   const loading = document.getElementById("loading");
   if (!form) return;
@@ -127,7 +144,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (loading) loading.classList.add("active");
-      const res = await fetch("/api/orders", {
+      const res = await apiFetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
