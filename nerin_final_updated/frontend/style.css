@@ -3427,6 +3427,18 @@ footer .legal {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.profile-form .form-row--split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.profile-form .form-row--split .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .profile-form .form-row label {
   font-weight: 600;
   color: #374151;

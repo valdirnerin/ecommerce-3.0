@@ -311,6 +311,7 @@ async function initMinorAccount() {
   if (heroNameEl) heroNameEl.textContent = getFirstName(name, "Cliente NERIN");
 
   let orders = [];
+  let clientProfile = null;
   try {
     const res = await apiFetch(`/api/orders?email=${encodeURIComponent(email)}`);
     if (res.ok) {
@@ -320,6 +321,36 @@ async function initMinorAccount() {
   } catch (error) {
     console.error(error);
   }
+
+  try {
+    const clientRes = await apiFetch(`/api/clients/${encodeURIComponent(email)}`);
+    if (clientRes.ok) {
+      const payload = await clientRes.json();
+      clientProfile = payload?.client || null;
+      if (payload?.profile && typeof payload.profile === "object") {
+        try {
+          localStorage.setItem("nerinUserProfile", JSON.stringify(payload.profile));
+        } catch (storageError) {
+          console.warn("No se pudo sincronizar el perfil minorista", storageError);
+        }
+      }
+      if (clientProfile?.name) {
+        try {
+          localStorage.setItem("nerinUserName", clientProfile.name);
+        } catch (storageError) {
+          console.warn("No se pudo actualizar el nombre minorista", storageError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("minor account profile", error);
+  }
+
+  const displayName = getFirstName(
+    (clientProfile && clientProfile.name) || name,
+    "Cliente NERIN",
+  );
+  if (heroNameEl) heroNameEl.textContent = displayName;
 
   const totalSpent = orders.reduce((total, order) => {
     const value =

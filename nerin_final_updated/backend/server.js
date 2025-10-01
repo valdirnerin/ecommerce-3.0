@@ -1426,6 +1426,122 @@ function computeTotalsSnapshot(order = {}) {
   };
 }
 
+function normalizeOrderForCustomer(order = {}) {
+  const normalized = normalizeOrder(order);
+  const totals = computeTotalsSnapshot(order);
+  let customerData = null;
+  try {
+    customerData =
+      typeof ordersRepo.normalizeCustomer === "function"
+        ? ordersRepo.normalizeCustomer(order)
+        : null;
+  } catch {
+    customerData = null;
+  }
+  if (!customerData) {
+    customerData =
+      normalized.customer || order.customer || order.cliente || null;
+  }
+  let shippingAddress = null;
+  try {
+    shippingAddress =
+      typeof ordersRepo.normalizeAddress === "function"
+        ? ordersRepo.normalizeAddress(order)
+        : null;
+  } catch {
+    shippingAddress = null;
+  }
+  if (!shippingAddress) {
+    shippingAddress =
+      normalized.shipping_address ||
+      order.shipping_address ||
+      order.cliente?.direccion ||
+      null;
+  }
+  const rawItems = ordersRepo.getNormalizedItems(order);
+  const items = rawItems.map((item) => {
+    const quantity = Number(item.qty ?? item.quantity ?? 0) || 0;
+    const price = Number(item.price ?? item.unit_price ?? 0) || 0;
+    const total = Number(item.total ?? quantity * price) || 0;
+    return {
+      id: item.id || item.product_id || item.sku || null,
+      sku: item.sku || item.product_id || null,
+      name:
+        item.name ||
+        item.title ||
+        item.descripcion ||
+        item.product_name ||
+        "Producto",
+      quantity,
+      price,
+      total,
+      image: item.image || item.image_url || item.img || null,
+    };
+  });
+
+  const shippingStatus =
+    normalized.shipping_status ||
+    order.shipping_status ||
+    order.estado_envio ||
+    order.shippingStatus ||
+    "pendiente";
+
+  const paymentCode = mapPaymentStatusCode(
+    normalized.payment_status_code ||
+      normalized.payment_status ||
+      order.payment_status ||
+      order.estado_pago ||
+      order.status,
+  );
+
+  const paymentLabel = localizePaymentStatus(
+    normalized.payment_status || order.payment_status || order.estado_pago || paymentCode,
+  );
+
+  const tracking = normalized.tracking || resolveOrderTrackingCode(order);
+
+  const orderNumber =
+    normalized.order_number ||
+    order.order_number ||
+    order.id ||
+    order.external_reference ||
+    null;
+
+  const createdAt =
+    normalized.created_at ||
+    order.created_at ||
+    order.fecha ||
+    order.date ||
+    order.updated_at ||
+    null;
+
+  return {
+    ...order,
+    ...normalized,
+    order_number: orderNumber,
+    created_at: createdAt,
+    payment_status_code: paymentCode,
+    payment_status: paymentLabel,
+    paymentStatus: paymentLabel,
+    customer: customerData || null,
+    shipping_address: shippingAddress || null,
+    productos: items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      total: item.total,
+      image: item.image,
+    })),
+    items,
+    totals,
+    total_amount: totals.grand_total,
+    total: totals.grand_total,
+    shipping_status: shippingStatus,
+    tracking: tracking || null,
+  };
+}
+
 function normalizeStatusFilter(value) {
   if (value == null) return '';
   const key = String(value).trim().toLowerCase();
@@ -1484,6 +1600,208 @@ function getClients() {
 function saveClients(clients) {
   const filePath = dataPath("clients.json");
   fs.writeFileSync(filePath, JSON.stringify({ clients }, null, 2), "utf8");
+}
+
+function formatClientAddress(shipping = {}) {
+  if (!shipping || typeof shipping !== "object") return "";
+  const street = normalizeTextInput(shipping.street || shipping.calle);
+  const number = normalizeTextInput(shipping.number || shipping.numero);
+  const floor = normalizeTextInput(shipping.floor || shipping.piso);
+  const city = normalizeTextInput(shipping.city || shipping.localidad);
+  const province = normalizeTextInput(shipping.province || shipping.provincia);
+  const zip = normalizeTextInput(shipping.zip || shipping.cp || shipping.postal);
+
+  const firstLine = street
+    ? `${street}${number ? ` ${number}` : ""}${floor ? ` ${floor}` : ""}`.trim()
+    : "";
+
+  const parts = [];
+  if (firstLine) parts.push(firstLine);
+  if (city) parts.push(city);
+  if (province) parts.push(province);
+  if (zip) parts.push(`CP ${zip}`.trim());
+  return parts.join(", ").replace(/\s{2,}/g, " ").trim();
+}
+
+function pickProfileValue(profile, shippingSource, keys = []) {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(profile, key)) {
+      return profile[key];
+    }
+  }
+  if (shippingSource && typeof shippingSource === "object") {
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(shippingSource, key)) {
+        return shippingSource[key];
+      }
+    }
+  }
+  return undefined;
+}
+
+function applyProfileToClient(client, profile = {}) {
+  if (!client || typeof client !== "object") return client;
+  if (!profile || typeof profile !== "object") return { ...client };
+
+  const copy = { ...client };
+  const shippingSource =
+    (profile.shipping && typeof profile.shipping === "object"
+      ? profile.shipping
+      : null) ||
+    (profile.address && typeof profile.address === "object"
+      ? profile.address
+      : null) ||
+    (profile.direccion && typeof profile.direccion === "object"
+      ? profile.direccion
+      : null) ||
+    {};
+
+  if (Object.prototype.hasOwnProperty.call(profile, "name")) {
+    copy.name = normalizeTextInput(profile.name) || copy.name || "";
+  } else {
+    const nombre = pickProfileValue(profile, {}, ["nombre"]);
+    const apellido = pickProfileValue(profile, {}, ["apellido"]);
+    if (nombre !== undefined || apellido !== undefined) {
+      const parts = [normalizeTextInput(nombre), normalizeTextInput(apellido)]
+        .filter(Boolean)
+        .join(" ");
+      if (parts) copy.name = parts;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(profile, "phone") ||
+      Object.prototype.hasOwnProperty.call(profile, "telefono")) {
+    const phone = profile.phone ?? profile.telefono;
+    copy.phone = normalizeTextInput(phone);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(profile, "cuit") ||
+      Object.prototype.hasOwnProperty.call(profile, "taxId")) {
+    copy.cuit = normalizeTextInput(profile.cuit ?? profile.taxId);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(profile, "address") &&
+      typeof profile.address === "string") {
+    copy.address = normalizeTextInput(profile.address);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(profile, "billing_address")) {
+    copy.address = normalizeTextInput(profile.billing_address);
+  }
+
+  const shippingFields = [
+    { target: "street", keys: ["street", "calle"] },
+    { target: "number", keys: ["number", "numero"] },
+    { target: "floor", keys: ["floor", "piso", "apto", "departamento"] },
+    { target: "city", keys: ["city", "localidad"] },
+    { target: "province", keys: ["province", "provincia", "state"] },
+    { target: "zip", keys: ["zip", "cp", "codigo_postal", "postal"] },
+    { target: "notes", keys: ["notes", "notas"] },
+  ];
+
+  const nextShipping = { ...(copy.shipping || {}) };
+  let shippingChanged = false;
+  for (const field of shippingFields) {
+    const value = pickProfileValue(profile, shippingSource, field.keys);
+    if (value !== undefined) {
+      nextShipping[field.target] = normalizeTextInput(value);
+      shippingChanged = true;
+    }
+  }
+
+  const methodValue =
+    pickProfileValue(profile, shippingSource, [
+      "metodo",
+      "metodo_envio",
+      "shipping_method",
+      "method",
+    ]);
+  if (methodValue !== undefined) {
+    nextShipping.method = normalizeTextInput(methodValue);
+    shippingChanged = true;
+  }
+
+  if (shippingChanged) {
+    copy.shipping = nextShipping;
+    const formatted = formatClientAddress(nextShipping);
+    if (formatted) copy.address = formatted;
+    if (nextShipping.city !== undefined) copy.city = nextShipping.city;
+    if (nextShipping.province !== undefined) copy.province = nextShipping.province;
+    if (nextShipping.zip !== undefined) copy.zip = nextShipping.zip;
+  }
+
+  const prefs =
+    (profile.contact_preferences && typeof profile.contact_preferences === "object"
+      ? profile.contact_preferences
+      : null) ||
+    (profile.contactPreferences && typeof profile.contactPreferences === "object"
+      ? profile.contactPreferences
+      : null);
+  if (prefs) {
+    const current = copy.contact_preferences || {};
+    copy.contact_preferences = {
+      whatsapp:
+        prefs.whatsapp !== undefined
+          ? Boolean(prefs.whatsapp)
+          : current.whatsapp || false,
+      email:
+        prefs.email !== undefined
+          ? Boolean(prefs.email)
+          : current.email || false,
+    };
+  }
+
+  copy.updated_at = new Date().toISOString();
+  return copy;
+}
+
+function buildClientProfile(client, fallbackEmail) {
+  const email = normalizeTextInput(client?.email || fallbackEmail || "");
+  const fullName = normalizeTextInput(client?.name || "");
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const firstName = parts.length ? parts[0] : "";
+  const lastName = parts.length > 1 ? parts.slice(1).join(" ") : "";
+  const shipping =
+    client && typeof client.shipping === "object" && client.shipping
+      ? client.shipping
+      : {};
+
+  const profile = {
+    nombre: firstName,
+    apellido: lastName,
+    email,
+    telefono: normalizeTextInput(client?.phone || ""),
+    provincia: normalizeTextInput(
+      shipping.province || shipping.provincia || client?.province || "",
+    ),
+    localidad: normalizeTextInput(
+      shipping.city || shipping.localidad || client?.city || "",
+    ),
+    calle: normalizeTextInput(shipping.street || shipping.calle || ""),
+    numero: normalizeTextInput(shipping.number || shipping.numero || ""),
+    piso: normalizeTextInput(shipping.floor || shipping.piso || ""),
+    cp: normalizeTextInput(shipping.zip || shipping.cp || client?.zip || ""),
+    metodo: normalizeTextInput(shipping.method || ""),
+  };
+
+  profile.direccion = {
+    calle: profile.calle,
+    numero: profile.numero,
+    piso: profile.piso,
+    localidad: profile.localidad,
+    provincia: profile.provincia,
+    cp: profile.cp,
+    metodo: profile.metodo,
+  };
+
+  profile.contactPreferences = {
+    whatsapp: Boolean(client?.contact_preferences?.whatsapp),
+    email: Boolean(client?.contact_preferences?.email ?? true),
+  };
+
+  profile.name = fullName;
+
+  return profile;
 }
 
 function normalizeAccountDocumentActor(actor) {
@@ -2452,11 +2770,24 @@ async function requestHandler(req, res) {
           const token = Buffer.from(`${user.email}:${Date.now()}`).toString(
             "base64",
           );
+          const normalizedEmail = normalizeEmailInput(email);
+          let profile = null;
+          try {
+            const clients = getClients();
+            const client = clients.find(
+              (c) => normalizeEmailInput(c.email) === normalizedEmail,
+            );
+            profile = buildClientProfile(client, email);
+          } catch (clientErr) {
+            console.error("login profile lookup failed", clientErr);
+            profile = buildClientProfile(null, email);
+          }
           return sendJson(res, 200, {
             success: true,
             token,
             role: user.role || "mayorista",
             name: user.name || "Cliente",
+            profile,
           });
         } else {
           return sendJson(res, 401, {
@@ -3444,7 +3775,7 @@ async function requestHandler(req, res) {
     });
     req.on("end", () => {
       try {
-        const { email, password, name, role } = JSON.parse(body || "{}");
+        const { email, password, name, role, profile: profilePayload } = JSON.parse(body || "{}");
         if (!email || !password) {
           return sendJson(res, 400, {
             error: "Correo y contraseña son obligatorios",
@@ -3470,27 +3801,79 @@ async function requestHandler(req, res) {
 
         // Actualizar cliente existente o crearlo si no existe
         const clientIdx = clients.findIndex((c) => c.email === email);
+        const normalizedProfile =
+          profilePayload && typeof profilePayload === "object"
+            ? profilePayload
+            : null;
         if (clientIdx === -1) {
-          clients.push({
+          let baseClient = {
             email,
             name: name || "Cliente",
             cuit: "",
             condicion_iva: "",
             balance: 0,
             limit: 100000,
-          });
+            phone: "",
+            address: "",
+            city: "",
+            province: "",
+            country: "Argentina",
+            zip: "",
+            created_at: new Date().toISOString(),
+          };
+          const profileUpdate = {
+            ...(normalizedProfile || {}),
+            name: name || baseClient.name,
+          };
+          baseClient = applyProfileToClient(baseClient, profileUpdate);
+          if (!baseClient.created_at) {
+            baseClient.created_at = new Date().toISOString();
+          }
+          clients.push(baseClient);
         } else {
-          clients[clientIdx].name =
-            name || clients[clientIdx].name || "Cliente";
+          const current = clients[clientIdx];
+          const merged = {
+            ...current,
+            name: name || current.name || "Cliente",
+          };
+          const profileUpdate = {
+            ...(normalizedProfile || {}),
+            name: merged.name,
+          };
+          clients[clientIdx] = applyProfileToClient(merged, profileUpdate);
         }
         saveClients(clients);
         // Generar token
         const token = Buffer.from(`${email}:${Date.now()}`).toString("base64");
+        const clientRecord =
+          clients.find((c) => c.email === email) ||
+          (normalizedProfile
+            ? applyProfileToClient(
+                {
+                  email,
+                  name: name || "Cliente",
+                  cuit: "",
+                  condicion_iva: "",
+                  balance: 0,
+                  limit: 100000,
+                  phone: "",
+                  address: "",
+                  city: "",
+                  province: "",
+                  country: "Argentina",
+                  zip: "",
+                  created_at: new Date().toISOString(),
+                },
+                { ...(normalizedProfile || {}), name: name || "Cliente" },
+              )
+            : null);
+        const profile = buildClientProfile(clientRecord, email);
         return sendJson(res, 201, {
           success: true,
           token,
           role: userRole,
           name: name || "Cliente",
+          profile,
         });
       } catch (err) {
         console.error(err);
@@ -3589,22 +3972,72 @@ async function requestHandler(req, res) {
          */
         // Si el pedido proviene de un cliente identificado, actualizar saldo
         if (customer && customer.email) {
-          const clients = getClients();
-          let client = clients.find((c) => c.email === customer.email);
-          if (!client) {
-            // Crear cliente nuevo con saldo inicial 0 y límite por defecto
-            client = {
+          const customerEmail = normalizeEmailInput(customer.email);
+          if (customerEmail) {
+            const clients = getClients();
+            const idx = clients.findIndex(
+              (c) => normalizeEmailInput(c.email) === customerEmail,
+            );
+            const profileUpdate = {
               email: customer.email,
-              name: customer.name || "Cliente",
-              cuit: "",
-              condicion_iva: "",
-              balance: 0,
-              limit: 100000,
+              nombre: customer.nombre ?? customer.name ?? "",
+              apellido: customer.apellido ?? "",
+              phone: customer.telefono ?? customer.phone ?? "",
+              direccion:
+                (customer.direccion && typeof customer.direccion === "object"
+                  ? customer.direccion
+                  : {
+                      calle: customer.calle,
+                      numero: customer.numero,
+                      piso: customer.piso,
+                      localidad: customer.localidad,
+                      provincia: customer.provincia,
+                      cp: customer.cp,
+                    }) || {},
+              metodo_envio: data.metodo_envio,
             };
-            clients.push(client);
+            if (idx === -1) {
+              let baseClient = {
+                email: customer.email,
+                name:
+                  customer.nombre ||
+                  customer.name ||
+                  `${customer.firstName || "Cliente"}`,
+                cuit: customer.cuit || "",
+                condicion_iva: "",
+                balance: 0,
+                limit: 100000,
+                phone: "",
+                address: "",
+                city: "",
+                province: "",
+                country: "Argentina",
+                zip: "",
+                created_at: new Date().toISOString(),
+              };
+              baseClient = applyProfileToClient(baseClient, profileUpdate);
+              baseClient.balance += total;
+              baseClient.last_order_at = new Date().toISOString();
+              baseClient.last_order_id = orderId;
+              clients.push(baseClient);
+              saveClients(clients);
+            } else {
+              const current = clients[idx];
+              const merged = applyProfileToClient(current, {
+                ...profileUpdate,
+                name:
+                  customer.nombre ||
+                  customer.name ||
+                  current.name ||
+                  "Cliente",
+              });
+              merged.balance = Number(merged.balance || 0) + total;
+              merged.last_order_at = new Date().toISOString();
+              merged.last_order_id = orderId;
+              clients[idx] = merged;
+              saveClients(clients);
+            }
           }
-          client.balance += total;
-          saveClients(clients);
         }
         let mpInit = null;
         if (mpPreference) {
@@ -3848,6 +4281,63 @@ async function requestHandler(req, res) {
   if (pathname === "/api/orders" && req.method === "GET") {
     try {
       const query = parsedUrl.query || {};
+      const emailParam =
+        typeof query.email === "string" ? query.email : undefined;
+      const normalizedEmail = normalizeEmailInput(emailParam);
+      if (normalizedEmail) {
+        const allOrders = await ordersRepo.getAll();
+        const filtered = allOrders.filter((order) => {
+          const customerEmail = normalizeEmailInput(
+            resolveOrderCustomerEmail(order),
+          );
+          if (customerEmail && customerEmail === normalizedEmail) return true;
+          let normalizedCustomer = null;
+          try {
+            normalizedCustomer =
+              typeof ordersRepo.normalizeCustomer === "function"
+                ? ordersRepo.normalizeCustomer(order)
+                : null;
+          } catch {
+            normalizedCustomer = null;
+          }
+          const normalizedCustomerEmail = normalizeEmailInput(
+            normalizedCustomer?.email,
+          );
+          return normalizedCustomerEmail
+            ? normalizedCustomerEmail === normalizedEmail
+            : false;
+        });
+        const mapped = filtered.map((order) => normalizeOrderForCustomer(order));
+        mapped.sort((a, b) => {
+          const timeA =
+            Date.parse(
+              a.created_at || a.fecha || a.date || a.updated_at || a.updatedAt || 0,
+            ) || 0;
+          const timeB =
+            Date.parse(
+              b.created_at || b.fecha || b.date || b.updated_at || b.updatedAt || 0,
+            ) || 0;
+          return timeB - timeA;
+        });
+        const summary = {
+          total: mapped.length,
+          paid: 0,
+          pending: 0,
+          canceled: 0,
+          total_amount: 0,
+        };
+        mapped.forEach((order) => {
+          const code = mapPaymentStatusCode(
+            order.payment_status_code || order.payment_status || order.estado_pago,
+          );
+          summary.total_amount +=
+            Number(order.total_amount || order.total || 0) || 0;
+          if (code === "approved") summary.paid += 1;
+          else if (code === "rejected") summary.canceled += 1;
+          else summary.pending += 1;
+        });
+        return sendJson(res, 200, { orders: mapped, summary });
+      }
       const includeDeleted =
         query.includeDeleted === "1" || String(query.includeDeleted).toLowerCase() === "true";
       const q = typeof query.q === "string" ? query.q : "";
@@ -4524,6 +5014,28 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname.startsWith("/api/clients/") && req.method === "GET") {
+    const rawEmail = decodeURIComponent(pathname.split("/").pop() || "");
+    const normalizedEmail = normalizeEmailInput(rawEmail);
+    if (!normalizedEmail) {
+      return sendJson(res, 400, { error: "Correo inválido" });
+    }
+    try {
+      const clients = getClients();
+      const client = clients.find(
+        (c) => normalizeEmailInput(c.email) === normalizedEmail,
+      );
+      if (!client) {
+        return sendJson(res, 404, { error: "Cliente no encontrado" });
+      }
+      const profile = buildClientProfile(client, rawEmail);
+      return sendJson(res, 200, { client, profile });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "No se pudo obtener el cliente" });
+    }
+  }
+
   // API: actualizar un cliente (balance, límites, datos fiscales)
   // Ruta: /api/clients/{email}
   if (pathname.startsWith("/api/clients/") && req.method === "PUT") {
@@ -4535,14 +5047,49 @@ async function requestHandler(req, res) {
     req.on("end", () => {
       try {
         const update = JSON.parse(body || "{}");
+        const profileUpdate =
+          update.profile && typeof update.profile === "object"
+            ? { ...update.profile }
+            : null;
+        if (profileUpdate) delete update.profile;
         const clients = getClients();
         const idx = clients.findIndex((c) => c.email === email);
         if (idx === -1) {
           return sendJson(res, 404, { error: "Cliente no encontrado" });
         }
-        clients[idx] = { ...clients[idx], ...update };
+        const merged = { ...clients[idx] };
+        Object.keys(update).forEach((key) => {
+          if (key === "contact_preferences" && typeof update[key] === "object") {
+            const prefs = update[key];
+            merged.contact_preferences = {
+              ...(merged.contact_preferences || {}),
+              whatsapp:
+                prefs.whatsapp !== undefined
+                  ? Boolean(prefs.whatsapp)
+                  : merged.contact_preferences?.whatsapp || false,
+              email:
+                prefs.email !== undefined
+                  ? Boolean(prefs.email)
+                  : merged.contact_preferences?.email || false,
+            };
+          } else if (update[key] !== undefined) {
+            merged[key] = update[key];
+          }
+        });
+        const profilePayload = {
+          ...(profileUpdate || {}),
+        };
+        if (update.name !== undefined && profilePayload.name === undefined) {
+          profilePayload.name = update.name;
+        }
+        clients[idx] = applyProfileToClient(merged, profilePayload);
         saveClients(clients);
-        return sendJson(res, 200, { success: true, client: clients[idx] });
+        const profile = buildClientProfile(clients[idx], email);
+        return sendJson(res, 200, {
+          success: true,
+          client: clients[idx],
+          profile,
+        });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
