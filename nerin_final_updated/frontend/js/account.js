@@ -184,6 +184,74 @@ function escapeCsv(value) {
   return `"${escaped}"`;
 }
 
+function normalizeProfileText(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function buildProfileFromClientRecord(client, email, fallbackName) {
+  const safeEmail = normalizeProfileText(email);
+  const fullName = normalizeProfileText(client?.name || fallbackName || "");
+  const nameParts = fullName.split(/\s+/).filter(Boolean);
+  const nombre = nameParts.length ? nameParts[0] : "";
+  const apellido = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+  const shipping =
+    client && typeof client.shipping === "object"
+      ? client.shipping
+      : client?.direccion && typeof client.direccion === "object"
+        ? client.direccion
+        : {};
+  const provincia =
+    normalizeProfileText(shipping.province || shipping.provincia || client?.province);
+  const localidad =
+    normalizeProfileText(shipping.city || shipping.localidad || client?.city);
+  const calle = normalizeProfileText(shipping.street || shipping.calle);
+  const numero = normalizeProfileText(shipping.number || shipping.numero);
+  const piso = normalizeProfileText(shipping.floor || shipping.piso);
+  const cp = normalizeProfileText(shipping.zip || shipping.cp || client?.zip);
+  const metodo = normalizeProfileText(shipping.method || "");
+
+  return {
+    nombre,
+    apellido,
+    email: safeEmail,
+    telefono: normalizeProfileText(client?.phone || ""),
+    provincia,
+    localidad,
+    calle,
+    numero,
+    piso,
+    cp,
+    metodo,
+    name: fullName,
+    direccion: {
+      calle,
+      numero,
+      piso,
+      localidad,
+      provincia,
+      cp,
+      metodo,
+    },
+    contactPreferences: {
+      whatsapp: Boolean(client?.contact_preferences?.whatsapp),
+      email:
+        client?.contact_preferences?.email !== undefined
+          ? Boolean(client.contact_preferences.email)
+          : true,
+    },
+  };
+}
+
+function storeProfileInLocalStorage(profile) {
+  if (!profile || typeof profile !== "object") return;
+  try {
+    localStorage.setItem("nerinUserProfile", JSON.stringify(profile));
+  } catch (err) {
+    console.warn("No se pudo guardar el perfil en localStorage", err);
+  }
+}
+
 function downloadAccountStatement(email, clientData, orders, totalSpent) {
   const rows = [];
   rows.push(["Cliente", clientData?.name || email]);
@@ -1274,27 +1342,150 @@ async function initAccount() {
   const quickActionButtons = Array.from(document.querySelectorAll(".action-tile"));
   const downloadAllBtn = document.getElementById("downloadAll");
 
+  const pNameInput = document.getElementById("pName");
+  const pEmailInput = document.getElementById("pEmail");
+  const pPhoneInput = document.getElementById("pPhone");
+  const pStreetInput = document.getElementById("pStreet");
+  const pNumberInput = document.getElementById("pNumber");
+  const pFloorInput = document.getElementById("pFloor");
+  const pCityInput = document.getElementById("pCity");
+  const pProvinceInput = document.getElementById("pProvince");
+  const pZipInput = document.getElementById("pZip");
+  const pCUITInput = document.getElementById("pCUIT");
+  const prefWhatsApp = document.getElementById("prefWhatsApp");
+  const prefEmail = document.getElementById("prefEmail");
+
+  let activeProfile = null;
+
+  function getProfileDisplayName() {
+    if (clientData?.name) return clientData.name;
+    if (activeProfile) {
+      if (activeProfile.name && activeProfile.name.trim()) {
+        return activeProfile.name.trim();
+      }
+      const combined = [
+        normalizeProfileText(activeProfile.nombre),
+        normalizeProfileText(activeProfile.apellido),
+      ]
+        .filter(Boolean)
+        .join(" ");
+      if (combined) return combined;
+    }
+    if (name && name.trim()) return name.trim();
+    return email;
+  }
+
+  function populateProfileForm(profileSource, clientSource) {
+    const baseProfile =
+      profileSource && typeof profileSource === "object"
+        ? { ...profileSource }
+        : buildProfileFromClientRecord(
+            clientSource,
+            email,
+            clientSource?.name || name || email,
+          );
+    if (!baseProfile.direccion || typeof baseProfile.direccion !== "object") {
+      baseProfile.direccion = {
+        calle: baseProfile.calle || "",
+        numero: baseProfile.numero || "",
+        piso: baseProfile.piso || "",
+        localidad: baseProfile.localidad || "",
+        provincia: baseProfile.provincia || "",
+        cp: baseProfile.cp || "",
+        metodo: baseProfile.metodo || "",
+      };
+    }
+    activeProfile = baseProfile;
+    storeProfileInLocalStorage(baseProfile);
+    if (pNameInput) {
+      const parts = [
+        clientSource?.name,
+        baseProfile.name,
+        [baseProfile.nombre, baseProfile.apellido]
+          .map((part) => normalizeProfileText(part))
+          .filter(Boolean)
+          .join(" "),
+        name,
+      ];
+      const display = parts.find((value) => normalizeProfileText(value));
+      pNameInput.value = normalizeProfileText(display || email);
+    }
+    if (pEmailInput) pEmailInput.value = email;
+    if (pPhoneInput)
+      pPhoneInput.value =
+        normalizeProfileText(baseProfile.telefono || baseProfile.phone || clientSource?.phone);
+    if (pStreetInput)
+      pStreetInput.value =
+        normalizeProfileText(baseProfile.calle || baseProfile.direccion.calle);
+    if (pNumberInput)
+      pNumberInput.value = normalizeProfileText(baseProfile.numero || baseProfile.direccion.numero);
+    if (pFloorInput)
+      pFloorInput.value = normalizeProfileText(baseProfile.piso || baseProfile.direccion.piso);
+    if (pCityInput)
+      pCityInput.value =
+        normalizeProfileText(baseProfile.localidad || baseProfile.direccion.localidad);
+    if (pProvinceInput)
+      pProvinceInput.value =
+        normalizeProfileText(baseProfile.provincia || baseProfile.direccion.provincia);
+    if (pZipInput)
+      pZipInput.value = normalizeProfileText(baseProfile.cp || baseProfile.direccion.cp);
+    if (pCUITInput) pCUITInput.value = normalizeProfileText(clientSource?.cuit || "");
+    const whatsappPref =
+      baseProfile.contactPreferences?.whatsapp ?? Boolean(pPhoneInput?.value?.trim());
+    const emailPref =
+      baseProfile.contactPreferences?.email !== undefined
+        ? Boolean(baseProfile.contactPreferences.email)
+        : true;
+    if (prefWhatsApp) prefWhatsApp.checked = whatsappPref;
+    if (prefEmail) prefEmail.checked = emailPref;
+  }
+
   let clientData = null;
   let orders = [];
 
+  let profileFromServer = null;
+
   try {
-    const [clientsRes, ordersRes] = await Promise.all([
-      apiFetch("/api/clients"),
-      apiFetch(`/api/orders?email=${encodeURIComponent(email)}`),
-    ]);
-    if (clientsRes.ok) {
-      const { clients } = await clientsRes.json();
-      clientData = Array.isArray(clients)
-        ? clients.find((client) => client.email === email)
-        : null;
-    }
-    if (ordersRes.ok) {
-      const data = await ordersRes.json();
-      orders = Array.isArray(data?.orders) ? data.orders : [];
+    const clientRes = await apiFetch(`/api/clients/${encodeURIComponent(email)}`);
+    if (clientRes.ok) {
+      const payload = await clientRes.json();
+      clientData = payload?.client || null;
+      if (payload?.profile && typeof payload.profile === "object") {
+        profileFromServer = payload.profile;
+      }
     }
   } catch (err) {
-    console.error(err);
+    console.error("fetch client profile", err);
   }
+
+  try {
+    const ordersRes = await apiFetch(`/api/orders?email=${encodeURIComponent(email)}`);
+    if (ordersRes.ok) {
+      const data = await ordersRes.json();
+      if (Array.isArray(data?.orders)) orders = data.orders;
+      else if (Array.isArray(data?.items)) orders = data.items;
+    }
+  } catch (err) {
+    console.error("fetch client orders", err);
+  }
+
+  if (!clientData) {
+    try {
+      const clientsRes = await apiFetch("/api/clients");
+      if (clientsRes.ok) {
+        const { clients } = await clientsRes.json();
+        clientData = Array.isArray(clients)
+          ? clients.find((client) => client.email === email)
+          : null;
+      }
+    } catch (err) {
+      console.error("fallback client lookup", err);
+    }
+  }
+
+  const storedProfile = safeParseJSON(localStorage.getItem("nerinUserProfile"), null);
+  const initialProfile = profileFromServer || storedProfile;
+  populateProfileForm(initialProfile, clientData);
 
   const totalSpent = orders.reduce((total, order) => {
     const value =
@@ -1347,7 +1538,7 @@ async function initAccount() {
         heroStatusEl,
       },
       {
-        displayName: clientData?.name || name || email,
+        displayName: getProfileDisplayName(),
         email,
         clientData,
         lastOrder,
@@ -1444,25 +1635,69 @@ async function initAccount() {
     }
   }
 
-  if (clientData) {
-    document.getElementById("pName").value = clientData.name || "";
-    document.getElementById("pEmail").value = clientData.email || email;
-    document.getElementById("pPhone").value = clientData.phone || "";
-    document.getElementById("pAddress").value = clientData.address || "";
-    document.getElementById("pCUIT").value = clientData.cuit || "";
-  } else {
-    document.getElementById("pEmail").value = email;
-  }
-
   const profileForm = document.getElementById("profileForm");
   if (profileForm) {
     profileForm.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const nameValue = normalizeProfileText(pNameInput?.value);
+      const phoneValue = normalizeProfileText(pPhoneInput?.value);
+      const streetValue = normalizeProfileText(pStreetInput?.value);
+      const numberValue = normalizeProfileText(pNumberInput?.value);
+      const floorValue = normalizeProfileText(pFloorInput?.value);
+      const cityValue = normalizeProfileText(pCityInput?.value);
+      const provinceValue = normalizeProfileText(pProvinceInput?.value);
+      const zipValue = normalizeProfileText(pZipInput?.value);
+      const cuitValue = normalizeProfileText(pCUITInput?.value);
+      const whatsappPref = Boolean(prefWhatsApp?.checked);
+      const emailPref =
+        prefEmail && typeof prefEmail.checked === "boolean" ? prefEmail.checked : true;
+
+      const addressSegments = [];
+      const firstLineParts = [streetValue, numberValue, floorValue]
+        .map((segment) => normalizeProfileText(segment))
+        .filter(Boolean);
+      const firstLine = firstLineParts.join(" ").trim();
+      if (firstLine) addressSegments.push(firstLine);
+      if (cityValue) addressSegments.push(cityValue);
+      if (provinceValue) addressSegments.push(provinceValue);
+      if (zipValue) addressSegments.push(`CP ${zipValue}`.trim());
+
+      const profilePayload = {
+        name: nameValue,
+        phone: phoneValue,
+        telefono: phoneValue,
+        provincia: provinceValue,
+        localidad: cityValue,
+        calle: streetValue,
+        numero: numberValue,
+        piso: floorValue,
+        cp: zipValue,
+        metodo: activeProfile?.metodo || "",
+        direccion: {
+          calle: streetValue,
+          numero: numberValue,
+          piso: floorValue,
+          localidad: cityValue,
+          provincia: provinceValue,
+          cp: zipValue,
+          metodo: activeProfile?.metodo || "",
+        },
+        contact_preferences: {
+          whatsapp: whatsappPref,
+          email: emailPref,
+        },
+      };
+
       const update = {
-        name: document.getElementById("pName").value,
-        phone: document.getElementById("pPhone").value,
-        address: document.getElementById("pAddress").value,
-        cuit: document.getElementById("pCUIT").value,
+        name: nameValue,
+        phone: phoneValue,
+        cuit: cuitValue,
+        address: addressSegments.join(", ").trim(),
+        contact_preferences: {
+          whatsapp: whatsappPref,
+          email: emailPref,
+        },
+        profile: profilePayload,
       };
       try {
         const res = await apiFetch(`/api/clients/${encodeURIComponent(email)}`, {
@@ -1470,12 +1705,45 @@ async function initAccount() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(update),
         });
+        const payload = await res.json().catch(() => ({}));
         if (res.ok) {
+          clientData = payload?.client || clientData;
+          const nextProfile =
+            payload?.profile && typeof payload.profile === "object"
+              ? payload.profile
+              : buildProfileFromClientRecord(
+                  clientData,
+                  email,
+                  clientData?.name || nameValue || name || email,
+                );
+          populateProfileForm(nextProfile, clientData);
+          if (nameValue) {
+            try {
+              localStorage.setItem("nerinUserName", nameValue);
+            } catch (storageErr) {
+              console.warn("No se pudo actualizar el nombre guardado", storageErr);
+            }
+          }
           showToast("Perfil actualizado correctamente.", "success");
+          refreshHero();
+          updateCreditCard(
+            {
+              creditBalanceEl,
+              creditAvailableEl,
+              creditUsageBar,
+              creditUsageLabel,
+              creditGauge,
+              creditStatusBadge,
+              nextReviewEl,
+              paymentRecommendationEl,
+            },
+            { clientData, lastOrder, totalSpent },
+          );
         } else {
-          showToast("No se pudo guardar el perfil.", "danger");
+          showToast(payload?.error || "No se pudo guardar el perfil.", "danger");
         }
       } catch (err) {
+        console.error("update profile", err);
         showToast("Error al actualizar el perfil.", "danger");
       }
     });

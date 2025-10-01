@@ -75,6 +75,13 @@ if (retailForm) {
     const password = document.getElementById("regPassword")?.value || "";
     const confirm = document.getElementById("regConfirm")?.value || "";
     const role = document.getElementById("regRole")?.value || "minorista";
+    const phone = safeTrim(document.getElementById("regPhone")?.value);
+    const province = safeTrim(document.getElementById("regProvince")?.value);
+    const city = safeTrim(document.getElementById("regCity")?.value);
+    const street = safeTrim(document.getElementById("regStreet")?.value);
+    const number = safeTrim(document.getElementById("regNumber")?.value);
+    const floor = safeTrim(document.getElementById("regFloor")?.value);
+    const zip = safeTrim(document.getElementById("regZip")?.value);
 
     if (password !== confirm) {
       showFormStatus(retailStatus, "Las contraseñas no coinciden", "error");
@@ -90,11 +97,35 @@ if (retailForm) {
         submitBtn.textContent = "Creando cuenta...";
       }
 
+      const profilePayload = {
+        phone,
+        telefono: phone,
+        provincia: province,
+        localidad: city,
+        calle: street,
+        numero: number,
+        piso: floor,
+        cp: zip,
+        direccion: {
+          calle: street,
+          numero: number,
+          piso: floor,
+          localidad: city,
+          provincia: province,
+          cp: zip,
+        },
+        contact_preferences: {
+          email: true,
+          whatsapp: Boolean(phone),
+        },
+      };
+
       const data = await postJson("/api/register", {
         email,
         password,
         name,
         role,
+        profile: profilePayload,
       });
 
       localStorage.setItem("nerinToken", data.token);
@@ -102,21 +133,33 @@ if (retailForm) {
       localStorage.setItem("nerinUserName", name || "Cliente");
       localStorage.setItem("nerinUserEmail", email);
       try {
-        const [firstName = "", ...rest] = (name || "").trim().split(/\s+/);
-        const baseProfile = {
-          nombre: firstName || name || "",
-          apellido: rest.join(" ") || "",
-          email,
-          telefono: "",
-          provincia: "",
-          localidad: "",
-          calle: "",
-          numero: "",
-          piso: "",
-          cp: "",
-          metodo: "",
-        };
-        localStorage.setItem("nerinUserProfile", JSON.stringify(baseProfile));
+        if (data.profile && typeof data.profile === "object") {
+          localStorage.setItem("nerinUserProfile", JSON.stringify(data.profile));
+        } else {
+          const [firstName = "", ...rest] = (name || "").trim().split(/\s+/);
+          const fallbackProfile = {
+            nombre: firstName || name || "",
+            apellido: rest.join(" ") || "",
+            email,
+            telefono: phone,
+            provincia: province,
+            localidad: city,
+            calle: street,
+            numero: number,
+            piso: floor,
+            cp: zip,
+            metodo: "",
+            direccion: {
+              calle: street,
+              numero: number,
+              piso: floor,
+              localidad: city,
+              provincia: province,
+              cp: zip,
+            },
+          };
+          localStorage.setItem("nerinUserProfile", JSON.stringify(fallbackProfile));
+        }
       } catch (profileError) {
         console.warn("No se pudo inicializar el perfil del usuario", profileError);
       }
