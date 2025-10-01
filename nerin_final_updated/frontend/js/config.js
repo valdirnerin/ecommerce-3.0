@@ -95,10 +95,15 @@ async function loadConfig() {
     }
     // Actualizar enlace de WhatsApp flotante si existe
     if (cfg.whatsappNumber) {
+      const phone = cfg.whatsappNumber.replace(/[^0-9]/g, "");
+      window.NERIN_CONFIG.whatsappNumberSanitized = phone;
       const waBtn = document.querySelector("#whatsapp-button a");
       if (waBtn) {
-        const phone = cfg.whatsappNumber.replace(/[^0-9]/g, "");
         waBtn.href = `https://wa.me/${phone}`;
+      }
+      const cartWABtn = document.getElementById("whatsappBtn");
+      if (cartWABtn) {
+        cartWABtn.dataset.whatsappNumber = phone;
       }
     }
     // Insertar Google Analytics

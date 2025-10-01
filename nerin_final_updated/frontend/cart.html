@@ -39,33 +39,48 @@
       </div>
     </header>
     <main class="container cart-container">
-      <div class="cart-box">
-        <h2 class="cart-title">🛒 Tu carrito de compras</h2>
-        <div id="cartItems"></div>
-        <div id="cartSummary" class="cart-summary"></div>
-        <div id="cartActions" class="cart-actions" style="display: none">
-          <button id="payBtn" class="button primary cart-pay-btn">
-            Continuar con el pago
-          </button>
-          <button id="whatsappBtn" class="button secondary cart-whatsapp-btn">
-            <img
-              src="/assets/icons/whatsapp-logo.png"
-              alt="WhatsApp"
-              class="whatsapp-icon"
-            />
-            Enviar por WhatsApp
-          </button>
-          <a
-            href="/shop.html"
-            class="button secondary cart-continue-btn"
-            >Seguir comprando</a
-          >
-        </div>
-        <div
-          id="orderSummary"
-          class="payment-summary"
-          style="display: none"
-        ></div>
+      <div class="cart-layout">
+        <section class="cart-main">
+          <div class="cart-box">
+            <h2 class="cart-title">
+              <span aria-hidden="true" class="cart-title-icon">🛒</span>
+              Tu carrito de compras
+            </h2>
+            <p class="cart-subtitle">
+              Revise sus productos, ajuste cantidades y finalice la compra cuando esté listo.
+            </p>
+            <div id="cartItems" class="cart-items"></div>
+          </div>
+        </section>
+        <aside class="cart-sidebar">
+          <div class="cart-summary-card">
+            <h3 class="cart-summary-title">Resumen de compra</h3>
+            <div id="cartSummary" class="cart-summary"></div>
+            <div id="cartActions" class="cart-actions" style="display: none">
+              <button id="payBtn" class="button primary cart-pay-btn">
+                Continuar con el pago
+              </button>
+              <button id="whatsappBtn" class="button whatsapp cart-whatsapp-btn">
+                <img
+                  src="/assets/whatsapp.svg"
+                  alt="Logo de WhatsApp"
+                  class="whatsapp-icon"
+                />
+                Enviar por WhatsApp
+              </button>
+              <a
+                href="/shop.html"
+                class="button secondary cart-continue-btn"
+                >Seguir comprando</a
+              >
+            </div>
+            <div
+              id="orderSummary"
+              class="payment-summary"
+              style="display: none"
+            ></div>
+          </div>
+        </aside>
       </div>
     </main>
     <div id="whatsapp-button">
