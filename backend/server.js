@@ -3,6 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
 const { execSync } = require('child_process');
+const fs = require('fs');
 const db = require('./db');
 const generarNumeroOrden = require('./utils/generarNumeroOrden');
 const logger = require('./logger');
@@ -185,6 +186,18 @@ app.use('/api', shippingRoutes);
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
+
+const assetRoots = [
+  path.join(__dirname, '../nerin_final_updated/assets'),
+  path.join(__dirname, '../assets'),
+];
+
+for (const dir of assetRoots) {
+  if (fs.existsSync(dir)) {
+    app.use('/assets', express.static(dir));
+    break;
+  }
+}
 
 app.use(express.static(path.join(__dirname, '../frontend')));
 

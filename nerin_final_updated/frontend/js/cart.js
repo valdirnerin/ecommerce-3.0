@@ -48,9 +48,17 @@ function getStoredCart() {
 async function renderCart() {
   const cart = getStoredCart();
   itemsContainer.innerHTML = "";
+  itemsContainer.classList.toggle("cart-items--empty", cart.length === 0);
   let subtotal = 0;
   if (cart.length === 0) {
-    itemsContainer.innerHTML = "<p>El carrito está vacío.</p>";
+    itemsContainer.innerHTML = `
+      <div class="cart-empty-state">
+        <div class="cart-empty-illustration" aria-hidden="true">🛍️</div>
+        <h3>Tu carrito está vacío</h3>
+        <p>Explorá nuestros productos y agregá tus favoritos para continuar.</p>
+        <a class="button secondary" href="/shop.html">Ir a la tienda</a>
+      </div>
+    `;
     summaryContainer.innerHTML = "";
     actionsContainer.style.display = "none";
     return;
@@ -106,17 +114,26 @@ async function renderCart() {
       unitPrice = calculateDiscountedPrice(basePrice, item.quantity);
     }
     const priceEl = document.createElement("div");
-    priceEl.className = "cart-price";
-    priceEl.textContent = `$${unitPrice.toLocaleString("es-AR")} c/u`;
+    priceEl.className = "cart-price cart-meta-row";
+    priceEl.innerHTML = `
+      <span class="cart-meta-label">Precio unidad</span>
+      <span class="cart-meta-value">$${unitPrice.toLocaleString("es-AR")}</span>
+    `;
     details.appendChild(priceEl);
 
     const itemTotal = unitPrice * item.quantity;
     const totalEl = document.createElement("div");
-    totalEl.className = "cart-item-total";
-    totalEl.textContent = `$${itemTotal.toLocaleString("es-AR")}`;
+    totalEl.className = "cart-item-total cart-meta-row";
+    totalEl.innerHTML = `
+      <span class="cart-meta-label">Subtotal</span>
+      <span class="cart-meta-value">$${itemTotal.toLocaleString("es-AR")}</span>
+    `;
     details.appendChild(totalEl);
 
     itemEl.appendChild(details);
+
+    const controls = document.createElement("div");
+    controls.className = "cart-item-actions";
 
     const stepper = document.createElement("div");
     stepper.className = "qty-stepper";
@@ -163,7 +180,7 @@ async function renderCart() {
     stepper.appendChild(minus);
     stepper.appendChild(qtyInput);
     stepper.appendChild(plus);
-    itemEl.appendChild(stepper);
+    controls.appendChild(stepper);
 
     if (available <= 0) {
       qtyInput.value = 0;
@@ -180,18 +197,39 @@ async function renderCart() {
       localStorage.setItem("nerinCart", JSON.stringify(cart));
       renderCart();
     });
-    itemEl.appendChild(removeBtn);
+    controls.appendChild(removeBtn);
+
+    itemEl.appendChild(controls);
 
     itemsContainer.appendChild(itemEl);
     subtotal += itemTotal;
   });
-  summaryContainer.innerHTML = `<h3>Total:</h3><p class="cart-total-amount">$${subtotal.toLocaleString("es-AR")}</p>`;
+  const totalItems = cart.reduce((acc, item) => acc + item.quantity, 0);
+  summaryContainer.innerHTML = `
+    <div class="cart-summary-row">
+      <span>Subtotal (${totalItems} ${totalItems === 1 ? "artículo" : "artículos"})</span>
+      <span class="cart-summary-amount cart-total-amount">$${subtotal.toLocaleString("es-AR")}</span>
+    </div>
+    <p class="cart-summary-note">Los costos de envío y promociones se calculan en el checkout.</p>
+  `;
+  if (isWholesale()) {
+    summaryContainer.insertAdjacentHTML(
+      "beforeend",
+      '<p class="cart-summary-note cart-summary-note--highlight">Los precios incluyen descuentos mayoristas por cantidad.</p>',
+    );
+  }
 
   // Configurar acciones
   whatsappBtn.onclick = () => {
     // Usar número de WhatsApp desde configuración global si está disponible
-    const phoneCfg = window.NERIN_CONFIG && window.NERIN_CONFIG.whatsappNumber;
-    const phone = phoneCfg ? phoneCfg.replace(/[^0-9]/g, "") : "541112345678";
+    const fromDataset = whatsappBtn.dataset.whatsappNumber;
+    const sanitizedCfg =
+      window.NERIN_CONFIG && window.NERIN_CONFIG.whatsappNumberSanitized;
+    const rawCfg = window.NERIN_CONFIG && window.NERIN_CONFIG.whatsappNumber;
+    const phone =
+      fromDataset ||
+      sanitizedCfg ||
+      (rawCfg ? rawCfg.replace(/[^0-9]/g, "") : "541112345678");
     let message = "Hola! Deseo hacer un pedido:%0A";
     cart.forEach((item) => {
       const basePrice = item.price;
