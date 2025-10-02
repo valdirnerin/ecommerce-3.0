@@ -1782,19 +1782,33 @@ const OrdersUI = (() => {
       order.address ||
       "";
     const number = shipping.number || direccion.numero || cliente.numero || "";
+    const floor =
+      shipping.floor ||
+      shipping.piso ||
+      shipping.apartment ||
+      shipping.apartamento ||
+      direccion.piso ||
+      direccion.apartamento ||
+      cliente.piso ||
+      cliente.apartamento ||
+      "";
     const city = shipping.city || direccion.localidad || cliente.localidad || "";
     const province =
       shipping.province || direccion.provincia || cliente.provincia || "";
     const zip = shipping.zip || direccion.cp || cliente.cp || "";
     const parts = [];
-    const streetLine = [street, number].filter(Boolean).join(" ");
+    const streetParts = [street, number].filter(Boolean);
+    if (floor) {
+      streetParts.push(`Piso ${floor}`);
+    }
+    const streetLine = streetParts.join(" ");
     if (streetLine) parts.push(streetLine.trim());
     const cityLine = [city, province].filter(Boolean).join(", ");
     if (cityLine) parts.push(cityLine.trim());
     if (zip) parts.push(`CP ${zip}`);
     return {
       summary: parts.join(" – "),
-      details: { street, number, city, province, zip },
+      details: { street, number, floor, city, province, zip },
     };
   }
 
@@ -3655,9 +3669,11 @@ const gaInput = document.getElementById("configGAId");
 const metaInput = document.getElementById("configMetaId");
 const whatsappInput = document.getElementById("configWhatsApp");
 const carriersTextarea = document.getElementById("configCarriers");
+const shippingTable = document.getElementById("shippingTable");
 const shippingTableBody = document.querySelector("#shippingTable tbody");
 const saveShippingBtn = document.getElementById("saveShippingBtn");
 const shippingAlert = document.getElementById("shippingAlert");
+let shippingMethods = [];
 
 /**
  * Carga los valores de configuración actuales y los muestra en el formulario.
@@ -3682,19 +3698,48 @@ async function loadShippingTable() {
     const res = await apiFetch("/api/shipping-table");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "error");
+    shippingMethods = Array.isArray(data.methods) && data.methods.length
+      ? data.methods
+      : [
+          { id: "retiro", label: "Retiro en local" },
+          { id: "estandar", label: "Envío estándar" },
+          { id: "express", label: "Envío express" },
+        ];
+    if (shippingTable) {
+      const headerRow = shippingTable.querySelector("thead tr");
+      if (headerRow) {
+        headerRow.innerHTML = "";
+        const provTh = document.createElement("th");
+        provTh.textContent = "Provincia";
+        headerRow.appendChild(provTh);
+        shippingMethods.forEach((method) => {
+          const th = document.createElement("th");
+          th.dataset.method = method.id;
+          th.textContent = `${method.label} ($)`;
+          headerRow.appendChild(th);
+        });
+      }
+    }
     shippingTableBody.innerHTML = "";
     (data.costos || []).forEach((row) => {
       const tr = document.createElement("tr");
       const provTd = document.createElement("td");
       provTd.textContent = row.provincia;
-      const costTd = document.createElement("td");
-      const input = document.createElement("input");
-      input.type = "number";
-      input.min = "0";
-      input.value = row.costo;
-      costTd.appendChild(input);
       tr.appendChild(provTd);
-      tr.appendChild(costTd);
+      shippingMethods.forEach((method) => {
+        const costTd = document.createElement("td");
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.step = "1";
+        input.value =
+          row.metodos && typeof row.metodos[method.id] === "number"
+            ? row.metodos[method.id]
+            : 0;
+        input.dataset.method = method.id;
+        costTd.appendChild(input);
+        tr.appendChild(costTd);
+      });
       shippingTableBody.appendChild(tr);
     });
     if (shippingAlert) shippingAlert.style.display = "none";
@@ -3747,15 +3792,20 @@ if (saveShippingBtn) {
     let valid = true;
     rows.forEach((tr) => {
       const provincia = tr.children[0].textContent.trim();
-      const input = tr.querySelector("input");
-      const val = parseFloat(input.value);
-      if (Number.isNaN(val)) {
-        valid = false;
-        input.classList.add("invalid");
-      } else {
-        input.classList.remove("invalid");
-      }
-      costos.push({ provincia, costo: val });
+      const metodos = {};
+      shippingMethods.forEach((method) => {
+        const input = tr.querySelector(`input[data-method="${method.id}"]`);
+        if (!input) return;
+        const val = parseFloat(input.value);
+        if (Number.isNaN(val) || val < 0) {
+          valid = false;
+          input.classList.add("invalid");
+        } else {
+          input.classList.remove("invalid");
+        }
+        metodos[method.id] = Number.isNaN(val) ? 0 : val;
+      });
+      costos.push({ provincia, metodos });
     });
     if (!valid) {
       shippingAlert.textContent = "Ingresa valores v\u00e1lidos";
@@ -3766,7 +3816,7 @@ if (saveShippingBtn) {
       const resp = await apiFetch("/api/shipping-table", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ costos }),
+        body: JSON.stringify({ costos, methods: shippingMethods }),
       });
       const data = await resp.json().catch(() => ({}));
       if (resp.ok) {

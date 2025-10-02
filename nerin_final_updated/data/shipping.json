@@ -1,9 +1,29 @@
 {
+  "methods": [
+    { "id": "retiro", "label": "Retiro en local" },
+    { "id": "estandar", "label": "Envío estándar" },
+    { "id": "express", "label": "Envío express" }
+  ],
   "costos": [
-    {"provincia": "CABA", "costo": 1500},
-    {"provincia": "Buenos Aires", "costo": 2000},
-    {"provincia": "Córdoba", "costo": 2500},
-    {"provincia": "Santa Fe", "costo": 2200},
-    {"provincia": "Otras", "costo": 3000}
+    {
+      "provincia": "CABA",
+      "metodos": { "retiro": 0, "estandar": 1500, "express": 2500 }
+    },
+    {
+      "provincia": "Buenos Aires",
+      "metodos": { "retiro": 0, "estandar": 2000, "express": 3200 }
+    },
+    {
+      "provincia": "Córdoba",
+      "metodos": { "retiro": 0, "estandar": 2500, "express": 3800 }
+    },
+    {
+      "provincia": "Santa Fe",
+      "metodos": { "retiro": 0, "estandar": 2200, "express": 3400 }
+    },
+    {
+      "provincia": "Otras",
+      "metodos": { "retiro": 0, "estandar": 3000, "express": 4500 }
+    }
   ]
 }

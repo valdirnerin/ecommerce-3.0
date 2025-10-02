@@ -2327,43 +2327,136 @@ function normalizeFooter(data) {
 }
 
 // Leer tabla de costos de envío por provincia
+const DEFAULT_SHIPPING_METHODS = [
+  { id: "retiro", label: "Retiro en local" },
+  { id: "estandar", label: "Envío estándar" },
+  { id: "express", label: "Envío express" },
+];
+
+function resolveShippingMethods(methods) {
+  if (!Array.isArray(methods)) return [...DEFAULT_SHIPPING_METHODS];
+  const seen = new Set();
+  const normalized = [];
+  methods.forEach((method) => {
+    if (!method) return;
+    const id = String(method.id || method.value || "").trim().toLowerCase();
+    if (!id || seen.has(id)) return;
+    const labelSource =
+      method.label || method.name || method.title || method.displayName || id;
+    const label = String(labelSource || id).trim() || id;
+    normalized.push({ id, label });
+    seen.add(id);
+  });
+  return normalized.length ? normalized : [...DEFAULT_SHIPPING_METHODS];
+}
+
+function normalizeShippingTable(table) {
+  const methods = resolveShippingMethods(table?.methods);
+  const rows = Array.isArray(table?.costos) ? table.costos : [];
+  const normalizedRows = rows
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const provincia = String(row.provincia || "").trim();
+      if (!provincia) return null;
+      const metodos = {};
+      const rawMethods =
+        row.metodos && typeof row.metodos === "object" ? row.metodos : {};
+      const fallbackValueRaw = row.costo ?? row.price ?? row.valor ?? null;
+      const fallbackNumber = Number(fallbackValueRaw);
+      const fallbackCost =
+        Number.isFinite(fallbackNumber) && fallbackNumber >= 0
+          ? fallbackNumber
+          : 0;
+      methods.forEach((method) => {
+        const rawValue =
+          rawMethods[method.id] ??
+          row[method.id] ??
+          (method.id === "retiro" ? 0 : undefined);
+        let numeric = Number(rawValue);
+        if (!Number.isFinite(numeric) || numeric < 0) {
+          numeric = method.id === "retiro" ? 0 : fallbackCost;
+        }
+        metodos[method.id] = numeric;
+      });
+      return { provincia, metodos };
+    })
+    .filter(Boolean);
+  return { methods, costos: normalizedRows };
+}
+
 function getShippingTable() {
   const filePath = dataPath("shipping.json");
   try {
     const file = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(file);
+    const data = JSON.parse(file);
+    return normalizeShippingTable(data);
   } catch (e) {
-    return { costos: [] };
+    return normalizeShippingTable({});
   }
 }
 
 function saveShippingTable(table) {
+  const normalized = normalizeShippingTable(table || {});
   const filePath = dataPath("shipping.json");
-  fs.writeFileSync(filePath, JSON.stringify(table, null, 2), "utf8");
+  fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2), "utf8");
 }
 
 function validateShippingTable(table) {
-  return (
-    table &&
-    Array.isArray(table.costos) &&
-    table.costos.every(
-      (c) =>
-        typeof c.provincia === "string" &&
-        typeof c.costo === "number" &&
-        !Number.isNaN(c.costo),
-    )
-  );
+  try {
+    const normalized = normalizeShippingTable(table || {});
+    return Array.isArray(normalized.costos)
+      ? normalized.costos.every((row) => {
+          if (!row || typeof row !== "object") return false;
+          if (typeof row.provincia !== "string" || !row.provincia.trim()) {
+            return false;
+          }
+          if (!row.metodos || typeof row.metodos !== "object") return false;
+          return normalized.methods.every((method) => {
+            const value = row.metodos[method.id];
+            return (
+              typeof value === "number" &&
+              !Number.isNaN(value) &&
+              value >= 0
+            );
+          });
+        })
+      : false;
+  } catch (err) {
+    return false;
+  }
 }
 
-// Obtener costo de envío para una provincia (retorna 0 si no se encuentra)
-function getShippingCost(provincia) {
-  const table = getShippingTable();
-  const match = table.costos.find(
-    (c) => c.provincia.toLowerCase() === String(provincia || "").toLowerCase(),
+function getShippingMethodLabel(methodId, table) {
+  const shippingTable = table ? table : getShippingTable();
+  const method = shippingTable.methods.find((m) => m.id === methodId);
+  return method ? method.label : methodId || "Envío";
+}
+
+// Obtener costo de envío para una provincia y método (retorna 0 si no se encuentra)
+function getShippingCost(provincia, metodo = "estandar", table) {
+  const shippingTable = table ? normalizeShippingTable(table) : getShippingTable();
+  const methods = shippingTable.methods;
+  const normalizedMethod =
+    methods.find((m) => m.id === metodo) ||
+    methods.find((m) => m.id === "estandar") ||
+    methods[0];
+  const methodId = normalizedMethod ? normalizedMethod.id : metodo;
+  const match = shippingTable.costos.find(
+    (c) =>
+      c.provincia.toLowerCase() === String(provincia || "").toLowerCase(),
   );
-  if (match) return match.costo;
-  const other = table.costos.find((c) => c.provincia === "Otras");
-  return other ? other.costo : 0;
+  const fallback = shippingTable.costos.find(
+    (c) => c.provincia.toLowerCase() === "otras",
+  );
+  const sourceRow = match || fallback;
+  if (sourceRow && sourceRow.metodos && methodId in sourceRow.metodos) {
+    const value = sourceRow.metodos[methodId];
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return value;
+    }
+  }
+  if (methodId === "retiro") return 0;
+  return 0;
 }
 
 function resolveOrderCustomerEmail(order = {}) {
@@ -4148,8 +4241,28 @@ async function requestHandler(req, res) {
   // API: obtener costo de envío por provincia
   if (pathname === "/api/shipping-cost" && req.method === "GET") {
     const prov = parsedUrl.query.provincia || "";
-    const costo = getShippingCost(prov);
-    return sendJson(res, 200, { costo });
+    const metodoQuery = parsedUrl.query.metodo || parsedUrl.query.method || "";
+    const table = getShippingTable();
+    const normalizedMethod =
+      table.methods.find(
+        (m) => m.id === String(metodoQuery || "").trim().toLowerCase(),
+      ) ||
+      table.methods.find((m) => m.id === "estandar") ||
+      table.methods[0];
+    const metodo = normalizedMethod ? normalizedMethod.id : "estandar";
+    const costo = getShippingCost(prov, metodo, table);
+    const provinciaMatch = table.costos.find(
+      (row) => row.provincia.toLowerCase() === String(prov || "").toLowerCase(),
+    );
+    const fallbackProvincia =
+      provinciaMatch || table.costos.find((row) => row.provincia === "Otras");
+    return sendJson(res, 200, {
+      costo,
+      metodo,
+      metodoLabel: normalizedMethod ? normalizedMethod.label : metodo,
+      provincia: prov,
+      metodos: fallbackProvincia ? fallbackProvincia.metodos : {},
+    });
   }
 
   // API: validar email en tiempo real
@@ -4245,12 +4358,47 @@ async function requestHandler(req, res) {
             data.cliente.direccion &&
             data.cliente.direccion.provincia) ||
           "";
-        const shippingCost = getShippingCost(provincia);
-        const total = items.reduce((t, it) => t + it.price * it.quantity, 0);
-        const impuestosCalc = Math.round(total * 0.21);
+        const shippingTable = getShippingTable();
+        const rawMethod = String(
+          data.metodo ||
+            data.metodo_envio ||
+            data.cliente?.metodo ||
+            data.cliente?.metodo_envio ||
+            "",
+        )
+          .trim()
+          .toLowerCase();
+        const resolvedMethod =
+          shippingTable.methods.find((m) => m.id === rawMethod) ||
+          shippingTable.methods.find((m) => m.id === "estandar") ||
+          shippingTable.methods[0];
+        const shippingMethodId = resolvedMethod ? resolvedMethod.id : rawMethod;
+        const shippingLabel = resolvedMethod
+          ? resolvedMethod.label
+          : getShippingMethodLabel(shippingMethodId, shippingTable);
+        const shippingCost = getShippingCost(
+          provincia,
+          shippingMethodId,
+          shippingTable,
+        );
+        const subtotal = items.reduce((t, it) => t + it.price * it.quantity, 0);
+        const grandTotal = subtotal + (shippingCost || 0);
+        const impuestosCalc = Math.round(subtotal * 0.21);
+        const totals = {
+          subtotal,
+          shipping: shippingCost,
+          grand_total: grandTotal,
+        };
         const itemsSummary = items
           .map((it) => `${it.name} x${it.quantity}`)
           .join(", ");
+        const summaryParts = [itemsSummary].filter((part) => part);
+        if (shippingMethodId === "retiro") {
+          summaryParts.push("Retiro en local");
+        } else if (shippingCost > 0) {
+          summaryParts.push(`Envío ${shippingLabel}`);
+        }
+        const combinedSummary = summaryParts.join(", ");
         const pendingCode = mapPaymentStatusCode("pending");
         const pendingLabel = localizePaymentStatus("pending");
         const baseOrder = {
@@ -4266,10 +4414,13 @@ async function requestHandler(req, res) {
           payment_status_code: pendingCode,
           estado_envio: "pendiente",
           shipping_status: "pendiente",
-          metodo_envio: data.metodo_envio || "Correo Argentino",
+          metodo_envio: shippingLabel || data.metodo_envio || "Correo Argentino",
+          shipping_method: shippingMethodId,
           comentarios: data.comentarios || "",
-          total,
-          items_summary: itemsSummary,
+          total: grandTotal,
+          subtotal,
+          totals,
+          items_summary: combinedSummary,
           impuestos: {
             iva: 21,
             percepciones: 0,
@@ -4306,12 +4457,20 @@ async function requestHandler(req, res) {
         let initPoint = null;
         if (mpPreference) {
           try {
-            const pref = {
-              items: items.map((it) => ({
+            const prefItems = items.map((it) => ({
                 title: it.name,
                 quantity: Number(it.quantity),
                 unit_price: Number(it.price),
-              })),
+              }));
+            if (shippingCost > 0) {
+              prefItems.push({
+                title: `Envío (${shippingLabel})`,
+                quantity: 1,
+                unit_price: shippingCost,
+              });
+            }
+            const pref = {
+              items: prefItems,
               back_urls: {
                 success: `${DOMAIN}/success`,
                 failure: `${DOMAIN}/failure`,
@@ -5795,6 +5954,52 @@ async function requestHandler(req, res) {
             .toLowerCase()
             .trim();
 
+        const shippingTable = getShippingTable();
+        const rawShippingMethod = String(
+          usuario?.metodo || usuario?.metodo_envio || "",
+        )
+          .trim()
+          .toLowerCase();
+        let shippingMethodId = rawShippingMethod;
+        let shippingCost = Number(usuario?.costo ?? usuario?.costo_envio);
+        if (!Number.isFinite(shippingCost) || shippingCost < 0) {
+          shippingCost = 0;
+        }
+        const resolvedMethod =
+          shippingTable.methods.find((m) => m.id === shippingMethodId) ||
+          shippingTable.methods.find((m) => m.id === "estandar") ||
+          shippingTable.methods[0];
+        if (resolvedMethod) {
+          shippingMethodId = resolvedMethod.id;
+        }
+        if (!shippingMethodId) {
+          shippingMethodId = shippingCost > 0 ? "estandar" : "retiro";
+        }
+        if (!shippingCost) {
+          const resolvedCost = getShippingCost(
+            usuario?.provincia,
+            shippingMethodId,
+            shippingTable,
+          );
+          if (Number.isFinite(resolvedCost) && resolvedCost >= 0) {
+            shippingCost = resolvedCost;
+          }
+        }
+        if (shippingMethodId === "retiro") {
+          shippingCost = 0;
+        }
+        const shippingLabel = getShippingMethodLabel(
+          shippingMethodId,
+          shippingTable,
+        );
+
+        if (usuario && typeof usuario === "object") {
+          usuario.metodo = shippingMethodId;
+          usuario.metodo_envio = shippingLabel;
+          usuario.costo = shippingCost;
+          usuario.costo_envio = shippingCost;
+        }
+
         const items = carrito.map(
           ({ titulo, precio, cantidad, currency_id }) => ({
             title: String(titulo),
@@ -5803,6 +6008,15 @@ async function requestHandler(req, res) {
             currency_id: currency_id || "ARS",
           }),
         );
+
+        if (shippingCost > 0) {
+          items.push({
+            title: `Envío (${shippingLabel})`,
+            unit_price: shippingCost,
+            quantity: 1,
+            currency_id: "ARS",
+          });
+        }
 
         const itemsForOrder = carrito.map(
           ({ titulo, precio, cantidad, id, productId, sku }) => {
@@ -5823,13 +6037,26 @@ async function requestHandler(req, res) {
             };
           },
         );
-        const total = itemsForOrder.reduce(
+        const subtotal = itemsForOrder.reduce(
           (t, it) => t + it.price * it.quantity,
           0,
         );
+        const grandTotal = subtotal + (shippingCost || 0);
+        const totals = {
+          subtotal,
+          shipping: shippingCost,
+          grand_total: grandTotal,
+        };
         const itemsSummary = itemsForOrder
           .map((it) => `${it.name} x${it.quantity}`)
           .join(", ");
+        const summaryParts = [itemsSummary].filter((part) => part);
+        if (shippingMethodId === "retiro") {
+          summaryParts.push("Retiro en local");
+        } else if (shippingCost > 0) {
+          summaryParts.push(`Envío ${shippingLabel}`);
+        }
+        const combinedSummary = summaryParts.join(", ");
         const numeroOrden = generarNumeroOrden();
         const now = new Date().toISOString();
         const preferenceBody = {
@@ -5872,12 +6099,16 @@ async function requestHandler(req, res) {
               user_email: usuario?.email || null,
               cliente: usuario || {},
               productos: itemsForOrder,
-              items_summary: itemsSummary,
-              total,
+              items_summary: combinedSummary,
+              subtotal,
+              totals,
+              total: grandTotal,
               created_at: now,
               fecha: now,
               provincia_envio: usuario?.provincia || "",
-              costo_envio: Number(usuario?.costo || usuario?.costo_envio || 0),
+              costo_envio: shippingCost,
+              metodo_envio: shippingLabel,
+              shipping_method: shippingMethodId,
               seguimiento: "",
               tracking: "",
               transportista: "",
@@ -5904,16 +6135,17 @@ async function requestHandler(req, res) {
               row.shipping_status || row.estado_envio || "pendiente";
             row.cliente = row.cliente || usuario || {};
             row.productos = itemsForOrder;
-            row.items_summary = itemsSummary;
-            if (!row.total) row.total = total;
+            row.items_summary = combinedSummary;
+            row.subtotal = subtotal;
+            row.totals = totals;
+            row.total = grandTotal;
             if (!row.created_at) row.created_at = now;
             row.fecha = row.created_at;
             row.provincia_envio =
               row.provincia_envio || usuario?.provincia || "";
-            if (row.costo_envio == null)
-              row.costo_envio = Number(
-                usuario?.costo || usuario?.costo_envio || 0,
-              );
+            row.costo_envio = shippingCost;
+            row.metodo_envio = shippingLabel;
+            row.shipping_method = shippingMethodId;
             row.seguimiento = row.seguimiento || "";
             row.tracking = row.tracking || "";
             row.transportista = row.transportista || "";
