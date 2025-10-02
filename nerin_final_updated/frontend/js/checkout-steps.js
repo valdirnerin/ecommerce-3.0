@@ -7,6 +7,7 @@ const step3 = document.getElementById('step3');
 const formDatos = document.getElementById('formDatos');
 const formEnvio = document.getElementById('formEnvio');
 const costoEl = document.getElementById('costoEnvio');
+const metodoSelect = document.getElementById('metodo');
 const resumenEl = document.getElementById('resumen');
 const confirmarBtn = document.getElementById('confirmar');
 const emailInput = document.getElementById('email');
@@ -130,26 +131,73 @@ formDatos.addEventListener('submit', async (ev) => {
 
 async function updateCosto() {
   const provincia = document.getElementById('provincia').value.trim();
-  if (!provincia) return;
+  const metodo = metodoSelect.value;
+  if (!metodo) {
+    costoEl.textContent = '';
+    envio.costo = 0;
+    envio.metodo = '';
+    envio.metodoLabel = '';
+    return;
+  }
+  if (!provincia && metodo !== 'retiro') {
+    costoEl.textContent = 'Seleccioná una provincia para calcular el envío';
+    envio.costo = 0;
+    envio.metodo = metodo;
+    envio.metodoLabel = SHIPPING_METHOD_LABELS[metodo] || '';
+    return;
+  }
   try {
-    console.log('Calculando costo de envío', provincia);
-    const res = await apiFetch(`/api/shipping-cost?provincia=${encodeURIComponent(provincia)}`);
+    console.log('Calculando costo de envío', { provincia, metodo });
+    const params = new URLSearchParams({
+      provincia,
+      metodo,
+    });
+    const res = await apiFetch(`/api/shipping-cost?${params.toString()}`);
     if (res.ok) {
       const data = await res.json();
       console.log('Respuesta costo envío', { status: res.status, data });
-      costoEl.textContent = `Costo de envío: $${data.costo}`;
-      envio.costo = data.costo;
+      const costo = Number(data.costo) || 0;
+      const label = data.metodoLabel || SHIPPING_METHOD_LABELS[data.metodo] || '';
+      if (costo === 0) {
+        const texto = label ? `${label}: sin costo` : 'Envío sin costo';
+        costoEl.textContent = texto;
+      } else {
+        const texto = label ? `${label}: $${costo.toLocaleString('es-AR')}` : `Costo de envío: $${costo}`;
+        costoEl.textContent = texto;
+      }
+      envio.costo = costo;
+      envio.metodo = data.metodo || metodo;
+      envio.metodoLabel = label;
     } else {
       console.log('Error costo envío', res.status);
+      costoEl.textContent = 'No se pudo calcular el costo de envío';
+      envio.costo = 0;
+      envio.metodo = metodo;
+      envio.metodoLabel = SHIPPING_METHOD_LABELS[metodo] || '';
     }
   } catch (err) {
     console.log('Error costo envío', err);
+    costoEl.textContent = 'No se pudo calcular el costo de envío';
+    envio.costo = 0;
+    envio.metodo = metodo;
+    envio.metodoLabel = SHIPPING_METHOD_LABELS[metodo] || '';
   }
 }
 
 document.getElementById('provincia').addEventListener('change', updateCosto);
+metodoSelect.addEventListener('change', updateCosto);
+
+const SHIPPING_METHOD_LABELS = {
+  retiro: 'Retiro en local',
+  estandar: 'Envío estándar',
+  express: 'Envío express',
+};
 
 envio.costo = 0;
+envio.metodo = metodoSelect.value || '';
+envio.metodoLabel = SHIPPING_METHOD_LABELS[envio.metodo] || '';
+
+updateCosto();
 
 formEnvio.addEventListener('submit', (ev) => {
   ev.preventDefault();
@@ -161,7 +209,7 @@ formEnvio.addEventListener('submit', (ev) => {
     numero: document.getElementById('numero').value.trim(),
     piso: document.getElementById('piso').value.trim(),
     cp: document.getElementById('cp').value.trim(),
-    metodo: document.getElementById('metodo').value,
+    metodo: metodoSelect.value,
   };
   buildResumen();
   step2.style.display = 'none';
@@ -177,10 +225,17 @@ function buildResumen() {
     )
     .join('');
   const total = subtotal + (envio.costo || 0);
+  const metodoLabel =
+    envio.metodoLabel || SHIPPING_METHOD_LABELS[envio.metodo] || '';
   resumenEl.innerHTML = `
     <ul>${itemsHtml}</ul>
     <p>Subtotal: $${subtotal.toLocaleString('es-AR')}</p>
     <p>Envío: $${(envio.costo || 0).toLocaleString('es-AR')}</p>
+    ${
+      metodoLabel
+        ? `<p>Método de envío: ${metodoLabel}</p>`
+        : ''
+    }
     <p><strong>Total: $${total.toLocaleString('es-AR')}</strong></p>
   `;
 }
