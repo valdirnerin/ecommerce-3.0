@@ -819,12 +819,53 @@ const DEFAULT_FOOTER = {
   cta: {
     enabled: true,
     text: "¿Sos técnico o mayorista?",
-    buttonLabel: "Acceso mayoristas",
-    href: "/mayoristas",
+    buttonLabel: "Ingresar a portal mayorista",
+    href: "/account-minorista.html#mayoristas",
   },
-  columns: [],
-  contact: { whatsapp: "", email: "", address: "" },
-  social: { instagram: "", linkedin: "", youtube: "" },
+  columns: [
+    {
+      title: "Catálogo",
+      links: [
+        { label: "Productos", href: "/shop.html" },
+        { label: "Pantallas Samsung", href: "/shop.html?category=pantallas" },
+        { label: "Baterías originales", href: "/shop.html?category=baterias" },
+      ],
+    },
+    {
+      title: "Ayuda",
+      links: [
+        { label: "Seguimiento de pedido", href: "/seguimiento.html" },
+        { label: "Garantía y devoluciones", href: "/pages/terminos.html#garantia" },
+        { label: "Preguntas frecuentes", href: "/contact.html#faq" },
+      ],
+    },
+    {
+      title: "Cuenta",
+      links: [
+        { label: "Acceder", href: "/login.html" },
+        { label: "Crear cuenta", href: "/register.html" },
+        { label: "Soporte técnico", href: "/contact.html" },
+      ],
+    },
+    {
+      title: "Empresa",
+      links: [
+        { label: "Quiénes somos", href: "/index.html#quienes-somos" },
+        { label: "Contacto comercial", href: "#contacto" },
+        { label: "Términos y condiciones", href: "/pages/terminos.html" },
+      ],
+    },
+  ],
+  contact: {
+    whatsapp: "+54 9 11 3034-1550",
+    email: "ventas@nerinparts.com.ar",
+    address: "CABA, Argentina",
+  },
+  social: {
+    instagram: "https://www.instagram.com/nerinparts",
+    linkedin: "https://www.linkedin.com/company/nerinparts",
+    youtube: "",
+  },
   badges: {
     mercadoPago: true,
     ssl: true,
@@ -833,8 +874,17 @@ const DEFAULT_FOOTER = {
     dhl: false,
     authenticity: true,
   },
-  newsletter: { enabled: false, placeholder: "", successMsg: "" },
-  legal: { cuit: "", iibb: "", terms: "", privacy: "" },
+  newsletter: {
+    enabled: false,
+    placeholder: "Tu email para recibir novedades",
+    successMsg: "¡Listo! Te sumamos a nuestra lista.",
+  },
+  legal: {
+    cuit: "30-93002432-2",
+    iibb: "IIBB CABA 901-117119-4",
+    terms: "/pages/terminos.html",
+    privacy: "/pages/terminos.html#datos",
+  },
   show: {
     cta: true,
     branding: true,
@@ -846,12 +896,15 @@ const DEFAULT_FOOTER = {
     legal: true,
   },
   theme: {
-    accentFrom: "#FFD54F",
-    accentTo: "#FFC107",
-    border: "rgba(255,255,255,.08)",
-    bg: "#0B0B0C",
-    fg: "#EDEDEF",
-    muted: "#B8B8BC",
+    accentFrom: "#60a5fa",
+    accentTo: "#2563eb",
+    border: "rgba(255,255,255,0.08)",
+    bg: "#0b0b0c",
+    fg: "#edeff5",
+    muted: "#9ca3af",
+    accentBar: true,
+    mode: "dark",
+    link: "#93c5fd",
   },
 };
 
@@ -2258,6 +2311,17 @@ function normalizeFooter(data) {
     bg: String(data?.theme?.bg || base.theme.bg),
     fg: String(data?.theme?.fg || base.theme.fg),
     muted: String(data?.theme?.muted || base.theme.muted),
+    accentBar:
+      data?.theme?.accentBar === false
+        ? false
+        : data?.theme?.accentBar === true
+          ? true
+          : base.theme.accentBar !== false,
+    mode:
+      typeof data?.theme?.mode === "string" && data.theme.mode
+        ? data.theme.mode
+        : base.theme.mode,
+    link: String(data?.theme?.link || base.theme.link || base.theme.accentFrom),
   };
   return out;
 }

@@ -7,20 +7,41 @@
         <a class="np-footer__cta-btn" href="#"></a>
       </div>
 
-      <div class="np-footer__branding" hidden>
-        <div class="np-footer__brand">NERIN PARTS</div>
-        <div class="np-footer__slogan">Samsung Service Pack Original</div>
+      <div class="np-footer__body">
+        <div class="np-footer__branding" hidden>
+          <div class="np-footer__brand">NERIN PARTS</div>
+          <div class="np-footer__slogan">Samsung Service Pack Original</div>
+        </div>
+
+        <nav class="np-footer__nav" aria-labelledby="np-footer-nav-title" hidden>
+          <h2 id="np-footer-nav-title" class="sr-only">Navegación de pie de página</h2>
+          <div class="np-footer__columns"></div>
+        </nav>
+
+        <div class="np-footer__contact" hidden></div>
+
+        <section class="np-footer__newsletter" hidden>
+          <h2 class="np-footer__newsletter-title">Recibí novedades</h2>
+          <form class="np-footer__newsletter-form" novalidate>
+            <label class="sr-only" for="np-footer-news-email">Correo electrónico</label>
+            <input
+              id="np-footer-news-email"
+              type="email"
+              name="email"
+              autocomplete="email"
+              required
+            />
+            <button type="submit">Suscribirme</button>
+          </form>
+          <p class="np-footer__newsletter-feedback" role="status" hidden></p>
+        </section>
       </div>
 
-      <nav class="np-footer__nav" aria-labelledby="np-footer-nav-title" hidden>
-        <h2 id="np-footer-nav-title" class="sr-only">Navegación de pie de página</h2>
-        <div class="np-footer__columns"></div>
-      </nav>
-
-      <div class="np-footer__contact" hidden></div>
-      <div class="np-footer__social" hidden></div>
-      <div class="np-footer__badges" hidden></div>
-      <div class="np-footer__legal" hidden></div>
+      <div class="np-footer__meta">
+        <div class="np-footer__social" hidden></div>
+        <div class="np-footer__badges" hidden></div>
+        <div class="np-footer__legal" hidden></div>
+      </div>
     </div>
   </footer>
 </template>
