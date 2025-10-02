@@ -975,7 +975,7 @@ async function markEmailSent(orderId, flagName, value = true) {
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();
-    const idx = orders.findIndex((order) => String(order.id) === String(id));
+    const idx = orders.findIndex((order) => orderMatches(order, id));
     if (idx === -1) return null;
     const current = orders[idx].emails || {};
     if (current[flag] === nextValue) return orders[idx];
@@ -990,7 +990,7 @@ async function markEmailSent(orderId, flagName, value = true) {
 
   const payload = JSON.stringify({ [flag]: nextValue });
   const { rows } = await pool.query(
-    "UPDATE orders SET emails = COALESCE(emails, '{}'::jsonb) || $2::jsonb WHERE id=$1 RETURNING *",
+    "UPDATE orders SET emails = COALESCE(emails, '{}'::jsonb) || $2::jsonb WHERE id=$1 OR order_number=$1 OR external_reference=$1 RETURNING *",
     [id, payload],
   );
   if (!rows[0]) return null;
