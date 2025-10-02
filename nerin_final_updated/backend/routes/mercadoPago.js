@@ -225,13 +225,28 @@ const STATUS_EMAIL_HANDLERS = {
   rejected: { sender: sendPaymentRejected, flag: 'rejectedSent' },
 };
 
-async function notifyCustomerStatus({ order, status, paymentId }) {
+async function notifyCustomerStatus({
+  order,
+  status,
+  paymentId,
+  previousStatus,
+}) {
   if (!order || !status) return;
   const config = STATUS_EMAIL_HANDLERS[status];
   if (!config) return;
   const orderReference = order?.reference || null;
   const resolvedOrderId = resolveOrderIdentifier(order);
   const orderIdForLogs = orderReference || resolvedOrderId || order?.id || null;
+  if (previousStatus && previousStatus === status && status === 'approved') {
+    logger.info('mp-webhook email skipped', {
+      paymentId,
+      status,
+      reason: 'status-unchanged',
+      flag: config.flag,
+      orderId: orderReference || undefined,
+    });
+    return;
+  }
   const alreadySent = order?.emails?.[config.flag] === true;
   if (alreadySent) {
     logger.info('mp-webhook email skipped', {
@@ -450,6 +465,7 @@ async function handlePayment(paymentId, hints = {}) {
       order: mergedOrder,
       status: nextCode,
       paymentId,
+      previousStatus: prevCode,
     });
 
     logger.info('mp-webhook order updated', {

@@ -161,6 +161,48 @@ describe('Mercado Pago webhook', () => {
     if (server.close) server.close();
   });
 
+  test('does not resend confirmation when payment stays approved', async () => {
+    const approvedOrder = {
+      id: 'ORDER-APPROVED',
+      items: [{ id: 'SKU', qty: 1, price: 1000 }],
+      totals: { grand_total: 1000 },
+      payment_status_code: 'approved',
+      status: 'paid',
+      inventoryApplied: true,
+      inventory_applied: true,
+      customer_email: 'cliente@example.com',
+      customer: { email: 'cliente@example.com' },
+    };
+    ordersRepo.findByPaymentIdentifiers.mockResolvedValueOnce(approvedOrder);
+    ordersRepo.getNormalizedItems.mockReturnValueOnce(approvedOrder.items);
+    ordersRepo.upsertByPayment.mockResolvedValueOnce({
+      ...approvedOrder,
+      mp_payment: { id: '456', status: 'approved' },
+    });
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: '456',
+        status: 'approved',
+        transaction_amount: 1000,
+        currency_id: 'ARS',
+        external_reference: 'ORDER-APPROVED',
+        preference_id: 'PREF-1',
+        metadata: {},
+      }),
+    });
+
+    await expect(
+      processNotification({
+        body: { type: 'payment', action: 'payment.updated', data: { id: '456' } },
+        query: {},
+      }),
+    ).resolves.toBe('ok');
+
+    expect(emailNotifications.sendOrderConfirmed).not.toHaveBeenCalled();
+    expect(ordersRepo.markEmailSent).not.toHaveBeenCalled();
+  });
+
   test('payment approved transitioning to refunded reverts inventory once', async () => {
     ordersRepo.findByPaymentIdentifiers.mockResolvedValue({
       id: 'ORDER-1',
