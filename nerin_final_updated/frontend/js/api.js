@@ -36,12 +36,35 @@ export function apiFetch(path, options) {
 
 // Obtener la lista de productos desde el backend
 export async function fetchProducts() {
-  const res = await apiFetch("/api/products");
-  if (!res.ok) {
-    throw new Error("No se pudieron obtener los productos");
+  try {
+    const res = await apiFetch("/api/products");
+    if (!res.ok) {
+      throw new Error("No se pudieron obtener los productos");
+    }
+    const data = await res.json();
+    if (!data || !Array.isArray(data.products)) {
+      throw new Error("Respuesta de productos inválida");
+    }
+    return data.products;
+  } catch (error) {
+    console.warn("Fallo el endpoint de productos, usando datos locales", error);
+    try {
+      const fallbackResponse = await fetch("/mock-data/products.json", {
+        cache: "no-store",
+      });
+      if (!fallbackResponse.ok) {
+        throw new Error("No se pudo cargar el fallback de productos");
+      }
+      const fallbackData = await fallbackResponse.json();
+      if (fallbackData && Array.isArray(fallbackData.products)) {
+        return fallbackData.products;
+      }
+      throw new Error("Fallback de productos inválido");
+    } catch (fallbackError) {
+      console.error("Error al obtener productos", fallbackError);
+      throw fallbackError;
+    }
   }
-  const data = await res.json();
-  return data.products;
 }
 
 // Iniciar sesión. Devuelve objeto con success, token y role
