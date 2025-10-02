@@ -5,25 +5,76 @@ const defaultConfig = {
   cta: {
     enabled: true,
     text: "¿Sos técnico o mayorista?",
-    buttonLabel: "Acceso mayoristas",
-    href: "/mayoristas",
+    buttonLabel: "Ingresar a portal mayorista",
+    href: "/account-minorista.html#mayoristas",
   },
-  columns: [],
-  contact: { whatsapp: "", email: "", address: "" },
-  social: { instagram: "", linkedin: "", youtube: "" },
+  columns: [
+    {
+      title: "Catálogo",
+      links: [
+        { label: "Productos", href: "/shop.html" },
+        { label: "Pantallas Samsung", href: "/shop.html?category=pantallas" },
+        { label: "Baterías originales", href: "/shop.html?category=baterias" },
+      ],
+    },
+    {
+      title: "Ayuda",
+      links: [
+        { label: "Seguimiento de pedido", href: "/seguimiento.html" },
+        { label: "Garantía y devoluciones", href: "/pages/terminos.html#garantia" },
+        { label: "Preguntas frecuentes", href: "/contact.html#faq" },
+      ],
+    },
+    {
+      title: "Cuenta",
+      links: [
+        { label: "Acceder", href: "/login.html" },
+        { label: "Crear cuenta", href: "/register.html" },
+        { label: "Soporte técnico", href: "/contact.html" },
+      ],
+    },
+    {
+      title: "Empresa",
+      links: [
+        { label: "Quiénes somos", href: "/index.html#quienes-somos" },
+        { label: "Contacto comercial", href: "#contacto" },
+        { label: "Términos y condiciones", href: "/pages/terminos.html" },
+      ],
+    },
+  ],
+  contact: {
+    whatsapp: "+54 9 11 3034-1550",
+    email: "ventas@nerinparts.com.ar",
+    address: "CABA, Argentina",
+  },
+  social: {
+    instagram: "https://www.instagram.com/nerinparts",
+    linkedin: "https://www.linkedin.com/company/nerinparts",
+    youtube: "",
+  },
   badges: { mercadoPago: true, ssl: true, andreani: true, oca: true, dhl: false, authenticity: true },
-  newsletter: { enabled: false, placeholder: "", successMsg: "" },
-  legal: { cuit: "", iibb: "", terms: "", privacy: "" },
+  newsletter: {
+    enabled: false,
+    placeholder: "Tu email para recibir novedades",
+    successMsg: "¡Listo! Te sumamos a nuestra lista.",
+  },
+  legal: {
+    cuit: "30-93002432-2",
+    iibb: "IIBB CABA 901-117119-4",
+    terms: "/pages/terminos.html",
+    privacy: "/pages/terminos.html#datos",
+  },
   show: { cta: true, branding: true, columns: true, contact: true, social: true, badges: true, newsletter: false, legal: true },
   theme: {
-    accentFrom: "#FFD54F",
-    accentTo: "#FFC107",
-    border: "rgba(0,0,0,.08)",
-    bg: "#ffffff",
-    fg: "#111827",
-    muted: "#A9ABB2",
+    accentFrom: "#60a5fa",
+    accentTo: "#2563eb",
+    border: "rgba(255,255,255,0.08)",
+    bg: "#0b0b0c",
+    fg: "#edeff5",
+    muted: "#9ca3af",
     accentBar: true,
-    mode: "auto",
+    mode: "dark",
+    link: "#93c5fd",
   },
 };
 
@@ -124,6 +175,7 @@ function collectForm() {
     muted: defaultConfig.theme.muted,
     accentBar: form.accentBar.checked,
     mode: form.themeMode.value,
+    link: form.accentFrom.value,
   };
   cfg.newsletter = {
     enabled: form.newsEnabled.checked,
