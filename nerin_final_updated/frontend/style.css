@@ -3453,18 +3453,27 @@ footer .legal {
   gap: 0.35rem;
 }
 
+
 .doc-files li {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.25rem 0.5rem;
   font-size: 0.85rem;
   color: #374151;
+  width: 100%;
+  min-width: 0;
 }
 
 .doc-files li a {
   color: #2563eb;
   font-weight: 600;
   text-decoration: none;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .doc-files li a:hover {
@@ -3473,6 +3482,15 @@ footer .legal {
 
 .doc-files li small {
   color: #6b7280;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  flex-basis: 100%;
+  display: block;
+}
+
+.doc-files li .button {
+  flex-shrink: 0;
 }
 
 .doc-files .empty {
@@ -3745,6 +3763,9 @@ footer .legal {
 .document-links a:hover,
 .link-list a:hover {
   text-decoration: underline;
+}
+.document-links li {
+  overflow-wrap: anywhere;
 }
 
 .support-actions {

@@ -1,3 +1,72 @@
 {
-  "records": []
+  "records": [
+    {
+      "email": "mayorista@nerin.com",
+      "updatedAt": "2024-06-26T13:45:00Z",
+      "documents": {
+        "afip": {
+          "status": "submitted",
+          "updatedAt": "2024-06-26T13:45:00Z",
+          "files": [
+            {
+              "id": "doc_afip_extenso",
+              "filename": "doc_afip_extenso.pdf",
+              "url": "https://files.nerin.com/documents/afip-constancia.pdf",
+              "originalName": "Constancia de Inscripción AFIP - Sociedad de Comercio Internacional con Razón Social Sumamente Extensa S.A..pdf",
+              "uploadedAt": "2024-06-26T13:45:00Z",
+              "size": 2457600
+            }
+          ]
+        },
+        "iva": {
+          "status": "submitted",
+          "updatedAt": "2024-06-20T09:12:00Z",
+          "files": [
+            {
+              "id": "doc_padron_iva",
+              "filename": "doc_padron_iva.pdf",
+              "url": "https://files.nerin.com/documents/padron-iva.pdf",
+              "originalName": "Padrón IVA Régimen General - Cliente Mayorista Distribuidora Mayor de Electrodomésticos del Litoral.pdf",
+              "uploadedAt": "2024-06-20T09:12:00Z",
+              "size": 1835008
+            }
+          ]
+        },
+        "bank": {
+          "status": "approved",
+          "notes": "CBU validado el 15/05",
+          "reviewedAt": "2024-05-15T14:20:00Z",
+          "reviewedBy": {
+            "name": "María Procesos",
+            "email": "procesos@nerin.com"
+          },
+          "updatedAt": "2024-05-15T14:20:00Z",
+          "files": [
+            {
+              "id": "doc_cbu_extenso",
+              "filename": "doc_cbu_extenso.pdf",
+              "url": "https://files.nerin.com/documents/cbu-nuevocuenta.pdf",
+              "originalName": "Comprobante de CBU Empresa Comercializadora Regional Unidos por la Tecnologia Limitada.pdf",
+              "uploadedAt": "2024-05-14T18:05:00Z",
+              "size": 512000
+            }
+          ]
+        },
+        "agreement": {
+          "status": "approved",
+          "updatedAt": "2024-04-10T10:30:00Z",
+          "files": [
+            {
+              "id": "doc_contrato_principal",
+              "filename": "doc_contrato_principal.pdf",
+              "url": "https://files.nerin.com/documents/contrato-revendedor.pdf",
+              "originalName": "Contrato de Comercialización Mayorista - Renovación 2024 - Cliente Internacional Mega Retail Group.pdf",
+              "uploadedAt": "2024-04-10T10:30:00Z",
+              "size": 3145728
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
