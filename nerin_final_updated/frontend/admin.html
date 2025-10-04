@@ -220,6 +220,62 @@
       </div>
       <section id="productsSection" class="admin-section">
         <h3>Gestión de productos</h3>
+        <div class="product-toolbar">
+          <div class="product-summary" id="productsSummary">
+            <div class="product-summary__badge">0</div>
+            <div class="product-summary__details">
+              <p class="product-summary__title">Sin datos disponibles</p>
+              <p class="product-summary__meta">Sin filtros activos</p>
+              <div class="product-summary__indicators">
+                <span>Actualizá para ver estadísticas.</span>
+              </div>
+            </div>
+          </div>
+          <div class="product-filters" aria-label="Filtros de productos">
+            <label class="filter-field">
+              <span>Búsqueda</span>
+              <input
+                type="search"
+                id="productSearch"
+                placeholder="SKU, nombre, modelo o tag"
+                autocomplete="off"
+              />
+            </label>
+            <label class="filter-field">
+              <span>Categoría</span>
+              <select id="productFilterCategory">
+                <option value="">Todas</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Visibilidad</span>
+              <select id="productFilterVisibility">
+                <option value="">Todas</option>
+                <option value="public">Público</option>
+                <option value="private">Privado</option>
+                <option value="draft">Borrador</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Stock</span>
+              <select id="productFilterStock">
+                <option value="">Todos</option>
+                <option value="low">Stock bajo</option>
+                <option value="out">Sin stock</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Ordenar por</span>
+              <select id="productSort">
+                <option value="recent">Actualizado recientemente</option>
+                <option value="name">Nombre (A→Z)</option>
+                <option value="stock">Stock (mayor a menor)</option>
+                <option value="price_desc">Precio (min. ↓)</option>
+                <option value="price_asc">Precio (min. ↑)</option>
+              </select>
+            </label>
+          </div>
+        </div>
         <div class="table-wrapper">
           <table class="admin-table" id="productsTable">
             <thead>
@@ -278,16 +334,44 @@
             <input type="text" id="productName" name="name" placeholder="Nombre" required />
             <input type="text" id="productBrand" name="brand" placeholder="Marca" />
             <input type="text" id="productModel" name="model" placeholder="Modelo" />
-            <select id="productCategory" name="category"></select>
-            <select id="productSubcategory" name="subcategory"></select>
-            <div class="tags-field">
-              <input
-                type="text"
-                id="productTags"
-                name="tags"
-                placeholder="Tags (coma separados)"
-              />
-              <div id="tagsPreview" class="tags-preview"></div>
+            <input
+              type="text"
+              id="productCategory"
+              name="category"
+              placeholder="Categoría"
+              list="productCategoryOptions"
+            />
+            <datalist id="productCategoryOptions"></datalist>
+            <input
+              type="text"
+              id="productSubcategory"
+              name="subcategory"
+              placeholder="Subcategoría"
+              list="productSubcategoryOptions"
+            />
+            <datalist id="productSubcategoryOptions"></datalist>
+            <div class="form-section form-grid-span form-section--tags" id="tagsAssistSection">
+              <div class="form-section__header">
+                <h5>Palabras clave y etiquetas</h5>
+                <label class="assist-toggle">
+                  <input type="checkbox" id="autoTagsToggle" checked />
+                  <span>Generar automáticamente</span>
+                </label>
+              </div>
+              <p class="form-hint" id="autoTagsStatus">
+                Usamos marca, modelo y categoría para crear tags relevantes sin
+                que tengas que escribirlos.
+              </p>
+              <div id="autoTagSuggestions" class="assist-preview assist-preview--chips"></div>
+              <div class="tags-field">
+                <input
+                  type="text"
+                  id="productTags"
+                  name="tags"
+                  placeholder="Tags (coma separados)"
+                />
+                <div id="tagsPreview" class="tags-preview"></div>
+              </div>
             </div>
             <input
               type="number"
@@ -328,30 +412,79 @@
               step="0.01"
             />
             <select id="productSupplier" name="supplier_id"></select>
-            <input
-              type="text"
-              id="productSlug"
-              name="slug"
-              placeholder="Slug"
-            />
-            <textarea
-              id="productDescription"
-              name="description"
-              placeholder="Descripción del producto"
-              rows="3"
-            ></textarea>
-            <input
-              type="text"
-              id="productMetaTitle"
-              name="meta_title"
-              placeholder="Meta título"
-            />
-            <textarea
-              id="productMetaDesc"
-              name="meta_description"
-              placeholder="Meta descripción"
-              rows="2"
-            ></textarea>
+            <div class="form-section form-grid-span form-section--description" id="descriptionAssistSection">
+              <div class="form-section__header">
+                <h5>Descripción para la tienda</h5>
+              </div>
+              <p class="form-hint" id="descriptionAssistStatus">
+                Escribí una descripción clara y simple con la información clave
+                para tus clientes. Nosotros usamos el resto de los datos para
+                potenciar el SEO automáticamente.
+              </p>
+              <textarea
+                id="productDescription"
+                name="description"
+                placeholder="Descripción del producto"
+                rows="4"
+              ></textarea>
+            </div>
+            <div class="form-section form-grid-span form-section--seo" id="seoAssistSection">
+              <div class="form-section__header">
+                <h5>SEO y visibilidad</h5>
+                <label class="assist-toggle">
+                  <input type="checkbox" id="autoSeoToggle" checked />
+                  <span>Optimizar automáticamente</span>
+                </label>
+              </div>
+              <p class="form-hint" id="seoAssistStatus">
+                Completá nombre, marca, modelo y categoría para generar título,
+                URL y meta descripción perfectos.
+              </p>
+              <div class="assist-grid">
+                <div class="assist-field">
+                  <label for="productSlug">URL pública</label>
+                  <input
+                    type="text"
+                    id="productSlug"
+                    name="slug"
+                    placeholder="mi-producto-estelar"
+                  />
+                  <p class="form-hint">
+                    La generamos con la información principal. Podés ajustarla
+                    si necesitás una URL personalizada.
+                  </p>
+                </div>
+                <div class="assist-preview" id="seoPreview" aria-live="polite">
+                  <p id="seoSlugPreview"></p>
+                  <h5 id="seoTitlePreview"></h5>
+                  <p id="seoDescPreview"></p>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="button-link"
+                id="showSeoAdvancedBtn"
+                aria-expanded="false"
+              >
+                Editar meta título y descripción manualmente
+              </button>
+            </div>
+            <div id="seoAdvancedFields" class="seo-advanced form-grid-span is-collapsed">
+              <label for="productMetaTitle">Meta título (opcional)</label>
+              <input
+                type="text"
+                id="productMetaTitle"
+                name="meta_title"
+                placeholder="Meta título"
+              />
+              <label for="productMetaDesc">Meta descripción (opcional)</label>
+              <textarea
+                id="productMetaDesc"
+                name="meta_description"
+                placeholder="Meta descripción"
+                rows="3"
+              ></textarea>
+            </div>
             <input
               type="text"
               id="productDimensions"
@@ -379,10 +512,32 @@
               multiple
             />
             <div id="imagePreview" class="image-preview"></div>
-            <div class="seo-preview" id="seoPreview">
-              <p id="seoSlugPreview"></p>
-              <h5 id="seoTitlePreview"></h5>
-              <p id="seoDescPreview"></p>
+            <div class="product-preview" id="productPreview" aria-live="polite">
+              <div class="product-preview__media" id="productPreviewMedia">
+                <img
+                  id="productPreviewImage"
+                  alt="Vista previa del producto"
+                  loading="lazy"
+                />
+                <div class="product-preview__media-placeholder" id="productPreviewPlaceholder">
+                  Sin imagen
+                </div>
+              </div>
+              <div class="product-preview__content">
+                <p class="product-preview__sku" id="productPreviewSku">
+                  Completá el SKU para identificar el producto.
+                </p>
+                <h5 class="product-preview__name" id="productPreviewName">
+                  Nuevo producto sin título
+                </h5>
+                <p class="product-preview__price" id="productPreviewPrice">
+                  Definí los precios para ver cómo se mostrará.
+                </p>
+                <p class="product-preview__stock" id="productPreviewStock"></p>
+                <p class="product-preview__meta" id="productPreviewMeta">
+                  Indicá categoría, visibilidad y URL para completar la vista previa.
+                </p>
+              </div>
             </div>
             <div class="form-actions">
               <button type="submit" class="button primary" id="saveProductBtn">
