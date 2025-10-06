@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calculadora Profesional de Costos de Importación</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Calculadora Profesional de Costos de Importación</h1>
+      <p>Parametrizá costos, impuestos y comisiones para estimar tu precio de venta en Argentina.</p>
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>Perfil / NCM</h2>
+        <div class="form-row">
+          <label for="presetSelect">Preset guardado</label>
+          <select id="presetSelect"></select>
+          <button id="refreshPresets" class="secondary">Actualizar</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Datos de importación</h2>
+        <form id="calculatorForm">
+          <div class="grid">
+            <div class="form-group">
+              <label for="fobAmount">FOB</label>
+              <div class="input-group">
+                <input type="number" step="0.01" id="fobAmount" name="fobAmount" required />
+                <select id="fobCurrency" name="fobCurrency">
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="freightAmount">Flete</label>
+              <div class="input-group">
+                <input type="number" step="0.01" id="freightAmount" name="freightAmount" required />
+                <select id="freightCurrency" name="freightCurrency">
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="insuranceAmount">Seguro</label>
+              <div class="input-group">
+                <input type="number" step="0.01" id="insuranceAmount" name="insuranceAmount" required />
+                <select id="insuranceCurrency" name="insuranceCurrency">
+                  <option value="USD">USD</option>
+                  <option value="ARS">ARS</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="exchangeRate">TC Aduana</label>
+              <input type="number" step="0.01" id="exchangeRate" name="exchangeRate" value="980" required />
+            </div>
+            <div class="form-group">
+              <label for="diRate">Arancel (DI)</label>
+              <input type="number" step="0.0001" id="diRate" name="diRate" value="0.08" min="0" max="1" required />
+            </div>
+            <div class="form-group">
+              <label for="applyTasa">Tasa Estadística</label>
+              <select id="applyTasa" name="applyTasa">
+                <option value="true" selected>Aplicar 3%</option>
+                <option value="false">Exento</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ivaRate">IVA</label>
+              <input type="number" step="0.0001" id="ivaRate" name="ivaRate" value="0.21" />
+            </div>
+            <div class="form-group">
+              <label for="percIvaRate">Percepción IVA</label>
+              <input type="number" step="0.0001" id="percIvaRate" name="percIvaRate" value="0.20" />
+            </div>
+            <div class="form-group">
+              <label for="percGananciasRate">Percepción Ganancias</label>
+              <input type="number" step="0.0001" id="percGananciasRate" name="percGananciasRate" value="0.06" />
+            </div>
+            <div class="form-group">
+              <label for="gastosLocales">Gastos Locales (ARS)</label>
+              <input type="number" step="0.01" id="gastosLocales" name="gastosLocales" value="0" />
+            </div>
+            <div class="form-group">
+              <label for="costosSalida">Costos de Salida (ARS)</label>
+              <input type="number" step="0.01" id="costosSalida" name="costosSalida" value="0" />
+            </div>
+            <div class="form-group">
+              <label for="mpRate">Comisión MP</label>
+              <input type="number" step="0.0001" id="mpRate" name="mpRate" value="0.05" min="0" max="0.99" />
+            </div>
+            <div class="form-group">
+              <label for="mpIvaRate">IVA Comisión MP</label>
+              <input type="number" step="0.0001" id="mpIvaRate" name="mpIvaRate" value="0.21" />
+            </div>
+            <div class="form-group">
+              <label for="quantity">Cantidad (unidades)</label>
+              <input type="number" id="quantity" name="quantity" value="1" min="1" />
+            </div>
+            <div class="form-group">
+              <label for="orderReference">Referencia / Pedido</label>
+              <input type="text" id="orderReference" name="orderReference" />
+            </div>
+            <div class="form-group">
+              <label for="roundingStep">Redondeo</label>
+              <select id="roundingStep" name="roundingStep">
+                <option value="">Sin redondeo</option>
+                <option value="1">$1</option>
+                <option value="10">$10</option>
+                <option value="100">$100</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="psychological">Terminación psicológica</label>
+              <select id="psychological" name="psychological">
+                <option value="">Sin ajuste</option>
+                <option value="0.99">.99</option>
+                <option value="0.90">.90</option>
+                <option value="0.49">.49</option>
+              </select>
+            </div>
+          </div>
+
+          <fieldset>
+            <legend>Modo de cálculo</legend>
+            <div class="form-row">
+              <label><input type="radio" name="target" value="margen" checked /> Margen objetivo</label>
+              <input type="number" step="0.0001" id="margenObjetivo" value="0.25" min="0" max="0.99" />
+            </div>
+            <div class="form-row">
+              <label><input type="radio" name="target" value="precio" /> Precio definido</label>
+              <input type="number" step="0.01" id="precioNetoInput" disabled />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Impuestos adicionales</legend>
+            <div id="additionalTaxes"></div>
+            <button type="button" id="addTax" class="secondary">Agregar impuesto</button>
+          </fieldset>
+
+          <div class="actions">
+            <button type="submit" class="primary">Calcular</button>
+            <button type="button" id="exportCsv" disabled>Exportar CSV</button>
+            <button type="button" id="exportXlsx" disabled>Exportar XLSX</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card" id="resultsCard" hidden>
+        <h2>Resultados</h2>
+        <div id="summary"></div>
+        <table id="breakdownTable">
+          <thead>
+            <tr><th>Concepto</th><th>Valor</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Notificación de pago / Fee real</h2>
+        <form id="notificationForm">
+          <div class="grid">
+            <div class="form-group">
+              <label for="paymentId">Payment ID</label>
+              <input type="text" id="paymentId" required />
+            </div>
+            <div class="form-group">
+              <label for="notificationReference">Referencia / Pedido</label>
+              <input type="text" id="notificationReference" />
+            </div>
+            <div class="form-group">
+              <label for="amount">Importe cobrado</label>
+              <input type="number" step="0.01" id="amount" required />
+            </div>
+            <div class="form-group">
+              <label for="feeTotal">Fee total</label>
+              <input type="number" step="0.01" id="feeTotal" required />
+            </div>
+            <div class="form-group">
+              <label for="currency">Moneda</label>
+              <input type="text" id="currency" value="ARS" />
+            </div>
+          </div>
+          <label for="feeBreakdown">Detalle (JSON)</label>
+          <textarea id="feeBreakdown" rows="3" placeholder='{"comision":4500,"iva":945}'></textarea>
+          <div class="actions">
+            <button type="submit" class="primary">Registrar fee real</button>
+          </div>
+        </form>
+        <pre id="notificationResult"></pre>
+      </section>
+    </main>
+
+    <footer>
+      <small>Zona horaria: America/Argentina/Buenos_Aires • API <code>/api</code></small>
+    </footer>
+    <script src="app.js"></script>
+  </body>
+</html>

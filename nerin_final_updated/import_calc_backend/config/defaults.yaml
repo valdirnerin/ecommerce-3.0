@@ -1,0 +1,22 @@
+- name: "Pantallas-Importadas"
+  di_rate: "0.08"
+  iva_rate: "0.21"
+  perc_iva_rate: "0.20"
+  perc_ganancias_rate: "0.06"
+  apply_tasa_estadistica: true
+  mp_rate: "0.05"
+  mp_iva_rate: "0.21"
+  notes: "Preset genérico para displays LCD/AMOLED"
+  rounding_step: 10
+  psychological_prices:
+    - ".99"
+    - ".49"
+- name: "Baterias-NCM8507"
+  di_rate: "0.12"
+  iva_rate: "0.21"
+  perc_iva_rate: "0.20"
+  perc_ganancias_rate: "0.06"
+  apply_tasa_estadistica: false
+  mp_rate: "0.06"
+  mp_iva_rate: "0.21"
+  notes: "Preset MERCOSUR sin tasa estadística"
