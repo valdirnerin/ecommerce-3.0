@@ -199,6 +199,18 @@ for (const dir of assetRoots) {
   }
 }
 
+const calculatorStaticDir = path.join(
+  __dirname,
+  '../nerin_final_updated/import_calc_frontend'
+);
+
+if (fs.existsSync(calculatorStaticDir)) {
+  app.use(
+    '/nerin_final_updated/import_calc_frontend',
+    express.static(calculatorStaticDir)
+  );
+}
+
 app.use(express.static(path.join(__dirname, '../frontend')));
 
 app.get('*', (_req, res) => {
