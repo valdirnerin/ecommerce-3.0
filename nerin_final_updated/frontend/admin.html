@@ -131,6 +131,51 @@
         font-weight: 600;
         text-transform: uppercase;
       }
+      .calculator-wrapper {
+        margin-top: 1.5rem;
+        padding: 1.5rem;
+        background: var(--color-surface, #fff);
+        border: 1px solid var(--color-border);
+        border-radius: calc(var(--radius, 8px) * 2);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+      }
+      .calculator-header h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.5rem;
+      }
+      .calculator-header p {
+        margin: 0 0 0.75rem;
+        color: var(--color-text-muted, #555);
+        line-height: 1.6;
+      }
+      .calculator-header a {
+        color: var(--color-primary, #2563eb);
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .calculator-header a:hover {
+        text-decoration: underline;
+      }
+      .calculator-frame {
+        margin: 1.5rem 0;
+        border-radius: calc(var(--radius, 8px) * 1.75);
+        overflow: hidden;
+        border: 1px solid var(--color-border);
+        background: #fff;
+        min-height: 720px;
+      }
+      .calculator-frame iframe {
+        width: 100%;
+        min-height: 720px;
+        border: none;
+        background: #fff;
+        display: block;
+      }
+      .calculator-note {
+        margin-top: 0;
+        color: var(--color-text-muted, #555);
+        font-style: italic;
+      }
       @media (max-width: 768px) {
         .orders-filters {
           flex-direction: column;
@@ -138,6 +183,9 @@
         }
         .orders-pagination {
           justify-content: center;
+        }
+        .calculator-frame iframe {
+          min-height: 600px;
         }
       }
     </style>
@@ -197,6 +245,9 @@
         </button>
         <button data-target="metricsSection" data-i18n="nav.metrics">
           Métricas
+        </button>
+        <button data-target="calculatorSection" data-i18n="nav.calculator">
+          Calculadora
         </button>
         <button data-target="returnsSection" data-i18n="nav.returns">
           Devoluciones
@@ -723,6 +774,56 @@
         <h3>Métricas</h3>
         <div id="metricsContent"></div>
         <canvas id="salesChartCanvas" height="200"></canvas>
+      </section>
+
+      <section
+        id="calculatorSection"
+        class="admin-section"
+        style="display: none"
+      >
+        <div class="calculator-wrapper">
+          <header class="calculator-header">
+            <h2 data-i18n="calculator.title">
+              Calculadora profesional de costos
+            </h2>
+            <p data-i18n="calculator.description">
+              Esta vista integra la herramienta completa solicitada para calcular el costo
+              puesto, márgenes objetivo y precio final con IVA. Podés cargar costos en USD
+              o ARS, aplicar tributos parametrizables, simular comisiones o usar un fee real
+              notificado por el gateway de pago. El contenido se muestra dentro del admin
+              para evitar saltar entre pantallas.
+            </p>
+            <p>
+              <span data-i18n="calculator.linkPrompt">
+                Si preferís abrirla en otra pestaña, usá este acceso directo:
+              </span>
+              <a
+                href="../import_calc_frontend/index.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-i18n="calculator.linkText"
+              >
+                Abrir calculadora completa
+              </a>
+            </p>
+          </header>
+          <div class="calculator-frame">
+            <iframe
+              src="../import_calc_frontend/index.html"
+              title="Calculadora de costos de importación"
+              loading="lazy"
+              referrerpolicy="no-referrer"
+            ></iframe>
+          </div>
+          <p
+            class="status-text calculator-note"
+            data-i18n="calculator.note"
+          >
+            Nota: si el iframe no carga (por políticas del servidor estático), utilizá el
+            enlace “Abrir calculadora completa” para acceder a la herramienta en una ventana
+            nueva.
+          </p>
+        </div>
       </section>
 
       <!-- Sección de devoluciones -->
