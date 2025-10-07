@@ -37,6 +37,89 @@
         padding: 1.5rem;
       }
 
+      .admin-nav {
+        display: inline-flex;
+        gap: 0.75rem;
+        margin: 1rem 0 1.5rem;
+        flex-wrap: wrap;
+      }
+
+      .admin-nav-btn {
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--text);
+        font: inherit;
+        padding: 0.5rem 1.25rem;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .admin-nav-btn.is-active {
+        background: var(--accent);
+        color: #fff;
+        border-color: var(--accent);
+        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.25);
+      }
+
+      .admin-section[hidden] {
+        display: none !important;
+      }
+
+      .admin-section {
+        display: block;
+      }
+
+      .calculator-wrapper {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 1.5rem;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+      }
+
+      .calculator-header h2 {
+        margin-top: 0;
+        font-size: 1.5rem;
+      }
+
+      .calculator-header p {
+        color: var(--text-muted);
+        line-height: 1.5;
+      }
+
+      .calculator-header a {
+        color: var(--accent);
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .calculator-header a:hover {
+        text-decoration: underline;
+      }
+
+      .calculator-frame {
+        margin: 1.5rem 0;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        background: #fff;
+        min-height: 720px;
+      }
+
+      .calculator-frame iframe {
+        width: 100%;
+        min-height: 720px;
+        border: none;
+        background: #fff;
+      }
+
+      .calculator-note {
+        margin-top: 0;
+        font-style: italic;
+      }
+
       #admin-build-banner {
         display: inline-flex;
         align-items: center;
@@ -308,6 +391,11 @@
           padding: 1rem;
         }
 
+        .calculator-frame,
+        .calculator-frame iframe {
+          min-height: 600px;
+        }
+
         .admin-layout {
           grid-template-columns: 1fr;
         }
@@ -332,6 +420,11 @@
           color: var(--text);
         }
 
+        .admin-nav-btn {
+          background: rgba(30, 41, 59, 0.7);
+          color: var(--text);
+        }
+
         input,
         select,
         textarea {
@@ -346,15 +439,32 @@
         .summary-card {
           background: rgba(15, 23, 42, 0.85);
         }
+
+        .calculator-wrapper {
+          background: rgba(15, 23, 42, 0.85);
+        }
       }
     </style>
   </head>
   <body>
     <div id="admin-build-banner">Build: dev • Multi-images: ON</div>
-    <h1>Administración de pedidos</h1>
-    <p class="status-text" id="ordersFetchStatus"></p>
-    <div class="admin-layout">
-      <section class="orders-panel">
+    <h1>Administración</h1>
+    <nav class="admin-nav" aria-label="Secciones de administración">
+      <button
+        type="button"
+        class="admin-nav-btn is-active"
+        data-target="ordersSection"
+      >
+        Pedidos
+      </button>
+      <button type="button" class="admin-nav-btn" data-target="calculatorSection">
+        Calculadora de importación
+      </button>
+    </nav>
+    <section class="admin-section is-active" id="ordersSection">
+      <p class="status-text" id="ordersFetchStatus"></p>
+      <div class="admin-layout">
+        <section class="orders-panel">
         <div class="orders-filters">
           <div class="filter-group">
             <label for="ordersDate">Fecha</label>
@@ -477,6 +587,45 @@
         </form>
       </aside>
     </div>
+    </section>
+    <section class="admin-section" id="calculatorSection" hidden>
+      <div class="calculator-wrapper">
+        <header class="calculator-header">
+          <h2>Calculadora profesional de costos</h2>
+          <p>
+            Esta vista integra la herramienta completa solicitada para calcular el costo
+            puesto, márgenes objetivo y precio final con IVA. Podés cargar costos en USD
+            o ARS, aplicar tributos parametrizables, simular comisiones o usar un fee real
+            notificado por el gateway de pago. El contenido se muestra dentro del admin
+            para evitar saltar entre pantallas.
+          </p>
+          <p>
+            Si preferís abrirla en otra pestaña, usá este acceso directo:
+            <a
+              href="../nerin_final_updated/import_calc_frontend/index.html"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Abrir calculadora completa
+            </a>
+          </p>
+        </header>
+        <div class="calculator-frame">
+          <iframe
+            src="../nerin_final_updated/import_calc_frontend/index.html"
+            title="Calculadora de costos de importación"
+            loading="lazy"
+            referrerpolicy="no-referrer"
+          >
+          </iframe>
+        </div>
+        <p class="status-text calculator-note">
+          Nota: si el iframe no carga (por políticas del servidor estático), utilizá el
+          enlace “Abrir calculadora completa” para acceder a la herramienta en una ventana
+          nueva.
+        </p>
+      </div>
+    </section>
 
     <script src="config.js"></script>
     <script>
@@ -500,6 +649,43 @@
           banner.textContent = `Build: ${
             window.__NERIN_ADMIN_BUILD__ || 'dev'
           } • Multi-images: ON`;
+        }
+        const navButtons = Array.from(
+          document.querySelectorAll('.admin-nav-btn') || []
+        );
+        const sections = navButtons.reduce((acc, btn) => {
+          const target = btn.dataset ? btn.dataset.target : null;
+          if (target) {
+            const section = document.getElementById(target);
+            if (section) {
+              acc[target] = section;
+            }
+          }
+          return acc;
+        }, {});
+        function activateSection(targetId) {
+          navButtons.forEach((btn) => {
+            const isActive = btn.dataset && btn.dataset.target === targetId;
+            btn.classList.toggle('is-active', isActive);
+          });
+          Object.entries(sections).forEach(([id, section]) => {
+            const shouldShow = id === targetId;
+            section.hidden = !shouldShow;
+            section.classList.toggle('is-active', shouldShow);
+          });
+        }
+        navButtons.forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const target = btn.dataset ? btn.dataset.target : null;
+            if (target && sections[target]) {
+              activateSection(target);
+            }
+          });
+        });
+        if (!sections.ordersSection) {
+          console.warn('No se encontró la sección de pedidos');
+        } else {
+          activateSection('ordersSection');
         }
         const script = document.createElement('script');
         script.src = `js/admin.js?v=${encodeURIComponent(buildId)}`;
