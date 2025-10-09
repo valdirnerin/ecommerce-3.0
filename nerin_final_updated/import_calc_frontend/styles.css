@@ -31,6 +31,125 @@ header p {
   font-weight: 300;
 }
 
+.api-base-notice {
+  margin: 1.25rem auto 0;
+  max-width: 720px;
+  background: rgba(148, 163, 184, 0.18);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.api-base-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.api-base-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.api-base-notice code {
+  background: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  font-family: "JetBrains Mono", "Fira Code", "SFMono-Regular", monospace;
+  font-size: 0.8rem;
+  color: #1e293b;
+}
+
+.api-base-source {
+  margin: 0;
+  color: #475569;
+}
+
+.api-base-context {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.35rem 0.65rem;
+  background: rgba(148, 163, 184, 0.12);
+  border-radius: 10px;
+}
+
+.api-base-context__label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #1f2937;
+}
+
+.api-base-context__detail {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.api-base-notice.is-warning {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: rgba(248, 113, 113, 0.45);
+}
+
+.api-base-notice.is-warning .api-base-label,
+.api-base-notice.is-warning .api-base-source {
+  color: #b91c1c;
+}
+
+.api-base-notice.is-admin {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.api-base-notice.is-admin .api-base-context {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.api-base-notice.is-admin .api-base-context__label,
+.api-base-notice.is-admin .api-base-context__detail {
+  color: #166534;
+}
+
+.api-base-notice.is-iframe {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(14, 165, 233, 0.45);
+}
+
+.api-base-notice.is-iframe .api-base-context {
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.api-base-notice.is-iframe .api-base-context__label,
+.api-base-notice.is-iframe .api-base-context__detail {
+  color: #075985;
+}
+
+.api-base-notice.is-external {
+  background: rgba(148, 163, 184, 0.2);
+  border-color: rgba(71, 85, 105, 0.4);
+}
+
+.api-base-notice.is-external .api-base-context {
+  background: rgba(100, 116, 139, 0.15);
+}
+
+.api-base-notice.is-external .api-base-context__label,
+.api-base-notice.is-external .api-base-context__detail {
+  color: #1f2937;
+}
+
 main {
   max-width: 960px;
   margin: 0 auto;

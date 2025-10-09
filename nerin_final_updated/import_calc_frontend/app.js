@@ -1,4 +1,232 @@
-const API_BASE = window.API_BASE || "http://localhost:8000/api";
+function resolveApiBase() {
+  const fallback = {
+    base: "http://localhost:8000/api",
+    source: "Respaldo local (http://localhost:8000/api)",
+  };
+
+  if (typeof window === "undefined") {
+    return { ...fallback, source: "Respaldo local (sin contexto de navegador)" };
+  }
+
+  const seen = new Set();
+  const candidates = [];
+
+  const appendCandidate = (value, source) => {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    if (!trimmed || seen.has(trimmed)) return;
+    seen.add(trimmed);
+    candidates.push({ value: trimmed, source });
+  };
+
+  const normalizeCandidate = (raw) => {
+    try {
+      const origin = window.location ? window.location.origin : undefined;
+      const normalized = new URL(raw, origin);
+      const normalizedString = normalized.toString().replace(/\/+$/, "");
+      const pathname = normalized.pathname.replace(/\/+$/, "");
+      const hasApiSuffix = /\/api$/i.test(pathname);
+      return {
+        base: hasApiSuffix ? normalizedString : `${normalizedString}/api`,
+        appended: !hasApiSuffix,
+      };
+    } catch (error) {
+      console.warn("No se pudo normalizar API_BASE", raw, error);
+      return null;
+    }
+  };
+
+  const collectFromContext = (context, label, { immediate = false } = {}) => {
+    if (!context) return null;
+
+    try {
+      const direct = typeof context.API_BASE === "string" ? context.API_BASE.trim() : "";
+      if (direct) {
+        const cleaned = direct.replace(/\/+$/, "");
+        const source = `${label} (API_BASE)`;
+        if (immediate) {
+          return { base: cleaned, source };
+        }
+        appendCandidate(cleaned, source);
+      }
+    } catch (error) {
+      console.warn(`No se pudo leer API_BASE de ${label}`, error);
+    }
+
+    try {
+      const configBase =
+        context.NERIN_CONFIG && typeof context.NERIN_CONFIG.apiBase === "string"
+          ? context.NERIN_CONFIG.apiBase
+          : "";
+      if (configBase) {
+        appendCandidate(configBase, `${label} (NERIN_CONFIG.apiBase)`);
+      }
+    } catch (error) {
+      console.warn(`No se pudo leer NERIN_CONFIG.apiBase de ${label}`, error);
+    }
+
+    try {
+      const globalBase = typeof context.API_BASE_URL === "string" ? context.API_BASE_URL : "";
+      if (globalBase) {
+        appendCandidate(globalBase, `${label} (API_BASE_URL)`);
+      }
+    } catch (error) {
+      console.warn(`No se pudo leer API_BASE_URL de ${label}`, error);
+    }
+
+    return null;
+  };
+
+  const directBase = collectFromContext(window, "esta página", { immediate: true });
+  if (directBase) {
+    return directBase;
+  }
+
+  collectFromContext(window, "esta página");
+
+  if (window.parent && window.parent !== window) {
+    const parentDirect = collectFromContext(window.parent, "panel administrador", { immediate: true });
+    if (parentDirect) {
+      return parentDirect;
+    }
+    collectFromContext(window.parent, "panel administrador");
+  }
+
+  appendCandidate(window.location ? window.location.origin : "", "Mismo origen del iframe");
+
+  for (const candidate of candidates) {
+    if (!candidate.value) continue;
+    const normalized = normalizeCandidate(candidate.value);
+    if (!normalized) continue;
+    return {
+      base: normalized.base,
+      source: normalized.appended
+        ? `${candidate.source} (se agregó /api)`
+        : candidate.source,
+    };
+  }
+
+  return fallback;
+}
+
+function detectEmbeddingContext() {
+  const fallback = {
+    label: "Vista externa",
+    detail: "La calculadora se está viendo fuera del panel de administración.",
+    inIframe: false,
+    likelyAdmin: false,
+  };
+
+  if (typeof window === "undefined") {
+    return {
+      label: "Sin contexto de navegador",
+      detail: "No se pudo determinar el origen porque no hay ventana del navegador.",
+      inIframe: false,
+      likelyAdmin: false,
+    };
+  }
+
+  const inIframe = (() => {
+    try {
+      return window.parent && window.parent !== window;
+    } catch (error) {
+      console.warn("No se pudo determinar si estamos en un iframe", error);
+      return false;
+    }
+  })();
+
+  if (!inIframe) {
+    return fallback;
+  }
+
+  let referrer = "";
+  try {
+    referrer = document.referrer || "";
+  } catch (error) {
+    console.warn("No se pudo leer document.referrer", error);
+  }
+
+  let hostname = "";
+  let pathname = "";
+
+  if (referrer) {
+    try {
+      const url = new URL(referrer);
+      hostname = url.hostname;
+      pathname = url.pathname || "";
+    } catch (error) {
+      console.warn("No se pudo normalizar el referrer", referrer, error);
+    }
+  }
+
+  const looksLikeAdmin = /admin|panel|dashboard|nerin/i.test(`${hostname}${pathname}`);
+
+  if (looksLikeAdmin) {
+    return {
+      label: "Panel administrador detectado",
+      detail: hostname
+        ? `La calculadora está embebida desde ${hostname}${pathname}`
+        : "La calculadora está embebida dentro del panel administrador.",
+      inIframe: true,
+      likelyAdmin: true,
+    };
+  }
+
+  return {
+    label: "Iframe externo",
+    detail: hostname
+      ? `La calculadora está embebida desde ${hostname}${pathname}, que no coincide con el panel de administración.`
+      : "La calculadora está embebida en un iframe externo pero no parece provenir del panel de administración.",
+    inIframe: true,
+    likelyAdmin: false,
+  };
+}
+
+const { base: API_BASE, source: API_SOURCE } = resolveApiBase();
+const embedding = detectEmbeddingContext();
+window.__NERIN_IMPORT_CALCULATOR = {
+  apiBase: API_BASE,
+  apiSource: API_SOURCE,
+  embedding,
+};
+document.addEventListener("DOMContentLoaded", () => {
+  const banner = document.getElementById("apiBaseNotice");
+  if (!banner) return;
+
+  const valueEl = banner.querySelector('[data-role="api-base"]');
+  const sourceEl = banner.querySelector('[data-role="api-source"]');
+  const embeddingLabelEl = banner.querySelector('[data-role="embedding-label"]');
+  const embeddingDetailEl = banner.querySelector('[data-role="embedding-detail"]');
+
+  if (valueEl) {
+    valueEl.textContent = API_BASE;
+  }
+
+  if (sourceEl) {
+    sourceEl.textContent = API_SOURCE;
+  }
+
+  if (embeddingLabelEl) {
+    embeddingLabelEl.textContent = embedding.label;
+  }
+
+  if (embeddingDetailEl) {
+    embeddingDetailEl.textContent = embedding.detail;
+  }
+
+  banner.hidden = false;
+
+  if (/Respaldo local/.test(API_SOURCE)) {
+    banner.classList.add("is-warning");
+  }
+
+  if (embedding.likelyAdmin) {
+    banner.classList.add("is-admin");
+  } else if (embedding.inIframe) {
+    banner.classList.add("is-iframe");
+  } else {
+    banner.classList.add("is-external");
+  }
+});
 let lastCalculationId = null;
 
 const presetSelect = document.getElementById("presetSelect");
