@@ -206,7 +206,7 @@ const calculatorStaticDir = path.join(
 
 if (fs.existsSync(calculatorStaticDir)) {
   app.use(
-    '/nerin_final_updated/import_calc_frontend',
+    ['/nerin_final_updated/import_calc_frontend', '/import_calc_frontend'],
     express.static(calculatorStaticDir)
   );
 }
