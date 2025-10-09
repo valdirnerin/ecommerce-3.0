@@ -90,3 +90,14 @@ Si desplegás la aplicación en Render, configurá la siguiente regla de routing
 
 El frontend realiza los `fetch` utilizando rutas relativas (por ejemplo, `fetch('/api/productos')`), por lo que las peticiones a `/api/...` serán reenviadas al backend mediante la regla anterior.
 
+CONFIGURAR LA BASE DE DATOS EN RENDER
+-------------------------------------
+
+Para que el backend de Next.js tenga acceso a la base de datos en Render:
+
+1. Abrí el servicio correspondiente en el dashboard de Render.
+2. Navegá a **Environment → Environment Variables** y creá la variable `DATABASE_URL` con la misma cadena de conexión de PostgreSQL que usa Prisma en desarrollo.
+3. Volvé a desplegar el servicio para que Next.js recomponga las páginas utilizando la conexión activa.
+
+Esto garantiza que Prisma encuentre la base de datos al momento de la compilación y durante la ejecución en producción.
+
