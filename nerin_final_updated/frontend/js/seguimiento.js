@@ -212,8 +212,8 @@ function renderOrderSteps(rootOrStatuses = progressContainer, maybeStatuses) {
   };
 }
 
-function updateWhatsAppLink() {
-  const cfg = window.NERIN_CONFIG;
+function updateWhatsAppLink(maybeConfig) {
+  const cfg = maybeConfig?.detail || maybeConfig || window.NERIN_CONFIG;
   if (cfg && cfg.whatsappNumber && contactBtn) {
     const phone = cfg.whatsappNumber.replace(/[^0-9]/g, '');
     contactBtn.href = `https://wa.me/${phone}`;
@@ -537,3 +537,4 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('load', updateWhatsAppLink);
+document.addEventListener('nerin:config-loaded', updateWhatsAppLink);
