@@ -81,6 +81,15 @@ function applySeoConfig(cfg = {}) {
   hydrateJsonLd(baseUrl);
 }
 
+function dispatchConfigLoaded(cfg) {
+  try {
+    const event = new CustomEvent("nerin:config-loaded", { detail: cfg || {} });
+    document.dispatchEvent(event);
+  } catch (err) {
+    console.error("No se pudo notificar la carga de configuración", err);
+  }
+}
+
 async function loadConfig() {
   let cfg = {};
   try {
@@ -135,6 +144,7 @@ gtag('config', '${cfg.googleAnalyticsId}');`;
   }
   // Actualizar navegación según sesión y carrito
   updateNav();
+  dispatchConfigLoaded(window.NERIN_CONFIG || cfg || {});
 }
 
 function showToast(message) {
