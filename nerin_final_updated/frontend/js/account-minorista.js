@@ -158,8 +158,13 @@ function addItemsToCart(items) {
   });
   localStorage.setItem("nerinCart", JSON.stringify(updatedCart));
   if (window.updateNav) window.updateNav();
-  showToast("Añadimos los productos al carrito.", "success");
-  if (window.showCartIndicator) window.showCartIndicator();
+  const successMessage = "Añadimos los productos al carrito.";
+  const indicatorDisplayed =
+    window.showCartIndicator &&
+    window.showCartIndicator({ message: successMessage, fallbackToast: false });
+  if (!indicatorDisplayed) {
+    showToast(successMessage, "success");
+  }
 }
 
 function determineMinorLoyalty(orderCount, totalSpent) {

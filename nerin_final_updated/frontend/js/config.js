@@ -148,27 +148,48 @@ gtag('config', '${cfg.googleAnalyticsId}');`;
 }
 
 function showToast(message) {
+  const text = typeof message === "string" ? message : String(message || "");
   if (typeof Toastify !== "undefined") {
-    Toastify({
-      text: message,
-      duration: 3000,
+    try {
+      if (lastToastInstance && typeof lastToastInstance.hideToast === "function") {
+        lastToastInstance.hideToast();
+      }
+    } catch (err) {
+      console.warn("toast-hide-error", err);
+    }
+    lastToastInstance = Toastify({
+      text,
+      duration: 3200,
       gravity: "top",
       position: "center",
       style: { background: "var(--color-success)" },
-    }).showToast();
-  } else {
-    alert(message);
+    });
+    lastToastInstance.showToast();
+    return lastToastInstance;
   }
+  if (typeof window !== "undefined" && typeof window.alert === "function") {
+    window.alert(text);
+  }
+  return null;
 }
 
 let cartIndicatorTimer = null;
 let cartIndicatorBubble = null;
 let cartIndicatorTarget = null;
+let cartIndicatorCleanup = null;
+let lastToastInstance = null;
 
 function clearCartIndicator(immediate = false) {
   if (cartIndicatorTimer) {
     clearTimeout(cartIndicatorTimer);
     cartIndicatorTimer = null;
+  }
+  if (typeof cartIndicatorCleanup === "function") {
+    cartIndicatorCleanup();
+    cartIndicatorCleanup = null;
+  }
+  if (typeof document !== "undefined" && document.body) {
+    document.body.classList.remove("cart-indicator-visible");
   }
   if (cartIndicatorBubble) {
     const bubble = cartIndicatorBubble;
@@ -187,12 +208,14 @@ function clearCartIndicator(immediate = false) {
 }
 
 function positionCartIndicator(bubble, target) {
+  if (!bubble || !target) return;
   const rect = target.getBoundingClientRect();
   const margin = 16;
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-  const bubbleWidth = bubble.offsetWidth;
-  const bubbleHeight = bubble.offsetHeight;
+  const bubbleRect = bubble.getBoundingClientRect();
+  const bubbleWidth = bubbleRect.width;
+  const bubbleHeight = bubbleRect.height;
 
   let left = rect.left + rect.width / 2 - bubbleWidth / 2;
   if (left < margin) {
@@ -224,15 +247,43 @@ function positionCartIndicator(bubble, target) {
   }
 }
 
-function showCartIndicator() {
+function showCartIndicator(options = {}) {
+  const opts =
+    typeof options === "string"
+      ? { message: options }
+      : options && typeof options === "object"
+        ? { ...options }
+        : {};
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const messageText = (opts.message && String(opts.message).trim()) || "Producto agregado al carrito";
+  const duration = Number.isFinite(opts.duration) ? Math.max(Number(opts.duration), 2200) : 3200;
+  const allowFallbackToast = opts.fallbackToast !== false;
+
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
-  let target = null;
-  if (isMobile) {
-    target = document.getElementById("navToggle") || document.querySelector(".menu-toggle");
-  } else {
-    target = document.querySelector('header nav a[href*="/cart.html"]');
+  const target = isMobile
+    ? document.getElementById("navToggle") || document.querySelector(".menu-toggle")
+    : document.querySelector('header nav a[href*="/cart.html"]');
+
+  const runFallback = () => {
+    if (!allowFallbackToast) {
+      return false;
+    }
+    if (typeof showToast === "function") {
+      showToast(`✅ ${messageText}`);
+    } else if (typeof window !== "undefined" && typeof window.alert === "function") {
+      window.alert(`✅ ${messageText}`);
+    }
+    return false;
+  };
+
+  if (!target) {
+    return runFallback();
   }
-  if (!target) return;
+
+  const rect = target.getBoundingClientRect();
+  if (!rect || (rect.width === 0 && rect.height === 0)) {
+    return runFallback();
+  }
 
   clearCartIndicator(true);
 
@@ -243,25 +294,80 @@ function showCartIndicator() {
     target.classList.add("cart-link--highlight");
   }
 
+  if (lastToastInstance && typeof lastToastInstance.hideToast === "function") {
+    lastToastInstance.hideToast();
+    lastToastInstance = null;
+  }
+
   const bubble = document.createElement("div");
-  bubble.className = `cart-indicator-bubble ${isMobile ? "cart-indicator-bubble--mobile" : "cart-indicator-bubble--desktop"}`;
-  bubble.innerHTML = `
-    <span class="cart-indicator-icon">${isMobile ? "📍" : "🛒"}</span>
-    <span class="cart-indicator-text">${
-      isMobile ? "Abrí el menú para ver tu carrito" : "Acá está tu carrito"
-    }</span>
-  `.trim();
+  bubble.className = `cart-indicator-bubble ${
+    isMobile ? "cart-indicator-bubble--mobile" : "cart-indicator-bubble--desktop"
+  }`;
+  bubble.setAttribute("role", "status");
+  bubble.setAttribute("aria-live", "polite");
+
+  const icon = document.createElement("span");
+  icon.className = "cart-indicator-icon";
+  icon.textContent = "🛒";
+  bubble.appendChild(icon);
+
+  const textWrapper = document.createElement("span");
+  textWrapper.className = "cart-indicator-text";
+
+  const mainText = document.createElement("span");
+  mainText.className = "cart-indicator-main";
+  mainText.textContent = messageText;
+  textWrapper.appendChild(mainText);
+
+  const hint = document.createElement("span");
+  hint.className = "cart-indicator-hint";
+  hint.textContent = isMobile
+    ? "Abrí el menú superior para ver tu carrito."
+    : "Revisá el carrito en la barra superior.";
+  textWrapper.appendChild(hint);
+
+  bubble.appendChild(textWrapper);
+
   document.body.appendChild(bubble);
   cartIndicatorBubble = bubble;
 
   positionCartIndicator(bubble, target);
-  requestAnimationFrame(() => {
+  if (!prefersReducedMotion) {
+    requestAnimationFrame(() => {
+      positionCartIndicator(bubble, target);
+      bubble.classList.add("show");
+    });
+  } else {
     bubble.classList.add("show");
-  });
+  }
+
+  if (document.body) {
+    document.body.classList.add("cart-indicator-visible");
+  }
+
+  const reposition = () => positionCartIndicator(bubble, target);
+  window.addEventListener("resize", reposition, { passive: true });
+  window.addEventListener("orientationchange", reposition);
+  const viewport = window.visualViewport;
+  if (viewport && typeof viewport.addEventListener === "function") {
+    viewport.addEventListener("resize", reposition, { passive: true });
+    viewport.addEventListener("scroll", reposition, { passive: true });
+  }
+
+  cartIndicatorCleanup = () => {
+    window.removeEventListener("resize", reposition);
+    window.removeEventListener("orientationchange", reposition);
+    if (viewport && typeof viewport.removeEventListener === "function") {
+      viewport.removeEventListener("resize", reposition);
+      viewport.removeEventListener("scroll", reposition);
+    }
+  };
 
   cartIndicatorTimer = setTimeout(() => {
     clearCartIndicator();
-  }, 3000);
+  }, duration);
+
+  return true;
 }
 
 function renderCartPreview(container) {

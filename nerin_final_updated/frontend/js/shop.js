@@ -289,9 +289,11 @@ function createProductCard(product) {
         addBtn.textContent = "Agregar";
       }, 2000);
       if (window.updateNav) window.updateNav();
-      if (window.showToast)
+      if (window.showCartIndicator) {
+        window.showCartIndicator();
+      } else if (window.showToast) {
         window.showToast("✅ Producto agregado al carrito");
-      if (window.showCartIndicator) window.showCartIndicator();
+      }
     });
     cartDiv.appendChild(qtyInput);
     cartDiv.appendChild(addBtn);
@@ -332,9 +334,11 @@ function createProductCard(product) {
         addBtn.textContent = "Agregar";
       }, 2000);
       if (window.updateNav) window.updateNav();
-      if (window.showToast)
+      if (window.showCartIndicator) {
+        window.showCartIndicator();
+      } else if (window.showToast) {
         window.showToast("✅ Producto agregado al carrito");
-      if (window.showCartIndicator) window.showCartIndicator();
+      }
     });
     cartDiv.appendChild(addBtn);
   }
