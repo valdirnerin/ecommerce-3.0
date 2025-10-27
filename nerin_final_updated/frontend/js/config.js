@@ -161,6 +161,109 @@ function showToast(message) {
   }
 }
 
+let cartIndicatorTimer = null;
+let cartIndicatorBubble = null;
+let cartIndicatorTarget = null;
+
+function clearCartIndicator(immediate = false) {
+  if (cartIndicatorTimer) {
+    clearTimeout(cartIndicatorTimer);
+    cartIndicatorTimer = null;
+  }
+  if (cartIndicatorBubble) {
+    const bubble = cartIndicatorBubble;
+    cartIndicatorBubble = null;
+    if (!immediate) {
+      bubble.classList.remove("show");
+      setTimeout(() => bubble.remove(), 220);
+    } else {
+      bubble.remove();
+    }
+  }
+  if (cartIndicatorTarget) {
+    cartIndicatorTarget.classList.remove("cart-link--highlight", "menu-toggle--highlight");
+    cartIndicatorTarget = null;
+  }
+}
+
+function positionCartIndicator(bubble, target) {
+  const rect = target.getBoundingClientRect();
+  const margin = 16;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const bubbleWidth = bubble.offsetWidth;
+  const bubbleHeight = bubble.offsetHeight;
+
+  let left = rect.left + rect.width / 2 - bubbleWidth / 2;
+  if (left < margin) {
+    left = margin;
+  }
+  const maxLeft = viewportWidth - margin - bubbleWidth;
+  if (left > maxLeft) {
+    left = maxLeft;
+  }
+  const arrowLeft = rect.left + rect.width / 2 - left;
+  bubble.style.left = `${left}px`;
+  bubble.style.setProperty("--indicator-arrow-left", `${arrowLeft}px`);
+
+  let top = rect.bottom + 14;
+  let flipped = false;
+  const maxTop = viewportHeight - margin - bubbleHeight;
+  if (top > maxTop && rect.top - bubbleHeight - 14 >= margin) {
+    top = rect.top - bubbleHeight - 14;
+    flipped = true;
+  }
+  if (top < margin) {
+    top = margin;
+  }
+  bubble.style.top = `${top}px`;
+  if (flipped) {
+    bubble.classList.add("cart-indicator-bubble--flipped");
+  } else {
+    bubble.classList.remove("cart-indicator-bubble--flipped");
+  }
+}
+
+function showCartIndicator() {
+  const isMobile = window.matchMedia("(max-width: 768px)").matches;
+  let target = null;
+  if (isMobile) {
+    target = document.getElementById("navToggle") || document.querySelector(".menu-toggle");
+  } else {
+    target = document.querySelector('header nav a[href*="/cart.html"]');
+  }
+  if (!target) return;
+
+  clearCartIndicator(true);
+
+  cartIndicatorTarget = target;
+  if (isMobile) {
+    target.classList.add("menu-toggle--highlight");
+  } else {
+    target.classList.add("cart-link--highlight");
+  }
+
+  const bubble = document.createElement("div");
+  bubble.className = `cart-indicator-bubble ${isMobile ? "cart-indicator-bubble--mobile" : "cart-indicator-bubble--desktop"}`;
+  bubble.innerHTML = `
+    <span class="cart-indicator-icon">${isMobile ? "📍" : "🛒"}</span>
+    <span class="cart-indicator-text">${
+      isMobile ? "Abrí el menú para ver tu carrito" : "Acá está tu carrito"
+    }</span>
+  `.trim();
+  document.body.appendChild(bubble);
+  cartIndicatorBubble = bubble;
+
+  positionCartIndicator(bubble, target);
+  requestAnimationFrame(() => {
+    bubble.classList.add("show");
+  });
+
+  cartIndicatorTimer = setTimeout(() => {
+    clearCartIndicator();
+  }, 3000);
+}
+
 function renderCartPreview(container) {
   const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
   if (cart.length === 0) {
@@ -319,6 +422,7 @@ function updateNav() {
 // Exponer función globalmente para que otros módulos puedan actualizar la navegación
 window.updateNav = updateNav;
 window.showToast = showToast;
+window.showCartIndicator = showCartIndicator;
 
 // Escuchar cambios en almacenamiento para actualizar la navegación (p.ej. cuando
 // se actualiza el carrito en otra pestaña)

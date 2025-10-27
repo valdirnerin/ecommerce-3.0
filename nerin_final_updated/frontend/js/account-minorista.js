@@ -159,6 +159,7 @@ function addItemsToCart(items) {
   localStorage.setItem("nerinCart", JSON.stringify(updatedCart));
   if (window.updateNav) window.updateNav();
   showToast("Añadimos los productos al carrito.", "success");
+  if (window.showCartIndicator) window.showCartIndicator();
 }
 
 function determineMinorLoyalty(orderCount, totalSpent) {
