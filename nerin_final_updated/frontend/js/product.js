@@ -1003,9 +1003,11 @@ function renderProduct(product) {
         }
         localStorage.setItem("nerinCart", JSON.stringify(cart));
         if (window.updateNav) window.updateNav();
-        if (window.showToast)
+        if (window.showCartIndicator) {
+          window.showCartIndicator();
+        } else if (window.showToast) {
           window.showToast("✅ Producto agregado al carrito");
-        if (window.showCartIndicator) window.showCartIndicator();
+        }
         addBtn.textContent = "Añadido";
         setTimeout(() => {
           addBtn.textContent = "Agregar al carrito";
@@ -1039,9 +1041,11 @@ function renderProduct(product) {
         }
         localStorage.setItem("nerinCart", JSON.stringify(cart));
         if (window.updateNav) window.updateNav();
-        if (window.showToast)
+        if (window.showCartIndicator) {
+          window.showCartIndicator();
+        } else if (window.showToast) {
           window.showToast("✅ Producto agregado al carrito");
-        if (window.showCartIndicator) window.showCartIndicator();
+        }
         addBtn.textContent = "Añadido";
         setTimeout(() => {
           addBtn.textContent = "Agregar al carrito";

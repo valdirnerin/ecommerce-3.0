@@ -1144,8 +1144,13 @@ function addItemsToCart(items) {
   });
   localStorage.setItem("nerinCart", JSON.stringify(updatedCart));
   if (window.updateNav) window.updateNav();
-  showToast("Productos añadidos al carrito mayorista.", "success");
-  if (window.showCartIndicator) window.showCartIndicator();
+  const successMessage = "Productos añadidos al carrito mayorista.";
+  const indicatorDisplayed =
+    window.showCartIndicator &&
+    window.showCartIndicator({ message: successMessage, fallbackToast: false });
+  if (!indicatorDisplayed) {
+    showToast(successMessage, "success");
+  }
 }
 
 async function renderOrders(orders, email, invoiceList) {
