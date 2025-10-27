@@ -291,6 +291,7 @@ function createProductCard(product) {
       if (window.updateNav) window.updateNav();
       if (window.showToast)
         window.showToast("✅ Producto agregado al carrito");
+      if (window.showCartIndicator) window.showCartIndicator();
     });
     cartDiv.appendChild(qtyInput);
     cartDiv.appendChild(addBtn);
@@ -333,6 +334,7 @@ function createProductCard(product) {
       if (window.updateNav) window.updateNav();
       if (window.showToast)
         window.showToast("✅ Producto agregado al carrito");
+      if (window.showCartIndicator) window.showCartIndicator();
     });
     cartDiv.appendChild(addBtn);
   }
