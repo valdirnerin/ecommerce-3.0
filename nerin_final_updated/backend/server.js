@@ -809,11 +809,15 @@ if (MP_TOKEN) {
 const ORIGIN = process.env.PUBLIC_URL || "*";
 const CALC_API =
   process.env.IMPORT_CALC_API_BASE || "http://localhost:8000/api";
-const calcApiProxy = createProxyMiddleware({
-  target: CALC_API,
-  changeOrigin: true,
-  pathRewrite: { "^/calc-api": "" },
-});
+const hasExternalCalcApi = Boolean(process.env.IMPORT_CALC_API_BASE);
+const calcApiProxy = hasExternalCalcApi
+  ? createProxyMiddleware({
+      target: CALC_API,
+      changeOrigin: true,
+      pathRewrite: { "^/calc-api": "" },
+    })
+  : null;
+const { handleCalcApiRequest } = require("./routes/calcApiLocal");
 
 // Polyfill de fetch
 const fetchFn =
@@ -2842,19 +2846,26 @@ async function requestHandler(req, res) {
   }
 
   if (pathname && pathname.startsWith("/calc-api")) {
-    return calcApiProxy(req, res, (proxyError) => {
-      if (proxyError) {
-        console.error("calc-api proxy error", proxyError);
-        if (!res.headersSent) {
-          res.writeHead(502, { "Content-Type": "application/json" });
-          res.end(
-            JSON.stringify({
-              ok: false,
-              error: "calc_api_proxy_error",
-            }),
-          );
+    if (hasExternalCalcApi && calcApiProxy) {
+      return calcApiProxy(req, res, (proxyError) => {
+        if (proxyError) {
+          console.error("calc-api proxy error", proxyError);
+          if (!res.headersSent) {
+            res.writeHead(502, { "Content-Type": "application/json" });
+            res.end(
+              JSON.stringify({
+                ok: false,
+                error: "calc_api_proxy_error",
+              }),
+            );
+          }
         }
-      }
+      });
+    }
+    return handleCalcApiRequest(req, res, parsedUrl, {
+      parseBody,
+      sendJson,
+      sendStatus,
     });
   }
 
