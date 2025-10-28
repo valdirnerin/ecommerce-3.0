@@ -15,6 +15,7 @@ const fsp = fs.promises;
 const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
+const { createProxyMiddleware } = require("http-proxy-middleware");
 const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
 const {
   sendEmail,
@@ -806,6 +807,13 @@ if (MP_TOKEN) {
 
 // CORS origin configurado
 const ORIGIN = process.env.PUBLIC_URL || "*";
+const CALC_API =
+  process.env.IMPORT_CALC_API_BASE || "http://localhost:8000/api";
+const calcApiProxy = createProxyMiddleware({
+  target: CALC_API,
+  changeOrigin: true,
+  pathRewrite: { "^/calc-api": "" },
+});
 
 // Polyfill de fetch
 const fetchFn =
@@ -2831,6 +2839,23 @@ async function requestHandler(req, res) {
         "Accept, Content-Type, Authorization, X-Requested-With",
     });
     return res.end();
+  }
+
+  if (pathname && pathname.startsWith("/calc-api")) {
+    return calcApiProxy(req, res, (proxyError) => {
+      if (proxyError) {
+        console.error("calc-api proxy error", proxyError);
+        if (!res.headersSent) {
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(
+            JSON.stringify({
+              ok: false,
+              error: "calc_api_proxy_error",
+            }),
+          );
+        }
+      }
+    });
   }
 
   if (pathname === "/api/version" && req.method === "GET") {
