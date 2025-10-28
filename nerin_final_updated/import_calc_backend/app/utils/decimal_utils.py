@@ -22,9 +22,12 @@ def _normalize_string(value: str) -> str:
     if not cleaned:
         raise ValueError("Empty string cannot be converted to Decimal")
 
+    if "%" in cleaned:
+        raise ValueError("Percent values are not supported")
+
     # Remove currency symbols and spaces that may sneak in when copying values
     # from spreadsheets or other sources.
-    for symbol in ("$", "USD", "ARS", "%"):
+    for symbol in ("$", "USD", "ARS"):
         cleaned = cleaned.replace(symbol, "")
     cleaned = cleaned.replace(" ", "")
 

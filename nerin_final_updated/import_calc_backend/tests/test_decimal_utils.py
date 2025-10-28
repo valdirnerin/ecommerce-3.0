@@ -22,3 +22,8 @@ def test_to_decimal_accepts_locale_formats(raw, expected):
 def test_to_decimal_rejects_empty_string():
     with pytest.raises(ValueError):
         to_decimal("")
+
+
+def test_to_decimal_rejects_percent_values():
+    with pytest.raises(ValueError):
+        to_decimal("25%")
