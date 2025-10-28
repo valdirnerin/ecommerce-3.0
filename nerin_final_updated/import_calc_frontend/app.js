@@ -254,6 +254,39 @@ function formatCurrency(value, currency = "ARS") {
   }).format(number);
 }
 
+async function parseResponseAsJson(response, fallbackErrorMessage) {
+  const rawText = await response.text();
+  let data = null;
+
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch (error) {
+      console.warn("La respuesta no es JSON válido", error, rawText);
+    }
+  }
+
+  if (!response.ok) {
+    const detail =
+      (data && (data.detail || data.message)) ||
+      (rawText ? rawText.trim() : "") ||
+      fallbackErrorMessage ||
+      `Error ${response.status}`;
+
+    throw new Error(
+      typeof detail === "string" && detail.length > 0
+        ? detail
+        : fallbackErrorMessage || "Error en la solicitud"
+    );
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error(fallbackErrorMessage || "Respuesta inesperada del servidor");
+  }
+
+  return data;
+}
+
 async function loadPresets() {
   try {
     const response = await fetch(`${API_BASE}/presets`);
@@ -487,11 +520,7 @@ calculatorForm.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "Error en el cálculo");
-    }
-    const data = await response.json();
+    const data = await parseResponseAsJson(response, "Error en el cálculo");
     lastCalculationId = data.calculation_id;
     resultsCard.hidden = false;
     renderSummary(data.results);
@@ -540,11 +569,7 @@ notificationForm.addEventListener("submit", async (event) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || "Error al registrar fee");
-    }
-    const data = await response.json();
+    const data = await parseResponseAsJson(response, "Error al registrar fee");
     notificationResult.textContent = JSON.stringify(data, null, 2);
     if (data.updated_results) {
       renderSummary(data.updated_results);
