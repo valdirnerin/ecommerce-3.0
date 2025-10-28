@@ -6772,6 +6772,30 @@ async function requestHandler(req, res) {
     return;
   }
 
+  // Servir calculadora de importación embebida desde /import_calc_frontend
+  if (
+    pathname === "/import_calc_frontend" ||
+    pathname === "/import_calc_frontend/" ||
+    pathname.startsWith("/import_calc_frontend/")
+  ) {
+    const calcRoot = path.join(__dirname, "../import_calc_frontend");
+    let relativeCalcPath = pathname.replace(/^\/import_calc_frontend\/?/, "");
+    if (!relativeCalcPath) {
+      relativeCalcPath = "index.html";
+    }
+    relativeCalcPath = path
+      .normalize(relativeCalcPath)
+      .replace(/^([.][.][/\\])+/, "");
+    let calcFilePath = path.join(calcRoot, relativeCalcPath);
+    fs.stat(calcFilePath, (err, stats) => {
+      if (err || stats.isDirectory()) {
+        calcFilePath = path.join(calcRoot, "index.html");
+      }
+      serveStatic(calcFilePath, res);
+    });
+    return;
+  }
+
   // Servir archivos estáticos del frontend y assets
   let filePath;
   // Servir recursos dentro de /assets (imágenes)
