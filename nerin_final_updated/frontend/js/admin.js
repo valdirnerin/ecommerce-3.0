@@ -84,6 +84,11 @@ if (currentRole === "vendedor") {
 // Navegación entre secciones
 const navButtons = document.querySelectorAll(".admin-nav button");
 const sections = document.querySelectorAll(".admin-section");
+const analyticsSection = document.getElementById("analyticsSection");
+const ANALYTICS_REFRESH_INTERVAL_MS = 30 * 1000;
+let analyticsRefreshTimer = null;
+let analyticsAutoRefreshMs = null;
+let analyticsLoading = false;
 
 navButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -95,6 +100,11 @@ navButtons.forEach((btn) => {
     sections.forEach((sec) => {
       sec.style.display = sec.id === target ? "block" : "none";
     });
+    if (target === "analyticsSection") {
+      startAnalyticsAutoRefresh();
+    } else {
+      stopAnalyticsAutoRefresh();
+    }
     // Cargar datos según sección
     if (target === "productsSection") {
       loadProducts();
@@ -114,8 +124,6 @@ navButtons.forEach((btn) => {
       loadSuppliers();
     } else if (target === "purchaseOrdersSection") {
       loadPurchaseOrders();
-    } else if (target === "analyticsSection") {
-      loadAnalytics();
     } else if (target === "shippingSection") {
       loadShippingTable();
     }
@@ -2500,8 +2508,74 @@ if (addPoForm) {
 }
 
 // ------------ Analíticas detalladas ------------
-async function loadAnalytics() {
-  await renderAnalyticsDashboard("analytics-dashboard");
+function isAnalyticsSectionVisible() {
+  if (!analyticsSection) return false;
+  return analyticsSection.style.display !== "none";
+}
+
+async function loadAnalytics(options = {}) {
+  if (!analyticsSection) return;
+  const { skipIfHidden = false } = options || {};
+  if (skipIfHidden && !isAnalyticsSectionVisible()) {
+    return;
+  }
+  if (analyticsLoading) return;
+  analyticsLoading = true;
+  try {
+    await renderAnalyticsDashboard("analytics-dashboard", {
+      autoRefreshMs: analyticsAutoRefreshMs,
+    });
+  } catch (err) {
+    console.error("analytics-dashboard-refresh-error", err);
+  } finally {
+    analyticsLoading = false;
+  }
+}
+
+function stopAnalyticsAutoRefresh() {
+  analyticsAutoRefreshMs = null;
+  if (analyticsRefreshTimer) {
+    clearInterval(analyticsRefreshTimer);
+    analyticsRefreshTimer = null;
+  }
+}
+
+function startAnalyticsAutoRefresh({ immediate = true } = {}) {
+  if (!isAnalyticsSectionVisible()) {
+    return;
+  }
+  stopAnalyticsAutoRefresh();
+  analyticsAutoRefreshMs = ANALYTICS_REFRESH_INTERVAL_MS;
+  if (immediate) {
+    loadAnalytics();
+  }
+  analyticsRefreshTimer = window.setInterval(() => {
+    if (!isAnalyticsSectionVisible()) {
+      stopAnalyticsAutoRefresh();
+      return;
+    }
+    loadAnalytics({ skipIfHidden: true });
+  }, ANALYTICS_REFRESH_INTERVAL_MS);
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      stopAnalyticsAutoRefresh();
+    } else if (isAnalyticsSectionVisible()) {
+      startAnalyticsAutoRefresh();
+    }
+  });
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    stopAnalyticsAutoRefresh();
+  });
+}
+
+if (isAnalyticsSectionVisible()) {
+  startAnalyticsAutoRefresh();
 }
 
 // ------------ Pedidos ------------
