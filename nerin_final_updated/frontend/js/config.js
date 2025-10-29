@@ -1,4 +1,5 @@
 import { apiFetch } from "./api.js";
+import { startTracking, trackEvent } from "./tracker.js";
 
 /*
  * Carga la configuración global desde el backend y aplica ajustes en la
@@ -258,6 +259,24 @@ function showCartIndicator(options = {}) {
   const messageText = (opts.message && String(opts.message).trim()) || "Producto agregado al carrito";
   const duration = Number.isFinite(opts.duration) ? Math.max(Number(opts.duration), 2200) : 3200;
   const allowFallbackToast = opts.fallbackToast !== false;
+
+  try {
+    trackEvent("add_to_cart", {
+      status: "active",
+      step: "Carrito",
+      productId: opts.productId,
+      productName: opts.productName,
+      metadata:
+        opts && (opts.productSku || opts.source)
+          ? {
+              sku: opts.productSku,
+              source: opts.source,
+            }
+          : undefined,
+    });
+  } catch (err) {
+    console.warn("tracker:add_to_cart", err);
+  }
 
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
   const target = isMobile
@@ -549,6 +568,7 @@ function setupMobileMenu() {
 }
 
 function init() {
+  startTracking();
   loadConfig();
   setupMobileMenu();
 }
