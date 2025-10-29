@@ -101,3 +101,20 @@ Para que el backend de Next.js tenga acceso a la base de datos en Render:
 
 Esto garantiza que Prisma encuentre la base de datos al momento de la compilación y durante la ejecución en producción.
 
+DISCO PERSISTENTE EN RENDER
+---------------------------
+
+El backend lee y escribe todos los JSON (pedidos, clientes, actividad para analíticas, etc.) desde un directorio configurable. En Render se recomienda:
+
+1. Crear un **Render Disk** (por ejemplo de 1 GB) y montarlo en `/var/data`.
+2. En la configuración del servicio, agregar la variable de entorno `DATA_DIR=/var/data/nerin`.
+3. Opcionalmente, si preferís otro path, actualizá `DATA_DIR` con la ruta montada.
+
+En cada arranque el servidor mostrará en los logs algo como:
+
+```
+[NERIN] Directorio de datos: /var/data/nerin (persistente) – Render Disk (/var/data/nerin)
+```
+
+Si no detecta un disco persistente verás una advertencia indicando que se está usando la carpeta local del repo. En ese caso, los datos se perderán en cada deploy, por lo que conviene revisar la configuración del disk y la variable `DATA_DIR`.
+

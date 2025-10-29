@@ -1,0 +1,110 @@
+{
+  "sessions": [
+    {
+      "id": "SES-1001",
+      "userEmail": "carlos@nerin.com",
+      "userName": "Carlos López",
+      "startedAt": "2025-07-24T12:45:00.000Z",
+      "lastSeenAt": "2025-07-24T13:10:00.000Z",
+      "status": "active",
+      "currentStep": "checkout_payment",
+      "cartValue": 152300,
+      "location": "CABA"
+    },
+    {
+      "id": "SES-1002",
+      "userEmail": "florencia@cliente.com",
+      "userName": "Florencia Gómez",
+      "startedAt": "2025-07-24T12:30:00.000Z",
+      "lastSeenAt": "2025-07-24T12:50:00.000Z",
+      "status": "active",
+      "currentStep": "product_page",
+      "cartValue": 0,
+      "location": "Rosario"
+    },
+    {
+      "id": "SES-0995",
+      "userEmail": "guest",
+      "userName": "Invitado",
+      "startedAt": "2025-07-24T11:05:00.000Z",
+      "lastSeenAt": "2025-07-24T11:20:00.000Z",
+      "status": "idle",
+      "currentStep": "checkout_review",
+      "cartValue": 84750,
+      "location": "La Plata"
+    }
+  ],
+  "events": [
+    {
+      "type": "page_view",
+      "timestamp": "2025-07-24T12:31:00.000Z",
+      "sessionId": "SES-1002",
+      "path": "/",
+      "productId": null
+    },
+    {
+      "type": "product_view",
+      "timestamp": "2025-07-24T12:32:00.000Z",
+      "sessionId": "SES-1002",
+      "productId": "1"
+    },
+    {
+      "type": "product_view",
+      "timestamp": "2025-07-24T12:33:00.000Z",
+      "sessionId": "SES-1002",
+      "productId": "2"
+    },
+    {
+      "type": "add_to_cart",
+      "timestamp": "2025-07-24T12:34:00.000Z",
+      "sessionId": "SES-1002",
+      "productId": "2"
+    },
+    {
+      "type": "product_view",
+      "timestamp": "2025-07-24T12:35:00.000Z",
+      "sessionId": "SES-1002",
+      "productId": "1"
+    },
+    {
+      "type": "checkout_start",
+      "timestamp": "2025-07-24T12:46:00.000Z",
+      "sessionId": "SES-1001"
+    },
+    {
+      "type": "checkout_payment",
+      "timestamp": "2025-07-24T13:05:00.000Z",
+      "sessionId": "SES-1001"
+    },
+    {
+      "type": "purchase",
+      "timestamp": "2025-07-23T16:15:00.000Z",
+      "sessionId": "SES-0943",
+      "orderId": "ORD-mdhdukaj-508"
+    },
+    {
+      "type": "page_view",
+      "timestamp": "2025-07-23T10:10:00.000Z",
+      "sessionId": "SES-0940",
+      "path": "/shop"
+    },
+    {
+      "type": "product_view",
+      "timestamp": "2025-07-23T10:12:00.000Z",
+      "sessionId": "SES-0940",
+      "productId": "1"
+    },
+    {
+      "type": "product_view",
+      "timestamp": "2025-07-22T18:40:00.000Z",
+      "sessionId": "SES-0901",
+      "productId": "3"
+    },
+    {
+      "type": "page_view",
+      "timestamp": "2025-07-22T09:05:00.000Z",
+      "sessionId": "SES-0900",
+      "path": "/"
+    }
+  ]
+}

@@ -23,6 +23,11 @@ const LOCAL_DIR = path.join(__dirname, '..', '..', 'data');
 
 // DATA_DIR final: prioridad ENV > RENDER > LOCAL
 const BASE = ENV_DIR || RENDER_DIR || LOCAL_DIR;
+const SOURCE = ENV_DIR
+  ? { type: "env", value: ENV_DIR }
+  : RENDER_DIR
+  ? { type: "render", value: RENDER_DIR }
+  : { type: "local", value: LOCAL_DIR };
 
 // Asegurar que exista
 try { fs.mkdirSync(BASE, { recursive: true }); } catch {}
@@ -48,4 +53,6 @@ if (BASE !== LOCAL_DIR) {
 module.exports = {
   DATA_DIR: BASE,
   dataPath: (file) => path.join(BASE, file),
+  DATA_SOURCE: SOURCE,
+  IS_PERSISTENT: SOURCE.type !== 'local',
 };
