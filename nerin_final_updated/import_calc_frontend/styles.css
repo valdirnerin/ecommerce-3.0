@@ -184,6 +184,13 @@ main {
   margin-bottom: 0.75rem;
 }
 
+.form-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #475569;
+  line-height: 1.4;
+}
+
 input,
 select,
 textarea {
@@ -288,6 +295,15 @@ button:hover:not(:disabled) {
 
 #breakdownTable tbody tr:hover {
   background: rgba(37, 99, 235, 0.08);
+}
+
+#resultsCard .results-hint {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: #334155;
+  background: rgba(148, 163, 184, 0.16);
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
 }
 
 #summary {

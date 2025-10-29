@@ -228,6 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 let lastCalculationId = null;
+let lastParameters = null;
 
 const presetSelect = document.getElementById("presetSelect");
 const refreshPresetsBtn = document.getElementById("refreshPresets");
@@ -243,6 +244,89 @@ const notificationForm = document.getElementById("notificationForm");
 const notificationResult = document.getElementById("notificationResult");
 const precioInput = document.getElementById("precioNetoInput");
 const margenObjetivoInput = document.getElementById("margenObjetivo");
+const exchangeRateInput = document.getElementById("exchangeRate");
+const exchangeRateSourceSelect = document.getElementById("exchangeRateSource");
+const exchangeRateHint = document.getElementById("exchangeRateHint");
+const exchangeRateSummary = document.getElementById("exchangeRateSummary");
+
+const EXCHANGE_RATE_SOURCES = {
+  aduana: {
+    label: "Dólar Aduana (Oficial BNA)",
+    hint: "Se usa para declaraciones en Aduana. Tomá el tipo comprador publicado por Banco Nación.",
+    defaultRate: "980",
+    placeholder: "Ej: 980,00",
+  },
+  mep: {
+    label: "Dólar MEP / Bolsa",
+    hint: "Cotización promedio de las últimas 48 h según tu agente bursátil.",
+    placeholder: "Ej: 1.150,00",
+  },
+  tarjeta: {
+    label: "Dólar Tarjeta / Qatar",
+    hint: "Incluye impuesto PAÍS y percepciones vigentes sobre consumos con tarjeta.",
+    placeholder: "Ej: 1.250,00",
+  },
+  blue: {
+    label: "Dólar Blue / Informal",
+    hint: "Referencia del mercado informal. Ajustalo según el proveedor.",
+    placeholder: "Ej: 1.180,00",
+  },
+  custom: {
+    label: "Personalizado",
+    hint: "Definí manualmente la cotización con la que trabajás.",
+    placeholder: "Ingresá la cotización deseada.",
+  },
+};
+
+function inferExchangeRateKey(params) {
+  if (!params) return null;
+  if (params.tc_aduana_source_key && EXCHANGE_RATE_SOURCES[params.tc_aduana_source_key]) {
+    return params.tc_aduana_source_key;
+  }
+  if (params.tc_aduana_source) {
+    const normalized = String(params.tc_aduana_source).trim().toLowerCase();
+    for (const [key, config] of Object.entries(EXCHANGE_RATE_SOURCES)) {
+      if (config.label.toLowerCase() === normalized) {
+        return key;
+      }
+    }
+  }
+  return null;
+}
+
+function applyExchangeRateSelection(key, { setDefaultIfEmpty = false } = {}) {
+  if (!exchangeRateSourceSelect) return;
+  let normalizedKey = key;
+  if (!normalizedKey || !EXCHANGE_RATE_SOURCES[normalizedKey]) {
+    const current = exchangeRateSourceSelect.value;
+    if (current && EXCHANGE_RATE_SOURCES[current]) {
+      normalizedKey = current;
+    } else {
+      const firstOption = exchangeRateSourceSelect.options[0];
+      normalizedKey = firstOption ? firstOption.value : "custom";
+    }
+  }
+
+  exchangeRateSourceSelect.value = normalizedKey;
+  const config = EXCHANGE_RATE_SOURCES[normalizedKey];
+  if (exchangeRateHint && config) {
+    exchangeRateHint.textContent = config.hint;
+  }
+  if (exchangeRateInput) {
+    if (config?.placeholder) {
+      exchangeRateInput.placeholder = config.placeholder;
+    } else {
+      exchangeRateInput.removeAttribute("placeholder");
+    }
+    if (setDefaultIfEmpty && config?.defaultRate && !exchangeRateInput.value) {
+      exchangeRateInput.value = config.defaultRate;
+    }
+  }
+}
+
+applyExchangeRateSelection(exchangeRateSourceSelect ? exchangeRateSourceSelect.value : null, {
+  setDefaultIfEmpty: true,
+});
 
 function formatCurrency(value, currency = "ARS") {
   const number = Number(value);
@@ -252,6 +336,35 @@ function formatCurrency(value, currency = "ARS") {
     currency,
     minimumFractionDigits: 2,
   }).format(number);
+}
+
+function updateExchangeRateSummary(parameters) {
+  if (!exchangeRateSummary) return;
+  if (!parameters) {
+    exchangeRateSummary.hidden = true;
+    exchangeRateSummary.textContent = "";
+    return;
+  }
+
+  const parts = [];
+  const key = inferExchangeRateKey(parameters);
+  const config = key ? EXCHANGE_RATE_SOURCES[key] : null;
+  const label = parameters.tc_aduana_source || config?.label || null;
+  if (label) {
+    parts.push(label);
+  }
+  const numericRate = Number(parameters.tc_aduana);
+  if (!Number.isNaN(numericRate) && numericRate > 0) {
+    parts.push(`${formatCurrency(numericRate)} por USD`);
+  }
+
+  if (parts.length > 0) {
+    exchangeRateSummary.textContent = `Cotización utilizada: ${parts.join(" • ")}`;
+    exchangeRateSummary.hidden = false;
+  } else {
+    exchangeRateSummary.hidden = true;
+    exchangeRateSummary.textContent = "";
+  }
 }
 
 async function parseResponseAsJson(response, fallbackErrorMessage) {
@@ -320,6 +433,12 @@ document.querySelectorAll('input[name="target"]').forEach((radio) => {
   radio.addEventListener("change", toggleTargetInputs);
 });
 
+if (exchangeRateSourceSelect) {
+  exchangeRateSourceSelect.addEventListener("change", () => {
+    applyExchangeRateSelection(exchangeRateSourceSelect.value);
+  });
+}
+
 refreshPresetsBtn.addEventListener("click", (e) => {
   e.preventDefault();
   loadPresets();
@@ -342,6 +461,13 @@ presetSelect.addEventListener("change", (event) => {
     if (params.rounding?.step) document.getElementById("roundingStep").value = params.rounding.step;
     if (params.rounding?.psychological_endings?.length)
       document.getElementById("psychological").value = params.rounding.psychological_endings[0];
+    if (params.tc_aduana && exchangeRateInput) {
+      exchangeRateInput.value = params.tc_aduana;
+    }
+    const inferredKey = inferExchangeRateKey(params);
+    if (inferredKey) {
+      applyExchangeRateSelection(inferredKey);
+    }
   } catch (error) {
     console.warn("Preset inválido", error);
   }
@@ -428,6 +554,8 @@ function collectAdditionalTaxes() {
 function buildRequestPayload() {
   const formData = new FormData(calculatorForm);
   const target = formData.get("target") || "margen";
+  const sourceKey = exchangeRateSourceSelect ? exchangeRateSourceSelect.value : null;
+  const sourceConfig = sourceKey ? EXCHANGE_RATE_SOURCES[sourceKey] : null;
 
   const roundingStep = document.getElementById("roundingStep").value;
   const psychological = document.getElementById("psychological").value;
@@ -454,6 +582,8 @@ function buildRequestPayload() {
       quantity: Number(formData.get("quantity")) || 1,
       order_reference: formData.get("orderReference") || null,
       additional_taxes: collectAdditionalTaxes(),
+      tc_aduana_source: sourceConfig ? sourceConfig.label : null,
+      tc_aduana_source_key: sourceKey || null,
     },
   };
 
@@ -474,7 +604,7 @@ function buildRequestPayload() {
   return payload;
 }
 
-function renderSummary(results) {
+function renderSummary(results, parameters = null) {
   summary.innerHTML = "";
   const summaryItems = [
     { label: "Costo Puesto", value: results.costo_puesto_ars },
@@ -489,6 +619,8 @@ function renderSummary(results) {
     card.innerHTML = `<h3>${item.label}</h3><p>${item.label === "Margen" ? item.value : formatCurrency(item.value)}</p>`;
     summary.appendChild(card);
   });
+
+  updateExchangeRateSummary(parameters);
 }
 
 function renderBreakdown(breakdown) {
@@ -522,8 +654,16 @@ calculatorForm.addEventListener("submit", async (event) => {
     });
     const data = await parseResponseAsJson(response, "Error en el cálculo");
     lastCalculationId = data.calculation_id;
+    lastParameters = data.parameters || null;
+    if (lastParameters?.tc_aduana && exchangeRateInput) {
+      exchangeRateInput.value = lastParameters.tc_aduana;
+    }
+    const inferredKey = inferExchangeRateKey(lastParameters);
+    if (inferredKey) {
+      applyExchangeRateSelection(inferredKey);
+    }
     resultsCard.hidden = false;
-    renderSummary(data.results);
+    renderSummary(data.results, lastParameters);
     renderBreakdown(data.results.breakdown);
     exportCsvBtn.disabled = false;
     exportXlsxBtn.disabled = false;
@@ -572,7 +712,7 @@ notificationForm.addEventListener("submit", async (event) => {
     const data = await parseResponseAsJson(response, "Error al registrar fee");
     notificationResult.textContent = JSON.stringify(data, null, 2);
     if (data.updated_results) {
-      renderSummary(data.updated_results);
+      renderSummary(data.updated_results, lastParameters);
       renderBreakdown(data.updated_results.breakdown);
     }
   } catch (error) {
@@ -582,3 +722,4 @@ notificationForm.addEventListener("submit", async (event) => {
 
 loadPresets();
 toggleTargetInputs();
+updateExchangeRateSummary(lastParameters);
