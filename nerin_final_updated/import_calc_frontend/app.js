@@ -228,6 +228,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 let lastCalculationId = null;
+let lastParameters = null;
 
 const presetSelect = document.getElementById("presetSelect");
 const refreshPresetsBtn = document.getElementById("refreshPresets");
@@ -235,6 +236,7 @@ const calculatorForm = document.getElementById("calculatorForm");
 const additionalTaxesContainer = document.getElementById("additionalTaxes");
 const addTaxBtn = document.getElementById("addTax");
 const resultsCard = document.getElementById("resultsCard");
+const exchangeRateInfo = document.getElementById("exchangeRateInfo");
 const summary = document.getElementById("summary");
 const breakdownTableBody = document.querySelector("#breakdownTable tbody");
 const exportCsvBtn = document.getElementById("exportCsv");
@@ -511,6 +513,65 @@ function renderBreakdown(breakdown) {
   });
 }
 
+function resolveExchangeRateLabel(parameters) {
+  let configLabel = null;
+  if (
+    typeof window !== "undefined" &&
+    window.NERIN_CONFIG &&
+    window.NERIN_CONFIG.importCalculator &&
+    window.NERIN_CONFIG.importCalculator.exchangeRateLabel
+  ) {
+    configLabel = window.NERIN_CONFIG.importCalculator.exchangeRateLabel;
+  }
+
+  const labelCandidates = [
+    parameters?.tc_aduana_label,
+    parameters?.tcAduanaLabel,
+    parameters?.exchange_rate_label,
+    parameters?.exchangeRateLabel,
+    configLabel,
+  ];
+
+  for (const candidate of labelCandidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return "Dólar Aduana (BNA oficial)";
+}
+
+function renderExchangeRateInfo(parameters) {
+  if (!exchangeRateInfo) return;
+  const rawRate = parameters?.tc_aduana ?? parameters?.tcAduana ?? null;
+  const rate = typeof rawRate === "number" ? rawRate : Number(rawRate);
+
+  if (!parameters || Number.isNaN(rate) || !Number.isFinite(rate) || rate <= 0) {
+    exchangeRateInfo.hidden = true;
+    exchangeRateInfo.textContent = "";
+    return;
+  }
+
+  const label = resolveExchangeRateLabel(parameters);
+
+  exchangeRateInfo.innerHTML = "";
+
+  const labelEl = document.createElement("span");
+  labelEl.className = "results-meta__label";
+  labelEl.textContent = label;
+
+  const valueEl = document.createElement("strong");
+  valueEl.className = "results-meta__value";
+  valueEl.textContent = formatCurrency(rate);
+
+  const suffixEl = document.createElement("span");
+  suffixEl.className = "results-meta__suffix";
+  suffixEl.textContent = "por USD";
+
+  exchangeRateInfo.append(labelEl, valueEl, suffixEl);
+  exchangeRateInfo.hidden = false;
+}
+
 calculatorForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
@@ -522,7 +583,9 @@ calculatorForm.addEventListener("submit", async (event) => {
     });
     const data = await parseResponseAsJson(response, "Error en el cálculo");
     lastCalculationId = data.calculation_id;
+    lastParameters = data.parameters || null;
     resultsCard.hidden = false;
+    renderExchangeRateInfo(lastParameters);
     renderSummary(data.results);
     renderBreakdown(data.results.breakdown);
     exportCsvBtn.disabled = false;
@@ -574,6 +637,7 @@ notificationForm.addEventListener("submit", async (event) => {
     if (data.updated_results) {
       renderSummary(data.updated_results);
       renderBreakdown(data.updated_results.breakdown);
+      renderExchangeRateInfo(lastParameters);
     }
   } catch (error) {
     alert(error.message);
