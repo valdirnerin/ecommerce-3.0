@@ -203,6 +203,10 @@ function normalizeParameters(raw) {
   const quantity = ensureQuantity(raw.quantity);
   const rounding = ensureRoundingRule(raw.rounding);
   const order_reference = raw.order_reference ? String(raw.order_reference).trim() : null;
+  const tc_aduana_source = raw.tc_aduana_source ? String(raw.tc_aduana_source).trim() || null : null;
+  const tc_aduana_source_key = raw.tc_aduana_source_key
+    ? String(raw.tc_aduana_source_key).trim() || null
+    : null;
 
   let margen_objetivo = null;
   let precio_neto_input_ars = null;
@@ -244,6 +248,8 @@ function normalizeParameters(raw) {
     rounding,
     additional_taxes,
     order_reference,
+    tc_aduana_source,
+    tc_aduana_source_key,
   };
 }
 
@@ -590,6 +596,8 @@ function serializeParameters(params) {
       amount_ars: tax.amount_ars ? serializeDecimal(tax.amount_ars, 2) : null,
     })),
     order_reference: params.order_reference,
+    tc_aduana_source: params.tc_aduana_source || null,
+    tc_aduana_source_key: params.tc_aduana_source_key || null,
   };
 }
 

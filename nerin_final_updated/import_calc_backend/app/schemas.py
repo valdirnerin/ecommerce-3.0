@@ -71,6 +71,10 @@ class RoundingRule(BaseModel):
 class CalculationParameters(BaseModel):
     costs: CostBreakdownInput
     tc_aduana: Decimal
+    tc_aduana_source: Optional[str] = Field(default=None, description="Descripción legible del tipo de cambio utilizado")
+    tc_aduana_source_key: Optional[str] = Field(
+        default=None, description="Identificador interno del tipo de cambio seleccionado"
+    )
     di_rate: Decimal
     apply_tasa_estadistica: bool = True
     iva_rate: Decimal = Field(default=Decimal("0.21"))
