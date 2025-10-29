@@ -16,7 +16,7 @@ const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
 const { createProxyMiddleware } = require("http-proxy-middleware");
-const { DATA_DIR: dataDir, dataPath } = require("./utils/dataDir");
+const dataDirUtils = require("./utils/dataDir");
 const {
   sendEmail,
   sendOrderPreparing,
@@ -64,7 +64,45 @@ const BUILD_ID =
   "dev";
 
 // ENV > utils/dataDir > fallback local
-const DATA_DIR = process.env.DATA_DIR || dataDir || path.join(__dirname, 'data');
+const DEFAULT_LOCAL_DATA_DIR = path.join(__dirname, "data");
+const resolvedDataDir = dataDirUtils?.DATA_DIR || DEFAULT_LOCAL_DATA_DIR;
+const dataPath =
+  typeof dataDirUtils?.dataPath === "function"
+    ? dataDirUtils.dataPath
+    : (file) => path.join(resolvedDataDir, file);
+const DATA_DIR_SOURCE = dataDirUtils?.DATA_SOURCE ||
+  (resolvedDataDir === DEFAULT_LOCAL_DATA_DIR
+    ? { type: "local", value: resolvedDataDir }
+    : { type: "custom", value: resolvedDataDir });
+const IS_DATA_DIR_PERSISTENT =
+  typeof dataDirUtils?.IS_PERSISTENT === "boolean"
+    ? dataDirUtils.IS_PERSISTENT
+    : DATA_DIR_SOURCE.type !== "local";
+
+const DATA_DIR = resolvedDataDir;
+const DATA_SOURCE_LABEL = (() => {
+  switch (DATA_DIR_SOURCE.type) {
+    case "env":
+      return `variable de entorno (${DATA_DIR_SOURCE.value})`;
+    case "render":
+      return `Render Disk (${DATA_DIR_SOURCE.value})`;
+    case "custom":
+      return `directorio configurado (${DATA_DIR_SOURCE.value})`;
+    default:
+      return `carpeta local del repo (${DATA_DIR_SOURCE.value})`;
+  }
+})();
+
+if (process.env.NODE_ENV !== "test") {
+  console.log(
+    `[NERIN] Directorio de datos: ${DATA_DIR} (${IS_DATA_DIR_PERSISTENT ? "persistente" : "local"}) – ${DATA_SOURCE_LABEL}`,
+  );
+  if (!IS_DATA_DIR_PERSISTENT) {
+    console.warn(
+      "[NERIN] ⚠️ No se detectó un Render Disk persistente. Configurá un disco y seteá DATA_DIR o montá /var/data para conservar la información tras cada deploy.",
+    );
+  }
+}
 const BASE_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
 
@@ -747,8 +785,8 @@ function buildSitemapXml(baseUrl, products = []) {
 // UPLOADS_DIR guarda archivos genéricos
 // INVOICES_DIR guarda facturas y comprobantes
 // PRODUCT_UPLOADS_DIR guarda imágenes de productos
-const UPLOADS_DIR = path.join(dataDir, 'uploads');
-const INVOICES_DIR = path.join(dataDir, 'invoices');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+const INVOICES_DIR = path.join(DATA_DIR, 'invoices');
 const PRODUCT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'products');
 const ACCOUNT_DOCS_DIR = path.join(UPLOADS_DIR, 'account-docs');
 const ACCOUNT_DOCUMENT_KEYS = ["afip", "iva", "bank", "agreement"];
@@ -1176,16 +1214,51 @@ function calculateDetailedAnalytics() {
   const orders = getOrders();
   const returns = getReturns();
   const products = getProducts();
+  const { sessions, events } = getActivityLog();
+  const now = Date.now();
+  const today = new Date(now);
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfWeek.getDate() - 6);
+  const formatCurrencyArs = (value) =>
+    new Intl.NumberFormat("es-AR", {
+      style: "currency",
+      currency: "ARS",
+      maximumFractionDigits: 0,
+    }).format(Number(value) || 0);
+  const sessionById = new Map(
+    sessions
+      .filter((s) => s && s.id)
+      .map((s) => [String(s.id), s]),
+  );
   const salesByCategory = {};
   const salesByProduct = {};
   const returnsByProduct = {};
   const customerTotals = {};
+  const customerOrderCounts = {};
   const monthlySales = {};
   let totalSales = 0;
   let totalUnitsSold = 0;
   let totalReturns = 0;
+  let revenueToday = 0;
+  let revenueThisWeek = 0;
+  let ordersToday = 0;
+  let ordersThisWeek = 0;
   orders.forEach((order) => {
     totalSales += order.total || 0;
+    const orderDateRaw =
+      order.date || order.fecha || order.created_at || order.createdAt || null;
+    const orderDate = Date.parse(orderDateRaw);
+    if (Number.isFinite(orderDate)) {
+      if (orderDate >= startOfToday.getTime()) {
+        revenueToday += order.total || 0;
+        ordersToday += 1;
+      }
+      if (orderDate >= startOfWeek.getTime()) {
+        revenueThisWeek += order.total || 0;
+        ordersThisWeek += 1;
+      }
+    }
     // Agrupar ventas por mes
     if (order.date) {
       const month = order.date.slice(0, 7); // YYYY-MM
@@ -1207,8 +1280,9 @@ function calculateDetailedAnalytics() {
     });
     // Total por cliente
     if (order.cliente && order.cliente.email) {
-      const email = order.cliente.email;
-      customerTotals[email] = (customerTotals[email] || 0) + order.total;
+      const email = String(order.cliente.email).toLowerCase();
+      customerTotals[email] = (customerTotals[email] || 0) + (order.total || 0);
+      customerOrderCounts[email] = (customerOrderCounts[email] || 0) + 1;
     }
   });
   // Devoluciones
@@ -1233,7 +1307,310 @@ function calculateDetailedAnalytics() {
     (a, b) => b[1] - a[1],
   )[0];
   const mostReturnedProduct = mostReturnedEntry ? mostReturnedEntry[0] : null;
+  const ACTIVE_WINDOW_MS = 30 * 60 * 1000; // 30 minutos
+  const activeSessions = sessions.filter((session) => {
+    if (!session) return false;
+    if (session.status === "active") return true;
+    const lastSeen = Date.parse(session.lastSeenAt || session.lastSeen || session.updatedAt);
+    return Number.isFinite(lastSeen) && now - lastSeen <= ACTIVE_WINDOW_MS;
+  });
+  const checkoutInProgress = activeSessions.filter((session) => {
+    const step = String(session.currentStep || "").toLowerCase();
+    if (!step) return false;
+    return (
+      step.includes("checkout") ||
+      step.includes("pago") ||
+      step.includes("envio") ||
+      step.includes("carrito")
+    );
+  }).length;
+  const activeCarts = sessions.filter((session) => {
+    if (!session) return false;
+    const cartValue = Number(session.cartValue || session.cart_total || session.total);
+    if (Number.isFinite(cartValue) && cartValue > 0) {
+      const lastSeen = Date.parse(session.lastSeenAt || session.lastSeen || session.updatedAt);
+      return !Number.isFinite(lastSeen) || now - lastSeen <= 24 * 60 * 60 * 1000;
+    }
+    return false;
+  }).length;
+  const visitTrendMap = new Map();
+  const visitsTodaySessions = new Set();
+  const visitsWeekSessions = new Set();
+  const productNameById = new Map(
+    products.map((p) => [String(p.id), p.name || p.title || p.sku || String(p.id)]),
+  );
+  const productViewsToday = new Map();
+  const productViewsWeek = new Map();
+  const funnel = {
+    product_view: 0,
+    add_to_cart: 0,
+    checkout_start: 0,
+    checkout_payment: 0,
+    purchase: 0,
+  };
+  const normalizedEvents = Array.isArray(events)
+    ? events
+        .filter((evt) => evt && evt.timestamp)
+        .map((evt) => ({
+          ...evt,
+          timestampMs: Date.parse(evt.timestamp),
+        }))
+        .filter((evt) => Number.isFinite(evt.timestampMs))
+    : [];
+  const sortedEvents = normalizedEvents.slice().sort((a, b) => a.timestampMs - b.timestampMs);
+  const sessionEventCounts = new Map();
+  const sessionPageViewCounts = new Map();
+  const landingPageBySession = new Map();
+  const landingPageCounts = new Map();
+  const hourlyTraffic = new Array(24).fill(0);
+  sortedEvents.forEach((evt) => {
+    const eventDate = new Date(evt.timestampMs);
+    const dateKey = eventDate.toISOString().slice(0, 10);
+    const isInWeek = eventDate >= startOfWeek && eventDate <= today;
+    const isToday = eventDate >= startOfToday;
+    const sessionKey = evt.sessionId || evt.id || dateKey;
+    if (sessionKey) {
+      const key = String(sessionKey);
+      sessionEventCounts.set(key, (sessionEventCounts.get(key) || 0) + 1);
+    }
+    if (isInWeek) {
+      if (!visitTrendMap.has(dateKey)) {
+        visitTrendMap.set(dateKey, new Set());
+      }
+      visitTrendMap.get(dateKey).add(evt.sessionId || evt.id || dateKey);
+      if (evt.sessionId) {
+        visitsWeekSessions.add(evt.sessionId);
+      }
+    }
+    if (isToday && evt.sessionId) {
+      visitsTodaySessions.add(evt.sessionId);
+    }
+    const type = String(evt.type || "").toLowerCase();
+    if (type in funnel) {
+      funnel[type] += 1;
+    }
+    if (type === "product_view" && evt.productId) {
+      const prodId = String(evt.productId);
+      const name = productNameById.get(prodId) || prodId;
+      if (isToday) {
+        productViewsToday.set(name, (productViewsToday.get(name) || 0) + 1);
+      }
+      if (isInWeek) {
+        productViewsWeek.set(name, (productViewsWeek.get(name) || 0) + 1);
+      }
+    }
+    if (type === "page_view") {
+      const key = sessionKey ? String(sessionKey) : null;
+      if (key) {
+        sessionPageViewCounts.set(key, (sessionPageViewCounts.get(key) || 0) + 1);
+        if (!landingPageBySession.has(key) && evt.path) {
+          landingPageBySession.set(key, evt.path);
+        }
+      }
+    }
+    if (Number.isFinite(evt.timestampMs)) {
+      const hour = eventDate.getUTCHours();
+      hourlyTraffic[hour] = (hourlyTraffic[hour] || 0) + 1;
+    }
+  });
+  const visitTrend = [];
+  for (let i = 6; i >= 0; i -= 1) {
+    const day = new Date(startOfToday);
+    day.setDate(startOfToday.getDate() - i);
+    const key = day.toISOString().slice(0, 10);
+    const visitors = visitTrendMap.has(key) ? visitTrendMap.get(key).size : 0;
+    visitTrend.push({ date: key, visitors });
+  }
+  const mostViewedTodayEntry = Array.from(productViewsToday.entries()).sort(
+    (a, b) => {
+      if (b[1] === a[1]) return a[0].localeCompare(b[0]);
+      return b[1] - a[1];
+    },
+  )[0];
+  const mostViewedWeekEntry = Array.from(productViewsWeek.entries()).sort(
+    (a, b) => {
+      if (b[1] === a[1]) return a[0].localeCompare(b[0]);
+      return b[1] - a[1];
+    },
+  )[0];
+  landingPageBySession.forEach((path) => {
+    const page = path || "/";
+    landingPageCounts.set(page, (landingPageCounts.get(page) || 0) + 1);
+  });
+  const topLandingPages = Array.from(landingPageCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([path, count]) => ({ path, count }));
+  let bounceSessions = 0;
+  let sessionsWithLanding = 0;
+  sessionPageViewCounts.forEach((count, sessionId) => {
+    if (count > 0) {
+      sessionsWithLanding += 1;
+      const totalEvents = sessionEventCounts.get(sessionId) || 0;
+      if (count === 1 && totalEvents === 1) {
+        bounceSessions += 1;
+      }
+    }
+  });
+  const bounceRate = sessionsWithLanding > 0 ? bounceSessions / sessionsWithLanding : 0;
+  const engagedSessionsCount = Array.from(sessionEventCounts.values()).filter(
+    (count) => count >= 4,
+  ).length;
+  const engagedSessionsRate =
+    sessionEventCounts.size > 0 ? engagedSessionsCount / sessionEventCounts.size : 0;
+  const trafficByHour = hourlyTraffic.map((count, hour) => ({
+    hour,
+    label: `${hour.toString().padStart(2, "0")}:00`,
+    count,
+  }));
+  const peakTrafficHour = trafficByHour.reduce(
+    (acc, entry) => {
+      if (!acc || entry.count > acc.count) return entry;
+      return acc;
+    },
+    null,
+  );
+  const sessionDurations = sessions
+    .map((session) => {
+      const start = Date.parse(session.startedAt || session.createdAt || session.created_at);
+      const end = Date.parse(
+        session.lastSeenAt || session.lastSeen || session.updatedAt || session.endedAt,
+      );
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+        return null;
+      }
+      return end - start;
+    })
+    .filter((ms) => Number.isFinite(ms) && ms >= 0);
+  const averageSessionDurationMs = sessionDurations.length
+    ? sessionDurations.reduce((sum, value) => sum + value, 0) / sessionDurations.length
+    : 0;
+  const averageSessionDuration = averageSessionDurationMs / (60 * 1000);
+  const sortedDurations = sessionDurations.slice().sort((a, b) => a - b);
+  let medianSessionDuration = 0;
+  if (sortedDurations.length) {
+    const middle = Math.floor(sortedDurations.length / 2);
+    if (sortedDurations.length % 2 === 0) {
+      medianSessionDuration = (sortedDurations[middle - 1] + sortedDurations[middle]) / 2;
+    } else {
+      medianSessionDuration = sortedDurations[middle];
+    }
+    medianSessionDuration /= 60 * 1000;
+  }
+  const uniqueCustomerCount = Object.keys(customerOrderCounts).length;
+  const returningCustomerCount = Object.values(customerOrderCounts).filter((count) => count > 1)
+    .length;
+  const repeatCustomerRate =
+    uniqueCustomerCount > 0 ? returningCustomerCount / uniqueCustomerCount : 0;
+  const conversionRate = funnel.product_view > 0 ? funnel.purchase / funnel.product_view : 0;
+  const cartAbandonmentRate =
+    funnel.add_to_cart > 0 ? 1 - funnel.purchase / funnel.add_to_cart : 0;
+  const insights = [];
+  if (conversionRate > 0) {
+    const level = conversionRate >= 0.02 ? "positive" : "neutral";
+    insights.push({
+      level,
+      message: `Tasa de conversión ${(conversionRate * 100).toFixed(1)}%.`,
+    });
+  } else {
+    insights.push({
+      level: "alert",
+      message: "Aún no hay compras registradas para medir la conversión.",
+    });
+  }
+  if (peakTrafficHour && peakTrafficHour.count > 0) {
+    insights.push({
+      level: "info",
+      message: `Mayor actividad a las ${peakTrafficHour.label} (${peakTrafficHour.count} eventos).`,
+    });
+  } else {
+    insights.push({
+      level: "neutral",
+      message: "Aún no hay suficiente tráfico para detectar una hora pico.",
+    });
+  }
+  if (bounceRate >= 0.4) {
+    insights.push({
+      level: "alert",
+      message: `La tasa de rebote es ${(bounceRate * 100).toFixed(1)}%. Revisá las páginas de entrada.`,
+    });
+  } else {
+    insights.push({
+      level: "positive",
+      message: `La tasa de rebote controlada en ${(bounceRate * 100).toFixed(1)}%.`,
+    });
+  }
+  if (revenueThisWeek > 0) {
+    insights.push({
+      level: "positive",
+      message: `Ingresos de la semana ${formatCurrencyArs(revenueThisWeek)}.`,
+    });
+  } else {
+    insights.push({
+      level: "neutral",
+      message: "Todavía no hay ingresos registrados en los últimos 7 días.",
+    });
+  }
+  const formatSessionLabel = (sessionId) => {
+    if (!sessionId) return "Visitante";
+    const session = sessionById.get(String(sessionId));
+    if (!session) return `Sesión ${sessionId}`;
+    if (session.userName) return session.userName;
+    if (session.userEmail && session.userEmail !== "guest") return session.userEmail;
+    return `Sesión ${sessionId}`;
+  };
+  const describeEvent = (evt) => {
+    const type = String(evt.type || "").toLowerCase();
+    const owner = formatSessionLabel(evt.sessionId);
+    if (type === "product_view" && evt.productId) {
+      const prodName = productNameById.get(String(evt.productId)) || evt.productId;
+      return `${owner} miró ${prodName}`;
+    }
+    if (type === "add_to_cart" && evt.productId) {
+      const prodName = productNameById.get(String(evt.productId)) || evt.productId;
+      return `${owner} agregó ${prodName} al carrito`;
+    }
+    if (type === "checkout_start") {
+      return `${owner} inició el checkout`;
+    }
+    if (type === "checkout_payment") {
+      return `${owner} está completando el pago`;
+    }
+    if (type === "purchase") {
+      return `${owner} confirmó una compra`;
+    }
+    if (type === "page_view") {
+      const path = evt.path || evt.url || "/";
+      return `${owner} visitó ${path}`;
+    }
+    return `${owner} registró ${type || "una interacción"}`;
+  };
+  const recentEvents = normalizedEvents
+    .slice()
+    .sort((a, b) => b.timestampMs - a.timestampMs)
+    .slice(0, 6)
+    .map((evt) => ({
+      timestamp: new Date(evt.timestampMs).toISOString(),
+      type: evt.type,
+      sessionId: evt.sessionId || null,
+      description: describeEvent(evt),
+    }));
   return {
+    revenueToday,
+    revenueThisWeek,
+    ordersToday,
+    ordersThisWeek,
+    conversionRate,
+    cartAbandonmentRate,
+    averageSessionDuration,
+    medianSessionDuration,
+    bounceRate,
+    repeatCustomerRate,
+    engagedSessionsRate,
+    trafficByHour,
+    peakTrafficHour,
+    topLandingPages,
+    insights,
     salesByCategory,
     salesByProduct,
     returnsByProduct,
@@ -1242,6 +1619,38 @@ function calculateDetailedAnalytics() {
     averageOrderValue,
     returnRate,
     mostReturnedProduct,
+    activeSessions: activeSessions.length,
+    checkoutInProgress,
+    activeCarts,
+    visitorsToday: visitsTodaySessions.size,
+    visitorsThisWeek: visitsWeekSessions.size,
+    visitTrend,
+    liveSessions: activeSessions.map((session) => ({
+      id: session.id,
+      userEmail: session.userEmail || null,
+      userName: session.userName || null,
+      currentStep: session.currentStep || null,
+      cartValue: Number(session.cartValue || 0) || 0,
+      lastSeenAt:
+        session.lastSeenAt || session.lastSeen || session.updatedAt || session.startedAt || null,
+      location: session.location || session.city || session.region || null,
+    })),
+    productViewsToday: Array.from(productViewsToday.entries()).map(([name, count]) => ({
+      name,
+      count,
+    })),
+    productViewsWeek: Array.from(productViewsWeek.entries()).map(([name, count]) => ({
+      name,
+      count,
+    })),
+    mostViewedToday: mostViewedTodayEntry
+      ? { name: mostViewedTodayEntry[0], count: mostViewedTodayEntry[1] }
+      : null,
+    mostViewedWeek: mostViewedWeekEntry
+      ? { name: mostViewedWeekEntry[0], count: mostViewedWeekEntry[1] }
+      : null,
+    funnel,
+    recentEvents,
   };
 }
 
@@ -1291,6 +1700,20 @@ function getOrderItems() {
     return JSON.parse(file).order_items || [];
   } catch {
     return [];
+  }
+}
+
+function getActivityLog() {
+  const filePath = dataPath("activity.json");
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(file);
+    return {
+      sessions: Array.isArray(data?.sessions) ? data.sessions : [],
+      events: Array.isArray(data?.events) ? data.events : [],
+    };
+  } catch {
+    return { sessions: [], events: [] };
   }
 }
 
