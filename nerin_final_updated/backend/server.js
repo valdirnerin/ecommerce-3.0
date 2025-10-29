@@ -1720,13 +1720,25 @@ function getActivityLog() {
   }
 }
 
+let activityLogWriteChain = Promise.resolve();
+
 function saveActivityLog(log) {
   const filePath = dataPath("activity.json");
   const payload = {
     sessions: Array.isArray(log?.sessions) ? log.sessions : [],
     events: Array.isArray(log?.events) ? log.events : [],
   };
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+
+  activityLogWriteChain = activityLogWriteChain
+    .then(() =>
+      fs.promises
+        .writeFile(filePath, JSON.stringify(payload, null, 2), "utf8")
+        .catch((err) => {
+          console.error("activity log write error", err);
+        }),
+    );
+
+  return activityLogWriteChain;
 }
 
 // Guardar líneas de pedidos
