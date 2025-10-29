@@ -179,6 +179,12 @@ main {
   gap: 0.35rem;
 }
 
+.form-hint {
+  margin: -0.15rem 0 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
 .form-row {
   align-items: flex-start;
   margin-bottom: 0.75rem;
@@ -288,6 +294,36 @@ button:hover:not(:disabled) {
 
 #breakdownTable tbody tr:hover {
   background: rgba(37, 99, 235, 0.08);
+}
+
+#resultsCard .results-meta {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 12px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+  font-size: 0.95rem;
+  color: #1d4ed8;
+}
+
+.results-meta__label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.8rem;
+}
+
+.results-meta__value {
+  font-size: 1.05rem;
+}
+
+.results-meta__suffix {
+  font-size: 0.85rem;
+  color: #1e293b;
 }
 
 #summary {
