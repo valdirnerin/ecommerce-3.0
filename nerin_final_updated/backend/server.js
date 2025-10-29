@@ -105,6 +105,9 @@ if (process.env.NODE_ENV !== "test") {
 }
 const BASE_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
+const MAX_ACTIVITY_EVENTS = 600;
+const MAX_ACTIVITY_SESSIONS = 300;
+const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 
 let _cache = { t: 0, data: null };
 
@@ -1715,6 +1718,27 @@ function getActivityLog() {
   } catch {
     return { sessions: [], events: [] };
   }
+}
+
+let activityLogWriteChain = Promise.resolve();
+
+function saveActivityLog(log) {
+  const filePath = dataPath("activity.json");
+  const payload = {
+    sessions: Array.isArray(log?.sessions) ? log.sessions : [],
+    events: Array.isArray(log?.events) ? log.events : [],
+  };
+
+  activityLogWriteChain = activityLogWriteChain
+    .then(() =>
+      fs.promises
+        .writeFile(filePath, JSON.stringify(payload, null, 2), "utf8")
+        .catch((err) => {
+          console.error("activity log write error", err);
+        }),
+    );
+
+  return activityLogWriteChain;
 }
 
 // Guardar líneas de pedidos
@@ -6326,6 +6350,215 @@ async function requestHandler(req, res) {
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "Error al eliminar orden de compra" });
+    }
+  }
+
+  /*
+   * API: Registro de actividad de visitantes (tracking)
+   * Recibe eventos del frontend para alimentar el dashboard de analíticas en vivo.
+   */
+  if (pathname === "/api/analytics/track" && req.method === "POST") {
+    const clampString = (value, max = 160) => {
+      if (!value && value !== 0) return "";
+      const str = String(value);
+      return str.length > max ? str.slice(0, max) : str;
+    };
+    const normalizeStatus = (status, eventType) => {
+      const normalized = String(status || "")
+        .trim()
+        .toLowerCase();
+      if (normalized === "idle" || normalized === "inactive") return "idle";
+      if (normalized === "ended" || normalized === "finished") return "ended";
+      if (normalized === "active" || normalized === "online") return "active";
+      if (String(eventType || "").toLowerCase() === "session_end") {
+        return "ended";
+      }
+      if (String(eventType || "").toLowerCase() === "session_hidden") {
+        return "idle";
+      }
+      return "active";
+    };
+    const formatStepLabel = (value) => {
+      if (!value) return null;
+      const text = String(value)
+        .replace(/_/g, " ")
+        .trim();
+      if (!text) return null;
+      return text
+        .split(" ")
+        .filter(Boolean)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+    };
+    const inferStepFromPath = (path) => {
+      if (!path) return null;
+      const lower = String(path).toLowerCase();
+      if (lower.includes("checkout")) return "Checkout";
+      if (lower.includes("cart")) return "Carrito";
+      if (lower.includes("login")) return "Login";
+      if (lower.includes("register")) return "Registro";
+      if (lower.includes("account")) return "Cuenta";
+      if (lower.includes("shop")) return "Catálogo";
+      if (lower.includes("product")) return "Producto";
+      if (lower === "/" || lower.includes("index")) return "Inicio";
+      if (lower.includes("contact")) return "Contacto";
+      if (lower.includes("seguimiento")) return "Seguimiento";
+      return null;
+    };
+    try {
+      await parseBody(req);
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      const rawSessionId =
+        body.sessionId ||
+        body.session_id ||
+        body.session ||
+        body.id ||
+        body.sessionID ||
+        null;
+      const sessionId = rawSessionId ? clampString(rawSessionId, 80).trim() : "";
+      if (!sessionId) {
+        return sendJson(res, 400, {
+          success: false,
+          error: "sessionId requerido",
+        });
+      }
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const cartValue = Number(
+        body.cartValue ?? body.cart_value ?? body.cartTotal ?? body.cart_total ?? 0,
+      );
+      const cartItemsRaw =
+        body.cartItems ?? body.cart_items ?? body.items ?? body.itemsCount ?? null;
+      const cartItems = Number.isFinite(Number(cartItemsRaw))
+        ? Number(cartItemsRaw)
+        : null;
+      const { sessions: rawSessions, events: rawEvents } = getActivityLog();
+      const sessions = Array.isArray(rawSessions)
+        ? rawSessions.map((session) => ({ ...session }))
+        : [];
+      const events = Array.isArray(rawEvents) ? rawEvents.slice() : [];
+      let session = sessions.find((s) => String(s.id) === sessionId);
+      if (!session) {
+        session = {
+          id: sessionId,
+          startedAt: nowIso,
+          status: "active",
+        };
+        sessions.push(session);
+      }
+      session.lastSeenAt = nowIso;
+      session.lastSeen = nowIso;
+      session.status = normalizeStatus(body.status, body.type);
+      if (body.userEmail) {
+        session.userEmail = clampString(body.userEmail, 160).toLowerCase();
+      }
+      if (body.userName) {
+        session.userName = clampString(body.userName, 160);
+      }
+      if (body.location || body.city || body.region || body.country) {
+        const locationParts = [body.city, body.region, body.country, body.location]
+          .map((part) => clampString(part, 80))
+          .filter(Boolean);
+        if (locationParts.length) {
+          session.location = locationParts.join(", ");
+        }
+      }
+      if (Number.isFinite(cartValue) && cartValue >= 0) {
+        session.cartValue = cartValue;
+      }
+      if (Number.isFinite(cartItems) && cartItems >= 0) {
+        session.cartItems = cartItems;
+      }
+      if (body.currency) {
+        session.currency = clampString(String(body.currency).toUpperCase(), 8);
+      }
+      if (body.locale) {
+        session.locale = clampString(body.locale, 32);
+      }
+      const tz = body.timezone || body.timeZone;
+      if (tz) {
+        session.timezone = clampString(tz, 60);
+      }
+      const ua = body.userAgent || req.headers["user-agent"];
+      if (ua) {
+        session.userAgent = clampString(ua, 260);
+      }
+      const rawPath = body.path || body.url || null;
+      const normalizedPath = rawPath ? clampString(rawPath, 200) : null;
+      const inferredStep =
+        formatStepLabel(body.step || body.currentStep || body.stage) ||
+        inferStepFromPath(normalizedPath) ||
+        session.currentStep ||
+        null;
+      if (inferredStep) {
+        session.currentStep = inferredStep;
+      }
+      if (normalizedPath) {
+        session.lastPath = normalizedPath;
+      }
+
+      const eventType = clampString(body.type || body.event || "ping", 60).toLowerCase();
+      const event = {
+        type: eventType || "ping",
+        timestamp: nowIso,
+        sessionId,
+        path: normalizedPath,
+        title: clampString(body.title || body.pageTitle || "", 180) || null,
+        referrer:
+          clampString(body.referrer || body.referer || req.headers.referer || "", 200) ||
+          null,
+        cartValue: Number.isFinite(cartValue)
+          ? cartValue
+          : Number(session.cartValue || 0),
+        cartItems: Number.isFinite(cartItems)
+          ? cartItems
+          : Number(session.cartItems || 0),
+      };
+      const productName = body.productName || body.product || null;
+      if (productName || body.productId) {
+        event.product = {
+          id: body.productId ? clampString(body.productId, 80) : null,
+          name: productName ? clampString(productName, 160) : null,
+        };
+      }
+      if (body.metadata && typeof body.metadata === "object") {
+        event.metadata = Object.entries(body.metadata).reduce((acc, [key, value]) => {
+          if (!key) return acc;
+          acc[clampString(key, 40)] = clampString(value, 160);
+          return acc;
+        }, {});
+      }
+      events.push(event);
+      while (events.length > MAX_ACTIVITY_EVENTS) {
+        events.shift();
+      }
+
+      const nowMs = now.getTime();
+      let filteredSessions = sessions.filter((s) => {
+        const lastSeen = Date.parse(s.lastSeenAt || s.lastSeen || s.startedAt || "");
+        if (!Number.isFinite(lastSeen)) return true;
+        if (nowMs - lastSeen <= ACTIVITY_SESSION_RETENTION_MS) return true;
+        return String(s.status || "").toLowerCase() === "active";
+      });
+      if (filteredSessions.length > MAX_ACTIVITY_SESSIONS) {
+        filteredSessions = filteredSessions
+          .slice()
+          .sort((a, b) => {
+            const aTime = Date.parse(a.lastSeenAt || a.lastSeen || a.startedAt || "") || 0;
+            const bTime = Date.parse(b.lastSeenAt || b.lastSeen || b.startedAt || "") || 0;
+            return bTime - aTime;
+          })
+          .slice(0, MAX_ACTIVITY_SESSIONS);
+      }
+
+      saveActivityLog({ sessions: filteredSessions, events });
+      return sendJson(res, 200, { success: true, sessionId });
+    } catch (err) {
+      console.error("analytics-track error", err);
+      return sendJson(res, 500, {
+        success: false,
+        error: "No se pudo registrar el evento",
+      });
     }
   }
 
