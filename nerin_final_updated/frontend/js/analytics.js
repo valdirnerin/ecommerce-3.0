@@ -13,6 +13,8 @@ const palette = [
   "#a3e635",
 ];
 
+const activeCharts = [];
+
 function formatCurrency(value) {
   const num = Number(value) || 0;
   return num.toLocaleString("es-AR", {
@@ -277,20 +279,54 @@ function createChart(
   btnContainer.appendChild(csvBtn);
   wrapper.appendChild(btnContainer);
   container.appendChild(wrapper);
+  activeCharts.push(chart);
   return chart;
 }
 
-export async function renderAnalyticsDashboard(containerId = "analytics-dashboard") {
+export async function renderAnalyticsDashboard(
+  containerId = "analytics-dashboard",
+  options = {},
+) {
+  const { autoRefreshMs = null } = options || {};
   const container =
     typeof containerId === "string"
       ? document.getElementById(containerId)
       : containerId;
   if (!container) return;
+  if (activeCharts.length) {
+    activeCharts.forEach((chart) => {
+      if (chart && typeof chart.destroy === "function") {
+        chart.destroy();
+      }
+    });
+    activeCharts.splice(0, activeCharts.length);
+  }
   container.innerHTML = "<p>Cargando...</p>";
   try {
     const res = await apiFetch("/api/analytics/detailed");
     const { analytics } = await res.json();
     container.innerHTML = "";
+    const fetchedAt = new Date();
+
+    const meta = document.createElement("div");
+    meta.className = "analytics-meta";
+    meta.setAttribute("role", "status");
+    const status = document.createElement("span");
+    status.className = "analytics-meta__status";
+    status.textContent = `Actualizado ${fetchedAt.toLocaleTimeString("es-AR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    })}`;
+    meta.appendChild(status);
+    if (autoRefreshMs) {
+      const intervalSeconds = Math.max(1, Math.round(autoRefreshMs / 1000));
+      const hint = document.createElement("span");
+      hint.className = "analytics-meta__hint";
+      hint.textContent = `Actualización automática cada ${intervalSeconds} s`;
+      meta.appendChild(hint);
+    }
+    container.appendChild(meta);
 
     const summaryGrid = document.createElement("div");
     summaryGrid.className = "analytics-summary-grid";
@@ -412,8 +448,8 @@ export async function renderAnalyticsDashboard(containerId = "analytics-dashboar
     highlightTitle.textContent = "Productos más vistos";
     highlightBlock.appendChild(highlightTitle);
 
-    const highlightList = document.createElement("div");
-    highlightList.className = "analytics-hot-products";
+    const hotProducts = document.createElement("div");
+    hotProducts.className = "analytics-hot-products";
     if (analytics.mostViewedToday) {
       const badge = document.createElement("div");
       badge.className = "analytics-hot-products__leader";
@@ -422,7 +458,7 @@ export async function renderAnalyticsDashboard(containerId = "analytics-dashboar
         <strong>${analytics.mostViewedToday.name}</strong>
         <span>${formatNumber(analytics.mostViewedToday.count)} vistas</span>
       `;
-      highlightList.appendChild(badge);
+      hotProducts.appendChild(badge);
     }
     if (analytics.mostViewedWeek) {
       const badge = document.createElement("div");
@@ -432,11 +468,19 @@ export async function renderAnalyticsDashboard(containerId = "analytics-dashboar
         <strong>${analytics.mostViewedWeek.name}</strong>
         <span>${formatNumber(analytics.mostViewedWeek.count)} vistas</span>
       `;
-      highlightList.appendChild(badge);
+      hotProducts.appendChild(badge);
     }
+    const listsWrapper = document.createElement("div");
+    listsWrapper.className = "analytics-hot-products__lists";
 
-    const viewsList = document.createElement("ol");
-    viewsList.className = "analytics-hot-products__list";
+    const todayColumn = document.createElement("div");
+    todayColumn.className = "analytics-hot-products__column";
+    const todayTitle = document.createElement("span");
+    todayTitle.className = "analytics-hot-products__subtitle";
+    todayTitle.textContent = "Detalle del día";
+    todayColumn.appendChild(todayTitle);
+    const todayList = document.createElement("ol");
+    todayList.className = "analytics-hot-products__list";
     (analytics.productViewsToday || [])
       .sort((a, b) => b.count - a.count)
       .slice(0, 5)
@@ -446,15 +490,45 @@ export async function renderAnalyticsDashboard(containerId = "analytics-dashboar
           <span>${item.name}</span>
           <strong>${formatNumber(item.count)}</strong>
         `;
-        viewsList.appendChild(li);
+        todayList.appendChild(li);
       });
-    if (!viewsList.children.length) {
+    if (!todayList.children.length) {
       const li = document.createElement("li");
       li.textContent = "Sin datos de vistas de producto hoy.";
-      viewsList.appendChild(li);
+      todayList.appendChild(li);
     }
-    highlightList.appendChild(viewsList);
-    highlightBlock.appendChild(highlightList);
+    todayColumn.appendChild(todayList);
+    listsWrapper.appendChild(todayColumn);
+
+    const weekColumn = document.createElement("div");
+    weekColumn.className = "analytics-hot-products__column";
+    const weekTitle = document.createElement("span");
+    weekTitle.className = "analytics-hot-products__subtitle";
+    weekTitle.textContent = "Últimos 7 días";
+    weekColumn.appendChild(weekTitle);
+    const weekList = document.createElement("ol");
+    weekList.className = "analytics-hot-products__list analytics-hot-products__list--muted";
+    (analytics.productViewsWeek || [])
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .forEach((item) => {
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <span>${item.name}</span>
+          <strong>${formatNumber(item.count)}</strong>
+        `;
+        weekList.appendChild(li);
+      });
+    if (!weekList.children.length) {
+      const li = document.createElement("li");
+      li.textContent = "Sin datos en los últimos 7 días.";
+      weekList.appendChild(li);
+    }
+    weekColumn.appendChild(weekList);
+    listsWrapper.appendChild(weekColumn);
+
+    hotProducts.appendChild(listsWrapper);
+    highlightBlock.appendChild(hotProducts);
 
     topRow.appendChild(liveBlock);
     topRow.appendChild(highlightBlock);
