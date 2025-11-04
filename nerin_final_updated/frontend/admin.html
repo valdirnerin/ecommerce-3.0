@@ -338,6 +338,7 @@
                 <th>Modelo</th>
                 <th>Categoría</th>
                 <th>Subcategoría</th>
+                <th>Explorador</th>
                 <th>Tags</th>
                 <th>Stock</th>
                 <th>Mín. Stock</th>
@@ -401,6 +402,54 @@
               list="productSubcategoryOptions"
             />
             <datalist id="productSubcategoryOptions"></datalist>
+            <div class="form-section form-grid-span form-section--catalog" id="catalogAssistSection">
+              <div class="form-section__header">
+                <h5>Catálogo y explorador</h5>
+              </div>
+              <p class="form-hint">
+                Ajustá manualmente cómo se agrupa este repuesto en los filtros y el
+                explorador por modelo. Si dejás un campo vacío usamos la
+                información automática del producto.
+              </p>
+              <div class="catalog-grid">
+                <div class="catalog-field">
+                  <label for="productCatalogBrand">Marca en el explorador</label>
+                  <input
+                    type="text"
+                    id="productCatalogBrand"
+                    name="catalog_brand"
+                    placeholder="Marca visible (ej. Apple)"
+                    list="catalogBrandOptions"
+                    autocomplete="off"
+                  />
+                  <datalist id="catalogBrandOptions"></datalist>
+                </div>
+                <div class="catalog-field">
+                  <label for="productCatalogModel">Modelo agrupador</label>
+                  <input
+                    type="text"
+                    id="productCatalogModel"
+                    name="catalog_model"
+                    placeholder="Modelo (ej. iPhone 12)"
+                    list="catalogModelOptions"
+                    autocomplete="off"
+                  />
+                  <datalist id="catalogModelOptions"></datalist>
+                </div>
+                <div class="catalog-field">
+                  <label for="productCatalogPiece">Pieza / parte</label>
+                  <input
+                    type="text"
+                    id="productCatalogPiece"
+                    name="catalog_piece"
+                    placeholder="Nombre de la pieza"
+                    list="catalogPieceOptions"
+                    autocomplete="off"
+                  />
+                  <datalist id="catalogPieceOptions"></datalist>
+                </div>
+              </div>
+            </div>
             <div class="form-section form-grid-span form-section--tags" id="tagsAssistSection">
               <div class="form-section__header">
                 <h5>Palabras clave y etiquetas</h5>

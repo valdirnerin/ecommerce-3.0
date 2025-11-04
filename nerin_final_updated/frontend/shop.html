@@ -6,14 +6,14 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <title>NERIN – Tienda</title>
+    <title>Catálogo profesional de repuestos para celulares | NERIN</title>
     <meta
       name="description"
-      content="Explorá el catálogo completo de pantallas Samsung originales Service Pack y repuestos premium de NERIN con filtros por modelo, marca y categoría."
+      content="Explorá repuestos premium para celulares con filtros inteligentes por modelo, pieza y disponibilidad. Encontrá pantallas, baterías y módulos oficiales para servicio técnico mayorista y minorista."
     />
     <meta
       name="keywords"
-      content="catalogo pantallas samsung, tienda repuestos celulares, service pack argentina"
+      content="repuestos celulares, pantallas samsung service pack, partes iphone originales, mayorista, minorista, NERIN"
     />
     <meta name="robots" content="index,follow" />
     <link
@@ -24,10 +24,13 @@
     <meta property="og:locale" content="es_AR" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="NERIN Repuestos" />
-    <meta property="og:title" content="Catálogo de pantallas originales | NERIN" />
+    <meta
+      property="og:title"
+      content="Repuestos profesionales clasificados por modelo | NERIN"
+    />
     <meta
       property="og:description"
-      content="Filtrá por modelo y encontrá pantallas Samsung originales listas para enviar con garantía técnica."
+      content="Elegí tu modelo de celular, desglosá las piezas internas y compará opciones mayoristas y minoristas en un catálogo premium."
     />
     <meta
       property="og:url"
@@ -41,13 +44,16 @@
     />
     <meta
       property="og:image:alt"
-      content="Catálogo de pantallas originales NERIN"
+      content="Catálogo de repuestos NERIN con filtros profesionales"
     />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Catálogo de pantallas originales | NERIN" />
+    <meta
+      name="twitter:title"
+      content="Repuestos profesionales clasificados por modelo | NERIN"
+    />
     <meta
       name="twitter:description"
-      content="Accedé al stock actualizado de pantallas Samsung originales Service Pack y solicitá asesoramiento inmediato."
+      content="Accedé al stock actualizado de pantallas, módulos y repuestos originales para celulares con filtros inteligentes y vista por despiece."
     />
     <meta
       name="twitter:url"
@@ -61,14 +67,14 @@
     />
     <meta
       name="twitter:image:alt"
-      content="Catálogo completo de repuestos Samsung"
+      content="Catálogo completo de repuestos Samsung, iPhone y Motorola"
     />
     <link rel="icon" type="image/svg+xml" href="/assets/np-logo.svg" />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
     />
-    <link rel="stylesheet" href="/style.css?v=cartfix-2" />
+    <link rel="stylesheet" href="/style.css?v=premium-grid" />
     <link rel="stylesheet" href="/components/np-footer.css?v=np-r2" />
     <script src="/components/np-footer.js?v=np-r2" defer></script>
     <script
@@ -79,8 +85,8 @@
 {
   "@context": "https://schema.org",
   "@type": "CollectionPage",
-  "name": "Catálogo de pantallas originales NERIN",
-  "description": "Catálogo actualizado de pantallas Samsung originales con filtros por marca, modelo y categoría.",
+  "name": "Catálogo profesional de repuestos NERIN",
+  "description": "Catálogo actualizado de repuestos para celulares clasificados por marca, modelo y tipo de pieza.",
   "url": "__BASE_URL__/shop.html"
 }
     </script>
@@ -108,11 +114,18 @@
   ]
 }
     </script>
-</head>
+  </head>
   <body>
     <header>
       <div class="header-inner">
-        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <div class="logo">
+          <a href="/index.html" class="brand"
+            ><img
+              src="../assets/IMG_3086.png"
+              alt="NERIN"
+              class="site-logo"
+          /></a>
+        </div>
         <button class="menu-toggle" id="navToggle">☰</button>
         <nav id="mainNav">
           <ul>
@@ -126,34 +139,268 @@
         </nav>
       </div>
     </header>
-    <main class="container">
-      <h2>Nuestros productos</h2>
-      <div class="filters">
-        <input
-          type="search"
-          id="searchInput"
-          placeholder="Buscar por nombre o SKU"
-        />
-        <select id="brandFilter">
-          <option value="">Todas las marcas</option>
-        </select>
-        <select id="modelFilter">
-          <option value="">Todos los modelos</option>
-        </select>
-        <select id="categoryFilter">
-          <option value="">Todas las categorías</option>
-        </select>
-      </div>
-      <div id="productGrid" class="product-grid"></div>
+    <main class="shop-page">
+      <section class="shop-hero">
+        <div class="shop-hero__content">
+          <p class="eyebrow">Catálogo profesional</p>
+          <h1>
+            Repuestos premium clasificados por modelo, piezas y disponibilidad
+          </h1>
+          <div class="hero-actions">
+            <a class="hero-skip" href="#catalogo">Ir directo al catálogo</a>
+            <button
+              type="button"
+              class="hero-toggle"
+              data-hero-toggle
+              data-collapsed-label="Ver beneficios del catálogo"
+              data-expanded-label="Ocultar beneficios"
+              aria-controls="heroDetails"
+              aria-expanded="false"
+            >
+              Ver beneficios del catálogo
+            </button>
+          </div>
+          <div
+            class="hero-details"
+            id="heroDetails"
+            data-hero-details
+            data-expanded="false"
+            aria-live="polite"
+          >
+            <p class="lead">
+              Diseñado para laboratorios técnicos mayoristas y minoristas que
+              exigen precisión absoluta. Filtrá por marca, desglosá cada modelo
+              y accedé a precios diferenciados con visibilidad total de stock en
+              tiempo real.
+            </p>
+            <ul
+              class="hero-highlights"
+              aria-label="Diferenciales del catálogo"
+            >
+              <li>
+                <strong>Vista por despiece</strong> – navegá por modelo y elegí
+                la pieza exacta que necesitás.
+              </li>
+              <li>
+                <strong>Precios duales</strong> – minorista y mayorista con
+                reglas de volumen inteligentes.
+              </li>
+              <li>
+                <strong>Visibilidad en buscadores</strong> – pensado para que te
+                encuentren cuando buscan repuestos específicos.
+              </li>
+            </ul>
+          </div>
+        </div>
+        <form class="hero-search" role="search" aria-label="Buscar repuesto">
+          <label for="searchInput">Buscá por modelo, SKU o componente</label>
+          <div class="search-wrapper">
+            <input
+              type="search"
+              id="searchInput"
+              name="search"
+              placeholder="Ej: Pantalla iPhone 12 Pro Max"
+              autocomplete="off"
+            />
+            <button type="button" id="searchClear" aria-label="Limpiar búsqueda">
+              ×
+            </button>
+          </div>
+        </form>
+      </section>
+      <section
+        class="role-highlight"
+        data-role-highlight
+        aria-label="Estado de tu cuenta y beneficios disponibles"
+      >
+        <div class="role-highlight__controls">
+          <button
+            type="button"
+            class="role-highlight__toggle"
+            data-role-toggle
+            data-collapsed-label="Ver beneficios según tu cuenta"
+            data-expanded-label="Ocultar beneficios"
+            aria-controls="roleBenefits"
+            aria-expanded="false"
+          >
+            Ver beneficios según tu cuenta
+          </button>
+        </div>
+        <div
+          class="role-highlight__collapsible"
+          id="roleBenefits"
+          data-role-collapsible
+          data-expanded="false"
+        >
+          <div class="role-highlight__grid">
+          <article class="role-card" data-role-variant="retail">
+            <header class="role-card__header">
+              <h2>Clientes particulares e invitados</h2>
+              <span class="role-chip">Precios finales</span>
+            </header>
+            <p class="role-card__status" data-role-display="guest">
+              Estás navegando como invitado. Te mostramos precios finales con
+              IVA incluido para que puedas cotizar al instante.
+            </p>
+            <p class="role-card__status" data-role-display="retail">
+              Tu sesión minorista está activa. Los precios reflejan IVA y stock
+              en tiempo real.
+            </p>
+            <ul class="role-card__points">
+              <li>Carrito rápido con cantidades unitarias.</li>
+              <li>Ficha técnica completa y compatibilidades verificadas.</li>
+              <li>Alerta de stock antes de confirmar la compra.</li>
+            </ul>
+            <a
+              class="role-card__cta"
+              data-role-display="guest"
+              href="/register.html"
+            >
+              Crear cuenta
+            </a>
+            <a
+              class="role-card__cta"
+              data-role-display="retail"
+              href="/contact.html"
+            >
+              Solicitar acceso mayorista
+            </a>
+          </article>
+          <article class="role-card" data-role-variant="wholesale">
+            <header class="role-card__header">
+              <h2>Cuenta mayorista y VIP</h2>
+              <span class="role-chip role-chip--wholesale">Tarifas netas</span>
+            </header>
+            <p class="role-card__status" data-role-display="guest">
+              Iniciá sesión para revelar precios mayoristas y combos por
+              volumen.
+            </p>
+            <p class="role-card__status" data-role-display="retail">
+              Actualizá tu cuenta para liberar precios netos, descuentos
+              automáticos y logística dedicada.
+            </p>
+            <p class="role-card__status" data-role-display="wholesale">
+              Tu tarifa mayorista está activa. El sistema aplica descuentos
+              progresivos en el carrito.
+            </p>
+            <ul class="role-card__points">
+              <li>Selector de cantidades con cálculo inmediato de descuentos.</li>
+              <li>Asignación de stock por sucursal y retiro express.</li>
+              <li>Dashboard VIP con onboarding técnico personalizado.</li>
+            </ul>
+            <a
+              class="role-card__cta"
+              data-role-display="guest"
+              href="/login.html"
+            >
+              Iniciar sesión mayorista
+            </a>
+            <a
+              class="role-card__cta"
+              data-role-display="retail"
+              href="/contact.html"
+            >
+              Agendar onboarding
+            </a>
+          </article>
+          </div>
+        </div>
+      </section>
+      <section class="shop-body">
+        <aside class="shop-filters" aria-label="Filtrar repuestos">
+          <div class="filter-block">
+            <h2>Filtros inteligentes</h2>
+            <p class="filter-subtitle">
+              Combiná marca, modelo, pieza y disponibilidad para llegar al
+              repuesto ideal sin perder tiempo.
+            </p>
+          </div>
+          <div class="filter-block">
+            <label for="brandFilter">Marca</label>
+            <select id="brandFilter">
+              <option value="">Todas las marcas</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="modelFilter">Modelo</label>
+            <select id="modelFilter">
+              <option value="">Todos los modelos</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="categoryFilter">Tipo de repuesto</label>
+            <select id="categoryFilter">
+              <option value="">Todos los tipos</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="partFilter">Pieza específica</label>
+            <select id="partFilter">
+              <option value="">Cualquier pieza</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="stockFilter">Disponibilidad</label>
+            <select id="stockFilter">
+              <option value="">Todo el catálogo</option>
+              <option value="in-stock">Solo con stock</option>
+              <option value="low-stock">Stock crítico</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="priceRange">Precio minorista máximo</label>
+            <div class="slider-row">
+              <input type="range" id="priceRange" min="0" value="0" />
+              <span id="priceRangeValue">$0</span>
+            </div>
+          </div>
+          <div class="filter-block filter-block--legend">
+            <p>
+              <span class="legend-pill legend-pill--retail">Minorista</span>
+              <span class="legend-pill legend-pill--wholesale">Mayorista</span>
+            </p>
+            <p class="filter-subtitle">
+              Identificá instantáneamente la tarifa que aplica a tu cuenta.
+            </p>
+          </div>
+        </aside>
+        <section class="shop-results" id="catalogo" aria-live="polite">
+          <div class="results-toolbar">
+            <div class="results-summary">
+              <h2>Resultados</h2>
+              <p><span id="resultCount">0</span> coincidencias encontradas.</p>
+            </div>
+            <div class="toolbar-controls">
+              <label for="sortSelect" class="visually-hidden">Ordenar</label>
+              <select id="sortSelect">
+                <option value="relevance">Orden recomendado</option>
+                <option value="price-asc">Precio: menor a mayor</option>
+                <option value="price-desc">Precio: mayor a menor</option>
+                <option value="stock-desc">Stock: mayor disponibilidad</option>
+              </select>
+            </div>
+          </div>
+          <div id="activeFilters" class="active-filters" aria-live="polite"></div>
+          <div id="productGrid" class="product-grid premium-grid" role="list"></div>
+        </section>
+      </section>
+      <section class="model-explorer" aria-labelledby="modelExplorerTitle">
+        <div class="model-explorer__header">
+          <h2 id="modelExplorerTitle">Explorador por modelo</h2>
+          <p>
+            Seleccioná una marca, abrí el modelo y tocá la pieza en el despiece
+            digital para filtrar automáticamente los repuestos compatibles.
+          </p>
+        </div>
+        <div id="modelExplorer" class="model-explorer__grid"></div>
+      </section>
     </main>
     <div id="whatsapp-button">
       <a href="https://wa.me/541112345678" target="_blank">
         <img src="/assets/whatsapp.svg" alt="WhatsApp" />
       </a>
     </div>
-    <!-- Importamos el código como módulos ES para poder usar import/export -->
     <script type="module" src="/js/shop.js"></script>
-    <!-- Configuración y analíticas globales -->
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>

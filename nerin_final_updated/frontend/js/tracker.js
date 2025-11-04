@@ -4,6 +4,22 @@ const STORAGE_KEY = "nerinActivitySession";
 const SESSION_EXTENSION_MS = 6 * 60 * 60 * 1000; // 6 horas
 const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
 
+function isLocalhost(hostname) {
+  return /^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(hostname || "");
+}
+
+function shouldBypassAnalytics() {
+  if (typeof window === "undefined") return true;
+  if (window.NERIN_CONFIG?.disableAnalytics === true) return true;
+  const hasExplicitApi = Boolean(window.NERIN_CONFIG?.apiBase || window.API_BASE_URL);
+  if (hasExplicitApi) return false;
+  const location = window.location;
+  if (!location) return false;
+  if (location.protocol === "file:") return true;
+  if (isLocalhost(location.hostname)) return true;
+  return false;
+}
+
 let initialized = false;
 let heartbeatTimer = null;
 let pageViewSent = false;
@@ -220,6 +236,7 @@ function buildPayload(base) {
 
 function sendPayload(basePayload, options = {}) {
   if (typeof window === "undefined") return;
+  if (shouldBypassAnalytics()) return;
   const payload = buildPayload(basePayload || {});
   const url = buildApiUrl("/api/analytics/track");
   const body = JSON.stringify(payload);
@@ -269,6 +286,7 @@ function startHeartbeat() {
 
 function ensureInitialized() {
   if (initialized || typeof window === "undefined") return;
+  if (shouldBypassAnalytics()) return;
   initialized = true;
   ensureSession();
   if (typeof document !== "undefined") {

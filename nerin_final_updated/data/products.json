@@ -40,7 +40,10 @@
         "Pantalla iPhone 12 vista frontal",
         "Pantalla iPhone 12 detalle de marco",
         "Pantalla iPhone 12 empaquetada"
-      ]
+      ],
+      "catalog_brand": "Apple",
+      "catalog_model": "iPhone 12",
+      "catalog_piece": "Pantalla OLED completa"
     },
     {
       "id": "2",
@@ -152,7 +155,10 @@
       "meta_title": "Batería iPhone 12",
       "meta_description": "Batería de repuesto para iPhone 12 de 2815 mAh",
       "visibility": "public",
-      "featured": false
+      "featured": false,
+      "catalog_brand": "Apple",
+      "catalog_model": "iPhone 12",
+      "catalog_piece": "Batería interna"
     },
     {
       "id": "5",
