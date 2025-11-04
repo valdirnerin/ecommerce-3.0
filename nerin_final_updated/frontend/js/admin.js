@@ -140,6 +140,51 @@ function escapeHtml(text) {
     .replace(/'/g, "&#39;");
 }
 
+function cleanLabel(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function resolveCatalogBrand(product = {}) {
+  const manual = cleanLabel(product.catalog_brand);
+  if (manual) return manual;
+  return cleanLabel(product.brand);
+}
+
+function resolveCatalogModel(product = {}) {
+  const manual = cleanLabel(product.catalog_model);
+  if (manual) return manual;
+  const model = cleanLabel(product.model);
+  if (model) return model;
+  return cleanLabel(product.subcategory);
+}
+
+function resolveCatalogPiece(product = {}) {
+  const manual = cleanLabel(product.catalog_piece);
+  if (manual) return manual;
+  const candidates = [
+    product.part,
+    product.component,
+    product.subcategory,
+    product.part_type,
+    product.category,
+  ];
+  for (const candidate of candidates) {
+    const label = cleanLabel(candidate);
+    if (label) return label;
+  }
+  if (Array.isArray(product.tags)) {
+    for (const tag of product.tags) {
+      if (typeof tag !== "string") continue;
+      const [, value] = tag.split(":");
+      const fallback = value || tag;
+      const label = cleanLabel(fallback);
+      if (label) return label;
+    }
+  }
+  return "";
+}
+
 function formatDateTimeDisplay(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -601,6 +646,9 @@ const productFilterStock = document.getElementById("productFilterStock");
 const productSortSelect = document.getElementById("productSort");
 const productCategorySelect = document.getElementById("productCategory");
 const productSubcategorySelect = document.getElementById("productSubcategory");
+const productCatalogBrandInput = document.getElementById("productCatalogBrand");
+const productCatalogModelInput = document.getElementById("productCatalogModel");
+const productCatalogPieceInput = document.getElementById("productCatalogPiece");
 const openModalBtn = document.getElementById("openProductModal");
 const productModal = document.getElementById("productModal");
 const productForm = document.getElementById("productForm");
@@ -664,6 +712,9 @@ const autoAssistFieldNames = new Set([
   "name",
   "brand",
   "model",
+  "catalog_brand",
+  "catalog_model",
+  "catalog_piece",
   "category",
   "subcategory",
   "price_minorista",
@@ -765,6 +816,30 @@ function syncProductTaxonomies(products) {
   const subcategories = products.map((p) => p.subcategory).filter(Boolean);
   setSelectOptions(productCategorySelect, categories, "Categoría");
   setSelectOptions(productSubcategorySelect, subcategories, "Subcategoría");
+  const explorerBrands = products
+    .flatMap((p) => [resolveCatalogBrand(p), cleanLabel(p.brand)])
+    .filter(Boolean);
+  setSelectOptions(
+    productCatalogBrandInput,
+    explorerBrands,
+    "Marca en el explorador",
+  );
+  const explorerModels = products
+    .flatMap((p) => [resolveCatalogModel(p), cleanLabel(p.model), cleanLabel(p.subcategory)])
+    .filter(Boolean);
+  setSelectOptions(
+    productCatalogModelInput,
+    explorerModels,
+    "Modelo agrupador",
+  );
+  const explorerPieces = products
+    .map((p) => resolveCatalogPiece(p))
+    .filter(Boolean);
+  setSelectOptions(
+    productCatalogPieceInput,
+    explorerPieces,
+    "Pieza / parte",
+  );
   if (productFilterCategory) {
     const previous = productFilterCategory.value;
     productFilterCategory.innerHTML =
@@ -896,6 +971,19 @@ function buildProductRow(product) {
   const safeCategory = escapeHtml(product.category || "");
   const safeSubcategory = escapeHtml(product.subcategory || "");
   const safeVisibility = escapeHtml(product.visibility || "");
+  const explorerParts = [
+    resolveCatalogBrand(product),
+    resolveCatalogModel(product),
+    resolveCatalogPiece(product),
+  ].filter(Boolean);
+  const hasManualExplorer = Boolean(
+    cleanLabel(product.catalog_brand) ||
+      cleanLabel(product.catalog_model) ||
+      cleanLabel(product.catalog_piece),
+  );
+  const explorerText = explorerParts.length ? explorerParts.join(" › ") : "Automático";
+  const explorerCellAttr = hasManualExplorer ? "" : ' data-mode="auto"';
+  const safeExplorer = escapeHtml(explorerText);
   tr.innerHTML = `
     <td><input type="checkbox" class="select-product" /></td>
     <td>${safeSku}</td>
@@ -904,6 +992,7 @@ function buildProductRow(product) {
     <td>${safeModel}</td>
     <td>${safeCategory}</td>
     <td>${safeSubcategory}</td>
+    <td${explorerCellAttr}>${safeExplorer}</td>
     <td>${tags}</td>
     <td><input type="number" class="inline-edit" data-field="stock" min="0" value="${product.stock ?? 0}" />${stockBadge}</td>
     <td>${product.min_stock ?? ""}</td>
@@ -935,6 +1024,12 @@ function getFilteredProducts() {
         product.name,
         product.brand,
         product.model,
+        product.catalog_brand,
+        product.catalog_model,
+        product.catalog_piece,
+        resolveCatalogBrand(product),
+        resolveCatalogModel(product),
+        resolveCatalogPiece(product),
         product.category,
         product.subcategory,
         Array.isArray(product.tags) ? product.tags.join(" ") : product.tags,
@@ -969,7 +1064,7 @@ function renderProductsTable() {
     const message = productsCache.length
       ? "No hay productos que coincidan con los filtros actuales."
       : "No hay productos";
-    productsTableBody.innerHTML = `<tr><td colspan="14">${message}</td></tr>`;
+    productsTableBody.innerHTML = `<tr><td colspan="15">${message}</td></tr>`;
   } else {
     const fragment = document.createDocumentFragment();
     rows.forEach((product) => {
@@ -1351,6 +1446,9 @@ function gatherProductBasics() {
     name: get("name"),
     brand: get("brand"),
     model: get("model"),
+    catalog_brand: get("catalog_brand"),
+    catalog_model: get("catalog_model"),
+    catalog_piece: get("catalog_piece"),
     category: get("category"),
     subcategory: get("subcategory"),
     tags,
@@ -1377,7 +1475,12 @@ function formatCurrencyValue(value) {
 }
 
 function generateAutoSlug(data = {}) {
-  const parts = [data.brand, data.model, data.name].filter(Boolean);
+  const parts = [
+    cleanLabel(data.catalog_brand) || cleanLabel(data.brand),
+    cleanLabel(data.catalog_model) || cleanLabel(data.model),
+    cleanLabel(data.catalog_piece),
+    data.name,
+  ].filter(Boolean);
   const base = parts.join(" ");
   const slug = slugify(base);
   if (slug) return slug;
@@ -1387,8 +1490,12 @@ function generateAutoSlug(data = {}) {
 
 function generateAutoMetaTitle(data = {}) {
   const parts = [];
-  if (data.brand) parts.push(data.brand);
-  if (data.model && !parts.includes(data.model)) parts.push(data.model);
+  const primaryBrand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
+  const primaryModel = cleanLabel(data.catalog_model) || cleanLabel(data.model);
+  const primaryPiece = cleanLabel(data.catalog_piece);
+  if (primaryBrand) parts.push(primaryBrand);
+  if (primaryModel && !parts.includes(primaryModel)) parts.push(primaryModel);
+  if (primaryPiece && !parts.includes(primaryPiece)) parts.push(primaryPiece);
   if (data.name) parts.push(data.name);
   if (data.category && !parts.includes(data.category)) parts.push(data.category);
   parts.push("NERIN");
@@ -1396,10 +1503,15 @@ function generateAutoMetaTitle(data = {}) {
 }
 
 function generateAutoMetaDescription(data = {}) {
+  const brand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
+  const model = cleanLabel(data.catalog_model) || cleanLabel(data.model);
+  const piece = cleanLabel(data.catalog_piece);
   const baseName =
     data.name ||
-    [data.brand, data.model].filter(Boolean).join(" ").trim() ||
-    data.brand ||
+    [brand, model, piece].filter(Boolean).join(" ").trim() ||
+    brand ||
+    model ||
+    piece ||
     "este producto";
   const categoryPart = data.category ? ` en ${data.category}` : "";
   const minorista = formatCurrencyValue(data.price_minorista);
@@ -1436,14 +1548,27 @@ function generateAutoTags(data = {}) {
       .filter((token) => token && (token.length > 2 || /\d/.test(token)))
       .forEach((token) => addKeyword(token));
   };
+  const primaryBrand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
+  const primaryModel = cleanLabel(data.catalog_model) || cleanLabel(data.model);
+  const primaryPiece = cleanLabel(data.catalog_piece);
+  addKeyword(primaryBrand);
+  addKeyword(primaryModel);
+  if (primaryBrand || primaryModel) {
+    addKeyword(`${primaryBrand || ""} ${primaryModel || ""}`.trim());
+  }
+  addKeyword(primaryPiece);
+  if (primaryPiece && (primaryBrand || primaryModel)) {
+    addKeyword(`${primaryPiece} ${primaryBrand || primaryModel || ""}`.trim());
+  }
   addKeyword(data.brand);
   addKeyword(data.model);
-  if (data.brand || data.model) {
-    addKeyword(`${data.brand || ""} ${data.model || ""}`.trim());
-  }
+  addKeyword(data.catalog_brand);
+  addKeyword(data.catalog_model);
+  addKeyword(data.catalog_piece);
   addKeyword(data.category);
   addKeyword(data.subcategory);
   addKeywordTokens(data.name);
+  addKeywordTokens(primaryPiece);
   addKeywordTokens(data.category);
   addKeywordTokens(data.subcategory);
   const baseTags = Array.from(keywords).filter(Boolean);
@@ -1482,8 +1607,10 @@ function updateSeoAssistStatus(data = {}) {
   if (autoSeoToggle && autoSeoToggle.checked) {
     const missing = [];
     if (!data.name) missing.push("nombre");
-    if (!data.brand) missing.push("marca");
-    if (!data.model) missing.push("modelo");
+    const hasBrand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
+    const hasModel = cleanLabel(data.catalog_model) || cleanLabel(data.model);
+    if (!hasBrand) missing.push("marca");
+    if (!hasModel) missing.push("modelo");
     if (!data.category) missing.push("categoría");
     seoAssistStatus.textContent = missing.length
       ? `Completá ${formatList(missing)} para optimizar el SEO automáticamente.`
@@ -1498,8 +1625,10 @@ function updateTagsAssistStatus(data = {}, suggested = []) {
   if (!autoTagsStatus) return;
   if (autoTagsToggle && autoTagsToggle.checked) {
     const missing = [];
-    if (!data.brand) missing.push("marca");
-    if (!data.model) missing.push("modelo");
+    const hasBrand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
+    const hasModel = cleanLabel(data.catalog_model) || cleanLabel(data.model);
+    if (!hasBrand) missing.push("marca");
+    if (!hasModel) missing.push("modelo");
     if (!data.category) missing.push("categoría");
     autoTagsStatus.textContent = missing.length
       ? `Sumá ${formatList(missing)} para generar tags potentes automáticamente.`
@@ -1704,6 +1833,9 @@ function fillProductForm(p) {
   set("model", p.model);
   set("category", p.category);
   set("subcategory", p.subcategory);
+  set("catalog_brand", p.catalog_brand);
+  set("catalog_model", p.catalog_model);
+  set("catalog_piece", p.catalog_piece);
   set("tags", Array.isArray(p.tags) ? p.tags.join(", ") : p.tags ?? "");
   set("stock", p.stock);
   set("min_stock", p.min_stock);
@@ -1761,6 +1893,15 @@ function serializeProductForm(form) {
       if (k in obj && obj[k] !== "") obj[k] = Number(obj[k]);
     },
   );
+  ["catalog_brand", "catalog_model", "catalog_piece"].forEach((field) => {
+    if (!(field in obj)) return;
+    const value = cleanLabel(obj[field]);
+    if (value) {
+      obj[field] = value;
+    } else {
+      delete obj[field];
+    }
+  });
   const images = productImagesState.map((img) => img.url);
   const alts = productImagesState.map((img) => img.alt || "");
   obj.images = images;
@@ -1832,6 +1973,17 @@ function renderProductFormPreview() {
   }
   if (productPreviewMeta) {
     const metaParts = [];
+    const explorerBrand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
+    const explorerModel = cleanLabel(data.catalog_model) || cleanLabel(data.model);
+    const explorerPiece = cleanLabel(data.catalog_piece);
+    const explorerPath = [explorerBrand, explorerModel, explorerPiece]
+      .filter(Boolean)
+      .join(" › ");
+    if (explorerPath) {
+      metaParts.push(`Explorador: ${explorerPath}`);
+    } else {
+      metaParts.push("Explorador: Automático");
+    }
     if (category) metaParts.push(`Categoría: ${category}`);
     if (subcategory) metaParts.push(`Subcategoría: ${subcategory}`);
     if (tags.length) {
@@ -2030,7 +2182,7 @@ async function loadProducts(options = {}) {
   const { highlightId } = options;
   try {
     productsTableBody.innerHTML =
-      '<tr><td colspan="14">Cargando productos…</td></tr>';
+      '<tr><td colspan="15">Cargando productos…</td></tr>';
     const res = await apiFetch("/api/products");
     if (!res.ok) {
       throw new Error(`GET /api/products failed: ${res.status}`);
@@ -2046,7 +2198,7 @@ async function loadProducts(options = {}) {
     console.error(err);
     productsCache = [];
     productsTableBody.innerHTML =
-      '<tr><td colspan="14">No se pudieron cargar los productos.</td></tr>';
+      '<tr><td colspan="15">No se pudieron cargar los productos.</td></tr>';
     updateProductSummary([]);
   }
 }
