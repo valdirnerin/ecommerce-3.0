@@ -4392,6 +4392,7 @@ footer .legal {
   flex-direction: column;
   align-items: flex-start;
   gap: clamp(0.85rem, 1vw, 1.2rem);
+  flex: 0 1 auto;
 }
 
 .product-page .product-summary::after {
