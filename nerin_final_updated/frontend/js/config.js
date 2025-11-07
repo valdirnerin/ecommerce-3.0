@@ -115,6 +115,36 @@ async function loadConfig() {
       if (cartWABtn) {
         cartWABtn.dataset.whatsappNumber = phone;
       }
+      document.querySelectorAll("[data-whatsapp-link]").forEach((link) => {
+        if (
+          typeof HTMLAnchorElement !== "undefined" &&
+          !(link instanceof HTMLAnchorElement)
+        ) {
+          return;
+        }
+        const template = link.dataset.whatsappMessage || "";
+        let query = "";
+        if (template) {
+          const rendered = template
+            .replace(/\{\{\s*(phone|numero|number)\s*\}\}/gi, cfg.whatsappNumber)
+            .trim();
+          if (rendered) {
+            query = `?text=${encodeURIComponent(rendered)}`;
+          }
+        }
+        const targetHref = `https://wa.me/${phone}${query}`;
+        if (link.href !== targetHref) {
+          link.href = targetHref;
+        }
+        if (!link.target) {
+          link.target = "_blank";
+        }
+        const relValues = new Set((link.getAttribute("rel") || "").split(/\s+/).filter(Boolean));
+        relValues.add("noopener");
+        relValues.add("noreferrer");
+        link.setAttribute("rel", Array.from(relValues).join(" "));
+        link.dataset.whatsappNumber = phone;
+      });
     }
     // Insertar Google Analytics
     if (cfg.googleAnalyticsId) {

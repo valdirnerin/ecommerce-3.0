@@ -1632,13 +1632,14 @@ async function initAccount() {
   await loadUserReturns(email);
 
   if (supportBtn) {
-    const phone = window.NERIN_CONFIG?.whatsappNumber;
-    if (phone) {
-      const sanitized = phone.replace(/[^0-9]/g, "");
-      supportBtn.href = `https://wa.me/${sanitized}`;
-    } else {
-      supportBtn.href = "https://wa.me/541112345678";
-    }
+    const cfg = window.NERIN_CONFIG || {};
+    const sanitized =
+      cfg.whatsappNumberSanitized ||
+      (typeof cfg.whatsappNumber === "string"
+        ? cfg.whatsappNumber.replace(/[^0-9]/g, "")
+        : "");
+    const phone = sanitized || "541112345678";
+    supportBtn.href = `https://wa.me/${phone}`;
   }
 
   const profileForm = document.getElementById("profileForm");
