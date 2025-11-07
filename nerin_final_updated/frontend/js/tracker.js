@@ -24,6 +24,46 @@ let initialized = false;
 let heartbeatTimer = null;
 let pageViewSent = false;
 
+function readIdentityFromCookies() {
+  if (typeof document === "undefined" || typeof document.cookie !== "string") {
+    return {};
+  }
+  try {
+    const jar = document.cookie.split(";").reduce((acc, pair) => {
+      const [rawKey, rawValue] = pair.split("=");
+      if (!rawKey) return acc;
+      const key = rawKey.trim();
+      if (!key) return acc;
+      acc[key] = decodeURIComponent((rawValue || "").trim());
+      return acc;
+    }, {});
+    const possibleEmail =
+      jar.nerinUserEmail ||
+      jar.nerin_user_email ||
+      jar.userEmail ||
+      jar.user_email ||
+      null;
+    const possibleName =
+      jar.nerinUserName ||
+      jar.nerin_user_name ||
+      jar.userName ||
+      jar.user_name ||
+      jar.nombre ||
+      null;
+    const identity = {};
+    if (typeof possibleEmail === "string" && possibleEmail.trim()) {
+      identity.email = possibleEmail.trim();
+    }
+    if (typeof possibleName === "string" && possibleName.trim()) {
+      identity.name = possibleName.trim();
+    }
+    return identity;
+  } catch (err) {
+    console.warn("tracker:cookies", err);
+    return {};
+  }
+}
+
 function safeGetLocalStorage(key) {
   if (typeof window === "undefined" || !window.localStorage) return null;
   try {
@@ -169,6 +209,9 @@ function buildPayload(base) {
   const location = typeof window !== "undefined" ? window.location : null;
   const navigatorObj = typeof navigator !== "undefined" ? navigator : null;
   const doc = typeof document !== "undefined" ? document : null;
+  const cookieIdentity = readIdentityFromCookies();
+  const storedEmail = safeGetLocalStorage("nerinUserEmail");
+  const storedName = safeGetLocalStorage("nerinUserName");
   const path =
     base.path === null
       ? null
@@ -192,8 +235,8 @@ function buildPayload(base) {
       base.step === undefined
         ? inferStep(path || (location ? location.pathname : ""))
         : base.step,
-    userEmail: base.userEmail ?? safeGetLocalStorage("nerinUserEmail"),
-    userName: base.userName ?? safeGetLocalStorage("nerinUserName"),
+    userEmail: base.userEmail ?? storedEmail ?? cookieIdentity.email ?? null,
+    userName: base.userName ?? storedName ?? cookieIdentity.name ?? null,
     locale: base.locale ?? navigatorObj?.language ?? null,
     timezone:
       base.timezone ??

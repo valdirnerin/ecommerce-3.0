@@ -1229,6 +1229,82 @@ function calculateDetailedAnalytics() {
       currency: "ARS",
       maximumFractionDigits: 0,
     }).format(Number(value) || 0);
+  const ACTIVE_WINDOW_MS = 5 * 60 * 1000; // 5 minutos
+  const STORY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 horas
+  const resolveStepLabel = (value) => {
+    if (!value && value !== 0) return null;
+    const str = String(value || "").toLowerCase();
+    if (!str.trim()) return null;
+    if (str === "/" || str.includes("inicio") || str.includes("home") || str.includes("index")) {
+      return "Inicio";
+    }
+    if (str.includes("shop") || str.includes("catalog") || str.includes("catálogo") || str.includes("catalogo")) {
+      return "Catálogo";
+    }
+    if (str.includes("product") || str.includes("producto")) {
+      return "Producto";
+    }
+    if (str.includes("cart") || str.includes("carrito")) {
+      return "Carrito";
+    }
+    if (str.includes("checkout") || str.includes("pago") || str.includes("payment")) {
+      return "Checkout";
+    }
+    if (str.includes("login")) {
+      return "Login";
+    }
+    if (str.includes("register") || str.includes("registro")) {
+      return "Registro";
+    }
+    if (str.includes("account") || str.includes("perfil")) {
+      return "Cuenta";
+    }
+    if (str.includes("contact")) {
+      return "Contacto";
+    }
+    if (str.includes("seguimiento") || str.includes("tracking")) {
+      return "Seguimiento";
+    }
+    return null;
+  };
+  const getStepLabelFromEvent = (evt) => {
+    if (!evt || typeof evt !== "object") return null;
+    const candidates = [
+      evt.step,
+      evt.currentStep,
+      evt.metadata?.step,
+      evt.title,
+      evt.path,
+      evt.url,
+    ];
+    for (const candidate of candidates) {
+      const label = resolveStepLabel(candidate);
+      if (label) return label;
+    }
+    return null;
+  };
+  const formatRelativeDuration = (ms) => {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return "menos de un minuto";
+    }
+    const minutes = Math.floor(ms / (60 * 1000));
+    if (minutes < 1) return "menos de un minuto";
+    if (minutes === 1) return "1 minuto";
+    if (minutes < 60) return `${minutes} minutos`;
+    const hours = Math.floor(ms / (60 * 60 * 1000));
+    if (hours === 1) return "1 hora";
+    if (hours < 24) return `${hours} horas`;
+    const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+    return days === 1 ? "1 día" : `${days} días`;
+  };
+  const formatSessionLabel = (sessionId) => {
+    if (!sessionId) return "Visitante";
+    const session = sessionById.get(String(sessionId));
+    if (!session) return `Sesión ${sessionId}`;
+    if (session.userName) return session.userName;
+    if (session.userEmail && session.userEmail !== "guest") return session.userEmail;
+    return `Sesión ${sessionId}`;
+  };
   const sessionById = new Map(
     sessions
       .filter((s) => s && s.id)
@@ -1310,7 +1386,6 @@ function calculateDetailedAnalytics() {
     (a, b) => b[1] - a[1],
   )[0];
   const mostReturnedProduct = mostReturnedEntry ? mostReturnedEntry[0] : null;
-  const ACTIVE_WINDOW_MS = 30 * 60 * 1000; // 30 minutos
   const activeSessions = sessions.filter((session) => {
     if (!session) return false;
     if (session.status === "active") return true;
@@ -1366,6 +1441,7 @@ function calculateDetailedAnalytics() {
   const landingPageBySession = new Map();
   const landingPageCounts = new Map();
   const hourlyTraffic = new Array(24).fill(0);
+  const eventsBySession = new Map();
   sortedEvents.forEach((evt) => {
     const eventDate = new Date(evt.timestampMs);
     const dateKey = eventDate.toISOString().slice(0, 10);
@@ -1375,6 +1451,12 @@ function calculateDetailedAnalytics() {
     if (sessionKey) {
       const key = String(sessionKey);
       sessionEventCounts.set(key, (sessionEventCounts.get(key) || 0) + 1);
+      if (evt.sessionId) {
+        if (!eventsBySession.has(key)) {
+          eventsBySession.set(key, []);
+        }
+        eventsBySession.get(key).push(evt);
+      }
     }
     if (isInWeek) {
       if (!visitTrendMap.has(dateKey)) {
@@ -1500,6 +1582,121 @@ function calculateDetailedAnalytics() {
     }
     medianSessionDuration /= 60 * 1000;
   }
+  const buildSessionStory = (sessionId, sessionEvents) => {
+    if (!Array.isArray(sessionEvents) || sessionEvents.length === 0) {
+      return null;
+    }
+    const sortedSessionEvents = sessionEvents
+      .filter((evt) => Number.isFinite(evt.timestampMs))
+      .sort((a, b) => a.timestampMs - b.timestampMs);
+    if (!sortedSessionEvents.length) {
+      return null;
+    }
+    const lastEvent = sortedSessionEvents[sortedSessionEvents.length - 1];
+    if (!Number.isFinite(lastEvent.timestampMs)) {
+      return null;
+    }
+    if (now - lastEvent.timestampMs > STORY_WINDOW_MS) {
+      return null;
+    }
+    const sessionKey = String(sessionId);
+    const session = sessionById.get(sessionKey);
+    const steps = [];
+    const pushStep = (label) => {
+      if (!label) return;
+      if (steps.length === 0 || steps[steps.length - 1] !== label) {
+        steps.push(label);
+      }
+    };
+    sortedSessionEvents.forEach((evt) => {
+      pushStep(getStepLabelFromEvent(evt));
+    });
+    if (session) {
+      pushStep(resolveStepLabel(session.currentStep));
+    }
+    const journeyLabel = steps.length ? steps.join(" → ") : null;
+    const productMentions = [];
+    let addToCartCount = 0;
+    let checkoutStarted = false;
+    let purchaseCount = 0;
+    sortedSessionEvents.forEach((evt) => {
+      const type = String(evt.type || "").toLowerCase();
+      if (type === "product_view") {
+        const prodId = evt.productId ? String(evt.productId) : null;
+        const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+        if (prodName) {
+          productMentions.push(prodName);
+        }
+      }
+      if (type === "add_to_cart") {
+        addToCartCount += 1;
+        const prodId = evt.productId ? String(evt.productId) : null;
+        const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+        if (prodName) {
+          productMentions.push(prodName);
+        }
+      }
+      if (type === "checkout_start" || type === "checkout_payment") {
+        checkoutStarted = true;
+      }
+      if (type === "purchase") {
+        purchaseCount += 1;
+      }
+    });
+    const uniqueProducts = Array.from(new Set(productMentions.filter(Boolean)));
+    const highlightedProducts = uniqueProducts.slice(0, 2);
+    let productSentence = null;
+    if (highlightedProducts.length === 1) {
+      productSentence = `Se detuvo en ${highlightedProducts[0]}.`;
+    } else if (highlightedProducts.length === 2) {
+      productSentence = `Revisó productos como ${highlightedProducts[0]} y ${highlightedProducts[1]}.`;
+    } else if (highlightedProducts.length > 2) {
+      productSentence = `Revisó ${highlightedProducts.length} productos destacados.`;
+    }
+    let intentSentence = null;
+    if (purchaseCount > 0) {
+      intentSentence =
+        purchaseCount === 1
+          ? "Terminó una compra en la sesión."
+          : `Terminó ${purchaseCount} compras en la sesión.`;
+    } else if (checkoutStarted) {
+      intentSentence = "Llegó hasta el checkout; parece listo para comprar.";
+    } else if (addToCartCount > 0) {
+      intentSentence =
+        addToCartCount === 1
+          ? "Agregó un producto al carrito; muestra intención de compra."
+          : `Agregó ${addToCartCount} productos al carrito; muestra intención de compra.`;
+    } else if (highlightedProducts.length > 0) {
+      intentSentence = "Está explorando opciones; conviene hacer seguimiento.";
+    }
+    const summaryParts = [];
+    if (productSentence) {
+      summaryParts.push(productSentence);
+    }
+    if (intentSentence) {
+      summaryParts.push(intentSentence);
+    }
+    const summary = summaryParts.join(" ");
+    const inactivityMs = now - lastEvent.timestampMs;
+    const isActive = inactivityMs <= ACTIVE_WINDOW_MS;
+    const statusText = isActive
+      ? "Sigue activo en el sitio."
+      : `Se desconectó hace ${formatRelativeDuration(inactivityMs)}; ya no se considera activo.`;
+    return {
+      sessionId: sessionKey,
+      person: formatSessionLabel(sessionId),
+      journeyLabel,
+      summary: summary || null,
+      status: isActive ? "active" : "inactive",
+      statusText,
+      lastSeenAt: new Date(lastEvent.timestampMs).toISOString(),
+    };
+  };
+  const sessionStories = Array.from(eventsBySession.entries())
+    .map(([sessionId, sessionEvents]) => buildSessionStory(sessionId, sessionEvents))
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(b.lastSeenAt || 0) - Date.parse(a.lastSeenAt || 0))
+    .slice(0, 8);
   const uniqueCustomerCount = Object.keys(customerOrderCounts).length;
   const returningCustomerCount = Object.values(customerOrderCounts).filter((count) => count > 1)
     .length;
@@ -1554,44 +1751,80 @@ function calculateDetailedAnalytics() {
       message: "Todavía no hay ingresos registrados en los últimos 7 días.",
     });
   }
-  const formatSessionLabel = (sessionId) => {
-    if (!sessionId) return "Visitante";
-    const session = sessionById.get(String(sessionId));
-    if (!session) return `Sesión ${sessionId}`;
-    if (session.userName) return session.userName;
-    if (session.userEmail && session.userEmail !== "guest") return session.userEmail;
-    return `Sesión ${sessionId}`;
-  };
   const describeEvent = (evt) => {
     const type = String(evt.type || "").toLowerCase();
     const owner = formatSessionLabel(evt.sessionId);
-    if (type === "product_view" && evt.productId) {
-      const prodName = productNameById.get(String(evt.productId)) || evt.productId;
-      return `${owner} miró ${prodName}`;
+    const stepLabel = getStepLabelFromEvent(evt);
+    if (type === "product_view") {
+      const prodId = evt.productId ? String(evt.productId) : null;
+      const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+      if (prodName && stepLabel) {
+        return `${owner} está viendo ${prodName} en ${stepLabel}.`;
+      }
+      if (prodName) {
+        return `${owner} miró ${prodName}.`;
+      }
+      return `${owner} revisó un producto.`;
     }
-    if (type === "add_to_cart" && evt.productId) {
-      const prodName = productNameById.get(String(evt.productId)) || evt.productId;
-      return `${owner} agregó ${prodName} al carrito`;
+    if (type === "add_to_cart") {
+      const prodId = evt.productId ? String(evt.productId) : null;
+      const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+      const quantity = Number(evt.quantity ?? evt.metadata?.quantity ?? evt.cartItems ?? 0);
+      let label = prodName || "un producto";
+      if (Number.isFinite(quantity) && quantity > 1) {
+        label = prodName ? `${quantity} × ${prodName}` : `${quantity} productos`;
+      }
+      return `${owner} agregó ${label} al carrito.`;
     }
     if (type === "checkout_start") {
-      return `${owner} inició el checkout`;
+      return `${owner} inició el checkout.`;
     }
     if (type === "checkout_payment") {
-      return `${owner} está completando el pago`;
+      return `${owner} está completando el pago.`;
     }
     if (type === "purchase") {
-      return `${owner} confirmó una compra`;
+      const amount = Number(evt.value ?? evt.total ?? evt.cartValue ?? 0);
+      const amountText = amount > 0 ? ` por ${formatCurrencyArs(amount)}` : "";
+      return `${owner} confirmó una compra${amountText}.`;
+    }
+    if (type === "session_start") {
+      return `${owner} comenzó una sesión.`;
+    }
+    if (type === "session_end") {
+      return `${owner} cerró la sesión.`;
+    }
+    if (type === "session_ping") {
+      return `${owner} sigue activo en el sitio.`;
+    }
+    if (type === "session_hidden") {
+      return `${owner} minimizó la pestaña.`;
+    }
+    if (type === "session_visible") {
+      return `${owner} volvió a la pestaña.`;
     }
     if (type === "page_view") {
+      if (stepLabel) {
+        return `${owner} navegó ${stepLabel}.`;
+      }
       const path = evt.path || evt.url || "/";
-      return `${owner} visitó ${path}`;
+      return `${owner} visitó ${path}.`;
     }
-    return `${owner} registró ${type || "una interacción"}`;
+    if (stepLabel) {
+      return `${owner} está en ${stepLabel}.`;
+    }
+    if (evt.path) {
+      return `${owner} interactuó en ${evt.path}.`;
+    }
+    return `${owner} registró ${type || "una interacción"}.`;
   };
   const recentEvents = normalizedEvents
+    .filter((evt) => {
+      const type = String(evt.type || "").toLowerCase();
+      return type !== "session_ping";
+    })
     .slice()
     .sort((a, b) => b.timestampMs - a.timestampMs)
-    .slice(0, 6)
+    .slice(0, 12)
     .map((evt) => ({
       timestamp: new Date(evt.timestampMs).toISOString(),
       type: evt.type,
@@ -1653,6 +1886,7 @@ function calculateDetailedAnalytics() {
       ? { name: mostViewedWeekEntry[0], count: mostViewedWeekEntry[1] }
       : null,
     funnel,
+    sessionStories,
     recentEvents,
   };
 }
