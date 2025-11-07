@@ -157,11 +157,19 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const phoneCfg =
-        window.NERIN_CONFIG && window.NERIN_CONFIG.whatsappNumber;
-      const waPhone = phoneCfg
-        ? phoneCfg.replace(/[^0-9]/g, "")
-        : "541112345678";
+      const resolveWhatsAppNumber = () => {
+        const cfg = window.NERIN_CONFIG || {};
+        if (cfg.whatsappNumberSanitized) {
+          return cfg.whatsappNumberSanitized;
+        }
+        if (typeof cfg.whatsappNumber === "string") {
+          const sanitized = cfg.whatsappNumber.replace(/[^0-9]/g, "");
+          if (sanitized) return sanitized;
+        }
+        return "541112345678";
+      };
+
+      const waPhone = resolveWhatsAppNumber();
 
       const nameValue = nameField.value.trim();
       const quantityValue = (quantityField.value || "1").trim();
