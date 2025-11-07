@@ -774,6 +774,52 @@ export async function renderAnalyticsDashboard(
     stats.appendChild(statsGrid);
     container.appendChild(stats);
 
+    const stories = document.createElement("section");
+    stories.className = "analytics-panel analytics-stories";
+    const storiesTitle = document.createElement("h4");
+    storiesTitle.textContent = "Seguimiento por visitante";
+    stories.appendChild(storiesTitle);
+    if (Array.isArray(analytics.sessionStories) && analytics.sessionStories.length > 0) {
+      const list = document.createElement("ul");
+      list.className = "analytics-stories__list";
+      analytics.sessionStories.forEach((story) => {
+        const item = document.createElement("li");
+        item.className = "analytics-stories__item";
+        const header = document.createElement("div");
+        header.className = "analytics-stories__header";
+        const name = document.createElement("span");
+        name.className = "analytics-stories__name";
+        name.textContent = story.person || story.sessionId || "Visitante";
+        header.appendChild(name);
+        const status = document.createElement("span");
+        status.className = `analytics-stories__status${
+          story.status === "active" ? " analytics-stories__status--active" : ""
+        }`;
+        status.textContent = story.statusText || (story.status === "active" ? "Activo" : "Inactivo");
+        header.appendChild(status);
+        item.appendChild(header);
+        if (story.journeyLabel) {
+          const journey = document.createElement("p");
+          journey.className = "analytics-stories__journey";
+          journey.textContent = `Recorrido: ${story.journeyLabel}`;
+          item.appendChild(journey);
+        }
+        if (story.summary) {
+          const summary = document.createElement("p");
+          summary.className = "analytics-stories__summary";
+          summary.textContent = story.summary;
+          item.appendChild(summary);
+        }
+        list.appendChild(item);
+      });
+      stories.appendChild(list);
+    } else {
+      const empty = createEmptyState("Todavía no hay recorridos recientes.");
+      empty.classList.add("analytics-empty--inline");
+      stories.appendChild(empty);
+    }
+    container.appendChild(stories);
+
     const timeline = document.createElement("section");
     timeline.className = "analytics-panel analytics-timeline";
     const timelineTitle = document.createElement("h4");
@@ -783,16 +829,19 @@ export async function renderAnalyticsDashboard(
       const list = document.createElement("ul");
       analytics.recentEvents.forEach((event) => {
         const li = document.createElement("li");
-        const time = event.timestamp
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "analytics-timeline__time";
+        timeSpan.textContent = event.timestamp
           ? new Date(event.timestamp).toLocaleTimeString("es-AR", {
               hour: "2-digit",
               minute: "2-digit",
             })
           : "";
-        li.innerHTML = `
-          <span class="analytics-timeline__time">${time}</span>
-          <span class="analytics-timeline__desc">${event.description}</span>
-        `;
+        const descSpan = document.createElement("span");
+        descSpan.className = "analytics-timeline__desc";
+        descSpan.textContent = event.description || "";
+        li.appendChild(timeSpan);
+        li.appendChild(descSpan);
         list.appendChild(li);
       });
       timeline.appendChild(list);
