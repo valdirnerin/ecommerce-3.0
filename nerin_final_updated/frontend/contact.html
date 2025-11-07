@@ -65,6 +65,7 @@
       href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
     />
     <link rel="stylesheet" href="/style.css?v=cartfix-2" />
+    <link rel="stylesheet" href="/css/contact.css?v=sp-t1" />
     <link rel="stylesheet" href="/components/np-footer.css?v=np-r2" />
     <script src="/components/np-footer.js?v=np-r2" defer></script>
     <script
@@ -98,29 +99,378 @@
         </nav>
       </div>
     </header>
-    <main class="container">
-      <h2>Contactanos</h2>
-      <form id="contactForm" class="login-container">
-        <input type="text" id="contactName" placeholder="Nombre y apellido" />
-        <input type="tel" id="contactPhone" placeholder="WhatsApp" />
-        <input type="text" id="contactModel" placeholder="Modelo buscado" />
-        <select id="contactType">
-          <option value="tecnico">Técnico</option>
-          <option value="revendedor">Revendedor</option>
-          <option value="particular">Particular</option>
-        </select>
-        <button type="submit" class="button primary">
-          Solicitar cotización
-        </button>
-      </form>
-      <section class="contact-faq" id="faq">
-        <h2>Preguntas frecuentes</h2>
-        <ul class="benefits-list">
-          <li>📦 Envíos en menos de 24 hs dentro de CABA.</li>
-          <li>🛠️ Garantía técnica sobre cada Service Pack.</li>
-          <li>💬 Acompañamiento personalizado para talleres y técnicos.</li>
-        </ul>
-      </section>
+    <main class="contact-page">
+      <div class="contact-shell">
+        <section class="contact-hero" id="inicio-contacto">
+          <div class="contact-hero__copy">
+            <h1>Service Pack original. Hoy.</h1>
+            <p class="contact-hero__sub">
+              Repuestos Samsung con garantía técnica. Entrega en CABA &lt;24 h.
+            </p>
+            <ul class="contact-hero__evidence" role="list">
+              <li>
+                <span class="evidence-label">Foto real antes de pagar</span>
+                <span class="evidence-caption">Te mostramos el Service Pack que enviamos.</span>
+              </li>
+              <li>
+                <span class="evidence-label">Código GH82 verificado</span>
+                <span class="evidence-caption">Part number y compatibilidad exacta.</span>
+              </li>
+              <li>
+                <span class="evidence-label">Garantía técnica clara</span>
+                <span class="evidence-caption">Cobertura por defecto de fábrica.</span>
+              </li>
+            </ul>
+            <div class="contact-hero__actions">
+              <a
+                class="button primary contact-hero__cta"
+                href="https://wa.me/541112345678"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Cotizar por WhatsApp
+              </a>
+              <a class="button ghost" href="/shop.html">Ver catálogo</a>
+            </div>
+            <ul class="contact-hero__chips" role="list">
+              <li>Original</li>
+              <li>Garantía técnica</li>
+              <li>Factura A/B</li>
+              <li>Envío en 24 h</li>
+            </ul>
+            <p class="contact-hero__seal">
+              Solo trabajamos Samsung Service Pack. Sin genéricos.
+            </p>
+          </div>
+        </section>
+
+        <section class="contact-form-section" id="cotizacion">
+          <div class="section-header">
+            <h2 class="section-title">Cotizá en minutos</h2>
+          </div>
+          <form id="contactForm" class="contact-form">
+            <label class="form-field" for="contactName">
+              <span>Nombre y apellido*</span>
+              <input
+                type="text"
+                id="contactName"
+                name="contactName"
+                autocomplete="name"
+                placeholder="Nombre y apellido"
+                required
+              />
+            </label>
+            <label class="form-field" for="contactPhone">
+              <span>WhatsApp* (+54 9 …)</span>
+              <input
+                type="tel"
+                id="contactPhone"
+                name="contactPhone"
+                inputmode="tel"
+                autocomplete="tel"
+                placeholder="+54 9 11 2345 6789"
+                required
+              />
+            </label>
+            <label class="form-field" for="contactModel">
+              <span>Modelo exacto* (Galaxy A16 – SM-A165)</span>
+              <input
+                type="text"
+                id="contactModel"
+                name="contactModel"
+                placeholder="SM-A165"
+                required
+              />
+            </label>
+            <label class="form-field" for="contactQuantity">
+              <span>Cantidad*</span>
+              <input
+                type="number"
+                id="contactQuantity"
+                name="contactQuantity"
+                min="1"
+                step="1"
+                value="1"
+                placeholder="1"
+                required
+              />
+            </label>
+            <label class="form-field" for="contactRole">
+              <span>Rol*</span>
+              <select id="contactRole" name="contactRole" required>
+                <option value="" selected disabled>Elegí una opción</option>
+                <option value="tecnico">Técnico</option>
+                <option value="taller">Taller</option>
+                <option value="mayorista">Mayorista</option>
+                <option value="particular">Particular</option>
+              </select>
+            </label>
+            <label class="form-field" for="contactDelivery">
+              <span>Entrega*</span>
+              <select id="contactDelivery" name="contactDelivery" required>
+                <option value="" selected disabled>Elegí una opción</option>
+                <option value="caba">CABA &lt;24 h</option>
+                <option value="interior">Interior</option>
+                <option value="retiro">Retiro</option>
+              </select>
+            </label>
+            <label class="form-field" for="contactMessage">
+              <span>Mensaje (opcional)</span>
+              <textarea
+                id="contactMessage"
+                name="contactMessage"
+                rows="3"
+                placeholder="Detalle pedidos especiales, horarios o notas"
+              ></textarea>
+            </label>
+            <button type="submit" class="button primary contact-form__cta">
+              Obtener precio ahora
+            </button>
+            <p class="form-microcopy">
+              Te mandamos foto real + código GH82 + condiciones de garantía técnica en el mismo chat.
+            </p>
+            <p class="form-feedback" id="contactFeedback" role="status" aria-live="polite"></p>
+            <div class="form-wholesale-hint" id="formWholesaleHint" hidden>
+              <p class="form-wholesale-hint__title">¿Operás volumen?</p>
+              <a class="form-wholesale-hint__link" href="/account-minorista.html"
+                >Accedé a tu lista de precios y stock.</a
+              >
+            </div>
+          </form>
+          <p class="section-sub">
+            En la cotización recibís foto real, part number verificado y cómo aplicar la garantía.
+          </p>
+        </section>
+
+        <section class="contact-proof" aria-labelledby="proof-title">
+          <h2 class="section-title" id="proof-title">Qué recibís en la cotización</h2>
+          <ul class="proof-list">
+            <li>Foto real del Service Pack que tenemos en stock.</li>
+            <li>Número de parte y compatibilidad exacta (SM-xxx).</li>
+            <li>Condiciones de garantía y tiempos de envío confirmados.</li>
+          </ul>
+        </section>
+
+        <section class="contact-process" aria-labelledby="process-title">
+          <h2 class="section-title" id="process-title">Cómo trabajamos</h2>
+          <ol class="process-steps">
+            <li class="process-step">
+              <h3>Pedís</h3>
+              <p>Modelo exacto y cantidad.</p>
+            </li>
+            <li class="process-step">
+              <h3>Confirmamos</h3>
+              <p>Precio, stock y opciones de envío.</p>
+            </li>
+            <li class="process-step">
+              <h3>Recibís</h3>
+              <p>En CABA &lt;24 h o por correo a todo el país.</p>
+            </li>
+          </ol>
+          <p class="process-note">
+            Atendemos talleres y técnicos. Factura A/B y soporte directo por WhatsApp.
+          </p>
+        </section>
+
+        <section class="contact-differential" aria-labelledby="differential-title">
+          <h2 class="section-title" id="differential-title">Original vs genérico</h2>
+          <div class="differential-table" role="table" aria-label="Comparativa original versus genérico">
+            <div class="differential-header" role="row">
+              <span role="columnheader">Original (Service Pack)</span>
+              <span role="columnheader">Genérico / Copia</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Vidrio Corning (Gorilla / Armor)</span>
+              <span role="cell">Vidrio genérico que se raya y rompe fácil</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Brillo (nits) de fábrica: legible al sol</span>
+              <span role="cell">Menos nits y peor visibilidad exterior</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Color calibrado DCI-P3</span>
+              <span role="cell">Color lavado y blancos virados</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">HDR10+ cuando el modelo lo trae</span>
+              <span role="cell">Sin HDR real</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Frecuencia exacta 60/90/120 Hz</span>
+              <span role="cell">Fijo a 60 Hz o PWM inestable</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Táctil Y-OCTA preciso y de baja latencia</span>
+              <span role="cell">Digitizador add-on con más espesor y lag</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Huella en pantalla 1:1 (óptica/ultrasónica)</span>
+              <span role="cell">Fallas de huella o directamente no funciona</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Relación de aspecto exacta y marcos finos</span>
+              <span role="cell">Marcos gruesos y área activa menor</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Ensamble con frame original cuando aplica</span>
+              <span role="cell">Frame genérico o sin frame</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Peso del módulo exacto</span>
+              <span role="cell">Peso variable que altera el armado</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Adhesivos y sellos OEM: conserva la estanqueidad</span>
+              <span role="cell">Pegamentos genéricos: pierde resistencia al agua</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">AOD y consumo como de fábrica</span>
+              <span role="cell">AOD con consumo alto o no funciona</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Compatibilidad total con sensores</span>
+              <span role="cell">Lecturas erráticas y toques fantasmas</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Uniformidad de brillo sin manchas ni tintes</span>
+              <span role="cell">Manchas, tinte o bleeding frecuentes</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Trazabilidad: caja Service Pack + código GH82</span>
+              <span role="cell">Sin código GH82 ni caja identificable</span>
+            </div>
+            <div class="differential-row" role="row">
+              <span role="cell">Garantía y soporte técnico directo</span>
+              <span role="cell">Sin garantía real ni respaldo</span>
+            </div>
+          </div>
+          <p class="differential-note">
+            Elegimos Service Pack original para evitar reclamos y rehacer trabajos.
+          </p>
+        </section>
+
+        <section class="contact-guarantee" aria-labelledby="guarantee-title">
+          <h2 class="section-title" id="guarantee-title">Garantía y prueba</h2>
+          <div class="guarantee-columns">
+            <div class="guarantee-column">
+              <h3>Cubre</h3>
+              <ul>
+                <li>Defecto de fábrica (imagen/táctil)</li>
+                <li>Dead pixels al recibir</li>
+                <li>Fallas de backlight</li>
+              </ul>
+            </div>
+            <div class="guarantee-column" data-variant="no">
+              <h3>No cubre</h3>
+              <ul>
+                <li>Golpes o flex dañado</li>
+                <li>Films retirados/pegado previo</li>
+                <li>Error de instalación</li>
+              </ul>
+            </div>
+          </div>
+          <p class="guarantee-note">
+            Probá sin pegar y sin retirar films. Cambios dentro de X días con número de pedido.
+          </p>
+        </section>
+
+        <section class="contact-volume" aria-labelledby="volume-title">
+          <div class="volume-card">
+            <h2 class="section-title" id="volume-title">Precio por volumen</h2>
+            <div class="volume-grid" role="list">
+              <div class="volume-tier" role="listitem">
+                <p class="volume-tier__range">1–4 u</p>
+                <p class="volume-tier__detail">Lista estándar</p>
+              </div>
+              <div class="volume-tier" role="listitem">
+                <p class="volume-tier__range">5–9 u</p>
+                <p class="volume-tier__detail">–5% aplicado al confirmar</p>
+              </div>
+              <div class="volume-tier" role="listitem">
+                <p class="volume-tier__range">10–19 u</p>
+                <p class="volume-tier__detail">–10% automático en carrito mayorista</p>
+              </div>
+              <div class="volume-tier" role="listitem">
+                <p class="volume-tier__range">20+ u</p>
+                <p class="volume-tier__detail">–15% y portal con stock en vivo</p>
+              </div>
+            </div>
+            <p class="volume-note">
+              Los descuentos aplican por modelo. Stock y vigencia sujetos a confirmación comercial.
+            </p>
+          </div>
+        </section>
+
+        <section class="contact-wholesale" aria-labelledby="wholesale-title">
+          <div class="wholesale-card">
+            <h2 id="wholesale-title">¿Sos técnico o mayorista?</h2>
+            <p class="wholesale-sub">
+              Portal VIP con lista por volumen, stock actualizado y garantía técnica.
+            </p>
+            <a class="button secondary" href="/account-minorista.html">
+              Acceso mayoristas
+            </a>
+            <p class="wholesale-micro">Requisitos: CUIT + datos fiscales. Volumen mínimo 20 u/mes.</p>
+            <p class="wholesale-micro">Control de acceso y soporte dedicado a talleres y cadenas.</p>
+          </div>
+        </section>
+
+        <section class="contact-faq" id="faq">
+          <h2 class="section-title">Preguntas frecuentes</h2>
+          <div class="faq-accordion">
+            <details class="faq-item">
+              <summary>¿Es original?</summary>
+              <p>Sí, Samsung Service Pack original.</p>
+            </details>
+            <details class="faq-item">
+              <summary>¿CABA en cuánto?</summary>
+              <p>En el día o &lt;24 h según zona.</p>
+            </details>
+            <details class="faq-item">
+              <summary>¿Interior?</summary>
+              <p>Sí, a todo el país por correo/expreso.</p>
+            </details>
+            <details class="faq-item">
+              <summary>¿Garantía?</summary>
+              <p>Técnica por defectos de fábrica.</p>
+            </details>
+            <details class="faq-item">
+              <summary>¿Debo probar antes?</summary>
+              <p>Sí: sin pegar ni retirar films.</p>
+            </details>
+            <details class="faq-item">
+              <summary>¿Emiten factura?</summary>
+              <p>Sí, A o B.</p>
+            </details>
+          </div>
+        </section>
+
+        <section class="contact-final-cta">
+          <div class="final-card">
+            <h2>Pedilo hoy. Llegá mañana.</h2>
+            <p class="final-sub">Garantía técnica, stock verificado y respuesta hoy.</p>
+            <div class="final-actions">
+              <a
+                class="button primary"
+                href="https://wa.me/541112345678"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Cotizar por WhatsApp
+              </a>
+              <a class="button ghost" href="/shop.html">Ver catálogo</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="contact-legal">
+          <p>
+            Garantía válida con número de pedido y films intactos. Cambios dentro de X días
+            corridos desde la entrega. Interior: flete ida/vuelta a cargo del comprador salvo
+            falla de fábrica confirmada.
+          </p>
+        </section>
+      </div>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
     <script type="module" src="/js/index.js"></script>

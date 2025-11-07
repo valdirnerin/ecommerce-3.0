@@ -104,28 +104,95 @@ async function loadFeatured() {
 document.addEventListener("DOMContentLoaded", () => {
   const form = document.getElementById("contactForm");
   if (form) {
+    const nameField = document.getElementById("contactName");
+    const phoneField = document.getElementById("contactPhone");
+    const modelField = document.getElementById("contactModel");
+    const quantityField = document.getElementById("contactQuantity");
+    const roleField = document.getElementById("contactRole");
+    const deliveryField = document.getElementById("contactDelivery");
+    const messageField = document.getElementById("contactMessage");
+    const feedback = document.getElementById("contactFeedback");
+    const wholesaleHint = document.getElementById("formWholesaleHint");
+
+    const setFeedback = (text, state) => {
+      if (!feedback) return;
+      feedback.textContent = text;
+      if (state) {
+        feedback.dataset.state = state;
+      } else {
+        feedback.removeAttribute("data-state");
+      }
+    };
+
+    const toggleWholesaleHint = () => {
+      if (!wholesaleHint) return;
+      const isWholesale = roleField.value === "mayorista";
+      wholesaleHint.hidden = !isWholesale;
+    };
+
+    roleField.addEventListener("change", toggleWholesaleHint);
+    toggleWholesaleHint();
+
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      const name = encodeURIComponent(
-        document.getElementById("contactName").value.trim(),
-      );
-      const phone = encodeURIComponent(
-        document.getElementById("contactPhone").value.trim(),
-      );
-      const model = encodeURIComponent(
-        document.getElementById("contactModel").value.trim(),
-      );
-      const type = encodeURIComponent(
-        document.getElementById("contactType").value,
-      );
+
+      setFeedback("", null);
+
+      const modelValue = modelField.value.trim();
+      if (!modelValue) {
+        setFeedback("Decinos el modelo exacto (ej.: SM-A165).", "error");
+        modelField.focus();
+        return;
+      }
+
+      const phoneValue = phoneField.value.trim();
+      const normalizedPhone = phoneValue.replace(/\s+/g, "");
+      if (!normalizedPhone.startsWith("+549") || normalizedPhone.length < 12) {
+        setFeedback("Revisá el formato: +54 9 + área + número.", "error");
+        phoneField.focus();
+        return;
+      }
+
+      if (!form.reportValidity()) {
+        return;
+      }
+
       const phoneCfg =
         window.NERIN_CONFIG && window.NERIN_CONFIG.whatsappNumber;
       const waPhone = phoneCfg
         ? phoneCfg.replace(/[^0-9]/g, "")
         : "541112345678";
-      const message = `Hola, mi nombre es ${name}. Busco ${model}. Soy ${type}. Contacto: ${phone}`;
+
+      const nameValue = nameField.value.trim();
+      const quantityValue = (quantityField.value || "1").trim();
+      const roleText =
+        roleField.options[roleField.selectedIndex]?.text?.trim() || "";
+      const deliveryText =
+        deliveryField.options[deliveryField.selectedIndex]?.text?.trim() || "";
+      const extraMessage = messageField.value.trim();
+
+      const parts = [
+        `Hola. Soy ${nameValue}.`,
+        `Modelo: ${modelValue}.`,
+        `Cantidad: ${quantityValue}.`,
+        `Rol: ${roleText}.`,
+        `Entrega: ${deliveryText}.`,
+        `WhatsApp: ${phoneValue}.`,
+      ];
+
+      if (extraMessage) {
+        parts.push(`Mensaje: ${extraMessage}.`);
+      }
+
+      const message = encodeURIComponent(parts.join(" "));
       const url = `https://api.whatsapp.com/send?phone=${waPhone}&text=${message}`;
-      window.open(url, "_blank");
+      const waWindow = window.open(url, "_blank", "noopener,noreferrer");
+      if (waWindow) {
+        waWindow.opener = null;
+      }
+      form.reset();
+      toggleWholesaleHint();
+      setFeedback("Listo. Te escribimos hoy con precio y stock.", "success");
     });
   }
   loadFeatured();
