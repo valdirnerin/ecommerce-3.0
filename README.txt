@@ -32,6 +32,9 @@ Se utilizan las siguientes variables para la integración con Mercado Pago:
 - `MP_ACCESS_TOKEN`: token privado. Los que empiezan con `TEST-` sirven para el sandbox; para producción se necesita un token que comience con `APP_USR-`.
 - `MP_CLIENT_ID` y `MP_CLIENT_SECRET`: credenciales OAuth asociadas a la cuenta.
 - `PUBLIC_URL`: URL pública del servidor utilizada para las redirecciones. El webhook de Mercado Pago debe configurarse en el panel de IPN apuntando a `https://ecommerce-3-0.onrender.com/api/webhooks/mp`.
+- `DATABASE_URL`: cadena de conexión PostgreSQL utilizada por Prisma. Asegurate de definirla en Render (Dashboard → servicio → **Environment → Environment Variables**) con el mismo valor que en tu entorno local para que el despliegue se conecte correctamente a la base de datos.
+
+Después de crear o actualizar las variables recordá volver a desplegar la aplicación para que Next.js reconstruya las páginas con la conexión activa.
 
 VERIFICAR WEBHOOKS
 --------------------
