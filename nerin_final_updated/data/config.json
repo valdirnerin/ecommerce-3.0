@@ -11,5 +11,111 @@
   "supportEmail": "",
   "wholesaleNotificationEmails": [],
   "publicUrl": "https://nerinparts.com.ar",
-  "apiBase": ""
+  "apiBase": "",
+  "homePage": {
+    "hero": {
+      "eyebrow": "Operamos para laboratorios y cadenas",
+      "title": "Pantallas y repuestos originales listos para instalar",
+      "description": "Nacimos atendiendo la demanda de pantallas Samsung Service Pack y hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones corporativas. Todo con control técnico propio y despacho en horas, no en días.",
+      "bullets": [
+        "Stock auditado en CABA con envíos al país",
+        "Laboratorio interno para validar cada lote",
+        "Plan de expansión a nuevas marcas premium"
+      ],
+      "primaryCta": {
+        "label": "Ver catálogo",
+        "href": "/shop.html"
+      },
+      "secondaryCta": {
+        "label": "Hablar con un asesor",
+        "href": "/contact.html"
+      },
+      "media": {
+        "desktop": "/assets/hero.png",
+        "mobile": "/assets/hero.png",
+        "alt": "Equipo técnico de NERIN validando módulos Service Pack"
+      }
+    },
+    "highlights": [
+      {
+        "icon": "📦",
+        "title": "Stock auditado cada mañana",
+        "description": "Inventario real de Service Pack y módulos OEM con controles de lote y trazabilidad."
+      },
+      {
+        "icon": "🛠️",
+        "title": "Garantía laboratorio",
+        "description": "Probamos módulos y flex antes de despachar para reducir DOA en los talleres que atendemos."
+      },
+      {
+        "icon": "🚚",
+        "title": "Logística en 24/48 hs",
+        "description": "Despachos en el día para CABA y GBA y operadores nacionales para llegar a cada provincia."
+      }
+    ],
+    "about": {
+      "title": "De Mercado Libre a un laboratorio integral",
+      "lead": "Arrancamos en 2021 vendiendo repuestos a través de Mercado Libre. Las restricciones a las importaciones frenaron el proyecto, pero volvimos en 2025 mejor preparados.",
+      "body": "El relanzamiento de NERIN combina procesos de control renovados, acuerdos logísticos ágiles y un sistema pensado para técnicos y cadenas. Apostamos a calidad sostenible, servicio responsable y un ecosistema que pueda escalar sin perder cercanía.",
+      "image": "/assets/product1.png",
+      "milestones": [
+        {
+          "title": "2021",
+          "description": "Comercializamos repuestos originales a través de Mercado Libre."
+        },
+        {
+          "title": "2023",
+          "description": "Las restricciones de importación nos obligan a pausar operaciones y replantear el modelo."
+        },
+        {
+          "title": "2025",
+          "description": "Relanzamos con procesos, servicio y catálogo ampliado para talleres y cadenas."
+        }
+      ]
+    },
+    "why": {
+      "title": "Por qué elegir NERIN",
+      "description": "Diseñamos una experiencia alineada con la operación técnica: datos reales, logística predecible y soporte especializado.",
+      "cards": [
+        {
+          "title": "Kits listos para instalar",
+          "description": "Pantalla y adhesivos calibrados para que sólo tengas que montar y entregar.",
+          "image": ""
+        },
+        {
+          "title": "Control de lote en tiempo real",
+          "description": "Actualizamos stock y números de serie para que sepas exactamente qué estás recibiendo.",
+          "image": ""
+        },
+        {
+          "title": "Equipo en formación constante",
+          "description": "Nos nutrimos de la experiencia de los talleres para aprender y acompañarte en cada implementación.",
+          "image": ""
+        }
+      ]
+    },
+    "featured": {
+      "title": "Productos destacados",
+      "description": "Seleccionamos los módulos con mejor rendimiento y disponibilidad inmediata.",
+      "productIds": []
+    },
+    "contact": {
+      "eyebrow": "Cotizá en segundos",
+      "title": "Contanos qué necesitás y coordinamos la entrega",
+      "description": "Respondemos con precio, stock y opciones de retiro o envío en horario comercial.",
+      "note": "Si lo necesitás urgente marcá la opción correspondiente y priorizamos tu caso.",
+      "bulletPoints": [
+        "Asistencia personalizada por WhatsApp o llamada",
+        "Opciones mayorista y minorista",
+        "Seguimiento de cada pedido hasta la entrega"
+      ]
+    },
+    "popup": {
+      "enabled": false,
+      "image": "",
+      "alt": "",
+      "link": "",
+      "frequencyHours": 24
+    }
+  }
 }

@@ -252,6 +252,7 @@
         <button data-target="returnsSection" data-i18n="nav.returns">
           Devoluciones
         </button>
+        <button data-target="homeSection">Inicio</button>
         <button data-target="configSection" data-i18n="nav.config">
           Configuración
         </button>
@@ -901,6 +902,314 @@
       </section>
 
       <!-- Sección de configuración general -->
+      <section id="homeSection" class="admin-section" style="display: none">
+        <h3>Inicio del sitio</h3>
+        <p>
+          Redactá el hero, las secciones de confianza, el bloque de productos
+          destacados y el popup de novedades que se muestran en la página de
+          inicio. Los cambios se aplican al guardar.
+        </p>
+        <form id="homeContentForm" class="admin-form home-admin-form">
+          <article class="home-admin-card">
+            <h4>Hero principal</h4>
+            <div class="home-admin-grid">
+              <label>
+                Etiqueta superior
+                <input
+                  type="text"
+                  data-home-field="hero.eyebrow"
+                  placeholder="Operamos para laboratorios y cadenas"
+                />
+              </label>
+              <label>
+                Título
+                <input
+                  type="text"
+                  data-home-field="hero.title"
+                  placeholder="Pantallas y repuestos originales listos para instalar"
+                />
+              </label>
+            </div>
+            <label>
+              Descripción
+              <textarea
+                data-home-field="hero.description"
+                rows="3"
+                placeholder="Mensaje principal del hero"
+              ></textarea>
+            </label>
+            <label>
+              Bullets (uno por línea)
+              <textarea
+                data-home-field="hero.bullets"
+                rows="3"
+                data-home-format="lines"
+                placeholder="Stock auditado en CABA..."
+              ></textarea>
+            </label>
+            <div class="home-admin-grid">
+              <label>
+                CTA principal (texto)
+                <input type="text" data-home-field="hero.primaryCta.label" />
+              </label>
+              <label>
+                CTA principal (enlace)
+                <input type="text" data-home-field="hero.primaryCta.href" />
+              </label>
+            </div>
+            <div class="home-admin-grid">
+              <label>
+                CTA secundaria (texto)
+                <input type="text" data-home-field="hero.secondaryCta.label" />
+              </label>
+              <label>
+                CTA secundaria (enlace)
+                <input type="text" data-home-field="hero.secondaryCta.href" />
+              </label>
+            </div>
+            <div class="home-admin-upload-grid">
+              <label>
+                Imagen desktop
+                <input
+                  type="text"
+                  data-home-field="hero.media.desktop"
+                  placeholder="https://"
+                />
+              </label>
+              <label>
+                Imagen mobile
+                <input
+                  type="text"
+                  data-home-field="hero.media.mobile"
+                  placeholder="https://"
+                />
+              </label>
+              <label>
+                Texto alternativo
+                <input type="text" data-home-field="hero.media.alt" />
+              </label>
+            </div>
+            <div class="home-admin-upload-preview">
+              <label class="home-admin-upload-control">
+                Subir imagen desktop
+                <input
+                  type="file"
+                  accept="image/*"
+                  data-home-upload="hero.media.desktop"
+                />
+              </label>
+              <img
+                data-home-preview="hero.media.desktop"
+                alt="Vista previa hero desktop"
+              />
+              <label class="home-admin-upload-control">
+                Subir imagen mobile
+                <input
+                  type="file"
+                  accept="image/*"
+                  data-home-upload="hero.media.mobile"
+                />
+              </label>
+              <img
+                data-home-preview="hero.media.mobile"
+                alt="Vista previa hero mobile"
+              />
+            </div>
+          </article>
+
+          <article class="home-admin-card">
+            <div class="home-admin-card__header">
+              <h4>Bloques destacados</h4>
+              <p>Se muestran debajo del hero como beneficios rápidos.</p>
+            </div>
+            <div
+              id="homeHighlightsAdmin"
+              class="home-admin-repeat"
+              data-repeat-field="highlights"
+            ></div>
+            <button type="button" class="button secondary" id="homeAddHighlight">
+              Agregar bloque
+            </button>
+          </article>
+
+          <article class="home-admin-card">
+            <h4>Quiénes somos</h4>
+            <div class="home-admin-grid">
+              <label>
+                Título
+                <input type="text" data-home-field="about.title" />
+              </label>
+              <label>
+                Imagen (URL)
+                <input
+                  type="text"
+                  data-home-field="about.image"
+                  placeholder="https://"
+                />
+              </label>
+            </div>
+            <label>
+              Imagen alt
+              <input type="text" data-home-field="about.imageAlt" />
+            </label>
+            <label>
+              Bajada
+              <textarea data-home-field="about.lead" rows="2"></textarea>
+            </label>
+            <label>
+              Desarrollo
+              <textarea data-home-field="about.body" rows="3"></textarea>
+            </label>
+            <label class="home-admin-upload-control">
+              Subir imagen
+              <input
+                type="file"
+                accept="image/*"
+                data-home-upload="about.image"
+              />
+            </label>
+            <img
+              data-home-preview="about.image"
+              alt="Vista previa sección quiénes somos"
+            />
+            <div class="home-admin-card__header" style="margin-top: 1.5rem">
+              <h5>Hitos</h5>
+              <p>Se listan como línea de tiempo.</p>
+            </div>
+            <div
+              id="homeMilestonesAdmin"
+              class="home-admin-repeat"
+              data-repeat-field="about.milestones"
+            ></div>
+            <button type="button" class="button secondary" id="homeAddMilestone">
+              Agregar hito
+            </button>
+          </article>
+
+          <article class="home-admin-card">
+            <h4>Por qué elegir NERIN</h4>
+            <label>
+              Título
+              <input type="text" data-home-field="why.title" />
+            </label>
+            <label>
+              Descripción
+              <textarea data-home-field="why.description" rows="3"></textarea>
+            </label>
+            <div
+              id="homeWhyAdmin"
+              class="home-admin-repeat"
+              data-repeat-field="why.cards"
+            ></div>
+            <button type="button" class="button secondary" id="homeAddWhy">
+              Agregar tarjeta
+            </button>
+          </article>
+
+          <article class="home-admin-card">
+            <h4>Contacto rápido</h4>
+            <div class="home-admin-grid">
+              <label>
+                Eyebrow
+                <input type="text" data-home-field="contact.eyebrow" />
+              </label>
+              <label>
+                Título
+                <input type="text" data-home-field="contact.title" />
+              </label>
+            </div>
+            <label>
+              Descripción
+              <textarea data-home-field="contact.description" rows="3"></textarea>
+            </label>
+            <label>
+              Nota destacada
+              <textarea data-home-field="contact.note" rows="2"></textarea>
+            </label>
+            <div class="home-admin-card__header" style="margin-top: 1.5rem">
+              <h5>Beneficios</h5>
+            </div>
+            <div
+              id="homeContactBulletsAdmin"
+              class="home-admin-repeat"
+              data-repeat-field="contact.bulletPoints"
+            ></div>
+            <button type="button" class="button secondary" id="homeAddContactBullet">
+              Agregar beneficio
+            </button>
+          </article>
+
+          <article class="home-admin-card">
+            <h4>Productos destacados</h4>
+            <div class="home-admin-grid">
+              <label>
+                Título
+                <input type="text" data-home-field="featured.title" />
+              </label>
+              <label>
+                Descripción
+                <input type="text" data-home-field="featured.description" />
+              </label>
+            </div>
+            <p>
+              Seleccioná hasta 6 productos para mostrar en la grilla del home.
+              Se respetará el orden que elijas.
+            </p>
+            <label class="home-admin-search">
+              Buscar producto
+              <input
+                type="search"
+                id="homeFeaturedSearch"
+                placeholder="SKU, nombre o modelo"
+                autocomplete="off"
+              />
+            </label>
+            <div id="homeFeaturedList" class="home-admin-product-list"></div>
+          </article>
+
+          <article class="home-admin-card">
+            <h4>Popup de novedades</h4>
+            <label class="home-admin-toggle">
+              <input type="checkbox" data-home-field="popup.enabled" />
+              <span>Mostrar popup al ingresar al sitio</span>
+            </label>
+            <div class="home-admin-grid">
+              <label>
+                Enlace (opcional)
+                <input type="text" data-home-field="popup.link" placeholder="https://" />
+              </label>
+              <label>
+                Texto alternativo
+                <input type="text" data-home-field="popup.alt" />
+              </label>
+              <label>
+                Repetir cada (horas)
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  data-home-field="popup.frequencyHours"
+                  data-home-type="number"
+                />
+              </label>
+            </div>
+            <label>
+              Imagen (URL)
+              <input type="text" data-home-field="popup.image" placeholder="https://" />
+            </label>
+            <label class="home-admin-upload-control">
+              Subir imagen
+              <input type="file" accept="image/*" data-home-upload="popup.image" />
+            </label>
+            <img data-home-preview="popup.image" alt="Vista previa popup" />
+          </article>
+
+          <div class="home-admin-actions">
+            <button type="submit" class="button primary">Guardar cambios</button>
+          </div>
+        </form>
+      </section>
+
       <section id="configSection" class="admin-section" style="display: none">
         <h3>Configuración</h3>
         <p>

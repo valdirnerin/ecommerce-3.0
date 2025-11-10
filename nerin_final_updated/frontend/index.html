@@ -142,67 +142,248 @@
         </nav>
       </div>
     </header>
-    <section class="hero">
-      <div class="content">
-        <h1>Pantallas Samsung Originales con Garantía</h1>
-        <p>
-          Venta mayorista y minorista con envío inmediato en todo el país.
-          Asesoramiento real por WhatsApp. Stock propio en Argentina.
-        </p>
-        <div class="buttons">
-          <a href="/shop.html" class="button primary">Ver catálogo</a>
-          <a href="/login.html" class="button secondary">Ingresar</a>
+    <main class="home">
+      <section class="home-hero" data-home-section="hero">
+        <div class="home-hero__content">
+          <p class="eyebrow" data-home-text="hero.eyebrow">
+            Operamos para laboratorios y cadenas
+          </p>
+          <h1 data-home-text="hero.title">
+            Pantallas y repuestos originales listos para instalar
+          </h1>
+          <p class="lead" data-home-text="hero.description">
+            Nacimos atendiendo la demanda de pantallas Samsung Service Pack y
+            hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones
+            corporativas. Todo con control técnico propio y despacho en horas,
+            no en días.
+          </p>
+          <ul class="home-hero__bullets" data-home-list="hero.bullets">
+            <li>Stock auditado en CABA con envíos al país</li>
+            <li>Laboratorio interno para validar cada lote</li>
+            <li>Plan de expansión a nuevas marcas premium</li>
+          </ul>
+          <div class="buttons">
+            <a
+              href="/shop.html"
+              class="button primary"
+              data-home-cta="hero.primary"
+              >Ver catálogo</a
+            >
+            <a
+              href="/contact.html"
+              class="button secondary"
+              data-home-cta="hero.secondary"
+              >Hablar con un asesor</a
+            >
+          </div>
+        </div>
+        <figure class="home-hero__media">
+          <picture data-home-picture="hero.media">
+            <source
+              media="(min-width: 900px)"
+              srcset="/assets/hero.png"
+              data-home-image="desktop"
+            />
+            <img
+              src="/assets/hero.png"
+              alt="Equipo técnico de NERIN validando módulos Service Pack"
+              data-home-image="mobile"
+            />
+          </picture>
+        </figure>
+      </section>
+
+      <section class="home-highlights" data-home-section="highlights">
+        <div class="home-highlights__grid" id="homeHighlights"></div>
+      </section>
+
+      <section class="home-about" id="quienes-somos" data-home-section="about">
+        <div class="home-about__media">
+          <picture>
+            <img
+              src="/assets/product1.png"
+              alt="Equipo calibrando módulos para el relanzamiento"
+              data-home-image="about.image"
+            />
+          </picture>
+        </div>
+        <div class="home-about__content">
+          <p class="eyebrow">Nuestra historia</p>
+          <h2 data-home-text="about.title">
+            De Mercado Libre a un laboratorio integral
+          </h2>
+          <p class="lead" data-home-text="about.lead">
+            Arrancamos en 2021 vendiendo repuestos a través de Mercado Libre.
+            Las restricciones a las importaciones frenaron el proyecto, pero
+            volvimos en 2025 mejor preparados.
+          </p>
+          <p data-home-text="about.body">
+            El relanzamiento de NERIN combina procesos de control renovados,
+            acuerdos logísticos ágiles y un sistema pensado para técnicos y
+            cadenas. Apostamos a calidad sostenible, servicio responsable y un
+            ecosistema que pueda escalar sin perder cercanía.
+          </p>
+          <ul class="home-milestones" id="homeMilestones"></ul>
+        </div>
+      </section>
+
+      <section class="home-why" data-home-section="why">
+        <div class="home-why__header">
+          <p class="eyebrow">Por qué elegir NERIN</p>
+          <h2 data-home-text="why.title">Por qué elegir NERIN</h2>
+          <p data-home-text="why.description">
+            Diseñamos una experiencia alineada con la operación técnica: datos
+            reales, logística predecible y soporte especializado.
+          </p>
+        </div>
+        <div class="home-why__grid" id="homeWhyCards"></div>
+      </section>
+
+      <section class="home-featured" data-home-section="featured">
+        <div class="home-featured__header">
+          <p class="eyebrow">Selección del laboratorio</p>
+          <h2 data-home-text="featured.title">Productos destacados</h2>
+          <p data-home-text="featured.description">
+            Seleccionamos los módulos con mejor rendimiento y disponibilidad
+            inmediata.
+          </p>
+        </div>
+        <div id="featuredGrid" class="product-grid premium-grid" role="list"></div>
+        <div class="home-featured__cta">
+          <a href="/shop.html" class="button secondary">Ver catálogo completo</a>
+        </div>
+      </section>
+
+      <section class="home-contact" id="contacto" data-home-section="contact">
+        <div class="home-contact__intro">
+          <p class="eyebrow" data-home-text="contact.eyebrow">Cotizá en segundos</p>
+          <h2 data-home-text="contact.title">
+            Contanos qué necesitás y coordinamos la entrega
+          </h2>
+          <p data-home-text="contact.description">
+            Respondemos con precio, stock y opciones de retiro o envío en
+            horario comercial.
+          </p>
+          <ul class="home-contact__bullets" id="homeContactBullets"></ul>
+          <p class="home-contact__note" data-home-text="contact.note">
+            Si lo necesitás urgente marcá la opción correspondiente y
+            priorizamos tu caso.
+          </p>
+        </div>
+        <form id="contactForm" class="contact-form">
+          <div class="contact-form__row">
+            <label class="contact-form__field">
+              <span>Nombre y apellido</span>
+              <input
+                type="text"
+                id="contactName"
+                name="name"
+                autocomplete="name"
+                placeholder="Ej.: Laura González"
+                required
+              />
+            </label>
+            <label class="contact-form__field">
+              <span>Modelo exacto</span>
+              <input
+                type="text"
+                id="contactModel"
+                name="model"
+                placeholder="Ej.: SM-A546"
+                autocomplete="off"
+                required
+              />
+            </label>
+          </div>
+          <div class="contact-form__row">
+            <label class="contact-form__field">
+              <span>Cantidad estimada</span>
+              <input
+                type="number"
+                id="contactQuantity"
+                name="quantity"
+                min="1"
+                value="1"
+                inputmode="numeric"
+              />
+            </label>
+            <label class="contact-form__field">
+              <span>Necesito el repuesto para</span>
+              <select id="contactUrgency" name="urgency">
+                <option value="hoy">Entregarlo hoy</option>
+                <option value="48hs">Programar en 48 hs</option>
+                <option value="planificar">Planificar stock</option>
+              </select>
+            </label>
+          </div>
+          <fieldset class="contact-form__fieldset">
+            <legend>Perfil</legend>
+            <div class="contact-form__chips" id="contactRoleGroup">
+              <label class="chip">
+                <input
+                  type="radio"
+                  name="contactRole"
+                  value="tecnico"
+                  checked
+                />
+                <span>Técnico</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="contactRole" value="revendedor" />
+                <span>Revendedor</span>
+              </label>
+              <label class="chip">
+                <input type="radio" name="contactRole" value="particular" />
+                <span>Particular</span>
+              </label>
+            </div>
+          </fieldset>
+          <label class="contact-form__field contact-form__field--full">
+            <span>Detalles adicionales (opcional)</span>
+            <textarea
+              id="contactMessage"
+              name="message"
+              rows="3"
+              placeholder="Indicá color, serie u otra necesidad"
+            ></textarea>
+          </label>
+          <div class="contact-form__actions">
+            <button type="submit" class="button primary">
+              Solicitar cotización
+            </button>
+            <p id="contactFeedback" class="form-feedback" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <div id="homePopup" class="home-popup" hidden>
+      <div
+        class="home-popup__dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="homePopupTitle"
+      >
+        <button
+          type="button"
+          class="home-popup__close"
+          aria-label="Cerrar aviso"
+          data-home-popup-close
+        >
+          ×
+        </button>
+        <div class="home-popup__media">
+          <a
+            id="homePopupLink"
+            href="#"
+            target="_blank"
+            rel="noopener"
+          >
+            <img id="homePopupImage" src="" alt="" />
+          </a>
         </div>
       </div>
-    </section>
-    <section class="container">
-      <h2>¿Por qué elegir NERIN?</h2>
-      <p>
-        En NERIN nos dedicamos a la venta de repuestos originales Samsung
-        Service Pack, con atención personalizada y entregas rápidas en todo el
-        país. Confiá en nosotros para obtener calidad real, sin intermediarios.
-      </p>
-      <ul class="benefits-list">
-        <li>🛡️ Pantallas 100% originales Service Pack</li>
-        <li>🚚 Envío en 24 hs dentro de CABA</li>
-        <li>🛠️ Garantía de funcionamiento técnico</li>
-        <li>📦 Stock propio en Argentina</li>
-        <li>💬 Atención directa por WhatsApp</li>
-        <li>💳 Transferencia, Mercado Pago o efectivo</li>
-      </ul>
-    </section>
-
-    <section class="container">
-      <h2>Productos Destacados</h2>
-      <div id="featuredGrid" class="product-grid"></div>
-    </section>
-
-    <section class="container" id="quienes-somos">
-      <h2>¿Quiénes somos?</h2>
-      <p>
-        Somos NERIN Repuestos, una empresa argentina enfocada exclusivamente en
-        pantallas Samsung originales. Vendemos tanto a técnicos como a usuarios
-        finales. Sabemos lo que necesitás y trabajamos para darte velocidad,
-        confianza y calidad verdadera.
-      </p>
-    </section>
-
-    <section id="contacto" class="container">
-      <h2>Contactanos rápido</h2>
-      <form id="contactForm" class="login-container">
-        <input type="text" id="contactName" placeholder="Nombre y apellido" />
-        <input type="tel" id="contactPhone" placeholder="WhatsApp" />
-        <input type="text" id="contactModel" placeholder="Modelo buscado" />
-        <select id="contactType">
-          <option value="tecnico">Técnico</option>
-          <option value="revendedor">Revendedor</option>
-          <option value="particular">Particular</option>
-        </select>
-        <button type="submit" class="button primary">
-          Solicitar cotización
-        </button>
-      </form>
-    </section>
+    </div>
 
     <div id="footer-root"></div>
     <div id="whatsapp-button">
