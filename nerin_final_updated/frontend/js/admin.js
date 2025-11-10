@@ -62,6 +62,7 @@ if (currentRole === "vendedor") {
     "wholesaleSection",
     "metricsSection",
     "returnsSection",
+    "homeSection",
     "configSection",
     "suppliersSection",
     "purchaseOrdersSection",
@@ -118,6 +119,8 @@ navButtons.forEach((btn) => {
       loadMetrics();
     } else if (target === "returnsSection") {
       loadReturns();
+    } else if (target === "homeSection") {
+      loadHomeForm();
     } else if (target === "configSection") {
       loadConfigForm();
     } else if (target === "suppliersSection") {
@@ -220,6 +223,1031 @@ function renderLink(value) {
   } catch (err) {
     return escapeHtml(trimmed);
   }
+}
+
+// ------------ Home content editor ------------
+function deepClone(value) {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function isPlainObject(value) {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeDeep(base, override) {
+  if (!isPlainObject(base)) {
+    return override !== undefined ? deepClone(override) : deepClone(base);
+  }
+  const result = {};
+  const overrideKeys = override && typeof override === "object" ? Object.keys(override) : [];
+  const keys = new Set([...Object.keys(base), ...overrideKeys]);
+  keys.forEach((key) => {
+    const baseValue = base[key];
+    const hasOverride = overrideKeys.includes(key);
+    if (hasOverride) {
+      const overrideValue = override[key];
+      if (Array.isArray(baseValue) || Array.isArray(overrideValue)) {
+        if (Array.isArray(overrideValue)) {
+          result[key] = overrideValue.map((item, index) => {
+            const baseItem = Array.isArray(baseValue) ? baseValue[index] : undefined;
+            return isPlainObject(item) ? mergeDeep(baseItem || {}, item) : item;
+          });
+        } else {
+          result[key] = deepClone(Array.isArray(baseValue) ? baseValue : []);
+        }
+      } else if (isPlainObject(baseValue) || isPlainObject(overrideValue)) {
+        result[key] = mergeDeep(baseValue || {}, overrideValue || {});
+      } else {
+        result[key] = overrideValue;
+      }
+    } else {
+      if (Array.isArray(baseValue)) {
+        result[key] = baseValue.map((item) =>
+          isPlainObject(item) ? mergeDeep(item, {}) : item,
+        );
+      } else if (isPlainObject(baseValue)) {
+        result[key] = mergeDeep(baseValue, {});
+      } else {
+        result[key] = baseValue;
+      }
+    }
+  });
+  return result;
+}
+
+function getValueByPath(obj, path) {
+  if (!path) return undefined;
+  return path.split(".").reduce((acc, segment) => {
+    if (acc == null) return undefined;
+    const key = /^\d+$/.test(segment) ? Number(segment) : segment;
+    return acc[key];
+  }, obj);
+}
+
+function setValueByPath(obj, path, value) {
+  if (!path) return;
+  const parts = path.split(".");
+  let target = obj;
+  parts.forEach((segment, index) => {
+    const isLast = index === parts.length - 1;
+    const key = /^\d+$/.test(segment) ? Number(segment) : segment;
+    if (isLast) {
+      target[key] = value;
+      return;
+    }
+    if (target[key] == null || typeof target[key] !== "object") {
+      const nextKey = parts[index + 1];
+      target[key] = /^\d+$/.test(nextKey) ? [] : {};
+    }
+    target = target[key];
+  });
+}
+
+function moveArrayItem(array, fromIndex, toIndex) {
+  if (!Array.isArray(array)) return;
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= array.length || toIndex >= array.length) {
+    return;
+  }
+  const [item] = array.splice(fromIndex, 1);
+  array.splice(toIndex, 0, item);
+}
+
+const HOME_DEFAULTS = {
+  hero: {
+    eyebrow: "Operamos para laboratorios y cadenas",
+    title: "Pantallas y repuestos originales listos para instalar",
+    description:
+      "Nacimos atendiendo la demanda de pantallas Samsung Service Pack y hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones corporativas. Todo con control técnico propio y despacho en horas, no en días.",
+    bullets: [
+      "Stock auditado en CABA con envíos al país",
+      "Laboratorio interno para validar cada lote",
+      "Plan de expansión a nuevas marcas premium",
+    ],
+    primaryCta: { label: "Ver catálogo", href: "/shop.html" },
+    secondaryCta: { label: "Hablar con un asesor", href: "/contact.html" },
+    media: {
+      desktop: "/assets/hero.png",
+      mobile: "/assets/hero.png",
+      alt: "Equipo técnico de NERIN validando módulos Service Pack",
+    },
+  },
+  highlights: [
+    {
+      icon: "📦",
+      title: "Stock auditado cada mañana",
+      description:
+        "Inventario real de Service Pack y módulos OEM con controles de lote y trazabilidad.",
+    },
+    {
+      icon: "🛠️",
+      title: "Garantía laboratorio",
+      description:
+        "Probamos módulos y flex antes de despachar para reducir DOA en los talleres que atendemos.",
+    },
+    {
+      icon: "🚚",
+      title: "Logística en 24/48 hs",
+      description:
+        "Despachos en el día para CABA y GBA y operadores nacionales para llegar a cada provincia.",
+    },
+  ],
+  about: {
+    title: "De Mercado Libre a un laboratorio integral",
+    lead:
+      "Arrancamos en 2021 vendiendo repuestos a través de Mercado Libre. Las restricciones a las importaciones frenaron el proyecto, pero volvimos en 2025 mejor preparados.",
+    body:
+      "El relanzamiento de NERIN combina procesos de control renovados, acuerdos logísticos ágiles y un sistema pensado para técnicos y cadenas. Apostamos a calidad sostenible, servicio responsable y un ecosistema que pueda escalar sin perder cercanía.",
+    image: "/assets/product1.png",
+    imageAlt: "Equipo de NERIN calibrando repuestos para el relanzamiento",
+    milestones: [
+      {
+        title: "2021",
+        description: "Comercializamos repuestos originales a través de Mercado Libre.",
+      },
+      {
+        title: "2023",
+        description: "Las restricciones de importación nos obligan a pausar operaciones y replantear el modelo.",
+      },
+      {
+        title: "2025",
+        description: "Relanzamos con procesos, servicio y catálogo ampliado para talleres y cadenas.",
+      },
+    ],
+  },
+  why: {
+    title: "Por qué elegir NERIN",
+    description:
+      "Diseñamos una experiencia alineada con la operación técnica: datos reales, logística predecible y soporte especializado.",
+    cards: [
+      {
+        title: "Kits listos para instalar",
+        description:
+          "Pantalla y adhesivos calibrados para que sólo tengas que montar y entregar.",
+        image: "",
+      },
+      {
+        title: "Control de lote en tiempo real",
+        description:
+          "Actualizamos stock y números de serie para que sepas exactamente qué estás recibiendo.",
+        image: "",
+      },
+      {
+        title: "Equipo en formación constante",
+        description:
+          "Nos nutrimos de la experiencia de los talleres para aprender y acompañarte en cada implementación.",
+        image: "",
+      },
+    ],
+  },
+  featured: {
+    title: "Productos destacados",
+    description:
+      "Seleccionamos los módulos con mejor rendimiento y disponibilidad inmediata.",
+    productIds: [],
+  },
+  contact: {
+    eyebrow: "Cotizá en segundos",
+    title: "Contanos qué necesitás y coordinamos la entrega",
+    description:
+      "Respondemos con precio, stock y opciones de retiro o envío en horario comercial.",
+    note: "Si lo necesitás urgente marcá la opción correspondiente y priorizamos tu caso.",
+    bulletPoints: [
+      "Asistencia personalizada por WhatsApp o llamada",
+      "Opciones mayorista y minorista",
+      "Seguimiento de cada pedido hasta la entrega",
+    ],
+  },
+  popup: {
+    enabled: false,
+    image: "",
+    alt: "",
+    link: "",
+    frequencyHours: 24,
+  },
+};
+
+const HIGHLIGHTS_LIMIT = 4;
+const MILESTONES_LIMIT = 6;
+const WHY_LIMIT = 6;
+const CONTACT_BULLETS_LIMIT = 6;
+const FEATURED_LIMIT = 6;
+
+let homeContent = deepClone(HOME_DEFAULTS);
+let homeProducts = [];
+let homeProductsLoaded = false;
+
+const homeForm = document.getElementById("homeContentForm");
+const homeHighlightsContainer = document.getElementById("homeHighlightsAdmin");
+const homeAddHighlightBtn = document.getElementById("homeAddHighlight");
+const homeMilestonesContainer = document.getElementById("homeMilestonesAdmin");
+const homeAddMilestoneBtn = document.getElementById("homeAddMilestone");
+const homeWhyContainer = document.getElementById("homeWhyAdmin");
+const homeAddWhyBtn = document.getElementById("homeAddWhy");
+const homeContactBulletsContainer = document.getElementById("homeContactBulletsAdmin");
+const homeAddContactBulletBtn = document.getElementById("homeAddContactBullet");
+const homeFeaturedList = document.getElementById("homeFeaturedList");
+const homeFeaturedSearch = document.getElementById("homeFeaturedSearch");
+
+function ensureHomeStructures(target = homeContent) {
+  const content = target || {};
+  content.hero = content.hero || {};
+  if (!Array.isArray(content.hero.bullets)) content.hero.bullets = [];
+  if (!Array.isArray(content.highlights)) content.highlights = [];
+  content.about = content.about || {};
+  if (!Array.isArray(content.about.milestones)) content.about.milestones = [];
+  content.why = content.why || {};
+  if (!Array.isArray(content.why.cards)) content.why.cards = [];
+  content.contact = content.contact || {};
+  if (!Array.isArray(content.contact.bulletPoints)) content.contact.bulletPoints = [];
+  content.featured = content.featured || {};
+  if (!Array.isArray(content.featured.productIds)) {
+    content.featured.productIds = [];
+  } else {
+    content.featured.productIds = content.featured.productIds.map((id) => String(id));
+  }
+  content.popup = content.popup || {};
+  if (target === homeContent) {
+    homeContent = content;
+  }
+  return content;
+}
+
+function refreshHomePreviews() {
+  if (!homeForm) return;
+  homeForm.querySelectorAll("[data-home-preview]").forEach((img) => {
+    const path = img.dataset.homePreview;
+    const value = getValueByPath(homeContent, path);
+    if (typeof value === "string" && value.trim()) {
+      img.src = value;
+      img.style.display = "block";
+    } else {
+      img.removeAttribute("src");
+      img.style.display = "none";
+    }
+  });
+}
+
+function createMoveButton(direction, index, length) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "home-repeat-move";
+  btn.dataset.action = direction === "up" ? "move-up" : "move-down";
+  btn.textContent = direction === "up" ? "↑" : "↓";
+  if ((direction === "up" && index === 0) || (direction === "down" && index === length - 1)) {
+    btn.disabled = true;
+  }
+  return btn;
+}
+
+function createRemoveButton() {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "home-repeat-remove";
+  btn.dataset.action = "remove";
+  btn.textContent = "Eliminar";
+  return btn;
+}
+
+function renderHighlightsEditor() {
+  if (!homeHighlightsContainer) return;
+  ensureHomeStructures();
+  const items = Array.isArray(homeContent.highlights) ? homeContent.highlights : [];
+  homeHighlightsContainer.innerHTML = "";
+  items.forEach((item, index) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "home-repeat-item";
+    wrapper.dataset.index = String(index);
+    const header = document.createElement("div");
+    header.className = "home-repeat-item__header";
+    const label = document.createElement("strong");
+    label.textContent = `Bloque ${index + 1}`;
+    header.appendChild(label);
+    const actions = document.createElement("div");
+    actions.className = "home-repeat-item__actions";
+    actions.appendChild(createMoveButton("up", index, items.length));
+    actions.appendChild(createMoveButton("down", index, items.length));
+    actions.appendChild(createRemoveButton());
+    header.appendChild(actions);
+    wrapper.appendChild(header);
+
+    const iconLabel = document.createElement("label");
+    iconLabel.textContent = "Icono (emoji)";
+    const iconInput = document.createElement("input");
+    iconInput.type = "text";
+    iconInput.name = "icon";
+    iconInput.maxLength = 4;
+    iconInput.value = item.icon || "";
+    iconLabel.appendChild(iconInput);
+    wrapper.appendChild(iconLabel);
+
+    const titleLabel = document.createElement("label");
+    titleLabel.textContent = "Título";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.name = "title";
+    titleInput.value = item.title || "";
+    titleLabel.appendChild(titleInput);
+    wrapper.appendChild(titleLabel);
+
+    const descLabel = document.createElement("label");
+    descLabel.textContent = "Descripción";
+    const descInput = document.createElement("textarea");
+    descInput.name = "description";
+    descInput.rows = 2;
+    descInput.value = item.description || "";
+    descLabel.appendChild(descInput);
+    wrapper.appendChild(descLabel);
+
+    homeHighlightsContainer.appendChild(wrapper);
+  });
+  if (homeAddHighlightBtn) {
+    homeAddHighlightBtn.disabled = items.length >= HIGHLIGHTS_LIMIT;
+  }
+}
+
+function renderMilestonesEditor() {
+  if (!homeMilestonesContainer) return;
+  ensureHomeStructures();
+  const items = Array.isArray(homeContent.about.milestones)
+    ? homeContent.about.milestones
+    : [];
+  homeMilestonesContainer.innerHTML = "";
+  items.forEach((item, index) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "home-repeat-item";
+    wrapper.dataset.index = String(index);
+    const header = document.createElement("div");
+    header.className = "home-repeat-item__header";
+    const label = document.createElement("strong");
+    label.textContent = `Hito ${index + 1}`;
+    header.appendChild(label);
+    const actions = document.createElement("div");
+    actions.className = "home-repeat-item__actions";
+    actions.appendChild(createMoveButton("up", index, items.length));
+    actions.appendChild(createMoveButton("down", index, items.length));
+    actions.appendChild(createRemoveButton());
+    header.appendChild(actions);
+    wrapper.appendChild(header);
+
+    const yearLabel = document.createElement("label");
+    yearLabel.textContent = "Título";
+    const yearInput = document.createElement("input");
+    yearInput.type = "text";
+    yearInput.name = "title";
+    yearInput.value = item.title || "";
+    yearLabel.appendChild(yearInput);
+    wrapper.appendChild(yearLabel);
+
+    const descLabel = document.createElement("label");
+    descLabel.textContent = "Descripción";
+    const descInput = document.createElement("textarea");
+    descInput.name = "description";
+    descInput.rows = 2;
+    descInput.value = item.description || "";
+    descLabel.appendChild(descInput);
+    wrapper.appendChild(descLabel);
+
+    homeMilestonesContainer.appendChild(wrapper);
+  });
+  if (homeAddMilestoneBtn) {
+    homeAddMilestoneBtn.disabled = items.length >= MILESTONES_LIMIT;
+  }
+}
+
+function renderWhyEditor() {
+  if (!homeWhyContainer) return;
+  ensureHomeStructures();
+  const items = Array.isArray(homeContent.why.cards) ? homeContent.why.cards : [];
+  homeWhyContainer.innerHTML = "";
+  items.forEach((item, index) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "home-repeat-item";
+    wrapper.dataset.index = String(index);
+    const header = document.createElement("div");
+    header.className = "home-repeat-item__header";
+    const label = document.createElement("strong");
+    label.textContent = `Tarjeta ${index + 1}`;
+    header.appendChild(label);
+    const actions = document.createElement("div");
+    actions.className = "home-repeat-item__actions";
+    actions.appendChild(createMoveButton("up", index, items.length));
+    actions.appendChild(createMoveButton("down", index, items.length));
+    actions.appendChild(createRemoveButton());
+    header.appendChild(actions);
+    wrapper.appendChild(header);
+
+    const titleLabel = document.createElement("label");
+    titleLabel.textContent = "Título";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.name = "title";
+    titleInput.value = item.title || "";
+    titleLabel.appendChild(titleInput);
+    wrapper.appendChild(titleLabel);
+
+    const descLabel = document.createElement("label");
+    descLabel.textContent = "Descripción";
+    const descInput = document.createElement("textarea");
+    descInput.name = "description";
+    descInput.rows = 2;
+    descInput.value = item.description || "";
+    descLabel.appendChild(descInput);
+    wrapper.appendChild(descLabel);
+
+    const imageLabel = document.createElement("label");
+    imageLabel.textContent = "Imagen (URL)";
+    const imageInput = document.createElement("input");
+    imageInput.type = "text";
+    imageInput.name = "image";
+    imageInput.dataset.homePath = `why.cards.${index}.image`;
+    imageInput.value = item.image || "";
+    imageLabel.appendChild(imageInput);
+    wrapper.appendChild(imageLabel);
+
+    const uploadLabel = document.createElement("label");
+    uploadLabel.className = "home-admin-upload-control";
+    uploadLabel.textContent = "Subir imagen";
+    const uploadInput = document.createElement("input");
+    uploadInput.type = "file";
+    uploadInput.accept = "image/*";
+    uploadInput.dataset.homeUpload = `why.cards.${index}.image`;
+    uploadLabel.appendChild(uploadInput);
+    wrapper.appendChild(uploadLabel);
+
+    const preview = document.createElement("img");
+    preview.dataset.homePreview = `why.cards.${index}.image`;
+    preview.alt = `Vista previa tarjeta ${index + 1}`;
+    wrapper.appendChild(preview);
+
+    homeWhyContainer.appendChild(wrapper);
+  });
+  if (homeAddWhyBtn) {
+    homeAddWhyBtn.disabled = items.length >= WHY_LIMIT;
+  }
+  refreshHomePreviews();
+}
+
+function renderContactBulletsEditor() {
+  if (!homeContactBulletsContainer) return;
+  ensureHomeStructures();
+  const items = Array.isArray(homeContent.contact.bulletPoints)
+    ? homeContent.contact.bulletPoints
+    : [];
+  homeContactBulletsContainer.innerHTML = "";
+  items.forEach((item, index) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "home-repeat-item";
+    wrapper.dataset.index = String(index);
+    const header = document.createElement("div");
+    header.className = "home-repeat-item__header";
+    const label = document.createElement("strong");
+    label.textContent = `Beneficio ${index + 1}`;
+    header.appendChild(label);
+    const actions = document.createElement("div");
+    actions.className = "home-repeat-item__actions";
+    actions.appendChild(createMoveButton("up", index, items.length));
+    actions.appendChild(createMoveButton("down", index, items.length));
+    actions.appendChild(createRemoveButton());
+    header.appendChild(actions);
+    wrapper.appendChild(header);
+
+    const textLabel = document.createElement("label");
+    textLabel.textContent = "Texto";
+    const textInput = document.createElement("input");
+    textInput.type = "text";
+    textInput.name = "value";
+    textInput.value = item || "";
+    textLabel.appendChild(textInput);
+    wrapper.appendChild(textLabel);
+
+    homeContactBulletsContainer.appendChild(wrapper);
+  });
+  if (homeAddContactBulletBtn) {
+    homeAddContactBulletBtn.disabled = items.length >= CONTACT_BULLETS_LIMIT;
+  }
+}
+
+function renderFeaturedProducts() {
+  if (!homeFeaturedList) return;
+  const filter = homeFeaturedSearch?.value?.trim().toLowerCase() || "";
+  ensureHomeStructures();
+  const selectedIds = Array.isArray(homeContent.featured.productIds)
+    ? homeContent.featured.productIds
+    : [];
+  const productList = Array.isArray(homeProducts) ? homeProducts : [];
+  homeFeaturedList.innerHTML = "";
+  if (!productList.length) {
+    homeFeaturedList.innerHTML =
+      '<p class="home-admin-empty">No hay productos cargados.</p>';
+    return;
+  }
+  const filtered = productList
+    .filter((product) => {
+      if (!filter) return true;
+      const haystack = [
+        product.sku,
+        product.name,
+        product.brand,
+        product.model,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(filter);
+    })
+    .sort((a, b) => {
+      const aIndex = selectedIds.indexOf(String(a.id));
+      const bIndex = selectedIds.indexOf(String(b.id));
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+
+  if (!filtered.length) {
+    homeFeaturedList.innerHTML =
+      '<p class="home-admin-empty">No se encontraron productos.</p>';
+    return;
+  }
+
+  filtered.forEach((product) => {
+    const id = String(product.id);
+    const isSelected = selectedIds.includes(id);
+    const row = document.createElement("div");
+    row.className = `home-admin-product-row ${isSelected ? "is-selected" : ""}`.trim();
+    row.dataset.productId = id;
+
+    const label = document.createElement("label");
+    label.className = "home-admin-product-label";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.productId = id;
+    checkbox.checked = isSelected;
+    label.appendChild(checkbox);
+    const text = document.createElement("span");
+    const parts = [];
+    if (product.sku) parts.push(`<strong>${product.sku}</strong>`);
+    if (product.brand) parts.push(`<span>${product.brand}</span>`);
+    parts.push(product.name || "");
+    text.innerHTML = parts.join(" · ").trim();
+    label.appendChild(text);
+    row.appendChild(label);
+
+    if (isSelected) {
+      const order = document.createElement("span");
+      order.className = "home-admin-product-order";
+      order.textContent = `#${selectedIds.indexOf(id) + 1}`;
+      row.appendChild(order);
+      const actions = document.createElement("div");
+      actions.className = "home-admin-product-actions";
+      const upBtn = createMoveButton("up", selectedIds.indexOf(id), selectedIds.length);
+      upBtn.dataset.action = "move-up";
+      upBtn.dataset.productId = id;
+      const downBtn = createMoveButton("down", selectedIds.indexOf(id), selectedIds.length);
+      downBtn.dataset.action = "move-down";
+      downBtn.dataset.productId = id;
+      actions.appendChild(upBtn);
+      actions.appendChild(downBtn);
+      row.appendChild(actions);
+    }
+
+    homeFeaturedList.appendChild(row);
+  });
+}
+
+function sanitizeHomePayload(raw) {
+  const payload = ensureHomeStructures(deepClone(raw));
+  const trimNode = (node) => {
+    if (Array.isArray(node)) {
+      return node
+        .map((item) => trimNode(item))
+        .filter((item) => item !== "" && item != null);
+    }
+    if (isPlainObject(node)) {
+      const output = {};
+      Object.entries(node).forEach(([key, value]) => {
+        const cleaned = trimNode(value);
+        if (cleaned !== undefined) {
+          output[key] = cleaned;
+        }
+      });
+      return output;
+    }
+    if (typeof node === "string") {
+      return node.trim();
+    }
+    return node;
+  };
+  const cleaned = trimNode(payload);
+  cleaned.popup.frequencyHours = Number(cleaned.popup.frequencyHours) || 24;
+  cleaned.featured.productIds = Array.isArray(cleaned.featured.productIds)
+    ? cleaned.featured.productIds.map((id) => String(id))
+    : [];
+  if (!Array.isArray(cleaned.hero.bullets)) cleaned.hero.bullets = [];
+  if (!Array.isArray(cleaned.highlights)) cleaned.highlights = [];
+  if (!Array.isArray(cleaned.about.milestones)) cleaned.about.milestones = [];
+  if (!Array.isArray(cleaned.why.cards)) cleaned.why.cards = [];
+  if (!Array.isArray(cleaned.contact.bulletPoints)) cleaned.contact.bulletPoints = [];
+  return cleaned;
+}
+
+async function ensureHomeProducts(force = false) {
+  if (homeProductsLoaded && !force) return;
+  try {
+    const res = await apiFetch("/api/products");
+    if (!res.ok) throw new Error("No se pudieron obtener los productos");
+    const data = await res.json();
+    homeProducts = Array.isArray(data.products) ? data.products : [];
+  } catch (err) {
+    console.error("home-products", err);
+    homeProducts = [];
+  } finally {
+    homeProductsLoaded = true;
+  }
+}
+
+async function loadHomeForm() {
+  if (!homeForm) return;
+  try {
+    const res = await apiFetch("/api/config");
+    if (!res.ok) throw new Error("No se pudo obtener la configuración");
+    const cfg = await res.json();
+    homeContent = mergeDeep(HOME_DEFAULTS, cfg.homePage || {});
+    ensureHomeStructures();
+    populateHomeForm();
+    await ensureHomeProducts(true);
+    renderFeaturedProducts();
+  } catch (err) {
+    console.error("home-config", err);
+    alert("No se pudo cargar el contenido del inicio");
+  }
+}
+
+function populateHomeForm() {
+  if (!homeForm) return;
+  ensureHomeStructures();
+  homeForm.querySelectorAll("[data-home-field]").forEach((field) => {
+    const path = field.dataset.homeField;
+    const format = field.dataset.homeFormat;
+    const typeHint = field.dataset.homeType || field.type;
+    const value = getValueByPath(homeContent, path);
+    if (typeHint === "checkbox") {
+      field.checked = Boolean(value);
+    } else if (format === "lines") {
+      field.value = Array.isArray(value) ? value.join("\n") : value || "";
+    } else if (typeHint === "number") {
+      field.value = value ?? "";
+    } else {
+      field.value = value ?? "";
+    }
+  });
+  renderHighlightsEditor();
+  renderMilestonesEditor();
+  renderWhyEditor();
+  renderContactBulletsEditor();
+  renderFeaturedProducts();
+  refreshHomePreviews();
+}
+
+function handleHomeFieldInput(event) {
+  const field = event.target;
+  if (!field || !field.dataset.homeField) return;
+  const path = field.dataset.homeField;
+  const format = field.dataset.homeFormat;
+  const typeHint = field.dataset.homeType || field.type;
+  if (typeHint === "checkbox") {
+    setValueByPath(homeContent, path, field.checked);
+  } else if (format === "lines") {
+    const lines = field.value
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    setValueByPath(homeContent, path, lines);
+  } else if (typeHint === "number") {
+    const raw = field.value.trim();
+    setValueByPath(homeContent, path, raw === "" ? "" : Number(raw));
+  } else {
+    setValueByPath(homeContent, path, field.value);
+  }
+  refreshHomePreviews();
+}
+
+async function handleHomeUploadChange(event) {
+  const input = event.target;
+  if (!input || !input.dataset.homeUpload || !input.files?.length) return;
+  const path = input.dataset.homeUpload;
+  const file = input.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const res = await apiFetch("/api/upload", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.filename) {
+      throw new Error(data.error || "No se pudo subir el archivo");
+    }
+    const url = `/uploads/${encodeURIComponent(data.filename)}`;
+    setValueByPath(homeContent, path, url);
+    const urlInput = homeForm.querySelector(`[data-home-field="${path}"]`);
+    if (urlInput) {
+      urlInput.value = url;
+    }
+    refreshHomePreviews();
+    renderWhyEditor();
+  } catch (err) {
+    console.error("home-upload", err);
+    alert(err.message || "Error al subir el archivo");
+  } finally {
+    input.value = "";
+  }
+}
+
+function handleHighlightInput(event) {
+  const target = event.target;
+  if (!target || !homeHighlightsContainer) return;
+  const item = target.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index) || !homeContent.highlights[index]) return;
+  homeContent.highlights[index][target.name] = target.value;
+}
+
+function handleHighlightClick(event) {
+  const action = event.target?.dataset?.action;
+  if (!action) return;
+  const item = event.target.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index)) return;
+  if (action === "remove") {
+    homeContent.highlights.splice(index, 1);
+    renderHighlightsEditor();
+    return;
+  }
+  if (action === "move-up") {
+    moveArrayItem(homeContent.highlights, index, index - 1);
+    renderHighlightsEditor();
+    return;
+  }
+  if (action === "move-down") {
+    moveArrayItem(homeContent.highlights, index, index + 1);
+    renderHighlightsEditor();
+  }
+}
+
+function handleMilestoneInput(event) {
+  const target = event.target;
+  const item = target?.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index) || !homeContent.about.milestones[index]) return;
+  homeContent.about.milestones[index][target.name] = target.value;
+}
+
+function handleMilestoneClick(event) {
+  const action = event.target?.dataset?.action;
+  if (!action) return;
+  const item = event.target.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index)) return;
+  if (action === "remove") {
+    homeContent.about.milestones.splice(index, 1);
+    renderMilestonesEditor();
+    return;
+  }
+  if (action === "move-up") {
+    moveArrayItem(homeContent.about.milestones, index, index - 1);
+    renderMilestonesEditor();
+    return;
+  }
+  if (action === "move-down") {
+    moveArrayItem(homeContent.about.milestones, index, index + 1);
+    renderMilestonesEditor();
+  }
+}
+
+function handleWhyInput(event) {
+  const target = event.target;
+  const item = target?.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index) || !homeContent.why.cards[index]) return;
+  if (target.dataset.homePath) {
+    setValueByPath(homeContent, target.dataset.homePath, target.value);
+    refreshHomePreviews();
+  } else {
+    homeContent.why.cards[index][target.name] = target.value;
+  }
+}
+
+function handleWhyClick(event) {
+  const action = event.target?.dataset?.action;
+  if (!action) return;
+  const item = event.target.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index)) return;
+  if (action === "remove") {
+    homeContent.why.cards.splice(index, 1);
+    renderWhyEditor();
+    return;
+  }
+  if (action === "move-up") {
+    moveArrayItem(homeContent.why.cards, index, index - 1);
+    renderWhyEditor();
+    return;
+  }
+  if (action === "move-down") {
+    moveArrayItem(homeContent.why.cards, index, index + 1);
+    renderWhyEditor();
+  }
+}
+
+function handleContactBulletInput(event) {
+  const target = event.target;
+  const item = target?.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= homeContent.contact.bulletPoints.length
+  ) {
+    return;
+  }
+  homeContent.contact.bulletPoints[index] = target.value;
+}
+
+function handleContactBulletClick(event) {
+  const action = event.target?.dataset?.action;
+  if (!action) return;
+  const item = event.target.closest(".home-repeat-item");
+  if (!item) return;
+  const index = Number(item.dataset.index);
+  if (!Number.isInteger(index)) return;
+  if (action === "remove") {
+    homeContent.contact.bulletPoints.splice(index, 1);
+    renderContactBulletsEditor();
+    return;
+  }
+  if (action === "move-up") {
+    moveArrayItem(homeContent.contact.bulletPoints, index, index - 1);
+    renderContactBulletsEditor();
+    return;
+  }
+  if (action === "move-down") {
+    moveArrayItem(homeContent.contact.bulletPoints, index, index + 1);
+    renderContactBulletsEditor();
+  }
+}
+
+function handleFeaturedChange(event) {
+  const checkbox = event.target;
+  if (!checkbox || checkbox.type !== "checkbox" || !checkbox.dataset.productId) return;
+  ensureHomeStructures();
+  const id = checkbox.dataset.productId;
+  const list = homeContent.featured.productIds;
+  if (checkbox.checked) {
+    if (list.includes(id)) return;
+    if (list.length >= FEATURED_LIMIT) {
+      checkbox.checked = false;
+      alert(`Podés elegir hasta ${FEATURED_LIMIT} productos.`);
+      return;
+    }
+    list.push(id);
+  } else {
+    homeContent.featured.productIds = list.filter((value) => value !== id);
+  }
+  renderFeaturedProducts();
+}
+
+function handleFeaturedClick(event) {
+  const action = event.target?.dataset?.action;
+  if (!action || !event.target.dataset.productId) return;
+  const id = event.target.dataset.productId;
+  const list = homeContent.featured.productIds;
+  const index = list.indexOf(id);
+  if (index === -1) return;
+  if (action === "move-up" && index > 0) {
+    moveArrayItem(list, index, index - 1);
+    renderFeaturedProducts();
+  } else if (action === "move-down" && index < list.length - 1) {
+    moveArrayItem(list, index, index + 1);
+    renderFeaturedProducts();
+  }
+}
+
+async function handleHomeSubmit(event) {
+  event.preventDefault();
+  if (!homeForm) return;
+  try {
+    const payload = sanitizeHomePayload(homeContent);
+    const res = await apiFetch("/api/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ homePage: payload }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || "No se pudo guardar el inicio");
+    }
+    homeContent = mergeDeep(HOME_DEFAULTS, data.homePage || {});
+    ensureHomeStructures();
+    populateHomeForm();
+    alert("Inicio actualizado correctamente");
+  } catch (err) {
+    console.error("home-save", err);
+    alert(err.message || "Error al guardar el inicio");
+  }
+}
+
+if (homeForm) {
+  homeForm.addEventListener("input", handleHomeFieldInput);
+  homeForm.addEventListener("change", handleHomeUploadChange);
+  homeForm.addEventListener("submit", handleHomeSubmit);
+}
+
+if (homeHighlightsContainer) {
+  homeHighlightsContainer.addEventListener("input", handleHighlightInput);
+  homeHighlightsContainer.addEventListener("click", handleHighlightClick);
+}
+
+if (homeAddHighlightBtn) {
+  homeAddHighlightBtn.addEventListener("click", () => {
+    ensureHomeStructures();
+    if (homeContent.highlights.length >= HIGHLIGHTS_LIMIT) {
+      alert(`Podés cargar hasta ${HIGHLIGHTS_LIMIT} bloques.`);
+      return;
+    }
+    homeContent.highlights.push({ icon: "", title: "", description: "" });
+    renderHighlightsEditor();
+  });
+}
+
+if (homeMilestonesContainer) {
+  homeMilestonesContainer.addEventListener("input", handleMilestoneInput);
+  homeMilestonesContainer.addEventListener("click", handleMilestoneClick);
+}
+
+if (homeAddMilestoneBtn) {
+  homeAddMilestoneBtn.addEventListener("click", () => {
+    ensureHomeStructures();
+    if (homeContent.about.milestones.length >= MILESTONES_LIMIT) {
+      alert(`Podés registrar hasta ${MILESTONES_LIMIT} hitos.`);
+      return;
+    }
+    homeContent.about.milestones.push({ title: "", description: "" });
+    renderMilestonesEditor();
+  });
+}
+
+if (homeWhyContainer) {
+  homeWhyContainer.addEventListener("input", handleWhyInput);
+  homeWhyContainer.addEventListener("click", handleWhyClick);
+}
+
+if (homeAddWhyBtn) {
+  homeAddWhyBtn.addEventListener("click", () => {
+    ensureHomeStructures();
+    if (homeContent.why.cards.length >= WHY_LIMIT) {
+      alert(`Podés sumar hasta ${WHY_LIMIT} tarjetas.`);
+      return;
+    }
+    homeContent.why.cards.push({ title: "", description: "", image: "" });
+    renderWhyEditor();
+  });
+}
+
+if (homeContactBulletsContainer) {
+  homeContactBulletsContainer.addEventListener("input", handleContactBulletInput);
+  homeContactBulletsContainer.addEventListener("click", handleContactBulletClick);
+}
+
+if (homeAddContactBulletBtn) {
+  homeAddContactBulletBtn.addEventListener("click", () => {
+    ensureHomeStructures();
+    if (homeContent.contact.bulletPoints.length >= CONTACT_BULLETS_LIMIT) {
+      alert(`Podés listar hasta ${CONTACT_BULLETS_LIMIT} beneficios.`);
+      return;
+    }
+    homeContent.contact.bulletPoints.push("");
+    renderContactBulletsEditor();
+  });
+}
+
+if (homeFeaturedList) {
+  homeFeaturedList.addEventListener("change", handleFeaturedChange);
+  homeFeaturedList.addEventListener("click", handleFeaturedClick);
+}
+
+if (homeFeaturedSearch) {
+  homeFeaturedSearch.addEventListener("input", () => {
+    renderFeaturedProducts();
+  });
 }
 
 function formatMultiline(value) {
