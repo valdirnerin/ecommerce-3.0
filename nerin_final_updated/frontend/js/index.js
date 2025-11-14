@@ -744,7 +744,9 @@ function resolveFeaturedProducts(products, ids) {
       seen.add(key);
       selected.push(product);
     });
-    return selected.slice(0, 6);
+    if (selected.length) {
+      return selected.slice(0, 6);
+    }
   }
 
   return uniqueProducts.slice(0, 4);
