@@ -752,25 +752,32 @@ function resolveFeaturedProducts(products, ids) {
   return uniqueProducts.slice(0, 4);
 }
 
+let featuredLoadVersion = 0;
+
 async function loadFeatured() {
   const container = document.getElementById("featuredGrid");
   if (!container) return;
+  const requestVersion = ++featuredLoadVersion;
   container.innerHTML = "";
   try {
     const products = await fetchProducts();
+    if (requestVersion !== featuredLoadVersion) return;
     const selection = resolveFeaturedProducts(
       products,
       currentHomeContent.featured?.productIds,
     );
     if (!selection.length) {
+      if (requestVersion !== featuredLoadVersion) return;
       container.innerHTML = "<p>Sin productos destacados por el momento.</p>";
       return;
     }
+    if (requestVersion !== featuredLoadVersion) return;
     selection.forEach((product) => {
       container.appendChild(createFeaturedCard(product));
     });
   } catch (error) {
     console.error("featured-load", error);
+    if (requestVersion !== featuredLoadVersion) return;
     container.textContent = "No se pudieron cargar los productos.";
   }
 }
