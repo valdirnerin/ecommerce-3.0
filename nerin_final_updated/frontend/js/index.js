@@ -723,22 +723,33 @@ function createFeaturedCard(product) {
 
 function resolveFeaturedProducts(products, ids) {
   if (!Array.isArray(products) || !products.length) return [];
-  const byId = new Map(products.map((item) => [String(item.id), item]));
-  let selected = [];
+  const byId = new Map();
+  const uniqueProducts = [];
+  products.forEach((product) => {
+    if (!product || product.id == null) return;
+    const key = String(product.id);
+    if (byId.has(key)) return;
+    byId.set(key, product);
+    uniqueProducts.push(product);
+  });
+
   if (Array.isArray(ids) && ids.length) {
-    selected = ids
-      .map((id) => byId.get(String(id)))
-      .filter((product) => product != null);
+    const seen = new Set();
+    const selected = [];
+    ids.forEach((id) => {
+      const key = String(id);
+      if (seen.has(key)) return;
+      const product = byId.get(key);
+      if (!product) return;
+      seen.add(key);
+      selected.push(product);
+    });
+    if (selected.length) {
+      return selected.slice(0, 6);
+    }
   }
-  if (!selected.length) {
-    selected = products.slice(0, 4);
-  } else if (selected.length < 4) {
-    const extras = products.filter(
-      (product) => !selected.some((item) => item.id === product.id),
-    );
-    selected = [...selected, ...extras.slice(0, 4 - selected.length)];
-  }
-  return selected.slice(0, 6);
+
+  return uniqueProducts.slice(0, 4);
 }
 
 async function loadFeatured() {
