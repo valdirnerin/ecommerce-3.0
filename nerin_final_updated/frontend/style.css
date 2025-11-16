@@ -4410,6 +4410,23 @@ footer .legal {
   }
 }
 
+@media (max-width: 540px) {
+  .product-page .product-thumbs {
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow-x: visible;
+    margin: 0;
+    scroll-snap-type: none;
+    gap: 0.5rem;
+  }
+
+  .product-page .product-thumbs__item {
+    width: clamp(56px, 22vw, 72px);
+    height: clamp(56px, 22vw, 72px);
+    flex: 0 1 calc(25% - 0.5rem);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .product-page .product-gallery__track,
   .product-page .product-gallery__nav,
