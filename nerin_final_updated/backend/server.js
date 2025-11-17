@@ -598,6 +598,35 @@ function getProductTemplateParts() {
   return PRODUCT_TEMPLATE_CACHE;
 }
 
+const SHOP_TEMPLATE_PATH = path.join(
+  __dirname,
+  "..",
+  "frontend",
+  "shop.html",
+);
+let SHOP_TEMPLATE_CACHE = null;
+
+function getShopTemplateParts() {
+  if (SHOP_TEMPLATE_CACHE) return SHOP_TEMPLATE_CACHE;
+  try {
+    const template = fs.readFileSync(SHOP_TEMPLATE_PATH, "utf8");
+    const headMatch = template.match(/<head>([\s\S]*?)<\/head>/i);
+    const rawHead = headMatch ? headMatch[1] : "";
+    const bodyMatch = template.match(/<body[\s\S]*<\/body>/i);
+    const body = bodyMatch
+      ? bodyMatch[0]
+      : '<body><main class="shop-page" id="catalogo"></main></body>';
+    SHOP_TEMPLATE_CACHE = { head: rawHead, body };
+  } catch (err) {
+    console.error("No se pudo cargar la plantilla de catálogo", err);
+    SHOP_TEMPLATE_CACHE = {
+      head: "",
+      body: '<body><main class="shop-page" id="catalogo"></main></body>',
+    };
+  }
+  return SHOP_TEMPLATE_CACHE;
+}
+
 async function loadProducts() {
   const now = Date.now();
   if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
@@ -643,6 +672,341 @@ function absoluteUrl(input, base) {
   } catch {
     return null;
   }
+}
+
+function truncateText(str, limit) {
+  if (typeof str !== "string") return "";
+  const normalized = str.replace(/\s+/g, " ").trim();
+  if (!limit || normalized.length <= limit) return normalized;
+  const slice = normalized.slice(0, Math.max(0, limit - 1));
+  const lastSpace = slice.lastIndexOf(" ");
+  const base = lastSpace > 40 ? slice.slice(0, lastSpace) : slice;
+  return `${base.replace(/[\s,.!?;:-]+$/, "")}…`;
+}
+
+function compactText(str) {
+  return typeof str === "string" ? str.replace(/\s+/g, " ").trim() : "";
+}
+
+function buildFeaturePhrase(product) {
+  const candidates = [
+    product?.short_description,
+    product?.meta_description,
+    product?.description,
+    product?.category,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string") {
+      const cleaned = value.replace(/\s+/g, " ").trim();
+      if (cleaned) {
+        return cleaned;
+      }
+    }
+  }
+  return "Repuesto original con garantía técnica";
+}
+
+function inferDisplayTechnology(product) {
+  const candidates = [
+    product?.panel_type,
+    product?.display_type,
+    product?.technology,
+    product?.screen_type,
+    product?.meta_description,
+    product?.description,
+  ];
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const text = value.toLowerCase();
+    if (text.includes("super amoled")) return "Super AMOLED";
+    if (text.includes("amoled")) return "AMOLED";
+    if (text.includes("oled")) return "OLED";
+    if (text.includes("lcd")) return "LCD";
+  }
+  return null;
+}
+
+function inferHasFrame(product) {
+  const fields = [product?.name, product?.description, product?.short_description];
+  return fields.some((value) => typeof value === "string" && /marco/i.test(value))
+    ? "con marco"
+    : "";
+}
+
+function inferColor(product) {
+  const candidates = [product?.color, product?.name, product?.description];
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const match = value.match(/(negro|negra|black|blanco|blanca|white|azul|blue|verde|green|rojo|red)/i);
+    if (match && match[1]) {
+      const color = match[1].toLowerCase();
+      return color.charAt(0).toUpperCase() + color.slice(1);
+    }
+  }
+  return "";
+}
+
+function buildProductSeoTitle(product) {
+  const categoryLabel =
+    typeof product?.category === "string" && product.category.toLowerCase().includes("pantalla")
+      ? "Pantalla"
+      : normalizeTextInput(product?.category) || "Repuesto";
+  const brand = normalizeTextInput(product?.brand);
+  const model = normalizeTextInput(product?.model);
+  const sku = normalizeTextInput(product?.sku);
+  const feature = inferDisplayTechnology(product) || buildFeaturePhrase(product);
+  const descriptor = [categoryLabel, brand, model, sku].filter(Boolean).join(" ") ||
+    normalizeTextInput(product?.name) ||
+    "Repuesto";
+  const cleanedFeature = compactText(feature);
+  const featurePiece = cleanedFeature ? ` original ${cleanedFeature}` : " original";
+  return `${truncateText(`${descriptor}${featurePiece}`, 140)} | NERIN Parts`;
+}
+
+function buildProductHeading(product) {
+  const name = normalizeTextInput(product?.name);
+  if (name) return name;
+  const title = buildProductSeoTitle(product);
+  return title.replace(/\s*\|\s*NERIN Parts/i, "");
+}
+
+function buildProductMetaDescription(product) {
+  const brand = normalizeTextInput(product?.brand);
+  const model = normalizeTextInput(product?.model);
+  const sku = normalizeTextInput(product?.sku);
+  const technology = inferDisplayTechnology(product);
+  const frame = inferHasFrame(product);
+  const color = inferColor(product);
+  const lead = ["Pantalla original", brand, model, sku].filter(Boolean).join(" ") ||
+    normalizeTextInput(product?.name) ||
+    "Repuesto";
+  const pieces = [];
+  if (frame) pieces.push(frame);
+  if (technology) pieces.push(`tecnología ${technology}`);
+  if (color) pieces.push(`color ${color}`);
+  const detail = pieces.length ? ` ${pieces.join(", ")}` : "";
+  const raw = `${lead}${detail}. Stock en Argentina, envío rápido y garantía técnica NERIN.`;
+  return truncateText(raw, 180);
+}
+
+function formatArs(value) {
+  const amount = Number(value);
+  if (Number.isFinite(amount)) return `$${amount.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
+  return "$0";
+}
+
+function buildProductUrl(product) {
+  if (product && typeof product.slug === "string" && product.slug.trim()) {
+    return `/p/${encodeURIComponent(product.slug.trim())}`;
+  }
+  const id = product?.id != null ? String(product.id) : "";
+  return `/product.html?id=${encodeURIComponent(id)}`;
+}
+
+function buildProductImages(product, siteBase) {
+  const rawImages = Array.isArray(product?.images)
+    ? product.images.filter(Boolean)
+    : [];
+  const legacyImages = !rawImages.length && product?.image ? [product.image] : [];
+  const imageList = [...rawImages, ...legacyImages]
+    .map((src) => absoluteUrl(src, siteBase))
+    .filter(Boolean);
+  const alts = Array.isArray(product?.images_alt) ? product.images_alt : [];
+  const defaultAlt = buildProductHeading(product) || "Imagen del producto";
+  const normalizedAlts = imageList.map((_, idx) => {
+    const alt = alts[idx];
+    if (typeof alt === "string" && alt.trim()) return alt.trim();
+    return defaultAlt;
+  });
+  return { imageList, normalizedAlts };
+}
+
+function renderProductGallerySsr(product, siteBase) {
+  const { imageList, normalizedAlts } = buildProductImages(product, siteBase);
+  if (!imageList.length) return "";
+  const items = imageList
+    .map((src, idx) => {
+      const alt = normalizedAlts[idx] || normalizedAlts[0] || "Imagen";
+      return `<figure class=\"product-gallery__item\"><img loading=\"lazy\" src=\"${esc(
+        src,
+      )}\" alt=\"${esc(alt)}\"></figure>`;
+    })
+    .join("");
+  return `<div class=\"product-gallery product-gallery--ssr\">${items}</div>`;
+}
+
+function renderProductInfoSsr(product, siteBase) {
+  const heading = buildProductHeading(product);
+  const description = buildFeaturePhrase(product);
+  const brand = normalizeTextInput(product?.brand);
+  const model = normalizeTextInput(product?.model);
+  const sku = normalizeTextInput(product?.sku);
+  const category = normalizeTextInput(product?.category);
+  const stockValue = typeof product?.stock === "number" ? product.stock : null;
+  const technology = inferDisplayTechnology(product);
+  const frame = inferHasFrame(product);
+  const color = inferColor(product);
+  let stockCopy = "";
+  if (stockValue != null) {
+    if (stockValue <= 0) stockCopy = "Sin stock disponible";
+    else if (product?.min_stock != null && stockValue < product.min_stock) {
+      stockCopy = `Poco stock • ${stockValue} u.`;
+    } else {
+      stockCopy = `Stock disponible • ${stockValue} u.`;
+    }
+  }
+  const infoItems = [
+    brand ? `<li><strong>Marca:</strong> ${esc(brand)}</li>` : "",
+    model ? `<li><strong>Modelo:</strong> ${esc(model)}</li>` : "",
+    category ? `<li><strong>Categoría:</strong> ${esc(category)}</li>` : "",
+    sku ? `<li><strong>SKU:</strong> ${esc(sku)}</li>` : "",
+    technology ? `<li><strong>Tecnología:</strong> ${esc(technology)}</li>` : "",
+    frame ? `<li><strong>Montaje:</strong> ${esc(frame)}</li>` : "",
+    color ? `<li><strong>Color:</strong> ${esc(color)}</li>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  const compatibility = [brand, model, sku].filter(Boolean).join(" ");
+  const compatibilityHtml = compatibility
+    ? `<p class=\"product-compatibility\">Compatible con ${esc(compatibility)}.</p>`
+    : "";
+  const wholesalePrice = Number(product?.price_mayorista);
+  const retailPrice = Number(product?.price_minorista);
+  const priceBlock = `<div class=\"product-detail-price\">${
+    Number.isFinite(retailPrice)
+      ? `<p><span>Precio minorista</span><strong>${esc(formatArs(retailPrice))}</strong></p>`
+      : ""
+  }${
+    Number.isFinite(wholesalePrice)
+      ? `<p><span>Precio mayorista</span><strong>${esc(formatArs(wholesalePrice))}</strong></p>`
+      : ""
+  }</div>`;
+  const trustList = [
+    "Asesoría especializada en repuestos originales y OEM.",
+    "Logística a todo el país con despachos en 24h.",
+    "Garantía técnica NERIN con soporte real.",
+  ]
+    .map((item) => `<li>${esc(item)}</li>`)
+    .join("");
+  const backLink = `<p class=\"product-backlink\"><a href=\"/shop.html\">Volver al catálogo</a></p>`;
+  return `
+    <header class=\"product-summary\">
+      <h1>${esc(heading)}</h1>
+      ${stockCopy ? `<span class=\"product-stock-badge\">${esc(stockCopy)}</span>` : ""}
+      ${infoItems ? `<ul class=\"product-meta-list\">${infoItems}</ul>` : ""}
+    </header>
+    <div class=\"product-info-panels\">
+      <section class=\"product-details-panel\" aria-label=\"Descripción del producto\">
+      <h2>Descripción y compatibilidad</h2>
+      <p class=\"product-detail-desc\">${esc(description)}</p>
+        ${compatibilityHtml}
+        <div class=\"product-specs-card\">
+          <h3>Especificaciones rápidas</h3>
+          <ul class=\"product-detail-attrs\">
+            ${infoItems || "<li>Repuesto original con garantía</li>"}
+            <li>Envío rápido desde Argentina</li>
+            <li>Soporte técnico especializado</li>
+          </ul>
+        </div>
+        <ul class=\"product-trust\">${trustList}</ul>
+      </section>
+      <aside class=\"product-pricing-panel\" aria-label=\"Acciones de compra\">
+        <h2>Comprar este repuesto</h2>
+        ${stockCopy ? `<p class=\"product-stock-info\">${esc(stockCopy)}</p>` : ""}
+        ${priceBlock}
+        <p class=\"product-promo\">Consultá por instalación y descuentos para servicios técnicos.</p>
+        ${backLink}
+      </aside>
+    </div>
+  `;
+}
+
+function injectProductContent(body, galleryHtml, infoHtml) {
+  let output = body;
+  if (galleryHtml) {
+    output = output.replace(
+      /<div[^>]*id=["']gallery["'][^>]*>\s*<\/div>/i,
+      `<div class="product-page__gallery" id="gallery">${galleryHtml}</div>`,
+    );
+  }
+  if (infoHtml) {
+    output = output.replace(
+      /<div[^>]*id=["']productInfo["'][^>]*>\s*<\/div>/i,
+      `<div class="product-page__info" id="productInfo">${infoHtml}</div>`,
+    );
+  }
+  return output;
+}
+
+function buildShopCard(product, siteBase) {
+  const url = absoluteUrl(buildProductUrl(product), siteBase) || buildProductUrl(product);
+  const { imageList } = buildProductImages(product, siteBase);
+  const cover = imageList[0] || absoluteUrl("/assets/hero.png", siteBase) || "/assets/hero.png";
+  const brand = normalizeTextInput(product?.brand);
+  const model = normalizeTextInput(product?.model);
+  const part = normalizeTextInput(product?.category) || normalizeTextInput(product?.catalog_piece);
+  const description = truncateText(buildFeaturePhrase(product), 140);
+  const stockValue = typeof product?.stock === "number" ? product.stock : null;
+  let stockBadge = "";
+  if (stockValue != null) {
+    if (stockValue <= 0) stockBadge = "<span class=\"badge badge--out\">Sin stock</span>";
+    else if (product?.min_stock != null && stockValue < product.min_stock) {
+      stockBadge = `<span class=\"badge badge--low\">Poco stock (${stockValue} u.)</span>`;
+    } else {
+      stockBadge = `<span class=\"badge badge--in\">Stock disponible (${stockValue} u.)</span>`;
+    }
+  }
+  const retailPrice = Number(product?.price_minorista);
+  const wholesalePrice = Number(product?.price_mayorista);
+  return `
+    <article class=\"product-card\" role=\"listitem\">
+      <a class=\"product-card__image\" href=\"${esc(url)}\">
+        <img loading=\"lazy\" src=\"${esc(cover)}\" alt=\"${esc(
+          product?.name || brand || "Producto",
+        )}\">
+      </a>
+      <div class=\"product-meta\">
+        ${product?.sku ? `<span class=\"sku\">${esc(product.sku)}</span>` : ""}
+        ${brand || model ? `<span class=\"chip\">${esc([brand, model].filter(Boolean).join(" · "))}</span>` : ""}
+        ${part ? `<span class=\"chip\">${esc(part)}</span>` : ""}
+      </div>
+      <h3><a href=\"${esc(url)}\">${esc(product?.name || "Repuesto")}</a></h3>
+      <p class=\"description\">${esc(description)}</p>
+      <div class=\"availability-badges\">${stockBadge}</div>
+      <div class=\"price-grid\">
+        ${
+          Number.isFinite(retailPrice)
+            ? `<div class=\"price-tier\"><span class=\"price-tier__label\">Minorista</span><span class=\"price-tier__value\">${esc(
+                formatArs(retailPrice),
+              )}</span></div>`
+            : ""
+        }
+        ${
+          Number.isFinite(wholesalePrice)
+            ? `<div class=\"price-tier\"><span class=\"price-tier__label\">Mayorista</span><span class=\"price-tier__value\">${esc(
+                formatArs(wholesalePrice),
+              )}</span></div>`
+            : ""
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderShopListing(products, siteBase) {
+  const valid = Array.isArray(products)
+    ? products.filter((p) => p && isProductPublic(p))
+    : [];
+  const cards = valid.slice(0, 30).map((p) => buildShopCard(p, siteBase)).join("");
+  const count = valid.length;
+  const summary = count === 1 ? "1 producto disponible." : `${count} productos listados.`;
+  return { cards, count, summary };
+}
+
+function replaceBasePlaceholders(html, siteBase) {
+  if (!html || !siteBase) return html;
+  const normalized = siteBase.replace(/\/+$/, "");
+  return html.replace(/__BASE_URL__/g, normalized);
 }
 
 function toIsoString(value) {
@@ -7499,17 +7863,11 @@ async function requestHandler(req, res) {
     const seoConfig = getConfig();
     const siteBase = getPublicBaseUrl(seoConfig);
     const canonical = `${siteBase}/p/${encodeURIComponent(slug)}`;
-    const rawImages = Array.isArray(product.images)
-      ? product.images.filter(Boolean)
-      : [];
-    const legacyImages = !rawImages.length && product.image ? [product.image] : [];
-    const imageList = [...rawImages, ...legacyImages]
-      .map((src) => absoluteUrl(src, siteBase))
-      .filter(Boolean);
+    const { imageList, normalizedAlts } = buildProductImages(product, siteBase);
     const alts = Array.isArray(product.images_alt) ? product.images_alt : [];
     const defaultAlt = name || "Imagen del producto";
     const primaryImage = imageList[0] || null;
-    const primaryAlt = (alts[0] && String(alts[0]).trim()) || defaultAlt;
+    const primaryAlt = normalizedAlts[0] || defaultAlt;
     const availability =
       typeof product.stock === "number" && product.stock > 0
         ? "https://schema.org/InStock"
@@ -7535,12 +7893,15 @@ async function requestHandler(req, res) {
     const formattedPrice = Number.isFinite(numericPrice)
       ? numericPrice.toFixed(2)
       : "0.00";
+    const seoTitle = buildProductSeoTitle(product);
+    const description = buildProductMetaDescription(product);
+    const h1 = buildProductHeading(product);
     const ld = {
       "@context": "https://schema.org",
       "@type": "Product",
-      name,
+      name: h1,
       ...(imageList.length ? { image: imageList } : {}),
-      ...(descriptionValue ? { description: descriptionValue } : {}),
+      ...(description ? { description } : descriptionValue ? { description: descriptionValue } : {}),
       ...(skuValue ? { sku: skuValue } : {}),
       ...(brandName
         ? { brand: { "@type": "Brand", name: brandName } }
@@ -7557,7 +7918,7 @@ async function requestHandler(req, res) {
     const ogImagesMeta = imageList
       .map((img, index) => {
         const parts = [`<meta property=\"og:image\" content=\"${esc(img)}\">`];
-        const alt = alts[index];
+        const alt = alts[index] || normalizedAlts[index];
         const resolvedAlt =
           typeof alt === "string" && alt.trim() ? alt.trim() : defaultAlt;
         if (resolvedAlt) {
@@ -7575,11 +7936,13 @@ async function requestHandler(req, res) {
         ? product.meta_title.trim()
         : fallbackName;
     const hasBrand = typeof product.brand === "string" && product.brand.trim();
-    const title = hasBrand ? metaTitleRaw : `${metaTitleRaw} | NERIN Repuestos`;
-    const description =
+    const legacyTitle = hasBrand ? metaTitleRaw : `${metaTitleRaw} | NERIN Repuestos`;
+    const title = seoTitle || legacyTitle;
+    const descriptionFallback =
       typeof desc === "string" && desc.trim()
         ? desc.trim()
         : `Compra ${fallbackName} en NERIN.`;
+    const metaDescription = description || descriptionFallback;
     const keywordList = Array.isArray(product.tags)
       ? product.tags
           .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
@@ -7625,16 +7988,16 @@ async function requestHandler(req, res) {
     const head = [
       templateHead,
       `<title>${esc(title)}</title>`,
-      `<meta name="description" content="${esc(description)}">`,
+      `<meta name="description" content="${esc(metaDescription)}">`,
       keywordsMeta,
       `<link rel="canonical" href="${esc(canonical)}">`,
       `<meta property="og:title" content="${esc(title)}">`,
-      `<meta property="og:description" content="${esc(description)}">`,
+      `<meta property="og:description" content="${esc(metaDescription)}">`,
       `<meta property="og:url" content="${esc(canonical)}">`,
       ogImagesMeta,
       `<meta name="twitter:card" content="${twitterCardType}">`,
       `<meta name="twitter:title" content="${esc(title)}">`,
-      `<meta name="twitter:description" content="${esc(description)}">`,
+      `<meta name="twitter:description" content="${esc(metaDescription)}">`,
       `<meta name="twitter:url" content="${esc(canonical)}">`,
       twitterImageMeta,
       `<script type="application/ld+json" id="product-jsonld">${safeJsonForScript(ld)}</script>`,
@@ -7642,7 +8005,42 @@ async function requestHandler(req, res) {
     ]
       .filter(Boolean)
       .join("");
-    const html = `<!DOCTYPE html><html lang="es"><head>${head}</head>${templateBody}</html>`;
+    const galleryHtml = renderProductGallerySsr(product, siteBase);
+    const infoHtml = renderProductInfoSsr(product, siteBase);
+    const hydratedBody = injectProductContent(templateBody, galleryHtml, infoHtml);
+    const html = `<!DOCTYPE html><html lang="es-AR"><head>${head}</head>${hydratedBody}</html>`;
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(html);
+    return;
+  }
+
+  // SSR del catálogo
+  if (
+    (pathname === "/shop.html" || pathname === "/shop" || pathname === "/shop/") &&
+    req.method === "GET"
+  ) {
+    const products = await loadProducts();
+    const seoConfig = getConfig();
+    const siteBase = getPublicBaseUrl(seoConfig);
+    const { head: templateHead, body: templateBody } = getShopTemplateParts();
+    const { cards, count, summary } = renderShopListing(products, siteBase);
+    const listing = cards ||
+      '<p class="description">El catálogo estará disponible en breve. Volvé a intentarlo en unos minutos.</p>';
+    const hydratedHead = replaceBasePlaceholders(templateHead, siteBase);
+    let hydratedBody = replaceBasePlaceholders(templateBody, siteBase);
+    hydratedBody = hydratedBody.replace(
+      /<div\s+id=\"productGrid\"[^>]*>\s*<\/div>/i,
+      `<div id="productGrid" class="product-grid premium-grid" role="list">${listing}</div>`,
+    );
+    hydratedBody = hydratedBody.replace(
+      /<span\s+id=\"resultCount\">[^<]*<\/span>/i,
+      `<span id="resultCount">${count}</span>`,
+    );
+    hydratedBody = hydratedBody.replace(
+      /<p>\s*<span\s+id=\"resultCount\">[^<]*<\/span>[^<]*<\/p>/i,
+      `<p><span id="resultCount">${count}</span> ${esc(summary)}</p>`,
+    );
+    const html = `<!doctype html><html lang="es"><head>${hydratedHead}</head>${hydratedBody}</html>`;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;
