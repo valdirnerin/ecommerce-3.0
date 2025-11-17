@@ -86,6 +86,44 @@
       ]
     },
     {
+      "id": "a16-amoled",
+      "sku": "SM-A165-DS",
+      "name": "Pantalla Samsung Galaxy A16 4G SM-A165 original negra con marco AMOLED",
+      "category": "Pantallas",
+      "brand": "Samsung",
+      "model": "Galaxy A16 4G SM-A165",
+      "description": "Pantalla original Samsung Galaxy A16 4G SM-A165 con marco, tecnología AMOLED en color negro. Incluye montaje con marco y soporte técnico NERIN.",
+      "short_description": "Pantalla AMOLED con marco para Galaxy A16 SM-A165.",
+      "stock": 18,
+      "price_minorista": 71500,
+      "price_mayorista": 64500,
+      "image": "/assets/hero.png",
+      "min_stock": 3,
+      "color": "Negra",
+      "vip_only": false,
+      "subcategory": "Samsung",
+      "tags": [
+        "pantalla",
+        "samsung",
+        "a16",
+        "amoled"
+      ],
+      "slug": "pantalla-samsung-galaxy-a16-4g-sm-a165-original-negra-con-marco-amoled",
+      "meta_title": "Pantalla Samsung Galaxy A16 4G SM-A165 AMOLED con marco",
+      "meta_description": "Pantalla original AMOLED con marco para Samsung Galaxy A16 SM-A165 en color negro.",
+      "visibility": "public",
+      "featured": true,
+      "images": [
+        "/assets/hero.png"
+      ],
+      "images_alt": [
+        "Pantalla Samsung Galaxy A16 4G SM-A165 con marco AMOLED"
+      ],
+      "catalog_brand": "Samsung",
+      "catalog_model": "Galaxy A16",
+      "catalog_piece": "Pantalla AMOLED con marco"
+    },
+    {
       "id": "3",
       "sku": "LCD-XIA-MI11",
       "name": "Pantalla Xiaomi Mi 11",
