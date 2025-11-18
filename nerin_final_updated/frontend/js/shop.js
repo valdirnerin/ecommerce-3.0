@@ -270,6 +270,7 @@ const partFilter = document.getElementById("partFilter");
 const stockFilter = document.getElementById("stockFilter");
 const priceRange = document.getElementById("priceRange");
 const priceRangeValue = document.getElementById("priceRangeValue");
+let priceFilterTouched = false;
 const sortSelect = document.getElementById("sortSelect");
 const activeFiltersContainer = document.getElementById("activeFilters");
 const resultCountEl = document.getElementById("resultCount");
@@ -533,6 +534,8 @@ function configurePriceSlider(products) {
   priceRange.max = normalizedMax;
   priceRange.step = Math.max(100, Math.round(normalizedMax / 40));
   priceRange.value = normalizedMax;
+  priceFilterTouched = false;
+  priceRange.dataset.userSet = "false";
   updatePriceRangeDisplay();
 }
 
@@ -614,6 +617,8 @@ function applyInitialFilters() {
       const min = Number(priceRange.min) || 0;
       const clamped = Math.min(Math.max(value, min), max);
       priceRange.value = clamped;
+      priceFilterTouched = true;
+      priceRange.dataset.userSet = "true";
       initial.price = clamped;
       updatePriceRangeDisplay();
     }
@@ -992,7 +997,8 @@ function updatePriceRangeDisplay() {
   if (!priceRange || !priceRangeValue) return;
   const max = Number(priceRange.max) || 0;
   const value = Number(priceRange.value) || 0;
-  if (!max || value >= max) {
+  const userSet = priceFilterTouched || priceRange.dataset.userSet === "true";
+  if (!userSet || !max || value >= max) {
     priceRangeValue.textContent = "Sin tope";
   } else {
     priceRangeValue.textContent = formatCurrency(value);
@@ -1082,6 +1088,8 @@ function updateActiveFilters(filters) {
       clear: () => {
         if (priceRange) {
           priceRange.value = priceRange.max;
+          priceFilterTouched = false;
+          priceRange.dataset.userSet = "false";
           updatePriceRangeDisplay();
         }
       },
@@ -1288,8 +1296,8 @@ function renderProducts() {
   const partKeyFilter = normalizeKey(partVal);
   const priceValue = priceRange ? Number(priceRange.value) || 0 : 0;
   const priceMax = priceRange ? Number(priceRange.max) || 0 : 0;
-  const priceActive =
-    Boolean(priceRange) && priceMax > 0 && priceValue > 0 && priceValue < priceMax;
+  const priceFilterUsed = Boolean(priceRange) && priceRange.dataset.userSet === "true";
+  const priceActive = Boolean(priceFilterUsed) && priceMax > 0 && priceValue > 0;
   const filters = {
     search: searchTermRaw,
     brand: brandVal,
@@ -1423,6 +1431,8 @@ async function initShop() {
     }
     if (priceRange) {
       priceRange.addEventListener("input", () => {
+        priceFilterTouched = true;
+        priceRange.dataset.userSet = "true";
         updatePriceRangeDisplay();
         renderProducts();
       });
