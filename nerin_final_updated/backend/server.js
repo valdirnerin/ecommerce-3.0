@@ -1285,11 +1285,9 @@ const DEFAULT_FOOTER = {
   },
   badges: {
     mercadoPago: true,
-    ssl: true,
     andreani: true,
-    oca: true,
-    dhl: false,
-    authenticity: true,
+    efectivo: true,
+    transferencia: true,
   },
   newsletter: {
     enabled: false,
@@ -3334,11 +3332,9 @@ function normalizeFooter(data) {
   };
   out.badges = {
     mercadoPago: Boolean(data?.badges?.mercadoPago),
-    ssl: Boolean(data?.badges?.ssl),
     andreani: Boolean(data?.badges?.andreani),
-    oca: Boolean(data?.badges?.oca),
-    dhl: Boolean(data?.badges?.dhl),
-    authenticity: Boolean(data?.badges?.authenticity),
+    efectivo: Boolean(data?.badges?.efectivo),
+    transferencia: Boolean(data?.badges?.transferencia),
   };
   out.newsletter = {
     enabled: Boolean(data?.newsletter?.enabled),

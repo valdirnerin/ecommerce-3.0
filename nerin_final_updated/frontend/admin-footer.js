@@ -52,7 +52,7 @@ const defaultConfig = {
     linkedin: "https://www.linkedin.com/company/nerinparts",
     youtube: "",
   },
-  badges: { mercadoPago: true, ssl: true, andreani: true, oca: true, dhl: false, authenticity: true },
+  badges: { mercadoPago: true, andreani: true, efectivo: true, transferencia: true },
   newsletter: {
     enabled: false,
     placeholder: "Tu email para recibir novedades",
