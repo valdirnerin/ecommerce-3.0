@@ -121,11 +121,9 @@
         },
         badges: {
           mercadoPago: true,
-          ssl: true,
           andreani: true,
-          oca: true,
-          dhl: false,
-          authenticity: true,
+          efectivo: true,
+          transferencia: true,
         },
         newsletter: {
           enabled: false,
@@ -381,21 +379,38 @@
       if (badges && show.badges && cfg.badges) {
         const badgeIcons = {
           mercadoPago:
-            '<svg aria-label="Mercado Pago" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 32" fill="currentColor"><rect width="64" height="32" rx="8" fill="rgba(255,255,255,0.06)"/><path d="M20 12c2-2 6-2 8 0 2-2 6-2 8 0" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M20 12v4c2 2 6 2 8 0 2 2 6 2 8 0v-4" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>',
-          ssl: '<svg aria-label="Conexión segura" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32" fill="currentColor"><rect x="4" y="10" width="32" height="20" rx="6" fill="rgba(255,255,255,0.08)"/><path d="M14 14v-2a6 6 0 0112 0v2" stroke="currentColor" stroke-width="1.8" fill="none"/><rect x="18" y="20" width="4" height="4" rx="2" fill="currentColor"/></svg>',
+            '<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="mpGrad" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#00A7E2"/><stop offset="1" stop-color="#0069A5"/></linearGradient></defs><rect x="3" y="6" width="42" height="36" rx="11" fill="#f5fbff" stroke="#b5e4fb" stroke-width="1.6"/><path d="M12.5 22.5c4.5-3.4 8.7-3.5 12.7-.4 4-3.2 8.2-3 12 .3" fill="none" stroke="#00a0de" stroke-width="2" stroke-linecap="round"/><path d="M17.6 21.5 22 26c.9 1 2.4 1 3.3 0l4.4-4.4" fill="none" stroke="#00a0de" stroke-width="2" stroke-linecap="round"/><path d="m15.4 21.8 3.8 2.9c1 .8 2.4.8 3.4 0l3.6-2.7" fill="none" stroke="#0069a5" stroke-width="1.4"/><path d="M21.8 24.6 19 27.7c-.8.9-2.2 1-3.1.2l-3.4-3.3m17.5 0 2.7 2.8a2.2 2.2 0 0 0 3.1 0l3.4-3.3" fill="#ffde9a" stroke="#0069a5" stroke-width="1.3" stroke-linejoin="round"/><path d="M17 20.9c.3-.7 1.6-2 2.9-2 1 0 2 .6 2.7 1.3.7-.6 1.6-1.2 2.6-1.2 1.4 0 2.6 1 3 1.9" fill="#00a7e2" stroke="#0069a5" stroke-width="1.1" stroke-linejoin="round"/></svg>',
           andreani:
-            '<svg aria-label="Andreani" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32" fill="currentColor"><path d="M24 4l11 24h-4.4l-2.1-4.6H19.5L17.4 28h-4.4L24 4zm0 8.6l-2.8 6h5.6l-2.8-6z"/></svg>',
-          oca: '<svg aria-label="OCA" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32" fill="currentColor"><path d="M13 10h9l-4.5 6 4.5 6h-9l-4-6 4-6zm12 0h10v4h-6v4h6v4H25V10zm15 0h9l-4.5 6 4.5 6h-9l-4-6 4-6z"/></svg>',
-          dhl: '<svg aria-label="DHL" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 32" fill="currentColor"><path d="M10 12h11l-1.5 4H7.5L6 20h12l-1.5 4H4l3-12zm15 0h11l-1.5 4h-7l-.6 2h7l-1.5 4h-7L23 24h-6l3-12zm15 0h11l-3 12h-6l.9-3.6h-5.6l1.5-4h5.6L40 12z"/></svg>',
-          authenticity:
-            '<svg aria-label="Garantía de originalidad" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32" fill="currentColor"><path d="M20 2l14 6v8c0 7-6 13-14 14C12 29 6 23 6 16V8l14-6z" fill="rgba(255,255,255,0.08)"/><path d="M15 16l3.2 3.2L25 12.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>',
+            '<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="andrGrad" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#F4472E"/><stop offset="1" stop-color="#C80000"/></linearGradient></defs><rect x="4" y="6" width="40" height="36" rx="12" fill="#fff3f1" stroke="#ffc9c2" stroke-width="1.4"/><path d="M24 9 11 36.5h7.6l2.6-5.6h6.7l2.5 5.6H38L26 9h-2Zm1.7 6.9 3.9 8.5h-8l4.1-8.5Z" fill="url(#andrGrad)"/></svg>',
+          efectivo:
+            '<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="cashGrad" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#2BB673"/><stop offset="1" stop-color="#0E8D4E"/></linearGradient></defs><rect x="4" y="9" width="40" height="30" rx="9" fill="#eaf7ef" stroke="#c6e8d1" stroke-width="1.4"/><rect x="9" y="14" width="30" height="20" rx="7" fill="url(#cashGrad)" stroke="#0b7541" stroke-width="1.2"/><circle cx="24" cy="24" r="6" fill="#eaf7ef" stroke="#0b7541" stroke-width="1.2"/><path d="M24 18.2v11.6M21 21.3h6" stroke="#0b7541" stroke-width="1.6" stroke-linecap="round"/></svg>',
+          transferencia:
+            '<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="bankGrad" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#7C8CF8"/><stop offset="1" stop-color="#4256D0"/></linearGradient></defs><rect x="4" y="8" width="40" height="32" rx="10" fill="#f3f4ff" stroke="#d7dcff" stroke-width="1.4"/><rect x="9" y="14" width="30" height="11" rx="4" fill="#e6e9ff" stroke="#bfc8ff" stroke-width="1.1"/><path d="M14 24h11l-3.5-3.6M34 22H23l3.5 3.6" fill="none" stroke="#4256d0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 12v-3M16 13h15" stroke="#bfc8ff" stroke-width="1.4" stroke-linecap="round"/></svg>',
         };
+
+        const badgeLabels = {
+          mercadoPago: "Mercado Pago",
+          andreani: "Andreani",
+          efectivo: "Pago en efectivo",
+          transferencia: "Transferencia bancaria",
+        };
+
         for (const [key, enabled] of Object.entries(cfg.badges)) {
           if (!enabled || !badgeIcons[key]) continue;
           badges.hidden = false;
           const span = document.createElement("span");
-          span.className = "np-footer__badge";
-          span.innerHTML = badgeIcons[key];
+          span.className = `np-footer__badge np-footer__badge--${key}`;
+          span.setAttribute("aria-label", badgeLabels[key] || key);
+
+          const icon = document.createElement("span");
+          icon.className = "np-footer__badge-icon";
+          icon.innerHTML = badgeIcons[key];
+
+          const label = document.createElement("span");
+          label.className = "np-footer__badge-label";
+          label.textContent = badgeLabels[key] || key;
+
+          span.append(icon, label);
           badges.appendChild(span);
         }
       }

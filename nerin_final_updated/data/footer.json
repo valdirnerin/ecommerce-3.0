@@ -89,11 +89,9 @@
   },
   "badges": {
     "mercadoPago": true,
-    "ssl": true,
     "andreani": true,
-    "oca": true,
-    "dhl": false,
-    "authenticity": true
+    "efectivo": true,
+    "transferencia": true
   },
   "newsletter": {
     "enabled": false,
