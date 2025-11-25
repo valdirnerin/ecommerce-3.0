@@ -103,6 +103,51 @@ function formatStatusLabel(value) {
   return code.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function getPaymentStatus(order) {
+  return (
+    order?.payment_status ||
+    order?.estado_pago ||
+    order?.payment_status_code ||
+    order?.paymentStatus ||
+    order?.status ||
+    ""
+  );
+}
+
+function normalizePaymentCode(status) {
+  const code = toStatusCode(status);
+  if (["approved", "paid", "pagado", "aprobado"].includes(code)) return "approved";
+  if (["rejected", "rechazado", "cancelado", "cancelled"].includes(code)) return "rejected";
+  if (["charged-back", "chargedback", "refunded"].includes(code)) return "refunded";
+  if (["in-process", "inprocess"].includes(code)) return "in-process";
+  if (!code) return "pending";
+  return code;
+}
+
+const PENDING_PAYMENT_CODES = new Set([
+  "pending",
+  "pendiente",
+  "pending-payment",
+  "pending-payment-local",
+  "pending-payment-transfer",
+  "pending-transferencia",
+  "pending-pago",
+  "in-process",
+]);
+
+function isPendingPayment(order) {
+  const normalized = normalizePaymentCode(getPaymentStatus(order));
+  return PENDING_PAYMENT_CODES.has(normalized);
+}
+
+function buildTrackingUrl(orderNumber, email) {
+  if (!orderNumber) return null;
+  const params = new URLSearchParams();
+  params.set("order", orderNumber);
+  if (email) params.set("email", email);
+  return `/seguimiento.html?${params.toString()}`;
+}
+
 function normalizeOrderItems(order) {
   const rawItems = Array.isArray(order?.productos)
     ? order.productos
@@ -220,6 +265,8 @@ async function renderOrders(orders, email) {
       const statusLabel = formatStatusLabel(statusRaw);
       const totalVal =
         raw?.total_amount || raw?.total || raw?.total_amount_before_discount || raw?.amount || 0;
+      const canDelete = isPendingPayment(raw);
+      const trackUrl = buildTrackingUrl(numero, email || localStorage.getItem("nerinUserEmail"));
 
       tr.innerHTML = `
         <td>${numero || "—"}</td>
@@ -227,14 +274,32 @@ async function renderOrders(orders, email) {
         <td><span class="status-badge status-${statusCode}">${statusLabel}</span></td>
         <td>${formatCurrency(totalVal)}</td>
         <td class="order-actions">
+          <button type="button" class="button outline small" data-action="track">Ver seguimiento</button>
           <button type="button" class="button secondary small" data-action="invoice">Factura</button>
           <button type="button" class="button ghost small" data-action="repeat">Repetir</button>
         </td>
       `;
 
+      if (trackUrl) {
+        tr.classList.add("order-row");
+        tr.dataset.trackUrl = trackUrl;
+        tr.addEventListener("click", (ev) => {
+          if (ev.target.closest("button")) return;
+          window.location.href = trackUrl;
+        });
+      }
+
       const actions = tr.querySelector(".order-actions");
       const invoiceBtn = actions?.querySelector('[data-action="invoice"]');
       const repeatBtn = actions?.querySelector('[data-action="repeat"]');
+      const trackBtn = actions?.querySelector('[data-action="track"]');
+
+      if (trackBtn && trackUrl) {
+        trackBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          window.location.href = trackUrl;
+        });
+      }
 
       if (invoiceBtn) {
         invoiceBtn.addEventListener("click", async () => {
@@ -266,94 +331,70 @@ async function renderOrders(orders, email) {
         });
       }
 
+      if (actions && canDelete && numero) {
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "button ghost small danger";
+        deleteBtn.textContent = "Eliminar";
+        deleteBtn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const confirmDelete = window.confirm(
+            "¿Querés eliminar este pedido pendiente? Esta acción no se puede deshacer.",
+          );
+          if (!confirmDelete) return;
+          try {
+            const resp = await apiFetch(`/api/orders/${encodeURIComponent(numero)}`, {
+              method: "DELETE",
+            });
+            if (resp.ok) {
+              showToast("Pedido pendiente eliminado.", "success");
+              tr.remove();
+              if (!tbody.querySelector("tr")) {
+                const emptyRow = document.createElement("tr");
+                emptyRow.innerHTML =
+                  '<td colspan="5">Todavía no registramos pedidos. ¡Empezá tu primera compra en la tienda!</td>';
+                tbody.appendChild(emptyRow);
+              }
+              document.dispatchEvent(
+                new CustomEvent("nerin:order-deleted", { detail: { orderId: numero } }),
+              );
+            } else {
+              const err = await resp.json().catch(() => ({}));
+              showToast(err.error || "No pudimos eliminar el pedido.", "danger");
+            }
+          } catch (error) {
+            showToast("Ocurrió un error al eliminar el pedido.", "danger");
+          }
+        });
+        actions.appendChild(deleteBtn);
+      }
+
       tbody.appendChild(tr);
     });
 }
 
-function updateQuickActions(handlers) {
-  const buttons = document.querySelectorAll(".action-tile");
-  buttons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const action = button.getAttribute("data-action");
-      const handler = handlers[action];
-      if (typeof handler === "function") handler();
-    });
-  });
-}
+const heroNameEl = document.getElementById("heroName");
+const heroLevelEl = document.getElementById("heroLevel");
+const heroOrdersEl = document.getElementById("heroOrders");
+const heroTotalEl = document.getElementById("heroTotal");
+const heroLastOrderEl = document.getElementById("heroLastOrder");
+const heroLastStatusEl = document.getElementById("heroLastStatus");
 
-async function initMinorAccount() {
-  const role = localStorage.getItem("nerinUserRole");
-  if (role && role !== "minorista") {
-    window.location.replace("/account.html");
-    return;
-  }
+const loyaltyBadge = document.getElementById("loyaltyBadge");
+const totalSpentEl = document.getElementById("totalSpent");
+const avgTicketEl = document.getElementById("avgTicket");
+const ordersCountEl = document.getElementById("ordersCount");
+const ordersFrequencyEl = document.getElementById("ordersFrequency");
+const nextDeliveryEl = document.getElementById("nextDelivery");
+const deliveryMetaEl = document.getElementById("deliveryMeta");
+const progressLabelEl = document.getElementById("progressLabel");
+const progressFillEl = document.getElementById("loyaltyProgress");
+const progressMessageEl = document.getElementById("progressMessage");
+const supportBtn = document.getElementById("supportBtn");
 
-  const email = localStorage.getItem("nerinUserEmail");
-  if (!email) {
-    window.location.href = "/login.html";
-    return;
-  }
-
-  const name = localStorage.getItem("nerinUserName") || email;
-  const heroNameEl = document.getElementById("heroName");
-  const heroLevelEl = document.getElementById("heroLevel");
-  const heroOrdersEl = document.getElementById("heroOrders");
-  const heroTotalEl = document.getElementById("heroTotal");
-  const heroLastOrderEl = document.getElementById("heroLastOrder");
-  const heroLastStatusEl = document.getElementById("heroLastStatus");
-
-  const loyaltyBadge = document.getElementById("loyaltyBadge");
-  const totalSpentEl = document.getElementById("totalSpent");
-  const avgTicketEl = document.getElementById("avgTicket");
-  const ordersCountEl = document.getElementById("ordersCount");
-  const ordersFrequencyEl = document.getElementById("ordersFrequency");
-  const nextDeliveryEl = document.getElementById("nextDelivery");
-  const deliveryMetaEl = document.getElementById("deliveryMeta");
-  const progressLabelEl = document.getElementById("progressLabel");
-  const progressFillEl = document.getElementById("loyaltyProgress");
-  const progressMessageEl = document.getElementById("progressMessage");
-  const supportBtn = document.getElementById("supportBtn");
-
-  if (heroNameEl) heroNameEl.textContent = getFirstName(name, "Cliente NERIN");
-
-  let orders = [];
-  let clientProfile = null;
-  try {
-    const res = await apiFetch(`/api/orders?email=${encodeURIComponent(email)}`);
-    if (res.ok) {
-      const data = await res.json();
-      orders = Array.isArray(data?.orders) ? data.orders : [];
-    }
-  } catch (error) {
-    console.error(error);
-  }
-
-  try {
-    const clientRes = await apiFetch(`/api/clients/${encodeURIComponent(email)}`);
-    if (clientRes.ok) {
-      const payload = await clientRes.json();
-      clientProfile = payload?.client || null;
-      if (payload?.profile && typeof payload.profile === "object") {
-        try {
-          localStorage.setItem("nerinUserProfile", JSON.stringify(payload.profile));
-        } catch (storageError) {
-          console.warn("No se pudo sincronizar el perfil minorista", storageError);
-        }
-      }
-      if (clientProfile?.name) {
-        try {
-          localStorage.setItem("nerinUserName", clientProfile.name);
-        } catch (storageError) {
-          console.warn("No se pudo actualizar el nombre minorista", storageError);
-        }
-      }
-    }
-  } catch (error) {
-    console.error("minor account profile", error);
-  }
-
+function updateDashboard(orders, clientProfile, fallbackName) {
   const displayName = getFirstName(
-    (clientProfile && clientProfile.name) || name,
+    (clientProfile && clientProfile.name) || fallbackName,
     "Cliente NERIN",
   );
   if (heroNameEl) heroNameEl.textContent = displayName;
@@ -430,6 +471,80 @@ async function initMinorAccount() {
   }
   if (progressFillEl) progressFillEl.style.width = `${loyalty.progress}%`;
   if (progressMessageEl) progressMessageEl.textContent = loyalty.message;
+}
+
+function updateQuickActions(handlers) {
+  const buttons = document.querySelectorAll(".action-tile");
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.getAttribute("data-action");
+      const handler = handlers[action];
+      if (typeof handler === "function") handler();
+    });
+  });
+}
+
+async function initMinorAccount() {
+  const role = localStorage.getItem("nerinUserRole");
+  if (role && role !== "minorista") {
+    window.location.replace("/account.html");
+    return;
+  }
+
+  const email = localStorage.getItem("nerinUserEmail");
+  if (!email) {
+    window.location.href = "/login.html";
+    return;
+  }
+
+  const name = localStorage.getItem("nerinUserName") || email;
+
+  if (heroNameEl) heroNameEl.textContent = getFirstName(name, "Cliente NERIN");
+
+  let orders = [];
+  let clientProfile = null;
+  try {
+    const res = await apiFetch(`/api/orders?email=${encodeURIComponent(email)}`);
+    if (res.ok) {
+      const data = await res.json();
+      orders = Array.isArray(data?.orders) ? data.orders : [];
+    }
+  } catch (error) {
+    console.error(error);
+  }
+
+  try {
+    const clientRes = await apiFetch(`/api/clients/${encodeURIComponent(email)}`);
+    if (clientRes.ok) {
+      const payload = await clientRes.json();
+      clientProfile = payload?.client || null;
+      if (payload?.profile && typeof payload.profile === "object") {
+        try {
+          localStorage.setItem("nerinUserProfile", JSON.stringify(payload.profile));
+        } catch (storageError) {
+          console.warn("No se pudo sincronizar el perfil minorista", storageError);
+        }
+      }
+      if (clientProfile?.name) {
+        try {
+          localStorage.setItem("nerinUserName", clientProfile.name);
+        } catch (storageError) {
+          console.warn("No se pudo actualizar el nombre minorista", storageError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("minor account profile", error);
+  }
+
+  updateDashboard(orders, clientProfile, name);
+
+  document.addEventListener("nerin:order-deleted", (event) => {
+    const deletedId = event?.detail?.orderId;
+    if (!deletedId) return;
+    orders = orders.filter((order) => getOrderNumber(order) !== deletedId);
+    updateDashboard(orders, clientProfile, name);
+  });
 
   await renderOrders(orders, email);
 
