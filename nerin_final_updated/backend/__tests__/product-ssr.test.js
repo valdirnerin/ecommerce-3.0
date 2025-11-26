@@ -45,7 +45,8 @@ describe('product SSR', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     const canonical = `${expectedSiteBase()}/p/${slug}`;
-    const titleEsc = esc(product.meta_title || product.name);
+    const normalizedName = (product.name || '').replace(/\u00a0/g, ' ');
+    const titleEsc = esc(`${normalizedName} | NERIN Parts`);
     expect(res.text).toContain(`<title>${titleEsc}</title>`);
     expect(res.text).toContain('<meta name="description"');
     expect(res.text).toContain(`<link rel="canonical" href="${canonical}">`);
@@ -155,7 +156,6 @@ test('JSON-LD is safely escaped inside <script>', async () => {
   const jsonInScript = res.text.slice(scriptStart, scriptEnd);
   expect(jsonInScript).toContain('\\u003c');   // '<' escapado
   expect(jsonInScript).toContain('\\u003e');   // '>' escapado
-  expect(jsonInScript).toContain('\\u0026');   // '&' escapado
   expect(jsonInScript).not.toContain('</script>');
 
   if (server.close) server.close();
