@@ -103,7 +103,8 @@ if (process.env.NODE_ENV !== "test") {
     );
   }
 }
-const BASE_URL = process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`;
+const DEFAULT_PUBLIC_URL = "https://nerinparts.com.ar";
+const BASE_URL = process.env.PUBLIC_URL || DEFAULT_PUBLIC_URL;
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
 const MAX_ACTIVITY_EVENTS = 600;
 const MAX_ACTIVITY_SESSIONS = 300;
@@ -198,7 +199,50 @@ function normalizeTextInput(value) {
 
 function normalizeEmailInput(value) {
   const text = normalizeTextInput(value);
-  return text ? text.toLowerCase() : "";
+  try {
+    return text.normalize("NFC").toLowerCase();
+  } catch {
+    return text.toLowerCase();
+  }
+}
+
+// Generar slugs limpios y únicos para URLs de producto orientadas a SEO.
+// Esto evita slugs vacíos, duplicados o con caracteres que rompan la vista.
+function slugifyValue(value) {
+  const normalized = normalizeTextInput(value);
+  if (!normalized) return "";
+  return normalized
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function ensureProductSlug(products, product, currentId = null) {
+  const baseCandidate =
+    slugifyValue(product?.slug) ||
+    slugifyValue(product?.name) ||
+    slugifyValue([product?.brand, product?.model].filter(Boolean).join(" ")) ||
+    slugifyValue(product?.sku) ||
+    (product?.id != null ? slugifyValue(String(product.id)) : "");
+
+  if (!baseCandidate) return null;
+
+  const existingSlugs = new Set(
+    products
+      .filter((p) => (currentId == null ? true : String(p.id) !== String(currentId)))
+      .map((p) => slugifyValue(p?.slug))
+      .filter(Boolean),
+  );
+
+  let candidate = baseCandidate;
+  let suffix = 2;
+  while (existingSlugs.has(candidate)) {
+    candidate = `${baseCandidate}-${suffix++}`;
+  }
+  return candidate;
 }
 
 function escapeHtml(str) {
@@ -747,20 +791,11 @@ function inferColor(product) {
 }
 
 function buildProductSeoTitle(product) {
-  const categoryLabel =
-    typeof product?.category === "string" && product.category.toLowerCase().includes("pantalla")
-      ? "Pantalla"
-      : normalizeTextInput(product?.category) || "Repuesto";
+  const name = normalizeTextInput(product?.name);
   const brand = normalizeTextInput(product?.brand);
   const model = normalizeTextInput(product?.model);
-  const sku = normalizeTextInput(product?.sku);
-  const feature = inferDisplayTechnology(product) || buildFeaturePhrase(product);
-  const descriptor = [categoryLabel, brand, model, sku].filter(Boolean).join(" ") ||
-    normalizeTextInput(product?.name) ||
-    "Repuesto";
-  const cleanedFeature = compactText(feature);
-  const featurePiece = cleanedFeature ? ` original ${cleanedFeature}` : " original";
-  return `${truncateText(`${descriptor}${featurePiece}`, 140)} | NERIN Parts`;
+  const descriptor = name || [brand, model, normalizeTextInput(product?.category)].filter(Boolean).join(" ") || "Repuesto original";
+  return `${truncateText(descriptor, 140)} | NERIN Parts`;
 }
 
 function buildProductHeading(product) {
@@ -774,18 +809,12 @@ function buildProductMetaDescription(product) {
   const brand = normalizeTextInput(product?.brand);
   const model = normalizeTextInput(product?.model);
   const sku = normalizeTextInput(product?.sku);
-  const technology = inferDisplayTechnology(product);
-  const frame = inferHasFrame(product);
-  const color = inferColor(product);
-  const lead = ["Pantalla original", brand, model, sku].filter(Boolean).join(" ") ||
-    normalizeTextInput(product?.name) ||
-    "Repuesto";
-  const pieces = [];
-  if (frame) pieces.push(frame);
-  if (technology) pieces.push(`tecnología ${technology}`);
-  if (color) pieces.push(`color ${color}`);
-  const detail = pieces.length ? ` ${pieces.join(", ")}` : "";
-  const raw = `${lead}${detail}. Stock en Argentina, envío rápido y garantía técnica NERIN.`;
+  const name = normalizeTextInput(product?.name) || "Repuesto original";
+  const modelCopy = [brand, model].filter(Boolean).join(" ");
+  const skuCopy = sku ? ` SKU ${sku}.` : "";
+  const raw = `${name} ORIGINAL Service Pack para ${
+    modelCopy || "equipos técnicos"
+  } con stock en Argentina. Pensado para servicios técnicos y mayoristas con entrega rápida.${skuCopy}`;
   return truncateText(raw, 180);
 }
 
@@ -1058,8 +1087,9 @@ function buildSitemapXml(baseUrl, products = []) {
   const generatedAt = toIsoString(new Date());
   const toAbsolute = (pathSegment) => absoluteUrl(pathSegment, siteBase);
   const staticPages = [
-    { path: "/", changefreq: "weekly", priority: "1.0" },
+    { path: "/", changefreq: "daily", priority: "1.0" },
     { path: "/shop.html", changefreq: "daily", priority: "0.9" },
+    { path: "/shop", changefreq: "daily", priority: "0.9" },
     { path: "/contact.html", changefreq: "monthly", priority: "0.5" },
     { path: "/seguimiento.html", changefreq: "weekly", priority: "0.4" },
     { path: "/cart.html", changefreq: "weekly", priority: "0.3" },
@@ -6174,6 +6204,8 @@ async function requestHandler(req, res) {
             : 1
         ).toString();
         newProduct.id = newId;
+        const slug = ensureProductSlug(products, newProduct, newId) || `producto-${newId}`;
+        newProduct.slug = slug;
         products.push(newProduct);
         saveProducts(products);
         return sendJson(res, 201, { success: true, product: newProduct });
@@ -6207,6 +6239,7 @@ async function requestHandler(req, res) {
       const duplicate = { ...original, id: newId };
       if (duplicate.sku) duplicate.sku = `${duplicate.sku}-copy`;
       duplicate.name = `${duplicate.name} (copia)`;
+      duplicate.slug = ensureProductSlug(products, duplicate, newId) || `producto-${newId}`;
       products.push(duplicate);
       saveProducts(products);
       return sendJson(res, 201, { success: true, product: duplicate });
@@ -6235,7 +6268,10 @@ async function requestHandler(req, res) {
         if (index === -1) {
           return sendJson(res, 404, { error: "Producto no encontrado" });
         }
-        products[index] = { ...products[index], ...update, id };
+        const merged = { ...products[index], ...update, id };
+        const safeSlug = ensureProductSlug(products, merged, id);
+        if (safeSlug) merged.slug = safeSlug;
+        products[index] = merged;
         saveProducts(products);
         return sendJson(res, 200, { success: true, product: products[index] });
       } catch (err) {
@@ -7704,6 +7740,7 @@ async function requestHandler(req, res) {
     const siteBase = getPublicBaseUrl(cfg);
     const lines = [
       "User-agent: *",
+      "Disallow:",
       "Allow: /",
       "Disallow: /admin",
       "Disallow: /admin/",
@@ -7723,7 +7760,7 @@ async function requestHandler(req, res) {
   if (pathname === "/sitemap.xml" && req.method === "GET") {
     const cfg = getConfig();
     const siteBase = getPublicBaseUrl(cfg);
-    const products = getProducts();
+    const products = await loadProducts();
     const xml = buildSitemapXml(siteBase, products);
     res.writeHead(200, {
       "Content-Type": "application/xml; charset=utf-8",
@@ -7871,7 +7908,7 @@ async function requestHandler(req, res) {
     const brandName =
       typeof product.brand === "string" && product.brand.trim()
         ? product.brand.trim()
-        : null;
+        : "NERIN Parts";
     const skuValue =
       typeof product.sku === "string" && product.sku.trim()
         ? product.sku.trim()
@@ -7927,13 +7964,7 @@ async function requestHandler(req, res) {
       .join("");
     const { head: templateHead, body: templateBody } = getProductTemplateParts();
     const fallbackName = name && name.trim() ? name.trim() : "Producto";
-    const metaTitleRaw =
-      typeof product.meta_title === "string" && product.meta_title.trim()
-        ? product.meta_title.trim()
-        : fallbackName;
-    const hasBrand = typeof product.brand === "string" && product.brand.trim();
-    const legacyTitle = hasBrand ? metaTitleRaw : `${metaTitleRaw} | NERIN Repuestos`;
-    const title = seoTitle || legacyTitle;
+    const title = seoTitle || `${fallbackName} | NERIN Parts`;
     const descriptionFallback =
       typeof desc === "string" && desc.trim()
         ? desc.trim()
