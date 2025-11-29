@@ -109,6 +109,8 @@ const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
 const MAX_ACTIVITY_EVENTS = 600;
 const MAX_ACTIVITY_SESSIONS = 300;
 const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
+const MAX_ANALYTICS_HISTORY_DAYS = 35;
+const MAX_HISTORY_SESSION_IDS = 2000;
 
 let _cache = { t: 0, data: null };
 
@@ -1610,6 +1612,13 @@ function calculateDetailedAnalytics() {
   const returns = getReturns();
   const products = getProducts();
   const { sessions, events } = getActivityLog();
+  const analyticsHistory = getAnalyticsHistory();
+  const historyDays = Array.isArray(analyticsHistory?.days)
+    ? analyticsHistory.days
+    : [];
+  const historyByDate = new Map(
+    historyDays.map((day) => [day.date, day]),
+  );
   const now = Date.now();
   const today = new Date(now);
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -1891,11 +1900,28 @@ function calculateDetailedAnalytics() {
     }
   });
   const visitTrend = [];
+  const todayKey = startOfToday.toISOString().slice(0, 10);
+  const visitorsTodayFromHistory = Number(
+    historyByDate.get(todayKey)?.uniqueSessions || 0,
+  );
+  let visitorsThisWeek = visitsWeekSessions.size;
+  const historyWeekVisitors = historyDays.reduce((acc, day) => {
+    const ts = Date.parse(day.date || "");
+    if (Number.isFinite(ts) && ts >= startOfWeek.getTime() && ts <= today.getTime()) {
+      return acc + Number(day.uniqueSessions || 0);
+    }
+    return acc;
+  }, 0);
+  visitorsThisWeek = Math.max(visitorsThisWeek, historyWeekVisitors);
+  const visitorsToday = Math.max(visitsTodaySessions.size, visitorsTodayFromHistory);
+
   for (let i = 6; i >= 0; i -= 1) {
     const day = new Date(startOfToday);
     day.setDate(startOfToday.getDate() - i);
     const key = day.toISOString().slice(0, 10);
-    const visitors = visitTrendMap.has(key) ? visitTrendMap.get(key).size : 0;
+    const visitorsFromEvents = visitTrendMap.has(key) ? visitTrendMap.get(key).size : 0;
+    const visitorsFromHistory = Number(historyByDate.get(key)?.uniqueSessions || 0);
+    const visitors = Math.max(visitorsFromEvents, visitorsFromHistory);
     visitTrend.push({ date: key, visitors });
   }
   const mostViewedTodayEntry = Array.from(productViewsToday.entries()).sort(
@@ -1935,10 +1961,23 @@ function calculateDetailedAnalytics() {
   ).length;
   const engagedSessionsRate =
     sessionEventCounts.size > 0 ? engagedSessionsCount / sessionEventCounts.size : 0;
+  const historyHourly = new Array(24).fill(0);
+  historyDays.forEach((day) => {
+    const ts = Date.parse(day.date || "");
+    if (!Number.isFinite(ts) || ts < startOfWeek.getTime() || ts > today.getTime()) {
+      return;
+    }
+    const hours = Array.isArray(day.hourly) ? day.hourly : [];
+    hours.forEach((value, hour) => {
+      if (hour >= 0 && hour < 24) {
+        historyHourly[hour] += Number(value) || 0;
+      }
+    });
+  });
   const trafficByHour = hourlyTraffic.map((count, hour) => ({
     hour,
     label: `${hour.toString().padStart(2, "0")}:00`,
-    count,
+    count: Math.max(count, historyHourly[hour]),
   }));
   const peakTrafficHour = trafficByHour.reduce(
     (acc, entry) => {
@@ -2250,8 +2289,8 @@ function calculateDetailedAnalytics() {
     activeSessions: activeSessions.length,
     checkoutInProgress,
     activeCarts,
-    visitorsToday: visitsTodaySessions.size,
-    visitorsThisWeek: visitsWeekSessions.size,
+    visitorsToday,
+    visitorsThisWeek,
     visitTrend,
     liveSessions: activeSessions.map((session) => ({
       id: session.id,
@@ -2365,6 +2404,152 @@ function saveActivityLog(log) {
     );
 
   return activityLogWriteChain;
+}
+
+function getAnalyticsHistory() {
+  const filePath = dataPath("analytics_history.json");
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(file);
+    if (Array.isArray(parsed?.days)) {
+      return { days: parsed.days };
+    }
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.warn("[analytics] no se pudo leer analytics_history.json", err?.message);
+    }
+  }
+  return { days: [] };
+}
+
+function saveAnalyticsHistory(history) {
+  const filePath = dataPath("analytics_history.json");
+  const cutoff = Date.now() - MAX_ANALYTICS_HISTORY_DAYS * 24 * 60 * 60 * 1000;
+  const normalizedDays = Array.isArray(history?.days)
+    ? history.days
+        .map((day) => {
+          const dateKey = typeof day?.date === "string" ? day.date : null;
+          return {
+            date: dateKey,
+            updatedAt: day?.updatedAt || null,
+            uniqueSessions: Number(day?.uniqueSessions || 0),
+            events: Number(day?.events || 0),
+            pageViews: Number(day?.pageViews || 0),
+            productViews: Number(day?.productViews || 0),
+            addToCart: Number(day?.addToCart || 0),
+            checkoutStart: Number(day?.checkoutStart || 0),
+            checkoutPayment: Number(day?.checkoutPayment || 0),
+            purchases: Number(day?.purchases || 0),
+            sessionIds: Array.isArray(day?.sessionIds) ? day.sessionIds.map(String) : [],
+            hourly: Array.isArray(day?.hourly) && day.hourly.length === 24
+              ? day.hourly.map((n) => Number(n) || 0)
+              : new Array(24).fill(0),
+          };
+        })
+        .filter((day) => {
+          const ts = Date.parse(day.date || "");
+          return Number.isFinite(ts) && ts >= cutoff;
+        })
+        .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+    : [];
+  try {
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ days: normalizedDays }, null, 2),
+      "utf8",
+    );
+  } catch (err) {
+    console.error("[analytics] no se pudo persistir analytics_history.json", err);
+  }
+}
+
+function recordAnalyticsHistoryEvent(history, payload) {
+  const { sessionId, eventType, timestamp, path: rawPath } = payload || {};
+  const dayKey = timestamp ? timestamp.slice(0, 10) : null;
+  if (!dayKey) return history;
+
+  const eventHour = (() => {
+    try {
+      const date = new Date(timestamp);
+      return date.getUTCHours();
+    } catch {
+      return null;
+    }
+  })();
+
+  const historyDays = Array.isArray(history?.days) ? history.days : [];
+  let day = historyDays.find((d) => d.date === dayKey);
+  if (!day) {
+    day = {
+      date: dayKey,
+      updatedAt: timestamp,
+      uniqueSessions: 0,
+      events: 0,
+      pageViews: 0,
+      productViews: 0,
+      addToCart: 0,
+      checkoutStart: 0,
+      checkoutPayment: 0,
+      purchases: 0,
+      sessionIds: [],
+      hourly: new Array(24).fill(0),
+    };
+    historyDays.push(day);
+  }
+
+  day.updatedAt = timestamp;
+  day.events = Number(day.events || 0) + 1;
+
+  if (typeof eventHour === "number" && eventHour >= 0 && eventHour < 24) {
+    day.hourly[eventHour] = Number(day.hourly[eventHour] || 0) + 1;
+  }
+
+  if (sessionId) {
+    const idStr = String(sessionId);
+    if (!Array.isArray(day.sessionIds)) {
+      day.sessionIds = [];
+    }
+    if (!day.sessionIds.includes(idStr)) {
+      day.sessionIds.push(idStr);
+      day.uniqueSessions = Number(day.uniqueSessions || 0) + 1;
+      if (day.sessionIds.length > MAX_HISTORY_SESSION_IDS) {
+        day.sessionIds = day.sessionIds.slice(-MAX_HISTORY_SESSION_IDS);
+      }
+    }
+  }
+
+  const normalizedType = String(eventType || "").toLowerCase();
+  const addPageView = normalizedType === "page_view" || normalizedType === "pageview";
+  const addProductView = normalizedType === "product_view";
+  const addToCart = normalizedType === "add_to_cart";
+  const addCheckoutStart = normalizedType === "checkout_start";
+  const addCheckoutPayment = normalizedType === "checkout_payment";
+  const addPurchase = normalizedType === "purchase";
+
+  if (addPageView) {
+    day.pageViews = Number(day.pageViews || 0) + 1;
+  }
+  if (addProductView) {
+    day.productViews = Number(day.productViews || 0) + 1;
+  }
+  if (addToCart) {
+    day.addToCart = Number(day.addToCart || 0) + 1;
+  }
+  if (addCheckoutStart) {
+    day.checkoutStart = Number(day.checkoutStart || 0) + 1;
+  }
+  if (addCheckoutPayment) {
+    day.checkoutPayment = Number(day.checkoutPayment || 0) + 1;
+  }
+  if (addPurchase) {
+    day.purchases = Number(day.purchases || 0) + 1;
+  }
+
+  const path = typeof rawPath === "string" ? rawPath.toLowerCase() : "";
+  if (path.includes("checkout") && !addCheckoutStart) {
+    day.checkoutStart = Number(day.checkoutStart || 0) + 1;
+  }
+  return { days: historyDays };
 }
 
 // Guardar líneas de pedidos
@@ -7159,6 +7344,13 @@ async function requestHandler(req, res) {
         }, {});
       }
       events.push(event);
+      const history = recordAnalyticsHistoryEvent(getAnalyticsHistory(), {
+        sessionId,
+        eventType,
+        timestamp: nowIso,
+        path: normalizedPath,
+      });
+      saveAnalyticsHistory(history);
       while (events.length > MAX_ACTIVITY_EVENTS) {
         events.shift();
       }

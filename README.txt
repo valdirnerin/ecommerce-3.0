@@ -118,3 +118,5 @@ En cada arranque el servidor mostrará en los logs algo como:
 
 Si no detecta un disco persistente verás una advertencia indicando que se está usando la carpeta local del repo. En ese caso, los datos se perderán en cada deploy, por lo que conviene revisar la configuración del disk y la variable `DATA_DIR`.
 
+Para entender qué métricas de analíticas se guardan, cómo se mezclan los datos en vivo con el historial semanal/mensual y cómo ajustar la retención, consultá `docs/analytics-history-es.md`.
+
