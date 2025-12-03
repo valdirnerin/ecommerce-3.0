@@ -1,4 +1,5 @@
 import { fetchProducts, isWholesale } from "./api.js";
+import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -88,8 +89,8 @@ function resolveAbsoluteUrl(url) {
 function getProductDescription(product, { preferMeta = false } = {}) {
   if (!product) return "";
   const primary = preferMeta
-    ? [product.meta_description, product.description, product.short_description]
-    : [product.description, product.meta_description, product.short_description];
+    ? [product.seoDescription, product.meta_description, product.description, product.short_description]
+    : [product.description, product.seoDescription, product.meta_description, product.short_description];
   for (const value of primary) {
     if (typeof value === "string") {
       const trimmed = value.trim();
@@ -104,31 +105,29 @@ function normalizeText(value) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function buildBrandModelLabel(product) {
-  if (!product) return "Repuesto";
-  const brand = normalizeText(product.brand);
-  const model = normalizeText(product.model);
-  if (brand && model) return `${brand} ${model}`;
-  if (brand) return brand;
-  if (model) return model;
-  const name = normalizeText(product.name);
-  if (name) return name;
-  const metaTitle = normalizeText(product.meta_title);
-  if (metaTitle) return metaTitle;
-  return "Repuesto";
+function resolveSeo(product) {
+  const { product: enriched, generated } = applySeoDefaults(product || {});
+  return {
+    product: enriched,
+    title: enriched.seoTitle || generated.seoTitle,
+    description: enriched.seoDescription || generated.seoDescription,
+  };
 }
 
 function buildModuleAltLabel(product) {
-  const label = normalizeText(buildBrandModelLabel(product));
+  const { title } = resolveSeo(product);
+  const label = stripBrandSuffix(title) || normalizeText(product?.name);
   if (label) {
-    return `Módulo ${label} Service Pack original`;
+    return label.toLowerCase().startsWith("módulo")
+      ? label
+      : `Módulo ${label} Service Pack original`;
   }
   return "Módulo Service Pack original";
 }
 
 function buildMetaTitle(product) {
-  const label = buildBrandModelLabel(product);
-  return `${label} ORIGINAL Service Pack | NERIN Parts`;
+  const { title } = resolveSeo(product);
+  return title;
 }
 
 function buildDensitySrcset(url) {
@@ -147,12 +146,10 @@ function truncateText(text, limit) {
 }
 
 function buildMetaDescription(product) {
-  const label = buildBrandModelLabel(product);
-  const fallback = `${label} original Service Pack disponible con garantía oficial en NERIN Parts.`;
-  const rawDescription =
-    getProductDescription(product, { preferMeta: true }) || fallback;
-  const normalized = normalizeText(rawDescription) || fallback;
-  return truncateText(normalized, 160);
+  const { description } = resolveSeo(product);
+  if (description) return truncateText(description, 180);
+  const fallback = getProductDescription(product, { preferMeta: true });
+  return truncateText(fallback || "Repuesto original Service Pack", 180);
 }
 
 function setMetaContent(attr, key, value) {
@@ -187,6 +184,7 @@ function setCanonicalUrl(url) {
 function updateBreadcrumbJsonLd(product, productUrl) {
   const script = document.getElementById("product-breadcrumbs");
   if (!script || !product) return;
+  const heading = stripBrandSuffix(resolveSeo(product).title) || product.name || "Producto";
   const breadcrumbs = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -206,7 +204,7 @@ function updateBreadcrumbJsonLd(product, productUrl) {
       {
         "@type": "ListItem",
         position: 3,
-        name: product.name,
+        name: heading,
         item: productUrl,
       },
     ],
@@ -217,25 +215,24 @@ function updateBreadcrumbJsonLd(product, productUrl) {
 
 function updateProductMeta(product, images) {
   if (!product) return { productUrl: resolveAbsoluteUrl(window.location.href) };
+  const { product: enriched, title, description } = resolveSeo(product);
   const fallbackName =
-    typeof product.name === "string" && product.name.trim()
-      ? product.name.trim()
+    typeof enriched.name === "string" && enriched.name.trim()
+      ? enriched.name.trim()
       : "Producto";
-  const title = buildMetaTitle(product);
-  const description = buildMetaDescription(product);
-  const relativeUrl = buildRelativeProductUrl(product);
+  const relativeUrl = buildRelativeProductUrl(enriched);
   const productUrl = resolveAbsoluteUrl(relativeUrl);
   document.title = title;
   setMetaContent("name", "description", description);
-  const tags = Array.isArray(product.tags)
-    ? product.tags
+  const tags = Array.isArray(enriched.tags)
+    ? enriched.tags
         .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
         .filter(Boolean)
     : [];
   if (tags.length) {
     setMetaContent("name", "keywords", tags.join(", "));
   } else {
-    const fallbackKeywords = [fallbackName, product.brand, product.category]
+    const fallbackKeywords = [fallbackName, enriched.brand, enriched.category]
       .filter((item) => typeof item === "string" && item.trim())
       .join(", ");
     if (fallbackKeywords) {
@@ -249,7 +246,7 @@ function updateProductMeta(product, images) {
   setMetaContent("name", "twitter:title", title);
   setMetaContent("name", "twitter:description", description);
   setMetaContent("name", "twitter:url", productUrl);
-  return { title, description, productUrl, relativeUrl, slug: getProductSlug(product) };
+  return { title, description, productUrl, relativeUrl, slug: getProductSlug(enriched) };
 }
 
 function findExistingPreload(url) {
@@ -312,6 +309,7 @@ function updateJsonLd(product, images, productUrl) {
   if (!product) return;
   const head = document.head;
   if (!head) return;
+  const heading = stripBrandSuffix(resolveSeo(product).title) || product.name || "Producto";
   const gallery = Array.isArray(images) ? images : [];
   const absoluteImages = gallery
     .filter(Boolean)
@@ -345,7 +343,7 @@ function updateJsonLd(product, images, productUrl) {
     "@type": "Product",
     "@id": productUrl,
     url: productUrl,
-    name: product.name,
+    name: heading,
     ...(absoluteImages.length ? { image: absoluteImages } : {}),
     ...(description ? { description } : {}),
     ...(skuValue ? { sku: skuValue } : {}),
@@ -768,6 +766,8 @@ function formatPrice(value) {
 
 function renderProduct(product) {
   if (!infoContainer || !galleryContainer) return;
+  const { product: enriched, title: seoTitle } = resolveSeo(product);
+  product = enriched;
   const arrayImages = Array.isArray(product.images)
     ? product.images.filter(Boolean)
     : [];
@@ -802,7 +802,7 @@ function renderProduct(product) {
   summary.className = "product-summary";
 
   const title = document.createElement("h1");
-  title.textContent = product.name;
+  title.textContent = stripBrandSuffix(seoTitle) || product.name || "Producto";
   summary.appendChild(title);
 
   const meta = document.createElement("div");

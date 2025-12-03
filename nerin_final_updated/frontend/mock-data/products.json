@@ -40,7 +40,9 @@
         "Pantalla iPhone 12 vista frontal",
         "Pantalla iPhone 12 detalle de marco",
         "Pantalla iPhone 12 empaquetada"
-      ]
+      ],
+      "seoTitle": "Módulo Pantalla Apple iPhone 12 Original Service Pack LCD-IPH12 | NERIN Parts",
+      "seoDescription": "Módulo pantalla Apple iPhone 12 original Service Pack LCD-IPH12. OLED con marco, listo para instalar. Envíos a todo Argentina, factura A/B y garantía técnica NERIN."
     },
     {
       "id": "2",
@@ -80,7 +82,9 @@
       "images_alt": [
         "Pantalla Samsung S21 encendida",
         "Pantalla Samsung S21 componentes incluidos"
-      ]
+      ],
+      "seoTitle": "Módulo Pantalla Samsung Galaxy S21 Original Service Pack LCD-SAM-S21 | NERIN Parts",
+      "seoDescription": "Módulo pantalla Samsung Galaxy S21 original Service Pack LCD-SAM-S21. AMOLED FHD+ con marco, listo para instalar. Envíos a todo Argentina, factura A/B y garantía técnica NERIN."
     },
     {
       "id": "3",
@@ -120,7 +124,9 @@
       "images_alt": [
         "Batería original iPhone 11",
         "Batería iPhone 11 con kit de instalación"
-      ]
+      ],
+      "seoTitle": "Módulo Pantalla Xiaomi Mi 11 Original Service Pack LCD-XIA-MI11 | NERIN Parts",
+      "seoDescription": "Módulo pantalla Xiaomi Mi 11 original Service Pack LCD-XIA-MI11. AMOLED HDR10+ con marco, listo para instalar. Envíos a todo Argentina, factura A/B y garantía técnica NERIN."
     },
     {
       "id": "4",
@@ -152,7 +158,9 @@
       "meta_title": "Batería iPhone 12",
       "meta_description": "Batería de repuesto para iPhone 12 de 2815 mAh",
       "visibility": "public",
-      "featured": false
+      "featured": false,
+      "seoTitle": "Módulo Pantalla Apple iPhone 12 Original Service Pack BAT-IPH12 | NERIN Parts",
+      "seoDescription": "Módulo pantalla Apple iPhone 12 original Service Pack BAT-IPH12. Con marco, listo para instalar. Envíos a todo Argentina, factura A/B y garantía técnica NERIN."
     },
     {
       "id": "5",
@@ -184,7 +192,9 @@
       "meta_title": "Auricular iPhone 11",
       "meta_description": "Auricular interno de repuesto para iPhone 11",
       "visibility": "public",
-      "featured": false
+      "featured": false,
+      "seoTitle": "Módulo Pantalla Apple iPhone 11 Original Service Pack EAR-IPH11 | NERIN Parts",
+      "seoDescription": "Módulo pantalla Apple iPhone 11 original Service Pack EAR-IPH11. Con marco, listo para instalar. Envíos a todo Argentina, factura A/B y garantía técnica NERIN."
     }
   ]
 }
