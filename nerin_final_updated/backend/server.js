@@ -18,6 +18,11 @@ const crypto = require("crypto");
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const dataDirUtils = require("./utils/dataDir");
 const {
+  applyProductSeo,
+  buildSeoForProduct,
+  stripBrandSuffix,
+} = require("./utils/productSeo");
+const {
   sendEmail,
   sendOrderPreparing,
   sendOrderShipped,
@@ -180,7 +185,8 @@ function normalizeProductImages(product) {
   }
   const hasMeta = Object.keys(meta).length > 0;
   copy.metadata = hasMeta ? meta : undefined;
-  return copy;
+  const { product: withSeo } = applyProductSeo(copy);
+  return withSeo;
 }
 
 function normalizeProductsList(products) {
@@ -793,31 +799,22 @@ function inferColor(product) {
 }
 
 function buildProductSeoTitle(product) {
-  const name = normalizeTextInput(product?.name);
-  const brand = normalizeTextInput(product?.brand);
-  const model = normalizeTextInput(product?.model);
-  const descriptor = name || [brand, model, normalizeTextInput(product?.category)].filter(Boolean).join(" ") || "Repuesto original";
-  return `${truncateText(descriptor, 140)} | NERIN Parts`;
+  const { product: withSeo, generated } = applyProductSeo(product || {});
+  return withSeo.seoTitle || generated.seoTitle || "Repuesto ORIGINAL Service Pack | NERIN Parts";
 }
 
 function buildProductHeading(product) {
   const name = normalizeTextInput(product?.name);
+  const { product: withSeo, generated } = applyProductSeo(product || {});
+  const seoHeading = withSeo.seoTitle || generated.seoTitle;
+  if (seoHeading) return stripBrandSuffix(seoHeading);
   if (name) return name;
-  const title = buildProductSeoTitle(product);
-  return title.replace(/\s*\|\s*NERIN Parts/i, "");
+  return "Producto";
 }
 
 function buildProductMetaDescription(product) {
-  const brand = normalizeTextInput(product?.brand);
-  const model = normalizeTextInput(product?.model);
-  const sku = normalizeTextInput(product?.sku);
-  const name = normalizeTextInput(product?.name) || "Repuesto original";
-  const modelCopy = [brand, model].filter(Boolean).join(" ");
-  const skuCopy = sku ? ` SKU ${sku}.` : "";
-  const raw = `${name} ORIGINAL Service Pack para ${
-    modelCopy || "equipos técnicos"
-  } con stock en Argentina. Pensado para servicios técnicos y mayoristas con entrega rápida.${skuCopy}`;
-  return truncateText(raw, 180);
+  const { product: withSeo, generated } = applyProductSeo(product || {});
+  return withSeo.seoDescription || generated.seoDescription || "Repuestos originales Service Pack con garantía en NERIN Parts.";
 }
 
 function formatArs(value) {

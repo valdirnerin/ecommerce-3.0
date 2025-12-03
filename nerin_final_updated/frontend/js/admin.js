@@ -8,6 +8,7 @@
 
 import { apiFetch, getUserRole, logout } from "./api.js";
 import { renderAnalyticsDashboard } from "./analytics.js";
+import { applySeoDefaults, buildSeoForProduct } from "./seo-helpers.js";
 
 const ADMIN_BUILD_FALLBACK =
   (typeof window !== "undefined" && window.__NERIN_ADMIN_BUILD__) || "dev";
@@ -2516,48 +2517,8 @@ function generateAutoSlug(data = {}) {
   return "";
 }
 
-function generateAutoMetaTitle(data = {}) {
-  const parts = [];
-  const primaryBrand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
-  const primaryModel = cleanLabel(data.catalog_model) || cleanLabel(data.model);
-  const primaryPiece = cleanLabel(data.catalog_piece);
-  if (primaryBrand) parts.push(primaryBrand);
-  if (primaryModel && !parts.includes(primaryModel)) parts.push(primaryModel);
-  if (primaryPiece && !parts.includes(primaryPiece)) parts.push(primaryPiece);
-  if (data.name) parts.push(data.name);
-  if (data.category && !parts.includes(data.category)) parts.push(data.category);
-  parts.push("NERIN");
-  return parts.filter(Boolean).join(" | ");
-}
-
-function generateAutoMetaDescription(data = {}) {
-  const brand = cleanLabel(data.catalog_brand) || cleanLabel(data.brand);
-  const model = cleanLabel(data.catalog_model) || cleanLabel(data.model);
-  const piece = cleanLabel(data.catalog_piece);
-  const baseName =
-    data.name ||
-    [brand, model, piece].filter(Boolean).join(" ").trim() ||
-    brand ||
-    model ||
-    piece ||
-    "este producto";
-  const categoryPart = data.category ? ` en ${data.category}` : "";
-  const minorista = formatCurrencyValue(data.price_minorista);
-  const mayorista = formatCurrencyValue(data.price_mayorista);
-  const priceMinoristaSentence = minorista ? ` Disponible desde ${minorista}.` : "";
-  const priceMayoristaSentence = mayorista
-    ? ` Precio mayorista especial ${mayorista} para cuentas registradas.`
-    : "";
-  const stockSentence =
-    Number.isFinite(data.stock) && data.stock > 0
-      ? ` Stock disponible (${data.stock} unidades${
-          Number.isFinite(data.min_stock) && data.min_stock > 0
-            ? `, mínimo ${data.min_stock}`
-            : ""
-        }).`
-      : " Consultá disponibilidad inmediata o reservá ahora mismo.";
-  const message = `Comprá ${baseName}${categoryPart} en NERIN.${priceMinoristaSentence}${priceMayoristaSentence} ${stockSentence} Envíos a todo el país y asesoramiento experto.`;
-  return message.replace(/\s+/g, " ").trim();
+function resolveAutoSeo(data = {}) {
+  return buildSeoForProduct(data);
 }
 
 function generateAutoTags(data = {}) {
@@ -2717,8 +2678,9 @@ function applyAutoAssist({ force = false } = {}) {
         isApplyingAutoSeo = false;
       }
     }
-    const autoTitle = generateAutoMetaTitle(data);
-    const autoDescription = generateAutoMetaDescription(data);
+    const autoSeo = resolveAutoSeo(data);
+    const autoTitle = autoSeo.seoTitle;
+    const autoDescription = autoSeo.seoDescription;
     if (metaTitleInput) {
       isApplyingAutoSeo = true;
       metaTitleInput.value = autoTitle;
@@ -2763,8 +2725,8 @@ function applyAutoAssist({ force = false } = {}) {
 const nameInput = document.getElementById("productName");
 const slugInput = document.getElementById("productSlug");
 const descriptionInput = document.getElementById("productDescription");
-const metaTitleInput = document.getElementById("productMetaTitle");
-const metaDescInput = document.getElementById("productMetaDesc");
+const metaTitleInput = document.getElementById("productSeoTitle");
+const metaDescInput = document.getElementById("productSeoDesc");
 const seoSlugPreview = document.getElementById("seoSlugPreview");
 const seoTitlePreview = document.getElementById("seoTitlePreview");
 const seoDescPreview = document.getElementById("seoDescPreview");
@@ -2772,15 +2734,27 @@ const seoDescPreview = document.getElementById("seoDescPreview");
 function resolveDescriptionPreview() {
   const meta = metaDescInput?.value?.trim();
   if (meta) return meta;
+  const data = serializeProductForm(productForm);
+  const { generated } = applySeoDefaults(data);
+  if (generated.seoDescription) return generated.seoDescription;
   const desc = descriptionInput?.value?.trim();
   return desc || "";
 }
 
 function renderSeoPreview() {
   if (!seoSlugPreview || !seoTitlePreview || !seoDescPreview) return;
+  const data = serializeProductForm(productForm);
+  const { product: enriched, generated } = applySeoDefaults(data);
+  const previewTitle =
+    metaTitleInput?.value?.trim() || enriched.seoTitle || generated.seoTitle || nameInput.value;
+  const previewDesc =
+    metaDescInput?.value?.trim() ||
+    enriched.seoDescription ||
+    generated.seoDescription ||
+    resolveDescriptionPreview();
   seoSlugPreview.textContent = `/productos/${slugInput.value}`;
-  seoTitlePreview.textContent = metaTitleInput.value || nameInput.value;
-  seoDescPreview.textContent = resolveDescriptionPreview();
+  seoTitlePreview.textContent = previewTitle;
+  seoDescPreview.textContent = previewDesc;
 }
 
 if (nameInput) {
@@ -2873,6 +2847,8 @@ function fillProductForm(p) {
   set("supplier_id", p.supplier_id);
   set("slug", p.slug);
   set("description", p.description);
+  set("seoTitle", p.seoTitle || p.meta_title);
+  set("seoDescription", p.seoDescription || p.meta_description);
   set("meta_title", p.meta_title);
   set("meta_description", p.meta_description);
   set("dimensions", p.dimensions);
@@ -2892,7 +2868,9 @@ function fillProductForm(p) {
     updateTagsPreview();
   }
   if (autoSeoToggle) {
-    const hasCustomSeo = Boolean(p.meta_title) || Boolean(p.meta_description);
+    const hasCustomSeo = Boolean(
+      p.seoTitle || p.seoDescription || p.meta_title || p.meta_description,
+    );
     autoSeoToggle.checked = !hasCustomSeo;
   }
   if (autoTagsToggle) {
@@ -2930,6 +2908,10 @@ function serializeProductForm(form) {
       delete obj[field];
     }
   });
+  obj.seoTitle = obj.seoTitle || "";
+  obj.seoDescription = obj.seoDescription || "";
+  obj.meta_title = obj.meta_title || obj.seoTitle;
+  obj.meta_description = obj.meta_description || obj.seoDescription;
   const images = productImagesState.map((img) => img.url);
   const alts = productImagesState.map((img) => img.alt || "");
   obj.images = images;
