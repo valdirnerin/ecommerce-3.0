@@ -20,6 +20,7 @@ const dataDirUtils = require("./utils/dataDir");
 const {
   applyProductSeo,
   buildSeoForProduct,
+  generateProductSeo,
   stripBrandSuffix,
 } = require("./utils/productSeo");
 const {
@@ -8080,6 +8081,7 @@ async function requestHandler(req, res) {
       return;
     }
     const name = product.name || "";
+    const productSeo = generateProductSeo(product);
     const desc =
       product.meta_description || product.description || `Compra ${name}`;
     const seoConfig = getConfig();
@@ -8115,8 +8117,8 @@ async function requestHandler(req, res) {
     const formattedPrice = Number.isFinite(numericPrice)
       ? numericPrice.toFixed(2)
       : "0.00";
-    const seoTitle = buildProductSeoTitle(product);
-    const description = buildProductMetaDescription(product);
+    const seoTitle = productSeo.title || buildProductSeoTitle(product);
+    const description = productSeo.description || buildProductMetaDescription(product);
     const h1 = buildProductHeading(product);
     const ld = {
       "@context": "https://schema.org",

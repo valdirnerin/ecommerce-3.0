@@ -120,55 +120,192 @@ function inferRefreshRate(product) {
   return null;
 }
 
-function buildModelLabel(product) {
-  const brand = normalizeText(product?.brand || product?.catalog_brand);
-  const model = normalizeText(product?.model || product?.catalog_model);
-  const name = normalizeText(product?.name);
-  const label = [brand, model].filter(Boolean).join(" ");
-  if (label) return label;
-  return name || brand || model || "";
+function pickMetadata(product = {}) {
+  return product && typeof product.metadata === "object" && product.metadata !== null
+    ? product.metadata
+    : {};
 }
 
-export function buildSeoForProduct(product = {}) {
-  const brand = normalizeText(product.brand || product.catalog_brand);
-  const modelLabel = buildModelLabel(product);
-  const modelOnly = normalizeText(product.model || product.catalog_model);
-  const sku = normalizeText(product.sku);
-  const labelForTitle =
-    modelLabel ||
-    [brand, modelOnly].filter(Boolean).join(" ").trim() ||
-    brand ||
-    modelOnly;
-  const brandInLabel = labelForTitle && brand && labelForTitle.toLowerCase().includes(brand.toLowerCase());
-  const includeBrand = brand && !brandInLabel;
-  const titleModel = labelForTitle || sku || brand;
-  const skuCopy = sku ? ` ${sku}` : "";
-  const title = compactText(
-    `Módulo Pantalla${includeBrand ? ` ${brand}` : ""}${titleModel ? ` ${titleModel}` : ""} Original Service Pack${skuCopy} | NERIN Parts`,
+function pickField(product = {}, keys = []) {
+  const meta = pickMetadata(product);
+  for (const key of keys) {
+    if (!key) continue;
+    if (product && Object.prototype.hasOwnProperty.call(product, key)) {
+      const value = product[key];
+      if (value != null && value !== "") return value;
+    }
+    if (meta && Object.prototype.hasOwnProperty.call(meta, key)) {
+      const metaValue = meta[key];
+      if (metaValue != null && metaValue !== "") return metaValue;
+    }
+  }
+  return null;
+}
+
+function normalizeGhCode(value) {
+  if (!value) return "";
+  const text = String(value);
+  const match = text.match(/(gh\s*\d{2}\s*-?\s*\d{4,6}[a-z]?)/i);
+  if (!match || !match[1]) return "";
+  const cleaned = match[1].replace(/\s+/g, "").toUpperCase();
+  if (cleaned.includes("-")) return cleaned;
+  const base = cleaned.startsWith("GH") ? cleaned : `GH${cleaned}`;
+  return `${base.slice(0, 4)}-${base.slice(4)}`;
+}
+
+function extractGhCode(product = {}) {
+  const candidates = [
+    pickField(product, ["gh_code", "ghCode", "gh", "gh82", "gh_model", "catalog_gh", "catalog_gh_code"]),
+    product?.sku,
+    product?.name,
+    product?.description,
+    product?.meta_description,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeGhCode(candidate);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function extractModelCode(product = {}) {
+  const direct = pickField(product, [
+    "model_code",
+    "modelCode",
+    "model_code_full",
+    "full_model_code",
+    "fullModelCode",
+    "catalog_model_code",
+    "catalog_model_ref",
+    "catalog_code",
+    "device_code",
+  ]);
+  const normalizedDirect = normalizeText(direct);
+  if (normalizedDirect) return normalizedDirect;
+
+  const textSources = [product?.sku, product?.name, product?.description];
+  for (const value of textSources) {
+    if (typeof value !== "string") continue;
+    const match = value.match(/\b([A-Z]{1,3}\d{2,4}[A-Z]?)\b/gi);
+    if (match && match.length) {
+      const first = match.find((m) => !/^GH\d{2}/i.test(m));
+      if (first) return first.toUpperCase();
+    }
+  }
+  return "";
+}
+
+function extractModelName(product = {}) {
+  const model = normalizeText(
+    pickField(product, [
+      "model",
+      "model_name",
+      "modelName",
+      "catalog_model",
+      "device_model",
+      "catalog_device",
+    ]),
   );
+  if (model) return model;
+
+  const name = normalizeText(product?.name);
+  const brand = normalizeText(product?.brand || product?.catalog_brand);
+  if (name && brand) {
+    const withoutBrand = name.replace(new RegExp(`^${brand}\\s*`, "i"), "").trim();
+    if (withoutBrand) return withoutBrand;
+  }
+  return name;
+}
+
+function inferLine(product = {}, brand = "") {
+  const line = normalizeText(
+    pickField(product, ["line", "series", "family", "catalog_line", "catalog_series", "catalog_family"]),
+  );
+  if (line) return line;
+  if (brand && brand.toLowerCase() === "samsung") return "Galaxy";
+  return "";
+}
+
+function inferWithFrame(product = {}) {
+  const meta = pickMetadata(product);
+  const flag = pickField(product, ["with_frame", "withFrame", "frame", "has_frame", "marco"]);
+  if (typeof flag === "boolean") return flag;
+  if (flag && typeof flag === "string") {
+    return /true|1|si|sí|con/i.test(flag);
+  }
+  const metaFlag = meta && typeof meta.with_frame === "boolean" ? meta.with_frame : null;
+  if (metaFlag != null) return metaFlag;
+  const textFields = [product?.name, product?.description, product?.short_description, product?.meta_description];
+  return textFields.some((value) => typeof value === "string" && /marco/i.test(value));
+}
+
+function inferServicePack(product = {}) {
+  const flag = pickField(product, ["service_pack", "servicePack", "service_pack_original"]);
+  if (typeof flag === "boolean") return flag;
+  if (flag && typeof flag === "string") return /service\s*pack|sp\b/i.test(flag);
+  const textFields = [product?.name, product?.description, product?.short_description];
+  return textFields.some((value) => typeof value === "string" && /service\s*pack/i.test(value)) || true;
+}
+
+// Generador centralizado de metadatos SEO para un producto.
+// Usa información del modelo, código GH82, código interno y banderas de Service Pack / marco.
+export function generateProductSeo(product = {}) {
+  const brand = normalizeText(product.brand || product.catalog_brand) || "Samsung";
+  const line = inferLine(product, brand);
+  const model = extractModelName(product);
+  const modelCode = extractModelCode(product);
+  const ghCode = extractGhCode(product);
+  const withFrame = inferWithFrame(product);
+  const isServicePack = inferServicePack(product);
+
+  const brandLine = [brand, line].filter(Boolean).join(" ");
+  const modelLabel = [brandLine, model].filter(Boolean).join(" ") || modelCode || product?.sku || brand;
+  const codeCopy = modelCode && (!modelLabel.toLowerCase().includes(modelCode.toLowerCase()) ? modelCode : "");
+  const ghCopy = ghCode ? ghCode : "";
+  const frameCopy = withFrame ? "con marco" : "listo para colocar";
+  const servicePackCopy = isServicePack ? "Service Pack" : "repuesto";
 
   const screenTech = inferDisplayTechnology(product);
   const screenSize = inferScreenSize(product);
   const resolution = inferResolution(product);
   const hz = inferRefreshRate(product);
-  const specs = [
-    [screenTech, screenSize].filter(Boolean).join(" "),
-    [resolution, hz].filter(Boolean).join(" "),
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .trim();
-  const details = specs
-    ? `${specs} con marco, listo para instalar.`
-    : "Con marco, listo para instalar.";
-  const description = compactText(
-    `Módulo pantalla${includeBrand ? ` ${brand}` : ""}${
-      labelForTitle ? ` ${labelForTitle}` : ""
-    } original Service Pack${skuCopy}. ${details || ""} Envíos a todo Argentina, factura A/B y garantía técnica NERIN.`,
+  const extraSpecs = [screenTech, screenSize, resolution, hz].filter(Boolean).join(" · ");
+
+  const title = compactText(
+    `Módulo Pantalla ${modelLabel}${codeCopy ? ` ${codeCopy}` : ""} Original ${servicePackCopy}${
+      ghCopy ? ` ${ghCopy}` : ""
+    } | NERIN Parts`,
   );
+
+  const descriptionParts = [];
+  descriptionParts.push(
+    `Módulo pantalla original ${brandLine ? `${brandLine} ` : ""}${model || codeCopy || ""}${
+      codeCopy && model ? ` ${codeCopy}` : codeCopy && !model ? codeCopy : ""
+    }${ghCopy ? ` ${ghCopy}` : ""}.`,
+  );
+  descriptionParts.push(
+    `${servicePackCopy} ${withFrame ? "con marco" : "sin marco"}, ${frameCopy}. ${
+      extraSpecs ? `${extraSpecs}. ` : ""
+    }Stock en Argentina, envío rápido y garantía para servicio técnico.`,
+  );
+
+  const description = compactText(descriptionParts.join(" "));
+
   return {
-    seoTitle: truncateText(title || "Módulo Pantalla original Service Pack | NERIN Parts", 160),
-    seoDescription: truncateText(description, 200),
+    title: truncateText(title || "Módulo Pantalla original Service Pack | NERIN Parts", 160),
+    description: truncateText(description, 200),
+    ogTitle: title,
+    ogDescription: description,
+  };
+}
+
+export function buildSeoForProduct(product = {}) {
+  const generated = generateProductSeo(product);
+  return {
+    seoTitle: generated.title,
+    seoDescription: generated.description,
+    ogTitle: generated.ogTitle || generated.title,
+    ogDescription: generated.ogDescription || generated.description,
   };
 }
 
