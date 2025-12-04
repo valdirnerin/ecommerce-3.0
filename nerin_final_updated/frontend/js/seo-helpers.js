@@ -255,41 +255,25 @@ export function generateProductSeo(product = {}) {
   const model = extractModelName(product);
   const modelCode = extractModelCode(product);
   const ghCode = extractGhCode(product);
-  const withFrame = inferWithFrame(product);
-  const isServicePack = inferServicePack(product);
-
-  const brandLine = [brand, line].filter(Boolean).join(" ");
-  const modelLabel = [brandLine, model].filter(Boolean).join(" ") || modelCode || product?.sku || brand;
-  const codeCopy = modelCode && (!modelLabel.toLowerCase().includes(modelCode.toLowerCase()) ? modelCode : "");
+  const brandLine = compactText([brand, line].filter(Boolean).join(" ")) || brand;
+  const modelLabel = compactText(model || modelCode || product?.sku || brandLine);
+  const codeCopy =
+    modelCode && (!modelLabel.toLowerCase().includes(modelCode.toLowerCase()) ? modelCode : "");
   const ghCopy = ghCode ? ghCode : "";
-  const frameCopy = withFrame ? "con marco" : "listo para colocar";
-  const servicePackCopy = isServicePack ? "Service Pack" : "repuesto";
 
-  const screenTech = inferDisplayTechnology(product);
-  const screenSize = inferScreenSize(product);
-  const resolution = inferResolution(product);
-  const hz = inferRefreshRate(product);
-  const extraSpecs = [screenTech, screenSize, resolution, hz].filter(Boolean).join(" · ");
+  const modelSegment = compactText([brandLine, modelLabel].filter(Boolean).join(" ")) || brandLine;
 
   const title = compactText(
-    `Módulo Pantalla ${modelLabel}${codeCopy ? ` ${codeCopy}` : ""} Original ${servicePackCopy}${
+    `Módulo Pantalla ${modelSegment}${codeCopy ? ` ${codeCopy}` : ""} Original Service Pack${
       ghCopy ? ` ${ghCopy}` : ""
     } | NERIN Parts`,
   );
 
-  const descriptionParts = [];
-  descriptionParts.push(
-    `Módulo pantalla original ${brandLine ? `${brandLine} ` : ""}${model || codeCopy || ""}${
-      codeCopy && model ? ` ${codeCopy}` : codeCopy && !model ? codeCopy : ""
-    }${ghCopy ? ` ${ghCopy}` : ""}.`,
+  const description = compactText(
+    `Módulo pantalla original ${modelSegment}${codeCopy ? ` ${codeCopy}` : ""}${
+      ghCopy ? ` ${ghCopy}` : ""
+    }. Service Pack listo para montar. Stock en Argentina, envío rápido y garantía para servicio técnico.`,
   );
-  descriptionParts.push(
-    `${servicePackCopy} ${withFrame ? "con marco" : "sin marco"}, ${frameCopy}. ${
-      extraSpecs ? `${extraSpecs}. ` : ""
-    }Stock en Argentina, envío rápido y garantía para servicio técnico.`,
-  );
-
-  const description = compactText(descriptionParts.join(" "));
 
   return {
     title: truncateText(title || "Módulo Pantalla original Service Pack | NERIN Parts", 160),
