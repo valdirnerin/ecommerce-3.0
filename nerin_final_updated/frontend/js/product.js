@@ -937,72 +937,120 @@ function renderProduct(product) {
   let stockCopy = "";
   if (typeof product.stock === "number") {
     const stockValue = Number(product.stock || 0);
-    const stockBadge = document.createElement("span");
-    stockBadge.className = "product-stock-badge";
     if (stockValue <= 0) {
-      stockBadge.classList.add("product-stock-badge--out");
       stockCopy = "Sin stock";
     } else if (stockValue <= 5) {
-      stockBadge.classList.add("product-stock-badge--low");
       stockCopy = `Stock crítico: ${stockValue} u.`;
     } else {
-      stockBadge.classList.add("product-stock-badge--in");
       stockCopy = `${stockValue} unidades disponibles`;
     }
-    stockBadge.textContent = stockCopy;
-    summary.appendChild(stockBadge);
   }
 
   summary.appendChild(meta);
   buyPanel.appendChild(summary);
 
-  const priceBlock = document.createElement("div");
-  priceBlock.className = "product-price-stack";
+  const purchaseCard = document.createElement("section");
+  purchaseCard.className = "product-purchase-card";
 
-  const minorLine = document.createElement("div");
-  minorLine.className = "product-price-line";
-  minorLine.innerHTML = `<span>Precio minorista</span><strong>${formatPrice(
-    product.price_minorista,
-  )}</strong>`;
+  const purchaseHeader = document.createElement("div");
+  purchaseHeader.className = "product-purchase-card__header";
 
-  const majorLine = document.createElement("div");
-  majorLine.className = "product-price-line";
-  majorLine.innerHTML = `<span>Precio mayorista desde</span><strong>${formatPrice(
-    product.price_mayorista,
-  )}</strong>`;
+  const purchaseTitle = document.createElement("div");
+  purchaseTitle.className = "product-purchase-card__title";
+  purchaseTitle.innerHTML = "<span>Resumen de compra</span>";
+  purchaseHeader.appendChild(purchaseTitle);
 
-  priceBlock.append(minorLine, majorLine);
-  buyPanel.appendChild(priceBlock);
+  if (stockCopy) {
+    const stockBadge = document.createElement("span");
+    stockBadge.className = "product-stock-badge";
+    const stockValue = Number(product.stock || 0);
+    if (stockValue <= 0) {
+      stockBadge.classList.add("product-stock-badge--out");
+    } else if (stockValue <= 5) {
+      stockBadge.classList.add("product-stock-badge--low");
+    } else {
+      stockBadge.classList.add("product-stock-badge--in");
+    }
+    stockBadge.textContent = stockCopy;
+    purchaseHeader.appendChild(stockBadge);
+  }
 
-  const wholesaleNote = document.createElement("p");
-  wholesaleNote.className = "product-wholesale-note";
-  wholesaleNote.textContent =
-    "En mayorista arrancás a este precio y el sistema baja el valor por unidad automáticamente a medida que subís cantidades.";
-  buyPanel.appendChild(wholesaleNote);
+  purchaseCard.appendChild(purchaseHeader);
 
-  const tierList = document.createElement("ul");
-  tierList.className = "product-wholesale-tiers";
-  [
-    { range: "1–4 u", discount: "Precio base" },
-    { range: "5–9 u", discount: "–5%" },
-    { range: "10–19 u", discount: "–10%" },
-    { range: "20+ u", discount: "–15%" },
-  ].forEach((tier) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${tier.range}</span><strong>${tier.discount}</strong>`;
-    tierList.appendChild(li);
-  });
-  buyPanel.appendChild(tierList);
+  const priceGrid = document.createElement("div");
+  priceGrid.className = "product-buy-price-grid";
+
+  const retailTier = document.createElement("article");
+  retailTier.className = "price-tier price-tier--retail product-price-emphasis";
+  retailTier.dataset.active = "true";
+  retailTier.innerHTML = `
+    <span class="price-tier__label">MINORISTA</span>
+    <strong class="price-tier__value">${formatPrice(product.price_minorista)}</strong>
+    <span class="price-tier__note">Precio final minorista · IVA incluido</span>
+  `;
+  priceGrid.appendChild(retailTier);
+
+  const wholesaleTier = document.createElement("article");
+  wholesaleTier.className = "price-tier price-tier--wholesale product-price-emphasis";
+
+  if (isWholesale()) {
+    wholesaleTier.dataset.active = "true";
+    wholesaleTier.innerHTML = `
+      <span class="price-tier__label">MAYORISTA</span>
+      <strong class="price-tier__value">${formatPrice(product.price_mayorista)}</strong>
+      <span class="price-tier__note">Desde este valor. Descuentos automáticos por cantidad.</span>
+    `;
+  } else {
+    wholesaleTier.dataset.locked = "true";
+    wholesaleTier.innerHTML = `
+      <span class="price-tier__label">MAYORISTA</span>
+      <strong class="price-tier__value">Ingresá para ver</strong>
+      <span class="price-tier__note">Precios exclusivos para técnicos y comercios</span>
+    `;
+    const wholesaleCta = document.createElement("a");
+    wholesaleCta.href = "/login.html";
+    wholesaleCta.className = "wholesale-login-link";
+    wholesaleCta.textContent = "Ingresar a portal mayorista";
+    wholesaleTier.appendChild(wholesaleCta);
+  }
+
+  priceGrid.appendChild(wholesaleTier);
+  purchaseCard.appendChild(priceGrid);
+
+  if (isWholesale()) {
+    const wholesaleNote = document.createElement("p");
+    wholesaleNote.className = "product-wholesale-note";
+    wholesaleNote.textContent =
+      "El precio mayorista mejora automáticamente según la cantidad seleccionada.";
+    purchaseCard.appendChild(wholesaleNote);
+
+    const tierList = document.createElement("ul");
+    tierList.className = "product-wholesale-tiers product-wholesale-tiers--card";
+    [
+      { range: "1–4 u", discount: "Precio base" },
+      { range: "5–9 u", discount: "–5%" },
+      { range: "10–19 u", discount: "–10%" },
+      { range: "20+ u", discount: "–15%" },
+    ].forEach((tier) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span>${tier.range}</span><strong>${tier.discount}</strong>`;
+      tierList.appendChild(li);
+    });
+    purchaseCard.appendChild(tierList);
+  }
 
   if (stockCopy) {
     const stockInfo = document.createElement("p");
     stockInfo.className = "product-stock-info";
     stockInfo.textContent = stockCopy;
-    buyPanel.appendChild(stockInfo);
+    purchaseCard.appendChild(stockInfo);
   }
 
   const qtyControl = createQuantityControl(product);
-  buyPanel.appendChild(qtyControl.wrapper);
+  const qtyWrapper = document.createElement("div");
+  qtyWrapper.className = "product-buy-qty";
+  qtyWrapper.appendChild(qtyControl.wrapper);
+  purchaseCard.appendChild(qtyWrapper);
 
   const addBtn = document.createElement("button");
   addBtn.type = "button";
@@ -1010,6 +1058,10 @@ function renderProduct(product) {
 
   const priceLabel = document.createElement("p");
   priceLabel.className = "product-detail-unit-price";
+
+  const billingNote = document.createElement("p");
+  billingNote.className = "product-price-footnote";
+  billingNote.textContent = "Precio final minorista · Incluye IVA · Factura A/B";
 
   const handleAddToCart = () => {
     const qty = qtyControl.getValue();
@@ -1054,8 +1106,6 @@ function renderProduct(product) {
 
   addBtn.addEventListener("click", handleAddToCart);
 
-  buyPanel.append(addBtn, priceLabel);
-
   const assuranceList = document.createElement("ul");
   assuranceList.className = "product-buy-assurance";
   [
@@ -1069,7 +1119,10 @@ function renderProduct(product) {
     li.textContent = item;
     assuranceList.appendChild(li);
   });
-  buyPanel.appendChild(assuranceList);
+
+  purchaseCard.append(addBtn, priceLabel, billingNote, assuranceList);
+
+  buyPanel.appendChild(purchaseCard);
 
   layout.appendChild(buyPanel);
   infoContainer.appendChild(layout);
@@ -1145,13 +1198,17 @@ function renderProduct(product) {
 
   const updatePriceLabels = () => {
     const qty = qtyControl.getValue();
-    const unitPrice = isWholesale()
+    const wholesaleUser = isWholesale();
+    const unitPrice = wholesaleUser
       ? getWholesaleUnitPrice(product, qty)
       : product.price_minorista;
-    priceLabel.textContent = isWholesale()
-      ? `Precio c/u con descuento dinámico: ${formatPrice(unitPrice)} (x${qty})`
-      : `Precio por unidad: ${formatPrice(unitPrice)} (x${qty})`;
-    stickyPrice.textContent = `${formatPrice(unitPrice)} • x${qty}`;
+    const unitLabel = wholesaleUser
+      ? "Precio mayorista por unidad"
+      : "Precio minorista por unidad";
+    priceLabel.textContent = `${unitLabel}: ${formatPrice(unitPrice)} · x${qty}`;
+    stickyPrice.textContent = `${wholesaleUser ? "Mayorista" : "Minorista"} ${formatPrice(
+      unitPrice,
+    )} • x${qty}`;
   };
 
   const setCtaLabels = () => {
