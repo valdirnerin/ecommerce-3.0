@@ -16,6 +16,7 @@ const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
 const { createProxyMiddleware } = require("http-proxy-middleware");
+const previewProductMock = require("./config/previewProductMock");
 const dataDirUtils = require("./utils/dataDir");
 const {
   applyProductSeo,
@@ -57,6 +58,8 @@ try {
     console.warn("build-info.json no disponible", err?.message || err);
   }
 }
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 const BUILD_ID =
   process.env.BUILD_ID ||
@@ -4164,6 +4167,14 @@ async function requestHandler(req, res) {
     return;
   }
 
+  if (
+    !IS_PRODUCTION &&
+    pathname === "/api/dev/preview-product" &&
+    req.method === "GET"
+  ) {
+    return sendJson(res, 200, normalizeProductImages(previewProductMock));
+  }
+
   // API: obtener productos
   if (pathname === "/api/products" && req.method === "GET") {
     try {
@@ -7914,6 +7925,12 @@ async function requestHandler(req, res) {
   }
   if (pathname === "/pending") {
     return serveStatic(path.join(__dirname, "../frontend/pending.html"), res, {
+      "Cache-Control": "no-store",
+    });
+  }
+
+  if (!IS_PRODUCTION && pathname === "/dev/product-preview") {
+    return serveStatic(path.join(__dirname, "../frontend/product.html"), res, {
       "Cache-Control": "no-store",
     });
   }
