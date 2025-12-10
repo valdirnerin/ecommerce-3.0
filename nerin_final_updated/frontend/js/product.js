@@ -764,6 +764,84 @@ function formatPrice(value) {
   return `$${priceFormatter.format(Number(value || 0))}`;
 }
 
+function getWholesaleUnitPrice(product, quantity) {
+  let discount = 0;
+  if (quantity >= 20) discount = 0.15;
+  else if (quantity >= 10) discount = 0.1;
+  else if (quantity >= 5) discount = 0.05;
+  return Math.round(Number(product.price_mayorista || 0) * (1 - discount));
+}
+
+function createQuantityControl(product) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "product-qty-control";
+
+  const label = document.createElement("p");
+  label.className = "product-qty-label";
+  label.textContent = "Seleccioná cantidad";
+  wrapper.appendChild(label);
+
+  const controls = document.createElement("div");
+  controls.className = "product-qty-input";
+
+  const minus = document.createElement("button");
+  minus.type = "button";
+  minus.className = "product-qty-btn";
+  minus.setAttribute("aria-label", "Disminuir cantidad");
+  minus.textContent = "–";
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = 1;
+  input.max = product.stock || 1;
+  input.value = 1;
+
+  const plus = document.createElement("button");
+  plus.type = "button";
+  plus.className = "product-qty-btn";
+  plus.setAttribute("aria-label", "Aumentar cantidad");
+  plus.textContent = "+";
+
+  const clampValue = (value) => {
+    const max = product.stock || 1;
+    const numeric = Number(value) || 1;
+    if (numeric < 1) return 1;
+    if (numeric > max) return max;
+    return numeric;
+  };
+
+  const syncValue = (value) => {
+    input.value = clampValue(value);
+    return Number(input.value);
+  };
+
+  minus.addEventListener("click", () => {
+    syncValue(Number(input.value) - 1);
+  });
+
+  plus.addEventListener("click", () => {
+    syncValue(Number(input.value) + 1);
+  });
+
+  input.addEventListener("input", () => {
+    syncValue(input.value);
+  });
+
+  controls.append(minus, input, plus);
+  wrapper.appendChild(controls);
+
+  return {
+    wrapper,
+    input,
+    getValue: () => clampValue(input.value),
+    onChange: (cb) => {
+      input.addEventListener("input", cb);
+      minus.addEventListener("click", cb);
+      plus.addEventListener("click", cb);
+    },
+  };
+}
+
 function renderProduct(product) {
   if (!infoContainer || !galleryContainer) return;
   const { product: enriched, title: seoTitle } = resolveSeo(product);
@@ -796,10 +874,30 @@ function renderProduct(product) {
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
 
+  if (detailSection) {
+    detailSection
+      .querySelectorAll(".product-body, .product-sticky-cta")
+      .forEach((node) => node.remove());
+  }
+
   infoContainer.innerHTML = "";
 
+  const layout = document.createElement("div");
+  layout.className = "product-layout";
+
+  const buyPanel = document.createElement("aside");
+  buyPanel.className = "product-buy-panel";
+
+  if (product.esPreview) {
+    const previewBanner = document.createElement("div");
+    previewBanner.className = "product-preview-banner";
+    previewBanner.textContent =
+      "⚠ Estás viendo un PRODUCTO DE PRUEBA (solo preview de diseño, no se vende).";
+    buyPanel.appendChild(previewBanner);
+  }
+
   const summary = document.createElement("header");
-  summary.className = "product-summary";
+  summary.className = "product-summary product-buy-header";
 
   const title = document.createElement("h1");
   title.textContent = stripBrandSuffix(seoTitle) || product.name || "Producto";
@@ -822,6 +920,13 @@ function renderProduct(product) {
     meta.appendChild(sku);
   }
 
+  if (product.model) {
+    const model = document.createElement("span");
+    model.className = "product-meta__item";
+    model.innerHTML = `<strong>Modelo:</strong> ${product.model}`;
+    meta.appendChild(model);
+  }
+
   if (product.category) {
     const category = document.createElement("span");
     category.className = "product-meta__item";
@@ -829,265 +934,256 @@ function renderProduct(product) {
     meta.appendChild(category);
   }
 
-  if (meta.children.length) {
-    summary.appendChild(meta);
-  }
-
   let stockCopy = "";
-  let stockStatus = "default";
   if (typeof product.stock === "number") {
-    if (product.stock <= 0) {
-      stockCopy = "Sin stock disponible";
-      stockStatus = "out";
-    } else if (
-      product.min_stock != null &&
-      product.stock < product.min_stock
-    ) {
-      stockCopy = `Poco stock • ${product.stock} u.`;
-      stockStatus = "low";
-    } else {
-      stockCopy = `Stock disponible • ${product.stock} u.`;
-      stockStatus = "in";
-    }
-  }
-
-  if (stockCopy) {
+    const stockValue = Number(product.stock || 0);
     const stockBadge = document.createElement("span");
-    stockBadge.className = `product-stock-badge product-stock-badge--${stockStatus}`;
+    stockBadge.className = "product-stock-badge";
+    if (stockValue <= 0) {
+      stockBadge.classList.add("product-stock-badge--out");
+      stockCopy = "Sin stock";
+    } else if (stockValue <= 5) {
+      stockBadge.classList.add("product-stock-badge--low");
+      stockCopy = `Stock crítico: ${stockValue} u.`;
+    } else {
+      stockBadge.classList.add("product-stock-badge--in");
+      stockCopy = `${stockValue} unidades disponibles`;
+    }
     stockBadge.textContent = stockCopy;
     summary.appendChild(stockBadge);
   }
 
-  infoContainer.appendChild(summary);
+  summary.appendChild(meta);
+  buyPanel.appendChild(summary);
 
-  const panels = document.createElement("div");
-  panels.className = "product-info-panels";
+  const priceBlock = document.createElement("div");
+  priceBlock.className = "product-price-stack";
+
+  const minorLine = document.createElement("div");
+  minorLine.className = "product-price-line";
+  minorLine.innerHTML = `<span>Precio minorista</span><strong>${formatPrice(
+    product.price_minorista,
+  )}</strong>`;
+
+  const majorLine = document.createElement("div");
+  majorLine.className = "product-price-line";
+  majorLine.innerHTML = `<span>Precio mayorista desde</span><strong>${formatPrice(
+    product.price_mayorista,
+  )}</strong>`;
+
+  priceBlock.append(minorLine, majorLine);
+  buyPanel.appendChild(priceBlock);
+
+  const wholesaleNote = document.createElement("p");
+  wholesaleNote.className = "product-wholesale-note";
+  wholesaleNote.textContent =
+    "En mayorista arrancás a este precio y el sistema baja el valor por unidad automáticamente a medida que subís cantidades.";
+  buyPanel.appendChild(wholesaleNote);
+
+  const tierList = document.createElement("ul");
+  tierList.className = "product-wholesale-tiers";
+  [
+    { range: "1–4 u", discount: "Precio base" },
+    { range: "5–9 u", discount: "–5%" },
+    { range: "10–19 u", discount: "–10%" },
+    { range: "20+ u", discount: "–15%" },
+  ].forEach((tier) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>${tier.range}</span><strong>${tier.discount}</strong>`;
+    tierList.appendChild(li);
+  });
+  buyPanel.appendChild(tierList);
+
+  if (stockCopy) {
+    const stockInfo = document.createElement("p");
+    stockInfo.className = "product-stock-info";
+    stockInfo.textContent = stockCopy;
+    buyPanel.appendChild(stockInfo);
+  }
+
+  const qtyControl = createQuantityControl(product);
+  buyPanel.appendChild(qtyControl.wrapper);
+
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "button primary product-buy-main-cta";
+
+  const priceLabel = document.createElement("p");
+  priceLabel.className = "product-detail-unit-price";
+
+  const handleAddToCart = () => {
+    const qty = qtyControl.getValue();
+    if (qty > (product.stock || 0)) {
+      alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
+      return;
+    }
+    const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+    const existing = cart.find((item) => item.id === product.id);
+    const available = product.stock;
+    if (existing) {
+      if (existing.quantity + qty > available) {
+        alert(
+          `Ya tienes ${existing.quantity} unidades en el carrito. Disponibles: ${available}`,
+        );
+        return;
+      }
+      existing.quantity += qty;
+    } else {
+      cart.push({
+        id: product.id,
+        name: product.name,
+        price: isWholesale()
+          ? product.price_mayorista
+          : product.price_minorista,
+        quantity: qty,
+        image: cartImage,
+      });
+    }
+    localStorage.setItem("nerinCart", JSON.stringify(cart));
+    if (window.updateNav) window.updateNav();
+    if (window.showCartIndicator) {
+      window.showCartIndicator();
+    } else if (window.showToast) {
+      window.showToast("✅ Producto agregado al carrito");
+    }
+    addBtn.textContent = "Añadido";
+    setTimeout(() => {
+      setCtaLabels();
+    }, 1500);
+  };
+
+  addBtn.addEventListener("click", handleAddToCart);
+
+  buyPanel.append(addBtn, priceLabel);
+
+  const assuranceList = document.createElement("ul");
+  assuranceList.className = "product-buy-assurance";
+  [
+    "Service Pack original Samsung (GH82-XXXXXX)",
+    "Factura A/B para estudios, cadenas y laboratorios",
+    "Envíos a todo el país",
+    "Garantía técnica por defectos de fábrica",
+    "Soporte técnico real por WhatsApp antes y después de la compra",
+  ].forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    assuranceList.appendChild(li);
+  });
+  buyPanel.appendChild(assuranceList);
+
+  layout.appendChild(buyPanel);
+  infoContainer.appendChild(layout);
 
   const detailsPanel = document.createElement("section");
-  detailsPanel.className = "product-details-panel";
-  detailsPanel.setAttribute("aria-label", "Descripción del producto");
+  detailsPanel.className = "product-body";
+  detailsPanel.setAttribute("aria-label", "Descripción y detalles del producto");
 
+  const detailsCard = document.createElement("article");
+  detailsCard.className = "product-body__card";
   const detailsHeading = document.createElement("h2");
   detailsHeading.textContent = "Descripción y detalles";
-  detailsPanel.appendChild(detailsHeading);
-
   const descriptionText =
     getProductDescription(product) || "Descripción no disponible por el momento.";
   const desc = document.createElement("p");
   desc.className = "product-detail-desc";
   desc.textContent = descriptionText;
-  detailsPanel.appendChild(desc);
+  detailsCard.append(detailsHeading, desc);
+  detailsPanel.appendChild(detailsCard);
 
   const attrs = buildAttributes(product);
   if (attrs.children.length) {
-    const specsCard = document.createElement("div");
-    specsCard.className = "product-specs-card";
+    const specsCard = document.createElement("article");
+    specsCard.className = "product-body__card product-specs-card";
     const specsHeading = document.createElement("h3");
     specsHeading.textContent = "Especificaciones técnicas";
     specsCard.append(specsHeading, attrs);
     detailsPanel.appendChild(specsCard);
   }
 
-  const trustList = document.createElement("ul");
-  trustList.className = "product-trust";
-  [
-    {
-      title: "Asesoría especializada",
-      description: "Equipo enfocado en repuestos originales y OEM.",
-    },
-    {
-      title: "Logística a todo el país",
-      description: "Despachamos en 24h y seguimiento en línea.",
-    },
-    {
-      title: "Garantía oficial",
-      description: "Todos los productos cuentan con cobertura real.",
-    },
-  ].forEach((item) => {
-    const li = document.createElement("li");
-    li.innerHTML = `<strong>${item.title}</strong><span>${item.description}</span>`;
-    trustList.appendChild(li);
-  });
-  detailsPanel.appendChild(trustList);
-
-  panels.appendChild(detailsPanel);
-
-  const pricingPanel = document.createElement("aside");
-  pricingPanel.className = "product-pricing-panel";
-  pricingPanel.setAttribute("aria-label", "Acciones de compra");
-
-  const pricingHeading = document.createElement("h2");
-  pricingHeading.textContent = "Comprar este repuesto";
-  pricingPanel.appendChild(pricingHeading);
-
-  if (stockCopy) {
-    const stockInfo = document.createElement("p");
-    stockInfo.className = "product-stock-info";
-    stockInfo.textContent = stockCopy;
-    pricingPanel.appendChild(stockInfo);
-  }
-
-  const priceBlock = document.createElement("div");
-  priceBlock.className = "product-detail-price";
-  const minor = document.createElement("p");
-  minor.innerHTML = `<span>Precio minorista</span><strong>${formatPrice(
-    product.price_minorista,
-  )}</strong>`;
-  priceBlock.appendChild(minor);
-  if (isWholesale()) {
-    const major = document.createElement("p");
-    major.innerHTML = `<span>Precio mayorista</span><strong>${formatPrice(
-      product.price_mayorista,
-    )}</strong>`;
-    priceBlock.appendChild(major);
-  }
-  pricingPanel.appendChild(priceBlock);
-
-  if (typeof product.stock === "number" && product.stock > 0) {
-    const buyDiv = document.createElement("div");
-    buyDiv.className = "product-detail-buy";
-    const primaryPrice = isWholesale()
-      ? product.price_mayorista
-      : product.price_minorista;
-
-    if (isWholesale()) {
-      const qtyInput = document.createElement("input");
-      qtyInput.type = "number";
-      qtyInput.min = 1;
-      qtyInput.value = 1;
-      qtyInput.max = product.stock;
-      const priceLabel = document.createElement("span");
-      priceLabel.className = "product-detail-unit-price";
-      const updatePrice = () => {
-        let qty = parseInt(qtyInput.value, 10) || 1;
-        if (qty > product.stock) qty = product.stock;
-        if (qty < 1) qty = 1;
-        qtyInput.value = qty;
-        let discount = 0;
-        if (qty >= 20) discount = 0.15;
-        else if (qty >= 10) discount = 0.1;
-        else if (qty >= 5) discount = 0.05;
-        const unit = Math.round(product.price_mayorista * (1 - discount));
-        priceLabel.textContent = `Precio c/u: ${formatPrice(unit)} (x${qty})`;
-      };
-      qtyInput.addEventListener("input", updatePrice);
-      updatePrice();
-      const addBtn = document.createElement("button");
-      addBtn.className = "button primary";
-      addBtn.textContent = "Agregar al carrito";
-      addBtn.addEventListener("click", () => {
-        const qty = parseInt(qtyInput.value, 10) || 1;
-        if (qty > product.stock) {
-          alert(`No hay stock suficiente. Disponibles: ${product.stock}`);
-          qtyInput.value = product.stock;
-          return;
-        }
-        const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
-        const existing = cart.find((item) => item.id === product.id);
-        if (existing) {
-          if (existing.quantity + qty > product.stock) {
-            alert(
-              `Ya tienes ${existing.quantity} unidades en el carrito. Disponibles: ${product.stock}`,
-            );
-            return;
-          }
-          existing.quantity += qty;
-        } else {
-          cart.push({
-            id: product.id,
-            name: product.name,
-            price: product.price_mayorista,
-            quantity: qty,
-            image: cartImage,
-          });
-        }
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
-        if (window.updateNav) window.updateNav();
-        if (window.showCartIndicator) {
-          window.showCartIndicator();
-        } else if (window.showToast) {
-          window.showToast("✅ Producto agregado al carrito");
-        }
-        addBtn.textContent = "Añadido";
-        setTimeout(() => {
-          addBtn.textContent = "Agregar al carrito";
-        }, 2000);
-      });
-      buyDiv.append(qtyInput, addBtn, priceLabel);
-    } else {
-      const addBtn = document.createElement("button");
-      addBtn.className = "button primary";
-      addBtn.textContent = "Agregar al carrito";
-      addBtn.addEventListener("click", () => {
-        const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
-        const existing = cart.find((item) => item.id === product.id);
-        const available = product.stock;
-        if (existing) {
-          if (existing.quantity + 1 > available) {
-            alert(
-              `Ya tienes ${existing.quantity} unidades en el carrito. Disponibles: ${available}`,
-            );
-            return;
-          }
-          existing.quantity += 1;
-        } else {
-          cart.push({
-            id: product.id,
-            name: product.name,
-            price: primaryPrice,
-            quantity: 1,
-            image: cartImage,
-          });
-        }
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
-        if (window.updateNav) window.updateNav();
-        if (window.showCartIndicator) {
-          window.showCartIndicator();
-        } else if (window.showToast) {
-          window.showToast("✅ Producto agregado al carrito");
-        }
-        addBtn.textContent = "Añadido";
-        setTimeout(() => {
-          addBtn.textContent = "Agregar al carrito";
-        }, 2000);
-      });
-      buyDiv.appendChild(addBtn);
-    }
-
-    const ctaSticky = document.createElement("div");
-    ctaSticky.className = "cta-sticky";
-    ctaSticky.appendChild(buyDiv);
-    pricingPanel.appendChild(ctaSticky);
-  }
-
   const perks = document.createElement("ul");
-  perks.className = "product-perks";
+  perks.className = "product-trust-block";
   [
     {
       title: "Retiro en sucursal",
-      detail: "Coordiná tu visita y retiralo sin costo en San Telmo.",
+      detail: "Coordina y retiralo sin costo en San Telmo.",
     },
     {
       title: "Pagá como quieras",
       detail: "Transferencia, tarjetas o Mercado Pago con cuotas.",
     },
     {
-      title: "Soporte posventa",
-      detail: "Acompañamiento técnico para la instalación.",
+      title: "Despacho 24h",
+      detail: "Envíos a todo el país con seguimiento en línea.",
+    },
+    {
+      title: "Garantía técnica",
+      detail: "Cobertura real por defecto de fábrica.",
     },
   ].forEach((item) => {
     const li = document.createElement("li");
     li.innerHTML = `<strong>${item.title}</strong><span>${item.detail}</span>`;
     perks.appendChild(li);
   });
-  pricingPanel.appendChild(perks);
+  detailsPanel.appendChild(perks);
 
-  panels.appendChild(pricingPanel);
-  infoContainer.appendChild(panels);
+  if (detailSection) {
+    detailSection.appendChild(detailsPanel);
+  }
+
+  const stickyCta = document.createElement("div");
+  stickyCta.className = "product-sticky-cta";
+  const stickyPrice = document.createElement("span");
+  stickyPrice.className = "product-sticky-price";
+  const stickyBtn = document.createElement("button");
+  stickyBtn.type = "button";
+  stickyBtn.className = "button primary product-buy-main-cta";
+  stickyBtn.addEventListener("click", handleAddToCart);
+  stickyCta.append(stickyPrice, stickyBtn);
+  if (detailSection) {
+    detailSection.appendChild(stickyCta);
+  }
+
+  const updatePriceLabels = () => {
+    const qty = qtyControl.getValue();
+    const unitPrice = isWholesale()
+      ? getWholesaleUnitPrice(product, qty)
+      : product.price_minorista;
+    priceLabel.textContent = isWholesale()
+      ? `Precio c/u con descuento dinámico: ${formatPrice(unitPrice)} (x${qty})`
+      : `Precio por unidad: ${formatPrice(unitPrice)} (x${qty})`;
+    stickyPrice.textContent = `${formatPrice(unitPrice)} • x${qty}`;
+  };
+
+  const setCtaLabels = () => {
+    const isMobile = window.matchMedia("(max-width: 768px)").matches;
+    const label = isMobile ? "COMPRAR MÓDULO AHORA" : "COMPRAR AHORA";
+    addBtn.textContent = label;
+    stickyBtn.textContent = label;
+  };
+
+  qtyControl.onChange(() => {
+    updatePriceLabels();
+  });
+
+  updatePriceLabels();
+  setCtaLabels();
+  window.matchMedia("(max-width: 768px)").addEventListener("change", setCtaLabels);
+}
+
+async function fetchPreviewProduct() {
+  try {
+    const res = await fetch("/api/dev/preview-product", { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (err) {
+    console.warn("preview-product", err);
+    return null;
+  }
 }
 
 async function initProduct() {
   if (!detailSection) return;
+  const previewMode = window.location.pathname.startsWith("/dev/product-preview");
   const params = new URLSearchParams(window.location.search);
   const id = params.get("id");
   const rawSlugParam = params.get("slug");
@@ -1097,12 +1193,20 @@ async function initProduct() {
       : null;
   const pathSlug = extractSlugFromPath();
   const targetSlug = pathSlug || slugParam;
-  if (!targetSlug && !id) {
+  if (!targetSlug && !id && !previewMode) {
     if (infoContainer)
       infoContainer.innerHTML = "<p>Producto no especificado.</p>";
     return;
   }
   try {
+    if (previewMode) {
+      const previewProduct = await fetchPreviewProduct();
+      if (previewProduct) {
+        renderProduct(previewProduct);
+        return;
+      }
+    }
+
     const products = await fetchProducts();
     let product = null;
     if (targetSlug) {
@@ -1110,6 +1214,13 @@ async function initProduct() {
     }
     if (!product && id) {
       product = products.find((p) => String(p.id) === String(id));
+    }
+    if (!product && !products.length) {
+      const previewProduct = await fetchPreviewProduct();
+      if (previewProduct) {
+        renderProduct(previewProduct);
+        return;
+      }
     }
     if (!product) {
       if (infoContainer)
