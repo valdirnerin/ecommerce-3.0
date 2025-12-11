@@ -2587,6 +2587,20 @@ function normalizeOrder(o) {
   const statusSource = o.payment_status || o.estado_pago || o.payment_status_code;
   const paymentCode = mapPaymentStatusCode(statusSource);
   const payment = localizePaymentStatus(statusSource);
+  const method =
+    o.payment_method ||
+    o.metodo_pago ||
+    (o.preference_id || o.payment_id ? "mercado_pago" : "mercado_pago");
+  const paymentDetails = (() => {
+    if (!o || typeof o !== "object") return {};
+    if (typeof o.payment_details === "string") {
+      return { note: o.payment_details };
+    }
+    if (o.payment_details && typeof o.payment_details === "object") {
+      return { ...o.payment_details };
+    }
+    return {};
+  })();
   const shippingSource =
     o.shipping_status_code ||
     o.shippingStatusCode ||
@@ -2667,6 +2681,9 @@ function normalizeOrder(o) {
     payment_status: payment,
     paymentStatus: payment,
     estado_pago: payment,
+    payment_method: method,
+    paymentMethod: method,
+    payment_details: paymentDetails,
     shipping_status_code: shippingCode,
     shippingStatusCode: shippingCode,
     shipping_status: shippingLabel,
@@ -3383,6 +3400,111 @@ function getInvoices() {
   const filePath = dataPath("invoices.json");
   const file = fs.readFileSync(filePath, "utf8");
   return JSON.parse(file).invoices;
+}
+
+// Configuración de métodos de pago (transferencia y efectivo)
+function readDefaultPaymentSettings() {
+  try {
+    const file = fs.readFileSync(
+      path.join(__dirname, "config/paymentSettings.json"),
+      "utf8",
+    );
+    return JSON.parse(file);
+  } catch {
+    return {};
+  }
+}
+
+function sanitizeText(value) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function normalizePaymentDetailsInput(details) {
+  if (details == null) return {};
+  if (typeof details === "string") return { note: details.trim() };
+  if (typeof details === "object") {
+    const payload = { ...details };
+    if (typeof payload.note === "string") payload.note = payload.note.trim();
+    if (typeof payload.reference === "string")
+      payload.reference = payload.reference.trim();
+    return payload;
+  }
+  return {};
+}
+
+function normalizePaymentSettings(raw = {}) {
+  const defaults = readDefaultPaymentSettings();
+  const bank = raw.bank_transfer || raw.transferencia || {};
+  const cash = raw.cash_payment || raw.efectivo || {};
+
+  const normalizedBank = {
+    enabled: bank.enabled !== false,
+    bank_name: sanitizeText(bank.bank_name || defaults?.bank_transfer?.bank_name),
+    account_holder_name: sanitizeText(
+      bank.account_holder_name || defaults?.bank_transfer?.account_holder_name,
+    ),
+    account_type: sanitizeText(
+      bank.account_type || defaults?.bank_transfer?.account_type,
+    ),
+    cbu: sanitizeText(bank.cbu || defaults?.bank_transfer?.cbu),
+    alias: sanitizeText(bank.alias || defaults?.bank_transfer?.alias),
+    cuit: sanitizeText(bank.cuit || defaults?.bank_transfer?.cuit),
+    additional_instructions: sanitizeText(
+      bank.additional_instructions ||
+        bank.instrucciones ||
+        defaults?.bank_transfer?.additional_instructions,
+    ),
+  };
+
+  const allowedMethods = Array.isArray(cash.allowed_shipping_methods)
+    ? cash.allowed_shipping_methods
+    : Array.isArray(defaults?.cash_payment?.allowed_shipping_methods)
+    ? defaults.cash_payment.allowed_shipping_methods
+    : [];
+
+  const normalizedCash = {
+    enabled: cash.enabled !== false,
+    allowed_shipping_methods: allowedMethods
+      .map((m) => sanitizeText(m))
+      .filter(Boolean),
+    instructions_pickup: sanitizeText(
+      cash.instructions_pickup ||
+        cash.instructions ||
+        defaults?.cash_payment?.instructions_pickup,
+    ),
+    instructions_delivery: sanitizeText(
+      cash.instructions_delivery || defaults?.cash_payment?.instructions_delivery,
+    ),
+  };
+
+  const updatedAt = raw.updated_at || raw.updatedAt || new Date().toISOString();
+  return {
+    bank_transfer: normalizedBank,
+    cash_payment: normalizedCash,
+    updated_at: updatedAt,
+  };
+}
+
+function getPaymentSettings() {
+  const filePath = dataPath("paymentSettings.json");
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const data = JSON.parse(file || "{}");
+    return normalizePaymentSettings({
+      bank_transfer: data.bank_transfer,
+      cash_payment: data.cash_payment,
+    });
+  } catch {
+    return normalizePaymentSettings();
+  }
+}
+
+function savePaymentSettings(nextSettings = {}) {
+  const normalized = normalizePaymentSettings(nextSettings);
+  const filePath = dataPath("paymentSettings.json");
+  fs.writeFileSync(filePath, JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
 }
 
 // Leer configuración general (ID de Google Analytics, Meta Pixel, WhatsApp, etc.)
@@ -5413,6 +5535,7 @@ async function requestHandler(req, res) {
           estado_pago: pendingLabel,
           payment_status: pendingLabel,
           payment_status_code: pendingCode,
+          payment_method: "mercado_pago",
           total,
           inventoryApplied: false,
         };
@@ -5685,6 +5808,36 @@ async function requestHandler(req, res) {
         const subtotal = items.reduce((t, it) => t + it.price * it.quantity, 0);
         const grandTotal = subtotal + (shippingCost || 0);
         const impuestosCalc = Math.round(subtotal * 0.21);
+        const rawPaymentMethod = String(
+          data.payment_method || data.metodo_pago || "mercado_pago",
+        )
+          .trim()
+          .toLowerCase();
+        const paymentMethod = rawPaymentMethod || "mercado_pago";
+        let paymentDetails = {};
+        if (typeof data.payment_details === "string") {
+          paymentDetails = { note: data.payment_details };
+        } else if (data.payment_details && typeof data.payment_details === "object") {
+          paymentDetails = { ...data.payment_details };
+        }
+        const paymentSettings = getPaymentSettings();
+        if (
+          paymentMethod === "efectivo" &&
+          paymentSettings?.cash_payment?.enabled !== false
+        ) {
+          const allowed =
+            paymentSettings.cash_payment.allowed_shipping_methods || [];
+          if (Array.isArray(allowed) && allowed.length) {
+            const normalizedAllowed = allowed.map((m) => String(m).toLowerCase());
+            if (!normalizedAllowed.includes(String(shippingMethodId).toLowerCase())) {
+              return sendJson(res, 400, {
+                error:
+                  "El pago en efectivo solo está disponible para métodos de envío habilitados.",
+                allowed_shipping_methods: normalizedAllowed,
+              });
+            }
+          }
+        }
         const totals = {
           subtotal,
           shipping: shippingCost,
@@ -5713,6 +5866,8 @@ async function requestHandler(req, res) {
           estado_pago: pendingLabel,
           payment_status: pendingLabel,
           payment_status_code: pendingCode,
+          payment_method: paymentMethod,
+          payment_details: paymentDetails,
           estado_envio: "pendiente",
           shipping_status: "pendiente",
           metodo_envio: shippingLabel || data.metodo_envio || "Correo Argentino",
@@ -5756,7 +5911,7 @@ async function requestHandler(req, res) {
         });
         saveOrderItems(orderItems);
         let initPoint = null;
-        if (mpPreference) {
+        if (mpPreference && paymentMethod === "mercado_pago") {
           try {
             const prefItems = items.map((it) => ({
                 title: it.name,
@@ -5850,16 +6005,17 @@ async function requestHandler(req, res) {
           canceled: 0,
           total_amount: 0,
         };
-        mapped.forEach((order) => {
-          const code = mapPaymentStatusCode(
-            order.payment_status_code || order.payment_status || order.estado_pago,
-          );
-          summary.total_amount +=
-            Number(order.total_amount || order.total || 0) || 0;
-          if (code === "approved") summary.paid += 1;
-          else if (code === "rejected") summary.canceled += 1;
-          else summary.pending += 1;
-        });
+          mapped.forEach((order) => {
+            const code = mapPaymentStatusCode(
+              order.payment_status_code || order.payment_status || order.estado_pago,
+            );
+            summary.total_amount +=
+              Number(order.total_amount || order.total || 0) || 0;
+            if (code === "approved") summary.paid += 1;
+            else if (code === "rejected" || code === "cancelled")
+              summary.canceled += 1;
+            else summary.pending += 1;
+          });
         return sendJson(res, 200, { orders: mapped, summary });
       }
       const includeDeleted =
@@ -5931,7 +6087,8 @@ async function requestHandler(req, res) {
             order.status,
         );
         if (paymentCode === "approved") summary.paid += 1;
-        else if (paymentCode === "rejected") summary.canceled += 1;
+        else if (paymentCode === "rejected" || paymentCode === "cancelled")
+          summary.canceled += 1;
         else summary.pending += 1;
         const paymentStatus = localizePaymentStatus(
           normalized.payment_status ||
@@ -6282,6 +6439,21 @@ async function requestHandler(req, res) {
           next.shipping_status_code = shippingCode;
           next.estado_envio = shippingLabel;
           next.shipping_status_label = shippingLabel;
+        }
+        if (Object.prototype.hasOwnProperty.call(update, "payment_method")) {
+          const method = sanitizeText(update.payment_method);
+          next.payment_method = method || next.payment_method || "mercado_pago";
+        }
+        if (Object.prototype.hasOwnProperty.call(update, "payment_details")) {
+          const currentDetails =
+            orders[index].payment_details &&
+            typeof orders[index].payment_details === "object"
+              ? orders[index].payment_details
+              : {};
+          next.payment_details = {
+            ...currentDetails,
+            ...normalizePaymentDetailsInput(update.payment_details),
+          };
         }
         if (Object.prototype.hasOwnProperty.call(update, "tracking")) {
           const trackingValue =
@@ -6939,6 +7111,36 @@ async function requestHandler(req, res) {
         const newCfg = { ...cfg, ...update };
         saveConfig(newCfg);
         return sendJson(res, 200, newCfg);
+      } catch (err) {
+        console.error(err);
+        return sendJson(res, 400, { error: "Solicitud inválida" });
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/payment-settings" && req.method === "GET") {
+    try {
+      const settings = getPaymentSettings();
+      return sendJson(res, 200, settings);
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, {
+        error: "No se pudieron obtener las opciones de pago",
+      });
+    }
+  }
+
+  if (pathname === "/api/admin/payment-settings" && req.method === "PUT") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      try {
+        const data = JSON.parse(body || "{}");
+        const saved = savePaymentSettings(data);
+        return sendJson(res, 200, saved);
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
@@ -7617,6 +7819,7 @@ async function requestHandler(req, res) {
               payment_status: pendingLabel,
               payment_status_code: pendingCode,
               estado_pago: pendingLabel,
+              payment_method: "mercado_pago",
               estado_envio: "pendiente",
               shipping_status: "pendiente",
               user_email: usuario?.email || null,
@@ -7644,6 +7847,7 @@ async function requestHandler(req, res) {
             row.external_reference = numeroOrden;
             row.order_number = row.order_number || numeroOrden;
             row.user_email = usuario?.email || row.user_email || null;
+            row.payment_method = row.payment_method || "mercado_pago";
             const statusSource =
               row.payment_status || row.estado_pago || row.payment_status_code;
             const normalizedStatus = mapPaymentStatusCode(statusSource);

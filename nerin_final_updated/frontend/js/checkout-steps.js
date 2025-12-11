@@ -9,10 +9,13 @@ const formEnvio = document.getElementById('formEnvio');
 const costoEl = document.getElementById('costoEnvio');
 const metodoSelect = document.getElementById('metodo');
 const resumenEl = document.getElementById('resumen');
+const resumenPaso2El = document.getElementById('resumenPaso2');
 const confirmarBtn = document.getElementById('confirmar');
 const emailInput = document.getElementById('email');
 const emailError = document.getElementById('emailError');
 const pagoRadios = document.getElementsByName('pago');
+const protectionNote = document.getElementById('protectionNote');
+const metodoInfo = document.getElementById('metodoInfo');
 
 const cart = JSON.parse(localStorage.getItem('nerinCart') || '[]');
 if (cart.length === 0) {
@@ -21,6 +24,8 @@ if (cart.length === 0) {
 
 let datos = {};
 let envio = {};
+let paymentSettings = null;
+let allowedCashMethods = [];
 function safeParseLocalStorage(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -36,6 +41,28 @@ function setFieldValue(id, value) {
   const el = document.getElementById(id);
   if (el) {
     el.value = value;
+  }
+}
+
+function getSelectedPaymentMethod() {
+  const selected = Array.from(pagoRadios).find((r) => r.checked);
+  return selected ? selected.value : 'mp';
+}
+
+async function loadPaymentSettings() {
+  try {
+    const res = await apiFetch('/api/payment-settings');
+    if (!res.ok) return;
+    const data = await res.json();
+    paymentSettings = data;
+    if (data?.cash_payment?.allowed_shipping_methods) {
+      allowedCashMethods = data.cash_payment.allowed_shipping_methods.map((m) =>
+        String(m).toLowerCase()
+      );
+    }
+    updateMetodoInfo();
+  } catch (error) {
+    console.warn('No se pudo cargar la configuración de pagos', error);
   }
 }
 
@@ -182,6 +209,8 @@ async function updateCosto() {
     envio.metodo = metodo;
     envio.metodoLabel = SHIPPING_METHOD_LABELS[metodo] || '';
   }
+  buildResumen();
+  updateMetodoInfo();
 }
 
 document.getElementById('provincia').addEventListener('change', updateCosto);
@@ -198,6 +227,7 @@ envio.metodo = metodoSelect.value || '';
 envio.metodoLabel = SHIPPING_METHOD_LABELS[envio.metodo] || '';
 
 updateCosto();
+loadPaymentSettings();
 
 formEnvio.addEventListener('submit', (ev) => {
   ev.preventDefault();
@@ -214,7 +244,12 @@ formEnvio.addEventListener('submit', (ev) => {
   buildResumen();
   step2.style.display = 'none';
   step3.style.display = 'block';
+  updateMetodoInfo();
 });
+
+Array.from(pagoRadios).forEach((radio) =>
+  radio.addEventListener('change', updateMetodoInfo)
+);
 
 function buildResumen() {
   const subtotal = cart.reduce((t, it) => t + it.price * it.quantity, 0);
@@ -227,23 +262,122 @@ function buildResumen() {
   const total = subtotal + (envio.costo || 0);
   const metodoLabel =
     envio.metodoLabel || SHIPPING_METHOD_LABELS[envio.metodo] || '';
-  resumenEl.innerHTML = `
+  const resumenHtml = `
     <ul>${itemsHtml}</ul>
     <p>Subtotal: $${subtotal.toLocaleString('es-AR')}</p>
-    <p>Envío: $${(envio.costo || 0).toLocaleString('es-AR')}</p>
+    <p>Costo estimado de envío: $${(envio.costo || 0).toLocaleString('es-AR')}</p>
     ${
       metodoLabel
         ? `<p>Método de envío: ${metodoLabel}</p>`
         : ''
     }
-    <p><strong>Total: $${total.toLocaleString('es-AR')}</strong></p>
+    <p><strong>Total estimado: $${total.toLocaleString('es-AR')}</strong></p>
+  `;
+  resumenEl.innerHTML = resumenHtml;
+  if (resumenPaso2El) resumenPaso2El.innerHTML = resumenHtml;
+}
+
+function shippingLabel(id) {
+  return SHIPPING_METHOD_LABELS[id] || envio.metodoLabel || id || '';
+}
+
+function isCashAllowedForShipping() {
+  if (!allowedCashMethods || allowedCashMethods.length === 0) return true;
+  if (!envio.metodo) return true;
+  return allowedCashMethods.includes(String(envio.metodo).toLowerCase());
+}
+
+function renderProtectionNote(method) {
+  if (!protectionNote) return;
+  const garantiaLink =
+    '<a href="/garantia.html" class="trust-link">Garantía y devoluciones</a>';
+  const terminosLink =
+    '<a href="/pages/terminos.html" class="trust-link">Términos y condiciones</a>';
+  if (method === 'transferencia') {
+    protectionNote.innerHTML = `
+      <strong>Compra protegida NERINParts</strong>
+      <ul>
+        <li>Los datos bancarios se muestran solo en nerinparts.com.ar.</li>
+        <li>Verificá el dominio antes de pagar y usá el número de pedido en el concepto.</li>
+        <li>Consultá ${garantiaLink} y ${terminosLink} para más respaldo.</li>
+      </ul>
+    `;
+    return;
+  }
+  if (method === 'efectivo') {
+    protectionNote.innerHTML = `
+      <strong>Compra protegida NERINParts</strong>
+      <ul>
+        <li>Solo cobramos en sucursal o puntos autorizados.</li>
+        <li>No solicitamos cobros en domicilios no acordados.</li>
+        <li>Revisá ${garantiaLink} y ${terminosLink} antes de pagar.</li>
+      </ul>
+    `;
+    return;
+  }
+  protectionNote.innerHTML = `
+    <strong>Compra protegida NERINParts</strong>
+    <ul>
+      <li>Pagás a través de la pasarela segura de Mercado Pago (HTTPS y tokenización).</li>
+      <li>Tu comprobante queda asociado al número de pedido.</li>
+      <li>Consultá ${garantiaLink} y ${terminosLink} cuando lo necesites.</li>
+    </ul>
   `;
 }
 
-confirmarBtn.addEventListener('click', async () => {
-  const metodo = Array.from(pagoRadios).find((r) => r.checked).value;
-  if (metodo !== 'mp') return;
+function updateMetodoInfo() {
+  const metodo = getSelectedPaymentMethod();
+  let html = '';
+  if (metodo === 'transferencia') {
+    const bank = paymentSettings?.bank_transfer || {};
+    if (paymentSettings && bank.enabled === false) {
+      html = '<p>El pago por transferencia está deshabilitado temporalmente.</p>';
+    } else {
+      html = `
+        <p>Transferí el total a nombre de <strong>${bank.account_holder_name || 'NERIN Parts'}</strong></p>
+        <p>Banco: ${bank.bank_name || '—'} (${bank.account_type || 'cuenta'})</p>
+        <p>Alias: <strong>${bank.alias || '—'}</strong></p>
+        <p>CBU: <strong>${bank.cbu || '—'}</strong></p>
+        <p>CUIT: ${bank.cuit || '—'}</p>
+        ${bank.additional_instructions ? `<p>${bank.additional_instructions}</p>` : ''}
+      `;
+    }
+  } else if (metodo === 'efectivo') {
+    const allowed =
+      allowedCashMethods && allowedCashMethods.length
+        ? allowedCashMethods.map((m) => shippingLabel(m)).join(', ')
+        : 'Retiro en sucursal';
+    const pickupMsg =
+      paymentSettings?.cash_payment?.instructions_pickup ||
+      'Podés abonar al retirar en sucursal con tu DNI y número de pedido.';
+    html = `<p>Disponible para: ${allowed}</p><p>${pickupMsg}</p>`;
+    if (!isCashAllowedForShipping()) {
+      html +=
+        '<p style="color:#c53030">El pago en efectivo solo está disponible con el método de envío seleccionado.</p>';
+    }
+  } else {
+    html = '<p>Serás redirigido a la pasarela segura de Mercado Pago.</p>';
+  }
+  if (metodoInfo) metodoInfo.innerHTML = html;
+  renderProtectionNote(metodo);
+  toggleCashValidation();
+}
+
+function toggleCashValidation() {
+  if (!confirmarBtn) return;
+  const metodo = getSelectedPaymentMethod();
+  if (metodo !== 'efectivo') {
+    confirmarBtn.disabled = false;
+    return;
+  }
+  confirmarBtn.disabled = !isCashAllowedForShipping();
+}
+
+async function submitMercadoPago() {
   const customer = { ...datos, ...envio };
+  const originalText = confirmarBtn.textContent;
+  confirmarBtn.disabled = true;
+  confirmarBtn.textContent = 'Procesando...';
   try {
     console.log('Creando preferencia MP', { cart, customer });
     const carritoBackend = cart.map(({ name, price, quantity }) => ({
@@ -251,7 +385,6 @@ confirmarBtn.addEventListener('click', async () => {
       precio: price,
       cantidad: quantity,
     }));
-    console.log('carritoBackend', carritoBackend);
     const res = await apiFetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -287,5 +420,99 @@ confirmarBtn.addEventListener('click', async () => {
   } catch (e) {
     alert('Hubo un error con el pago');
     console.error('Error al procesar el pago', e);
+  } finally {
+    confirmarBtn.disabled = false;
+    confirmarBtn.textContent = originalText;
   }
+}
+
+async function submitOfflineOrder(paymentMethod) {
+  if (paymentMethod === 'efectivo' && !isCashAllowedForShipping()) {
+    alert('El pago en efectivo solo está disponible con el método de envío habilitado.');
+    return;
+  }
+  const customer = { ...datos, ...envio };
+  const productos = cart.map(({ id, name, price, quantity, sku }) => ({
+    id,
+    sku,
+    name,
+    price,
+    quantity,
+  }));
+  const payload = {
+    productos,
+    cliente: {
+      ...datos,
+      email: datos.email,
+      telefono: datos.telefono,
+      direccion: {
+        provincia: envio.provincia,
+        localidad: envio.localidad,
+        calle: envio.calle,
+        numero: envio.numero,
+        piso: envio.piso,
+        cp: envio.cp,
+      },
+      provincia: envio.provincia,
+      localidad: envio.localidad,
+      calle: envio.calle,
+      numero: envio.numero,
+      piso: envio.piso,
+      cp: envio.cp,
+      metodo: envio.metodo,
+      metodo_envio: envio.metodo,
+      costo_envio: envio.costo,
+    },
+    metodo: envio.metodo,
+    metodo_envio: envio.metodo,
+    payment_method: paymentMethod,
+    payment_details:
+      paymentMethod === 'transferencia'
+        ? { reference: 'Pendiente de comprobante' }
+        : {},
+  };
+  const originalText = confirmarBtn.textContent;
+  confirmarBtn.disabled = true;
+  confirmarBtn.textContent = 'Generando pedido...';
+  try {
+    const res = await apiFetch('/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data?.error || 'No se pudo crear el pedido.';
+      alert(msg);
+      return;
+    }
+    const orderId = data.orderId || data.id;
+    localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
+    try {
+      localStorage.setItem('nerinUserProfile', JSON.stringify(customer));
+    } catch (profileError) {
+      console.warn('No se pudieron guardar los datos del cliente', profileError);
+    }
+    localStorage.removeItem('nerinCart');
+    const target =
+      paymentMethod === 'transferencia'
+        ? '/checkout/confirmacion-transferencia.html'
+        : '/checkout/confirmacion-efectivo.html';
+    window.location.href = `${target}?order=${encodeURIComponent(orderId)}`;
+  } catch (error) {
+    console.error('Error al generar pedido offline', error);
+    alert('No pudimos registrar tu pedido. Intentalo nuevamente.');
+  } finally {
+    confirmarBtn.disabled = false;
+    confirmarBtn.textContent = originalText;
+  }
+}
+
+confirmarBtn.addEventListener('click', async () => {
+  const metodo = getSelectedPaymentMethod();
+  if (metodo === 'transferencia' || metodo === 'efectivo') {
+    await submitOfflineOrder(metodo);
+    return;
+  }
+  await submitMercadoPago();
 });

@@ -65,6 +65,7 @@ if (currentRole === "vendedor") {
     "returnsSection",
     "homeSection",
     "configSection",
+    "paymentSettingsSection",
     "suppliersSection",
     "purchaseOrdersSection",
     "shippingSection",
@@ -124,6 +125,12 @@ navButtons.forEach((btn) => {
       loadHomeForm();
     } else if (target === "configSection") {
       loadConfigForm();
+    } else if (target === "paymentSettingsSection") {
+      if (!shippingMethods.length) {
+        loadShippingTable().finally(loadPaymentSettingsAdmin);
+      } else {
+        loadPaymentSettingsAdmin();
+      }
     } else if (target === "suppliersSection") {
       loadSuppliers();
     } else if (target === "purchaseOrdersSection") {
@@ -3762,6 +3769,7 @@ const OrdersUI = (() => {
     { value: "approved", label: "Pagado" },
     { value: "pending", label: "Pendiente" },
     { value: "rejected", label: "Rechazado" },
+    { value: "cancelled", label: "Cancelado" },
   ];
   const PAYMENT_STATUS_CODE_MAP = {
     pagado: "approved",
@@ -3780,8 +3788,8 @@ const OrdersUI = (() => {
     rechazada: "rejected",
     rejected: "rejected",
     cancelado: "rejected",
-    cancelled: "rejected",
-    canceled: "rejected",
+    cancelled: "cancelled",
+    canceled: "cancelled",
     refunded: "rejected",
     refund: "rejected",
     devuelto: "rejected",
@@ -3790,6 +3798,7 @@ const OrdersUI = (() => {
     approved: "Pagado",
     pending: "Pendiente",
     rejected: "Rechazado",
+    cancelled: "Cancelado",
   };
   const SHIPPING_STATUS_OPTIONS = [
     { value: "preparing", label: "En preparación" },
@@ -3846,7 +3855,12 @@ const OrdersUI = (() => {
     if (!status && status !== 0) return "pending";
     const key = String(status).trim().toLowerCase();
     if (PAYMENT_STATUS_CODE_MAP[key]) return PAYMENT_STATUS_CODE_MAP[key];
-    if (key === "approved" || key === "pending" || key === "rejected") {
+    if (
+      key === "approved" ||
+      key === "pending" ||
+      key === "rejected" ||
+      key === "cancelled"
+    ) {
       return key;
     }
     return "pending";
@@ -3855,6 +3869,15 @@ const OrdersUI = (() => {
   function localizePaymentStatus(status) {
     const code = mapPaymentStatusCodeForUi(status);
     return PAYMENT_STATUS_LABELS[code] || (status ? String(status) : "");
+  }
+
+  function formatPaymentMethod(method) {
+    const key = String(method || "").trim().toLowerCase();
+    if (key === "mercado_pago" || key === "mercadopago") return "Mercado Pago";
+    if (key === "transferencia") return "Transferencia bancaria";
+    if (key === "efectivo") return "Efectivo";
+    if (!key) return "—";
+    return key;
   }
 
   function mapShippingStatusCodeForUi(status) {
@@ -4181,6 +4204,10 @@ const OrdersUI = (() => {
         order.total_amount ||
         0;
       totalTd.textContent = formatCurrency(grandTotal);
+      const methodTd = document.createElement("td");
+      methodTd.textContent = formatPaymentMethod(
+        order.payment_method || order.metodo_pago,
+      );
       const paymentTd = document.createElement("td");
       const paymentLabel = localizePaymentStatus(
         order.payment_status ||
@@ -4224,6 +4251,7 @@ const OrdersUI = (() => {
       tr.appendChild(addressTd);
       tr.appendChild(itemsTd);
       tr.appendChild(totalTd);
+      tr.appendChild(methodTd);
       tr.appendChild(paymentTd);
       tr.appendChild(actionsTd);
       elements.tableBody.appendChild(tr);
@@ -4254,6 +4282,15 @@ const OrdersUI = (() => {
       "";
     const paymentCode = mapPaymentStatusCodeForUi(paymentSource);
     const paymentLabel = localizePaymentStatus(paymentSource);
+    const paymentMethodLabel = formatPaymentMethod(
+      detail.payment_method || detail.metodo_pago,
+    );
+    const paymentDetails =
+      detail.payment_details && typeof detail.payment_details === "object"
+        ? detail.payment_details
+        : {};
+    const paymentReference =
+      paymentDetails.reference || paymentDetails.note || "";
     const shippingSource =
       detail.shipping_status ||
       detail.estado_envio ||
@@ -4385,6 +4422,15 @@ const OrdersUI = (() => {
             </select>
           </label>
           <label>
+            <span>Referencia de pago</span>
+            <input
+              type="text"
+              data-order-field="payment-reference"
+              value="${escapeHtml(paymentReference)}"
+              placeholder="Comprobante o referencia"
+            />
+          </label>
+          <label>
             <span>Estado de envío</span>
             <select data-order-field="shipping-status">
               ${shippingOptionsHtml}
@@ -4414,6 +4460,14 @@ const OrdersUI = (() => {
               data-order-field="shipping-note"
               placeholder="Opcional">${escapeHtml(shippingNoteValue)}</textarea>
           </label>
+        </div>
+        <div class="order-edit-actions">
+          <button type="button" class="button secondary" data-mark-paid>
+            Marcar como pagado
+          </button>
+          <button type="button" class="button danger" data-mark-cancelled>
+            Marcar como cancelado
+          </button>
         </div>
         <button type="button" class="button primary save-order-btn">Guardar</button>
       </div>
@@ -4445,6 +4499,14 @@ const OrdersUI = (() => {
         <dl>
           <dt>Pago</dt>
           <dd>${displayValue(paymentLabel)}</dd>
+        </dl>
+        <dl>
+          <dt>Método de pago</dt>
+          <dd>${displayValue(paymentMethodLabel)}</dd>
+        </dl>
+        <dl>
+          <dt>Referencia de pago</dt>
+          <dd>${displayValue(paymentReference)}</dd>
         </dl>
         <dl>
           <dt>Envío</dt>
@@ -4503,6 +4565,13 @@ const OrdersUI = (() => {
         const noteInput = elements.detail.querySelector(
           '[data-order-field="shipping-note"]',
         );
+        const paymentReferenceInput = elements.detail.querySelector(
+          '[data-order-field="payment-reference"]',
+        );
+        const markPaidBtn = elements.detail.querySelector('[data-mark-paid]');
+        const markCancelledBtn = elements.detail.querySelector(
+          '[data-mark-cancelled]',
+        );
         saveBtn.addEventListener("click", async () => {
           if (!identifierToUpdate) return;
           const patch = {
@@ -4525,6 +4594,11 @@ const OrdersUI = (() => {
                 ? noteInput.value.trim()
                 : null,
           };
+          if (paymentReferenceInput) {
+            patch.payment_details = {
+              reference: paymentReferenceInput.value.trim(),
+            };
+          }
           const originalText = saveBtn.textContent;
           saveBtn.disabled = true;
           saveBtn.textContent = "Guardando…";
@@ -4549,6 +4623,18 @@ const OrdersUI = (() => {
             saveBtn.textContent = originalText;
           }
         });
+        if (markPaidBtn && paymentSelect) {
+          markPaidBtn.addEventListener("click", () => {
+            paymentSelect.value = "approved";
+            saveBtn.click();
+          });
+        }
+        if (markCancelledBtn && paymentSelect) {
+          markCancelledBtn.addEventListener("click", () => {
+            paymentSelect.value = "cancelled";
+            saveBtn.click();
+          });
+        }
       }
       const invoiceUploadInput = elements.detail.querySelector(
         '[data-invoice-file]',
@@ -5879,6 +5965,21 @@ const shippingTableBody = document.querySelector("#shippingTable tbody");
 const saveShippingBtn = document.getElementById("saveShippingBtn");
 const shippingAlert = document.getElementById("shippingAlert");
 let shippingMethods = [];
+const paymentSettingsForm = document.getElementById("paymentSettingsForm");
+const transferEnabledInput = document.getElementById("transferEnabled");
+const bankNameInput = document.getElementById("bankName");
+const bankHolderInput = document.getElementById("bankHolder");
+const bankTypeInput = document.getElementById("bankType");
+const bankCbuInput = document.getElementById("bankCbu");
+const bankAliasInput = document.getElementById("bankAlias");
+const bankCuitInput = document.getElementById("bankCuit");
+const bankInstructionsInput = document.getElementById("bankInstructions");
+const cashEnabledInput = document.getElementById("cashEnabled");
+const cashAllowedMethodsSelect = document.getElementById("cashAllowedMethods");
+const cashPickupInput = document.getElementById("cashPickup");
+const cashDeliveryInput = document.getElementById("cashDelivery");
+const savePaymentSettingsBtn = document.getElementById("savePaymentSettingsBtn");
+const paymentSettingsStatus = document.getElementById("paymentSettingsStatus");
 
 /**
  * Carga los valores de configuración actuales y los muestra en el formulario.
@@ -5895,6 +5996,63 @@ async function loadConfigForm() {
   } catch (err) {
     console.error(err);
     alert("Error al cargar la configuración");
+  }
+}
+
+function renderCashAllowedOptions(selected = []) {
+  if (!cashAllowedMethodsSelect) return;
+  const selectedSet = new Set(selected.map((s) => String(s).toLowerCase()));
+  const methods =
+    shippingMethods && shippingMethods.length
+      ? shippingMethods
+      : [
+          { id: "retiro", label: "Retiro en local" },
+          { id: "estandar", label: "Envío estándar" },
+          { id: "express", label: "Envío express" },
+        ];
+  cashAllowedMethodsSelect.innerHTML = "";
+  methods.forEach((method) => {
+    const option = document.createElement("option");
+    option.value = method.id;
+    option.textContent = method.label || method.id;
+    option.selected = selectedSet.has(String(method.id).toLowerCase());
+    cashAllowedMethodsSelect.appendChild(option);
+  });
+}
+
+async function loadPaymentSettingsAdmin() {
+  if (!paymentSettingsForm) return;
+  try {
+    const res = await apiFetch("/api/payment-settings");
+    if (!res.ok) throw new Error("No se pudo obtener la configuración de pagos");
+    const settings = await res.json();
+    if (transferEnabledInput)
+      transferEnabledInput.checked = settings?.bank_transfer?.enabled !== false;
+    if (bankNameInput) bankNameInput.value = settings?.bank_transfer?.bank_name || "";
+    if (bankHolderInput)
+      bankHolderInput.value = settings?.bank_transfer?.account_holder_name || "";
+    if (bankTypeInput)
+      bankTypeInput.value = settings?.bank_transfer?.account_type || "";
+    if (bankCbuInput) bankCbuInput.value = settings?.bank_transfer?.cbu || "";
+    if (bankAliasInput) bankAliasInput.value = settings?.bank_transfer?.alias || "";
+    if (bankCuitInput) bankCuitInput.value = settings?.bank_transfer?.cuit || "";
+    if (bankInstructionsInput)
+      bankInstructionsInput.value = settings?.bank_transfer?.additional_instructions || "";
+    if (cashEnabledInput)
+      cashEnabledInput.checked = settings?.cash_payment?.enabled !== false;
+    renderCashAllowedOptions(settings?.cash_payment?.allowed_shipping_methods || []);
+    if (cashPickupInput)
+      cashPickupInput.value = settings?.cash_payment?.instructions_pickup || "";
+    if (cashDeliveryInput)
+      cashDeliveryInput.value = settings?.cash_payment?.instructions_delivery || "";
+    if (paymentSettingsStatus) {
+      paymentSettingsStatus.textContent = settings?.updated_at
+        ? `Actualizado: ${new Date(settings.updated_at).toLocaleString("es-AR")}`
+        : "";
+    }
+  } catch (error) {
+    console.error(error);
+    alert("No se pudieron cargar los datos de pago");
   }
 }
 
@@ -5947,6 +6105,11 @@ async function loadShippingTable() {
       });
       shippingTableBody.appendChild(tr);
     });
+    renderCashAllowedOptions(
+      Array.from(cashAllowedMethodsSelect?.selectedOptions || []).map(
+        (opt) => opt.value,
+      ),
+    );
     if (shippingAlert) shippingAlert.style.display = "none";
   } catch (err) {
     console.error(err);
@@ -6037,6 +6200,46 @@ if (saveShippingBtn) {
       console.error(err);
       shippingAlert.textContent = "Error de red";
       shippingAlert.style.display = "block";
+    }
+  });
+}
+
+if (savePaymentSettingsBtn && paymentSettingsForm) {
+  savePaymentSettingsBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const payload = {
+      bank_transfer: {
+        enabled: transferEnabledInput?.checked ?? true,
+        bank_name: bankNameInput?.value.trim() || "",
+        account_holder_name: bankHolderInput?.value.trim() || "",
+        account_type: bankTypeInput?.value.trim() || "",
+        cbu: bankCbuInput?.value.trim() || "",
+        alias: bankAliasInput?.value.trim() || "",
+        cuit: bankCuitInput?.value.trim() || "",
+        additional_instructions: bankInstructionsInput?.value.trim() || "",
+      },
+      cash_payment: {
+        enabled: cashEnabledInput?.checked ?? true,
+        allowed_shipping_methods: Array.from(
+          cashAllowedMethodsSelect?.selectedOptions || [],
+        ).map((opt) => opt.value),
+        instructions_pickup: cashPickupInput?.value.trim() || "",
+        instructions_delivery: cashDeliveryInput?.value.trim() || "",
+      },
+    };
+    try {
+      const res = await apiFetch("/api/admin/payment-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Error al guardar pagos");
+      paymentSettingsStatus.textContent = "Configuración guardada";
+      loadPaymentSettingsAdmin();
+    } catch (error) {
+      console.error(error);
+      paymentSettingsStatus.textContent = "No se pudo guardar la configuración";
     }
   });
 }

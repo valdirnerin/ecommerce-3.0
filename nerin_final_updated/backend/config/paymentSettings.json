@@ -1,0 +1,18 @@
+{
+  "bank_transfer": {
+    "enabled": true,
+    "bank_name": "Banco Ejemplo",
+    "account_holder_name": "NERIN Parts",
+    "account_type": "Cuenta corriente",
+    "cbu": "0000000000000000000000",
+    "alias": "nerin.parts",
+    "cuit": "30-00000000-0",
+    "additional_instructions": "Enviá el comprobante por mail o WhatsApp indicando tu número de pedido."
+  },
+  "cash_payment": {
+    "enabled": true,
+    "allowed_shipping_methods": ["retiro"],
+    "instructions_pickup": "Podés abonar en efectivo al retirar en nuestra sucursal.",
+    "instructions_delivery": "Pago en efectivo contra entrega se habilitará solo en zonas acordadas."
+  }
+}

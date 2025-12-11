@@ -4,8 +4,8 @@ const STATUS_CODE_TO_ES = {
   rejected: 'rechazado',
   refunded: 'rechazado',
   charged_back: 'rechazado',
-  cancelled: 'rechazado',
-  canceled: 'rechazado',
+  cancelled: 'cancelado',
+  canceled: 'cancelado',
 };
 
 const STATUS_ES_TO_CODE = {
@@ -24,8 +24,9 @@ const STATUS_ES_TO_CODE = {
   charged_back: 'charged_back',
   'charged-back': 'charged_back',
   chargeback: 'charged_back',
-  cancelled: 'rejected',
-  canceled: 'rejected',
+  cancelado: 'cancelled',
+  cancelled: 'cancelled',
+  canceled: 'cancelled',
 };
 
 function mapPaymentStatusCode(status) {
@@ -37,7 +38,8 @@ function mapPaymentStatusCode(status) {
     key === 'pending' ||
     key === 'rejected' ||
     key === 'refunded' ||
-    key === 'charged_back'
+    key === 'charged_back' ||
+    key === 'cancelled'
   ) {
     return key;
   }
