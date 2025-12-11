@@ -3,9 +3,31 @@ const path = require('path');
 const db = require('../db');
 const productsRepo = require('./productsRepo');
 const { DATA_DIR: dataDir } = require('../utils/dataDir');
-const { mapPaymentStatusCode } = require('../utils/paymentStatus');
+const { mapPaymentStatusCode, localizePaymentStatus } = require('../utils/paymentStatus');
 
 const filePath = path.join(dataDir, 'orders.json');
+
+function normalizePaymentDetails(details) {
+  if (!details) return {};
+  if (typeof details === 'string') return { note: details };
+  if (typeof details === 'object') return { ...details };
+  return {};
+}
+
+function applyPaymentDefaults(order = {}) {
+  const payment_status_code = mapPaymentStatusCode(
+    order.payment_status || order.estado_pago || order.payment_status_code,
+  );
+  const payment_status = order.payment_status
+    ? order.payment_status
+    : localizePaymentStatus(order.estado_pago || payment_status_code);
+  return {
+    payment_method: order.payment_method || 'mercado_pago',
+    payment_status,
+    payment_status_code,
+    payment_details: normalizePaymentDetails(order.payment_details),
+  };
+}
 
 async function getAll() {
   const pool = db.getPool();
@@ -339,6 +361,12 @@ function ensureInvoiceStructure(order) {
   if (status) draft.invoice_status = status;
   else if (invoices.some((inv) => !inv.deleted_at)) draft.invoice_status = 'emitida';
   else draft.invoice_status = null;
+  const payment = applyPaymentDefaults(order);
+  draft.payment_method = payment.payment_method;
+  draft.payment_status = payment.payment_status;
+  draft.estado_pago = payment.payment_status;
+  draft.payment_status_code = payment.payment_status_code;
+  draft.payment_details = payment.payment_details;
   return draft;
 }
 
@@ -369,6 +397,7 @@ async function create(order) {
   const invoiceData = ensureInvoiceStructure(draft);
   draft.invoices = invoiceData.invoices;
   draft.invoice_status = invoiceData.invoice_status;
+  Object.assign(draft, applyPaymentDefaults(draft));
   if (!draft.created_at) {
     draft.created_at = new Date().toISOString();
   }
@@ -428,6 +457,7 @@ async function update(order) {
   const invoiceData = ensureInvoiceStructure(draft);
   draft.invoices = invoiceData.invoices;
   draft.invoice_status = invoiceData.invoice_status;
+  Object.assign(draft, applyPaymentDefaults(draft));
   const pool = db.getPool();
   if (!pool) {
     const orders = await getAll();

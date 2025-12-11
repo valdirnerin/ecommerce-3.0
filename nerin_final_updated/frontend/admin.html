@@ -266,6 +266,7 @@
         <button data-target="configSection" data-i18n="nav.config">
           Configuración
         </button>
+        <button data-target="paymentSettingsSection">Pagos</button>
         <button data-target="footerSection">Footer</button>
         <button data-target="shippingSection" data-i18n="nav.shipping">
           Envíos
@@ -709,6 +710,7 @@
               <option value="pagado">Pagado</option>
               <option value="pendiente">Pendiente</option>
               <option value="rechazado">Rechazado</option>
+              <option value="cancelado">Cancelado</option>
             </select>
           </div>
           <div class="filter-group">
@@ -734,6 +736,7 @@
                 <th>Dirección</th>
                 <th>Ítems</th>
                 <th>Total</th>
+                <th>Método</th>
                 <th>Pago</th>
                 <th>Acciones</th>
               </tr>
@@ -1254,6 +1257,71 @@
             Guardar configuración
           </button>
         </form>
+      </section>
+
+      <section
+        id="paymentSettingsSection"
+        class="admin-section"
+        style="display: none"
+      >
+        <h3>Configuración de pagos</h3>
+        <p class="section-help">
+          Datos oficiales para transferencias y parámetros del pago en efectivo.
+          Estos datos se muestran en el checkout y en las pantallas de
+          confirmación.
+        </p>
+        <form id="paymentSettingsForm" class="form-grid">
+          <fieldset>
+            <legend>Transferencia bancaria</legend>
+            <label>
+              <input type="checkbox" id="transferEnabled" /> Habilitar
+              transferencia bancaria
+            </label>
+            <label>Banco
+              <input type="text" id="bankName" />
+            </label>
+            <label>Titular
+              <input type="text" id="bankHolder" />
+            </label>
+            <label>Tipo de cuenta
+              <input type="text" id="bankType" />
+            </label>
+            <label>CBU
+              <input type="text" id="bankCbu" />
+            </label>
+            <label>Alias
+              <input type="text" id="bankAlias" />
+            </label>
+            <label>CUIT
+              <input type="text" id="bankCuit" />
+            </label>
+            <label>Instrucciones al cliente
+              <textarea id="bankInstructions" rows="3"></textarea>
+            </label>
+          </fieldset>
+          <fieldset>
+            <legend>Pago en efectivo</legend>
+            <label>
+              <input type="checkbox" id="cashEnabled" /> Habilitar pago en
+              efectivo
+            </label>
+            <label>Métodos de envío habilitados
+              <select id="cashAllowedMethods" multiple size="4"></select>
+            </label>
+            <label>Instrucciones para retiro
+              <textarea id="cashPickup" rows="3"></textarea>
+            </label>
+            <label>Instrucciones para entrega (opcional)
+              <textarea id="cashDelivery" rows="2"></textarea>
+            </label>
+          </fieldset>
+        </form>
+        <div class="form-actions">
+          <button class="button primary" id="savePaymentSettingsBtn">
+            Guardar
+          </button>
+          <span id="paymentSettingsStatus" class="status-text"></span>
+        </div>
       </section>
 
       <!-- Editor de footer -->

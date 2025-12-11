@@ -58,10 +58,20 @@
       </div>
       <div id="step2" class="checkout-step" style="display:none">
         <h2>Paso 2 de 3: Envío</h2>
-        <form id="formEnvio" class="login-container">
+        <div class="checkout-grid">
+          <aside class="checkout-summary" id="summaryStep2">
+            <h3>Resumen de pedido</h3>
+            <div id="resumenPaso2"></div>
+            <p class="trust-copy">
+              <a href="/garantia.html" class="trust-link">
+                Compra protegida NERINParts: módulos originales Samsung, factura A/B y soporte técnico real.
+              </a>
+            </p>
+          </aside>
+          <form id="formEnvio" class="login-container">
                    <label>Provincia
                 <input list="provincias" id="provincia" required />
-            </label>       
+            </label>
           <datalist id="provincias">
                 <option value="Buenos Aires">
                 <option value="Ciudad Autónoma de Buenos Aires">
@@ -87,7 +97,7 @@
                 <option value="Santiago del Estero">
                 <option value="Tierra del Fuego">
                 <option value="Tucumán">
-            </datalist>
+          </datalist>
           <label>Localidad
             <input type="text" id="localidad" required />
           </label>
@@ -113,17 +123,29 @@
           </label>
           <p id="costoEnvio"></p>
           <button type="submit">Continuar</button>
-        </form>
+          </form>
+        </div>
       </div>
       <div id="step3" class="checkout-step" style="display:none">
         <h2>Paso 3 de 3: Pago</h2>
-        <div id="resumen"></div>
-        <div class="login-container" style="margin-top:1rem">
-          <label><input type="radio" name="pago" value="mp" checked /> Mercado Pago</label>
-          <label><input type="radio" name="pago" value="transferencia" /> Transferencia bancaria</label>
-          <label><input type="radio" name="pago" value="efectivo" /> Pago en efectivo</label>
-          <div id="metodoInfo" style="margin:0.5rem 0"></div>
-          <button id="confirmar" type="button">Confirmar compra</button>
+        <div class="checkout-grid">
+          <aside class="checkout-summary" id="summaryStep3">
+            <h3>Resumen de pedido</h3>
+            <div id="resumen"></div>
+            <p class="trust-copy">
+              <a href="/garantia.html" class="trust-link">
+                Compra protegida NERINParts: módulos originales Samsung, factura A/B y soporte técnico real.
+              </a>
+            </p>
+            <div class="protection-note" id="protectionNote"></div>
+          </aside>
+          <div class="login-container" style="margin-top:1rem">
+            <label><input type="radio" name="pago" value="mp" checked /> Mercado Pago</label>
+            <label><input type="radio" name="pago" value="transferencia" /> Transferencia bancaria</label>
+            <label><input type="radio" name="pago" value="efectivo" /> Pago en efectivo</label>
+            <div id="metodoInfo" style="margin:0.5rem 0"></div>
+            <button id="confirmar" type="button">Confirmar compra</button>
+          </div>
         </div>
       </div>
     </main>

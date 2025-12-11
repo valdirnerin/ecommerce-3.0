@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Confirmá tu transferencia • NERINParts</title>
+    <link rel="stylesheet" href="/style.css?v=cartfix-2" />
+    <link rel="stylesheet" href="/components/np-footer.css?v=np-r2" />
+    <script src="/components/np-footer.js?v=np-r2" defer></script>
+  </head>
+  <body data-payment-method="transferencia">
+    <header>
+      <div class="header-inner">
+        <div class="logo">
+          <a href="/index.html" class="brand"
+            ><img src="/assets/IMG_3086.png" alt="NERIN" class="site-logo"
+          /></a>
+        </div>
+        <button class="menu-toggle" id="navToggle">☰</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container">
+      <section class="confirmation-card">
+        <h1>Pedido pendiente de transferencia</h1>
+        <p class="order-id">Número de pedido: <strong id="orderNumber"></strong></p>
+        <div class="summary-row">
+          <div>
+            <p class="total-display">Total estimado: <strong id="orderTotal"></strong></p>
+            <div id="shippingSummary" class="shipping-summary"></div>
+          </div>
+          <div class="protection-note" id="protectionBlock"></div>
+        </div>
+        <div id="instructions" class="instructions"></div>
+        <div class="items-card">
+          <h3>Resumen de productos</h3>
+          <ul id="items" class="items"></ul>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="/seguimiento.html">Ver estado del pedido</a>
+          <a class="button secondary" href="/shop.html">Seguir comprando</a>
+        </div>
+      </section>
+    </main>
+    <div id="footer-root"></div>
+    <script type="module" src="/js/config.js"></script>
+    <script type="module" src="/js/checkout-confirmation.js"></script>
+  </body>
+</html>
