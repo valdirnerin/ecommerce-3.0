@@ -998,14 +998,14 @@ function renderProduct(product) {
     wholesaleTier.innerHTML = `
       <span class="price-tier__label">MAYORISTA</span>
       <strong class="price-tier__value">${formatPrice(product.price_mayorista)}</strong>
-      <span class="price-tier__note">Desde este valor. Descuentos automáticos por cantidad.</span>
+      <span class="price-tier__note">Precio mayorista desde este valor con descuentos automáticos por cantidad.</span>
     `;
   } else {
     wholesaleTier.dataset.locked = "true";
     wholesaleTier.innerHTML = `
       <span class="price-tier__label">MAYORISTA</span>
       <strong class="price-tier__value">Ingresá para ver</strong>
-      <span class="price-tier__note">Precios exclusivos para técnicos y comercios</span>
+      <span class="price-tier__note">Ingresá para ver tu tarifa exclusiva para técnicos y comercios</span>
     `;
     const wholesaleCta = document.createElement("a");
     wholesaleCta.href = "/login.html";
@@ -1063,6 +1063,13 @@ function renderProduct(product) {
   billingNote.className = "product-price-footnote";
   billingNote.textContent = "Precio final minorista · Incluye IVA · Factura A/B";
 
+  const protectionNote = document.createElement("p");
+  protectionNote.className = "product-protection-note";
+  protectionNote.innerHTML = `
+    <a class="product-protection-link" href="/garantia.html">Compra protegida NERINParts</a>:
+    módulo Samsung Service Pack original, factura A/B y soporte técnico real por WhatsApp.
+  `;
+
   const handleAddToCart = () => {
     const qty = qtyControl.getValue();
     if (qty > (product.stock || 0)) {
@@ -1109,18 +1116,18 @@ function renderProduct(product) {
   const assuranceList = document.createElement("ul");
   assuranceList.className = "product-buy-assurance";
   [
-    "Service Pack original Samsung (GH82-XXXXXX)",
-    "Factura A/B para estudios, cadenas y laboratorios",
-    "Envíos a todo el país",
-    "Garantía técnica por defectos de fábrica",
-    "Soporte técnico real por WhatsApp antes y después de la compra",
+    "Service Pack original Samsung (GH82-XXXXXX).",
+    "Factura A/B para estudios, cadenas y laboratorios.",
+    "Envíos a todo el país con seguimiento.",
+    'Garantía técnica por defectos de fábrica (<a href="/garantia.html">ver términos</a>).',
+    "Soporte técnico real por WhatsApp antes y después de la compra.",
   ].forEach((item) => {
     const li = document.createElement("li");
-    li.textContent = item;
+    li.innerHTML = item;
     assuranceList.appendChild(li);
   });
 
-  purchaseCard.append(addBtn, priceLabel, billingNote, assuranceList);
+  purchaseCard.append(addBtn, priceLabel, billingNote, protectionNote, assuranceList);
 
   buyPanel.appendChild(purchaseCard);
 
@@ -1206,9 +1213,8 @@ function renderProduct(product) {
       ? "Precio mayorista por unidad"
       : "Precio minorista por unidad";
     priceLabel.textContent = `${unitLabel}: ${formatPrice(unitPrice)} · x${qty}`;
-    stickyPrice.textContent = `${wholesaleUser ? "Mayorista" : "Minorista"} ${formatPrice(
-      unitPrice,
-    )} • x${qty}`;
+    const stickyLabel = wholesaleUser ? "Mayorista" : "Minorista";
+    stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
   };
 
   const setCtaLabels = () => {

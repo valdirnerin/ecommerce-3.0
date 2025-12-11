@@ -88,7 +88,7 @@
             title: "Ayuda",
             links: [
               { label: "Seguimiento de pedido", href: "/seguimiento.html" },
-              { label: "Garantía y devoluciones", href: "/pages/terminos.html#garantia" },
+              { label: "Garantía y devoluciones", href: "/garantia.html" },
               { label: "Preguntas frecuentes", href: "/contact.html#faq" },
             ],
           },
