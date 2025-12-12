@@ -113,7 +113,10 @@ if (process.env.NODE_ENV !== "test") {
   }
 }
 const DEFAULT_PUBLIC_URL = "https://nerinparts.com.ar";
-const BASE_URL = process.env.PUBLIC_URL || DEFAULT_PUBLIC_URL;
+const BASE_URL =
+  process.env.PUBLIC_URL ||
+  process.env.PUBLIC_BASE_URL ||
+  DEFAULT_PUBLIC_URL;
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
 const MAX_ACTIVITY_EVENTS = 600;
 const MAX_ACTIVITY_SESSIONS = 300;
@@ -141,6 +144,8 @@ function getPublicBaseUrl(cfg) {
     const fromConfig = normalizeBaseUrl(cfg.publicUrl);
     if (fromConfig) return fromConfig;
   }
+  const fromEnvBase = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
+  if (fromEnvBase) return fromEnvBase;
   const fromEnv = normalizeBaseUrl(process.env.PUBLIC_URL);
   if (fromEnv) return fromEnv;
   return FALLBACK_BASE_URL;
@@ -728,6 +733,92 @@ function absoluteUrl(input, base) {
   } catch {
     return null;
   }
+}
+
+function sanitizeFeedValue(value) {
+  if (value == null) return "";
+  return String(value)
+    .replace(/[\t\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatFeedPrice(product) {
+  const candidate =
+    product?.price_minorista ??
+    (Number.isFinite(Number(product?.price)) ? product.price : null);
+  const amount = Number(candidate);
+  if (!Number.isFinite(amount)) return "";
+  return `${amount.toFixed(2)} ARS`;
+}
+
+function buildGoogleProductFeed(products = [], baseUrl) {
+  const siteBase = normalizeBaseUrl(baseUrl) || FALLBACK_BASE_URL;
+  const headers = [
+    "id",
+    "title",
+    "description",
+    "price",
+    "condition",
+    "link",
+    "availability",
+    "image_link",
+    "brand",
+    "mpn",
+    "gtin",
+    "shipping",
+    "identifier_exists",
+  ];
+
+  const rows = products
+    .map((product) => {
+      const id = sanitizeFeedValue(product?.id ?? product?.sku);
+      const title = sanitizeFeedValue(
+        product?.name || product?.title || buildProductHeading(product),
+      );
+      const description = sanitizeFeedValue(
+        product?.description ||
+          product?.short_description ||
+          buildFeaturePhrase(product),
+      );
+      const price = formatFeedPrice(product);
+      const availability =
+        typeof product?.stock === "number" && product.stock > 0
+          ? "in_stock"
+          : "out_of_stock";
+      const link = absoluteUrl(buildProductUrl(product), siteBase) || "";
+      const { imageList } = buildProductImages(product, siteBase);
+      const imageLink = imageList[0] || "";
+      const brand = sanitizeFeedValue(product?.brand);
+      const mpn = sanitizeFeedValue(product?.mpn || product?.sku);
+      const meta = safeParseMetadata(product?.metadata);
+      const gtin = sanitizeFeedValue(product?.gtin || meta?.gtin);
+      const shipping = sanitizeFeedValue(product?.shipping || meta?.shipping);
+      const identifierExists = gtin || mpn ? "TRUE" : "FALSE";
+
+      if (!id || !title || !price || !link || !imageLink) return null;
+
+      return [
+        id,
+        title,
+        description,
+        price,
+        "new",
+        link,
+        availability,
+        imageLink,
+        brand,
+        mpn,
+        gtin,
+        shipping,
+        identifierExists,
+      ]
+        .map(sanitizeFeedValue)
+        .join("\t");
+    })
+    .filter(Boolean);
+
+  return [headers.join("\t"), ...rows].join("\n");
 }
 
 function truncateText(str, limit) {
@@ -4254,6 +4345,25 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/ping" && req.method === "GET") {
     return sendJson(res, 200, { ok: true, ts: Date.now() });
+  }
+
+  if (pathname === "/feeds/google-products.txt" && req.method === "GET") {
+    try {
+      const products = await loadProducts();
+      const config = getConfig();
+      const siteBase = getPublicBaseUrl(config);
+      const feed = buildGoogleProductFeed(products, siteBase);
+      res.writeHead(200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "public, max-age=300",
+      });
+      res.end(feed);
+    } catch (error) {
+      console.error("google-products-feed", error);
+      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("No se pudo generar el feed de productos");
+    }
+    return;
   }
 
   if (pathname === "/api/test-email" && req.method === "GET") {

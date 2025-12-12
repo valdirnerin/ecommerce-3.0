@@ -2,6 +2,12 @@
 
 Este módulo incorpora una API en FastAPI y una interfaz web responsive para estimar el costo puesto en Argentina y el precio de venta necesario para alcanzar un margen objetivo en repuestos importados (pantallas, baterías, etc.). Todo el flujo es parametrizable (alícuotas, comisiones, presets por NCM) y admite actualización automática del margen al recibir el fee real de un proveedor de cobros.
 
+## Feed para Google Merchant Center
+
+- URL del feed: `https://nerinparts.com.ar/feeds/google-products.txt` (o la base configurada en `PUBLIC_BASE_URL`).
+- Pegá esa URL en Merchant Center en **Productos > Feeds > Nuevo feed > Programado** y elegí frecuencia diaria.
+- El endpoint entrega un `.txt` tab-delimited con precios minoristas, links e imágenes públicas listas para Google Shopping.
+
 ## Componentes
 
 - **Backend (`import_calc_backend/`)**: FastAPI + SQLModel + SQLite.
