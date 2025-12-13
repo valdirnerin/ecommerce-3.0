@@ -769,7 +769,57 @@ function getWholesaleUnitPrice(product, quantity) {
   if (quantity >= 20) discount = 0.15;
   else if (quantity >= 10) discount = 0.1;
   else if (quantity >= 5) discount = 0.05;
-  return Math.round(Number(product.price_mayorista || 0) * (1 - discount));
+  const base = Number(
+    product.price_mayorista ?? product.price_minorista ?? product.price ?? 0,
+  );
+  return Math.round(base * (1 - discount));
+}
+
+function prioritizeImages(urls = [], alts = []) {
+  const keywords = [
+    /frente|principal|delanter|front/i,
+    /packaging|caja|box/i,
+    /etiqueta|label|sticker/i,
+  ];
+  const scored = urls.map((url, index) => {
+    const text = `${alts[index] || ""} ${url}`;
+    const score = keywords.reduce((acc, regex, idx) => {
+      return regex.test(text) ? acc + (keywords.length - idx) : acc;
+    }, 0);
+    return { index, score };
+  });
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scored.map((item) => item.index);
+}
+
+function extractCompatibilityText(product = {}) {
+  const candidates = [
+    product.compatibility,
+    product.compatible_models,
+    product.compatibility_models,
+    product.model,
+  ];
+  const parts = candidates
+    .flatMap((item) => {
+      if (Array.isArray(item)) return item;
+      if (typeof item === "string") return item.split(/[|/,]|·/);
+      return [];
+    })
+    .map((value) => normalizeText(String(value)))
+    .filter(Boolean);
+  const unique = Array.from(new Set(parts));
+  return unique.join(" / ");
+}
+
+function resolveWarrantyCopy(product = {}) {
+  const raw =
+    product.warranty_days ??
+    product.warrantyDays ??
+    product.warranty ??
+    product.garantia_dias;
+  const parsed = Number(raw);
+  const days = Number.isFinite(parsed) && parsed > 0 ? parsed : 90;
+  return `${days} días de garantía por defecto de fábrica (configurable).`;
 }
 
 function createQuantityControl(product) {
@@ -850,8 +900,13 @@ function renderProduct(product) {
     ? product.images.filter(Boolean)
     : [];
   const legacy = product.image ? [product.image] : [];
-  const images = arrayImages.length ? arrayImages : legacy;
-  const altInput = Array.isArray(product.images_alt) ? product.images_alt : [];
+  let images = arrayImages.length ? arrayImages : legacy;
+  let altInput = Array.isArray(product.images_alt) ? product.images_alt : [];
+  const prioritizedIndexes = prioritizeImages(images, altInput);
+  if (prioritizedIndexes.some((idx, position) => idx !== position)) {
+    images = prioritizedIndexes.map((idx) => images[idx]).filter(Boolean);
+    altInput = prioritizedIndexes.map((idx) => altInput[idx]);
+  }
   const skuLabel = product.sku || product.id || product.name || "sin-identificar";
   const moduleAlt = buildModuleAltLabel(product);
   const alts = images.map((_, i) => {
@@ -977,67 +1032,111 @@ function renderProduct(product) {
 
   purchaseCard.appendChild(purchaseHeader);
 
-  const priceGrid = document.createElement("div");
-  priceGrid.className = "product-buy-price-grid";
+  const wholesaleUser = isWholesale();
+  const priceSection = document.createElement("section");
+  priceSection.className = "product-price-section";
 
-  const retailTier = document.createElement("article");
-  retailTier.className = "price-tier price-tier--retail product-price-emphasis";
-  retailTier.dataset.active = "true";
-  retailTier.innerHTML = `
-    <span class="price-tier__label">MINORISTA</span>
-    <strong class="price-tier__value">${formatPrice(product.price_minorista)}</strong>
-    <span class="price-tier__note">Precio final minorista · IVA incluido</span>
-  `;
-  priceGrid.appendChild(retailTier);
+  const priceModes = [
+    { key: "retail", label: "Minorista" },
+    { key: "tech", label: "Técnico (mejora por cantidad)" },
+  ];
+  let currentPriceMode = wholesaleUser ? "tech" : "retail";
 
-  const wholesaleTier = document.createElement("article");
-  wholesaleTier.className = "price-tier price-tier--wholesale product-price-emphasis";
+  const priceModeToggle = document.createElement("div");
+  priceModeToggle.className = "price-mode-toggle";
 
-  if (isWholesale()) {
-    wholesaleTier.dataset.active = "true";
-    wholesaleTier.innerHTML = `
-      <span class="price-tier__label">MAYORISTA</span>
-      <strong class="price-tier__value">${formatPrice(product.price_mayorista)}</strong>
-      <span class="price-tier__note">Precio mayorista desde este valor con descuentos automáticos por cantidad.</span>
-    `;
-  } else {
-    wholesaleTier.dataset.locked = "true";
-    wholesaleTier.innerHTML = `
-      <span class="price-tier__label">MAYORISTA</span>
-      <strong class="price-tier__value">Ingresá para ver</strong>
-      <span class="price-tier__note">Ingresá para ver tu tarifa exclusiva para técnicos y comercios</span>
-    `;
-    const wholesaleCta = document.createElement("a");
-    wholesaleCta.href = "/login.html";
-    wholesaleCta.className = "wholesale-login-link";
-    wholesaleCta.textContent = "Ingresar a portal mayorista";
-    wholesaleTier.appendChild(wholesaleCta);
-  }
+  const priceHighlight = document.createElement("article");
+  priceHighlight.className = "price-tier product-price-emphasis price-tier--retail";
+  const priceHighlightLabel = document.createElement("span");
+  priceHighlightLabel.className = "price-tier__label";
+  const priceHighlightValue = document.createElement("strong");
+  priceHighlightValue.className = "price-tier__value";
+  const priceHighlightNote = document.createElement("span");
+  priceHighlightNote.className = "price-tier__note";
+  priceHighlight.append(priceHighlightLabel, priceHighlightValue, priceHighlightNote);
 
-  priceGrid.appendChild(wholesaleTier);
-  purchaseCard.appendChild(priceGrid);
+  const priceModeHelper = document.createElement("p");
+  priceModeHelper.className = "price-mode-helper";
 
-  if (isWholesale()) {
-    const wholesaleNote = document.createElement("p");
-    wholesaleNote.className = "product-wholesale-note";
-    wholesaleNote.textContent =
-      "El precio mayorista mejora automáticamente según la cantidad seleccionada.";
-    purchaseCard.appendChild(wholesaleNote);
+  const priceValueNote = document.createElement("p");
+  priceValueNote.className = "product-value-note";
+  priceValueNote.textContent =
+    "Service Pack original = misma calidad que fábrica (brillo, colores y táctil).";
 
-    const tierList = document.createElement("ul");
-    tierList.className = "product-wholesale-tiers product-wholesale-tiers--card";
-    [
-      { range: "1–4 u", discount: "Precio base" },
-      { range: "5–9 u", discount: "–5%" },
-      { range: "10–19 u", discount: "–10%" },
-      { range: "20+ u", discount: "–15%" },
-    ].forEach((tier) => {
-      const li = document.createElement("li");
-      li.innerHTML = `<span>${tier.range}</span><strong>${tier.discount}</strong>`;
-      tierList.appendChild(li);
+  const wholesaleNote = document.createElement("p");
+  wholesaleNote.className = "product-wholesale-note";
+  wholesaleNote.textContent =
+    "El precio técnico mejora automáticamente según la cantidad seleccionada.";
+
+  const tierList = document.createElement("ul");
+  tierList.className = "product-wholesale-tiers product-wholesale-tiers--card";
+  [
+    { range: "1–4 u", discount: "Precio base" },
+    { range: "5–9 u", discount: "–5%" },
+    { range: "10–19 u", discount: "–10%" },
+    { range: "20+ u", discount: "–15%" },
+  ].forEach((tier) => {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>${tier.range}</span><strong>${tier.discount}</strong>`;
+    tierList.appendChild(li);
+  });
+
+  priceSection.appendChild(priceModeToggle);
+  priceSection.appendChild(priceHighlight);
+  priceSection.appendChild(priceModeHelper);
+  priceSection.appendChild(priceValueNote);
+  purchaseCard.appendChild(priceSection);
+
+  const baseRetail = Number(product.price_minorista ?? product.price ?? 0);
+  const baseWholesale = Number(product.price_mayorista ?? baseRetail);
+
+  function renderPriceMode(mode) {
+    currentPriceMode = mode;
+    priceModes.forEach((item, index) => {
+      const btn = priceModeToggle.children[index];
+      if (!btn) return;
+      btn.dataset.active = item.key === mode ? "true" : "false";
     });
-    purchaseCard.appendChild(tierList);
+
+    priceHighlight.classList.toggle("price-tier--retail", mode === "retail");
+    priceHighlight.classList.toggle("price-tier--wholesale", mode === "tech");
+    priceHighlightLabel.textContent = mode === "retail" ? "MINORISTA" : "TÉCNICO";
+    priceHighlightNote.textContent =
+      mode === "retail"
+        ? "Precio final minorista · IVA incluido"
+        : "Precio técnico con mejora automática por cantidad.";
+
+    if (mode === "tech" && baseWholesale === baseRetail) {
+      priceModeHelper.textContent = "El precio mejora automáticamente por cantidad.";
+    } else if (mode === "tech" && !wholesaleUser) {
+      priceModeHelper.textContent =
+        "Ingresá con tu usuario de técnico/comercio para ver tu tarifa mejorada.";
+    } else if (mode === "tech") {
+      priceModeHelper.textContent = "Optimizado para talleres y cadenas con volumen.";
+    } else {
+      priceModeHelper.textContent = "Ideal para compras puntuales o reposición rápida.";
+    }
+
+    wholesaleNote.hidden = mode !== "tech";
+    tierList.hidden = mode !== "tech";
   }
+
+  priceModes.forEach((mode) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "price-mode-btn";
+    btn.textContent = mode.label;
+    btn.addEventListener("click", () => {
+      renderPriceMode(mode.key);
+      updatePriceLabels();
+    });
+    priceModeToggle.appendChild(btn);
+  });
+
+  renderPriceMode(currentPriceMode);
+
+  purchaseCard.appendChild(wholesaleNote);
+  purchaseCard.appendChild(tierList);
 
   if (stockCopy) {
     const stockInfo = document.createElement("p");
@@ -1057,11 +1156,41 @@ function renderProduct(product) {
   addBtn.className = "button primary product-buy-main-cta";
 
   const priceLabel = document.createElement("p");
-  priceLabel.className = "product-detail-unit-price";
+  priceLabel.className = "product-detail-unit-price price-breakdown";
+
+  const certaintyList = document.createElement("ul");
+  certaintyList.className = "product-certainty";
+  const compatibilityText = extractCompatibilityText(product);
+  [
+    "Service Pack original",
+    compatibilityText
+      ? `Compatible: ${compatibilityText}`
+      : "Compatible: validá modelo SM-____",
+    "Despacho 24h + tracking",
+    "Garantía por defecto de fábrica (ver términos)",
+  ].forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    certaintyList.appendChild(li);
+  });
+
+  const ctaRow = document.createElement("div");
+  ctaRow.className = "product-cta-row";
+
+  const validateBtn = document.createElement("a");
+  validateBtn.className = "button ghost button-validate";
+  validateBtn.href = "https://wa.me/541112345678";
+  validateBtn.dataset.whatsappLink = "true";
+  validateBtn.dataset.whatsappMessage = `Hola NERIN, necesito validar mi modelo (SM-____) para ${
+    product.name || "este módulo"
+  } · SKU ${product.sku || "sin-SKU"}.`;
+  validateBtn.textContent = "Validar mi modelo por WhatsApp";
+
+  ctaRow.append(addBtn, validateBtn);
 
   const billingNote = document.createElement("p");
   billingNote.className = "product-price-footnote";
-  billingNote.textContent = "Precio final minorista · Incluye IVA · Factura A/B";
+  billingNote.textContent = "Precio final según modo seleccionado · Incluye IVA · Factura A/B";
 
   const protectionNote = document.createElement("p");
   protectionNote.className = "product-protection-note";
@@ -1069,6 +1198,24 @@ function renderProduct(product) {
     <a class="product-protection-link" href="/garantia.html">Compra protegida NERINParts</a>:
     módulo Samsung Service Pack original, factura A/B y soporte técnico real por WhatsApp.
   `;
+
+  const warrantyCopy = resolveWarrantyCopy(product);
+  const termsAccordion = document.createElement("details");
+  termsAccordion.className = "product-terms";
+  const termsSummary = document.createElement("summary");
+  termsSummary.textContent = "Garantía y términos";
+  const termsList = document.createElement("ul");
+  [
+    "Cobertura por defecto de fábrica y fallas en recepción.",
+    "No aplica a mala instalación, daños por golpes o humedad.",
+    "Si llega dañado, avisá dentro de 24h con fotos para reemplazo/nota de crédito.",
+    `Plazo orientativo: ${warrantyCopy}`,
+  ].forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    termsList.appendChild(li);
+  });
+  termsAccordion.append(termsSummary, termsList);
 
   const handleAddToCart = () => {
     const qty = qtyControl.getValue();
@@ -1091,9 +1238,10 @@ function renderProduct(product) {
       cart.push({
         id: product.id,
         name: product.name,
-        price: isWholesale()
-          ? product.price_mayorista
-          : product.price_minorista,
+        price:
+          currentPriceMode === "tech"
+            ? getWholesaleUnitPrice(product, qty)
+            : product.price_minorista,
         quantity: qty,
         image: cartImage,
       });
@@ -1113,23 +1261,67 @@ function renderProduct(product) {
 
   addBtn.addEventListener("click", handleAddToCart);
 
-  const assuranceList = document.createElement("ul");
-  assuranceList.className = "product-buy-assurance";
-  [
-    "Service Pack original Samsung (GH82-XXXXXX).",
-    "Factura A/B para estudios, cadenas y laboratorios.",
-    "Envíos a todo el país con seguimiento.",
-    'Garantía técnica por defectos de fábrica (<a href="/garantia.html">ver términos</a>).',
-    "Soporte técnico real por WhatsApp antes y después de la compra.",
-  ].forEach((item) => {
-    const li = document.createElement("li");
-    li.innerHTML = item;
-    assuranceList.appendChild(li);
-  });
-
-  purchaseCard.append(addBtn, priceLabel, billingNote, protectionNote, assuranceList);
+  purchaseCard.append(
+    priceLabel,
+    certaintyList,
+    ctaRow,
+    billingNote,
+    protectionNote,
+    termsAccordion,
+  );
 
   buyPanel.appendChild(purchaseCard);
+
+  const reviewsCard = document.createElement("section");
+  reviewsCard.className = "product-body__card product-reviews-snippet";
+  const reviewsHeading = document.createElement("h3");
+  reviewsHeading.textContent = "Referencias de técnicos";
+  const reviewsList = document.createElement("ul");
+  reviewsList.className = "product-reviews-list";
+  const providedReviews = Array.isArray(product.reviews)
+    ? product.reviews.slice(0, 6)
+    : [];
+  const fallbackReviews = [
+    {
+      author: "Técnico verificado",
+      comment: "Viene calibrado y con brillo original, ideal para entregas rápidas.",
+      rating: 5,
+    },
+    {
+      author: "Servicio en AMBA",
+      comment: "Llegó al día siguiente con tracking, sin píxeles muertos.",
+      rating: 5,
+    },
+    {
+      author: "Laboratorio del interior",
+      comment: "Buen embalaje Service Pack, sin rayas ni polvos en la laminación.",
+      rating: 4,
+    },
+  ];
+  const reviewsToShow = (providedReviews.length ? providedReviews : fallbackReviews).slice(0, 6);
+  reviewsToShow.forEach((review) => {
+    const li = document.createElement("li");
+    li.className = "product-review";
+    const title = document.createElement("div");
+    title.className = "product-review__header";
+    const name = document.createElement("strong");
+    name.textContent = review.author || "Cliente";
+    const rating = document.createElement("span");
+    const stars = Math.max(3, Math.min(5, Number(review.rating) || 4));
+    rating.textContent = "★".repeat(stars).padEnd(5, "☆");
+    title.append(name, rating);
+    const body = document.createElement("p");
+    body.textContent = review.comment || "Pronto verás reseñas verificadas.";
+    li.append(title, body);
+    reviewsList.appendChild(li);
+  });
+  const reviewsFootnote = document.createElement("p");
+  reviewsFootnote.className = "product-reviews-footnote";
+  reviewsFootnote.textContent = providedReviews.length
+    ? "Mostrando experiencias recientes."
+    : "Placeholder hasta conectar reseñas verificadas.";
+  reviewsCard.append(reviewsHeading, reviewsList, reviewsFootnote);
+  buyPanel.appendChild(reviewsCard);
 
   layout.appendChild(buyPanel);
   infoContainer.appendChild(layout);
@@ -1194,27 +1386,48 @@ function renderProduct(product) {
   stickyCta.className = "product-sticky-cta";
   const stickyPrice = document.createElement("span");
   stickyPrice.className = "product-sticky-price";
+  const stickyMeta = document.createElement("span");
+  stickyMeta.className = "product-sticky-meta";
   const stickyBtn = document.createElement("button");
   stickyBtn.type = "button";
   stickyBtn.className = "button primary product-buy-main-cta";
   stickyBtn.addEventListener("click", handleAddToCart);
-  stickyCta.append(stickyPrice, stickyBtn);
+  stickyCta.append(stickyPrice, stickyMeta, stickyBtn);
   if (detailSection) {
     detailSection.appendChild(stickyCta);
   }
 
   const updatePriceLabels = () => {
     const qty = qtyControl.getValue();
-    const wholesaleUser = isWholesale();
-    const unitPrice = wholesaleUser
+    const useTechMode = currentPriceMode === "tech";
+    const basePrice = useTechMode ? baseWholesale : baseRetail;
+    const unitPrice = useTechMode
       ? getWholesaleUnitPrice(product, qty)
-      : product.price_minorista;
-    const unitLabel = wholesaleUser
-      ? "Precio mayorista por unidad"
-      : "Precio minorista por unidad";
-    priceLabel.textContent = `${unitLabel}: ${formatPrice(unitPrice)} · x${qty}`;
-    const stickyLabel = wholesaleUser ? "Mayorista" : "Minorista";
-    stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
+      : baseRetail;
+    const total = unitPrice * qty;
+    const referenceTotal = basePrice * qty;
+    const savings = Math.max(0, referenceTotal - total);
+    const savingsPct = referenceTotal > 0 ? Math.round((savings / referenceTotal) * 100) : 0;
+
+    priceHighlightValue.textContent = formatPrice(unitPrice);
+    if (useTechMode && basePrice > 0) {
+      const discount = Math.max(0, Math.round((1 - unitPrice / basePrice) * 100));
+      wholesaleNote.textContent =
+        discount > 0
+          ? `Aplicando -${discount}% por ${qty} u.`
+          : "El precio técnico mejora automáticamente según la cantidad seleccionada.";
+    }
+
+    priceLabel.textContent =
+      `Unitario: ${formatPrice(unitPrice)} | Total: ${formatPrice(total)} | Ahorrás: ${formatPrice(
+        savings,
+      )} (${savingsPct ? `-${savingsPct}%` : "0%"})`;
+
+    const stickyLabel = useTechMode ? "Técnico" : "Minorista";
+    stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty}`;
+    if (stickyMeta) {
+      stickyMeta.textContent = stockCopy || "";
+    }
   };
 
   const setCtaLabels = () => {

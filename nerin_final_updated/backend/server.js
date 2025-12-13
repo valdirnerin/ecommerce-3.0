@@ -638,7 +638,7 @@ function getProductTemplateParts() {
     const headMatch = template.match(/<head>([\s\S]*?)<\/head>/i);
     const rawHead = headMatch ? headMatch[1] : "";
     const baseHead = rawHead
-      .replace(/<title>[\s\S]*?<\/title>/i, "")
+      .replace(/<title[^>]*>[\s\S]*?<\/title>/i, "")
       .replace(/<meta[^>]+data-product-meta[^>]*>\s*/gi, "")
       .replace(/<link[^>]+data-product-meta[^>]*>\s*/gi, "")
       .replace(/<script[^>]+data-product-breadcrumbs[^>]*>[\s\S]*?<\/script>\s*/gi, "")

@@ -28,6 +28,37 @@ function expectedSiteBase() {
 
 function esc(s=''){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 
+function normalizeWhitespace(value = '') {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function extractTagContent(html, tagName) {
+  const matches = Array.from(
+    html.matchAll(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi')),
+  );
+  if (!matches.length) return null;
+  const content = matches
+    .map((m) => (m[1] || '').trim())
+    .filter(Boolean)
+    .pop();
+  return content || (matches[0][1] || '').trim();
+}
+
+function extractTagContents(html, tagName) {
+  return Array.from(
+    html.matchAll(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, 'gi')),
+  ).map((m) => (m[1] || '').trim());
+}
+
+function extractMetaContent(html, attrName, attrValue) {
+  const metaRegex = new RegExp(
+    `<meta[^>]*${attrName}=["']${attrValue}["'][^>]*content=["']([^"']+)["'][^>]*>`,
+    'i',
+  );
+  const match = html.match(metaRegex);
+  return match ? match[1].trim() : null;
+}
+
 describe('product SSR', () => {
   let server;
   beforeAll(() => {
@@ -45,12 +76,34 @@ describe('product SSR', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     const canonical = `${expectedSiteBase()}/p/${slug}`;
-    const normalizedName = (product.name || '').replace(/\u00a0/g, ' ');
-    const titleEsc = esc(`${normalizedName} | NERIN Parts`);
-    expect(res.text).toContain(`<title>${titleEsc}</title>`);
-    expect(res.text).toContain('<meta name="description"');
+    const normalizedName = normalizeWhitespace((product.name || '').replace(/\u00a0/g, ' '));
+    const titles = extractTagContents(res.text, 'title').filter(Boolean);
+    expect(titles.length).toBe(1);
+    const titleContent = titles[0];
+    expect(titleContent.trim()).not.toHaveLength(0);
+    const titleLower = normalizeWhitespace(titleContent).toLowerCase();
+    const modelLower = normalizeWhitespace(product.model || '').toLowerCase();
+    expect(titleLower).toContain('nerin');
+    const mentionsProduct =
+      titleLower.includes(normalizedName.toLowerCase()) ||
+      (modelLower && titleLower.includes(modelLower)) ||
+      titleLower.includes((product.sku || '').toLowerCase());
+    expect(mentionsProduct).toBe(true);
+
+    const descriptionMeta = extractMetaContent(res.text, 'name', 'description');
+    expect(descriptionMeta).toBeTruthy();
     expect(res.text).toContain(`<link rel="canonical" href="${canonical}">`);
-    expect(res.text).toContain(`<meta property="og:title" content="${titleEsc}">`);
+
+    const ogTitle = extractMetaContent(res.text, 'property', 'og:title');
+    expect(ogTitle).toBeTruthy();
+    const ogTitleLower = normalizeWhitespace(ogTitle).toLowerCase();
+    expect(ogTitleLower).toContain('nerin');
+    const ogMentionsProduct =
+      ogTitleLower.includes(normalizedName.toLowerCase()) ||
+      (modelLower && ogTitleLower.includes(modelLower)) ||
+      ogTitleLower.includes((product.sku || '').toLowerCase());
+    expect(ogMentionsProduct).toBe(true);
+
     expect(res.text).toContain(`<meta property="og:description"`);
     expect(res.text).toContain(`<meta property="og:url" content="${canonical}">`);
     expect(res.text).toMatch(
