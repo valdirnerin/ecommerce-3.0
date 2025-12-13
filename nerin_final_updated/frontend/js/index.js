@@ -1,4 +1,9 @@
-import { fetchProducts, isWholesale, getUserRole } from "./api.js";
+import {
+  WHOLESALE_LOCKED_COPY,
+  fetchProducts,
+  getPriceVisibility,
+  getUserRole,
+} from "./api.js";
 
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -466,6 +471,7 @@ function getPartKey(product) {
 function getProductDescription(product) {
   if (!product) return "";
   const candidates = [
+    product.shortDescription,
     product.description,
     product.meta_description,
     product.short_description,
@@ -477,6 +483,28 @@ function getProductDescription(product) {
     }
   }
   return "Descripción no disponible.";
+}
+
+function buildExcerpt(text, minLength = 140, maxLength = 180) {
+  if (typeof text !== "string") return "";
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const limit = Math.max(minLength, Math.min(maxLength, normalized.length));
+  if (normalized.length <= limit) return normalized;
+  const slice = normalized.slice(0, limit + 1);
+  const lastSpace = slice.lastIndexOf(" ");
+  const base = lastSpace > minLength ? slice.slice(0, lastSpace) : slice;
+  return `${base.replace(/[\s,.!?;:-]+$/, "")}…`;
+}
+
+function getShortDescription(product) {
+  if (!product) return "";
+  const manual = [product.shortDescription, product.short_description].find(
+    (value) => typeof value === "string" && value.trim(),
+  );
+  if (manual) return manual.trim();
+  const detailed = getProductDescription(product);
+  return buildExcerpt(detailed, 140, 180) || "Descripción no disponible.";
 }
 
 function getStockStatus(product) {
@@ -499,12 +527,7 @@ function createAvailabilityBadge(label, status) {
 }
 
 function resolveRoleState() {
-  const role = getUserRole();
-  if (!role) return "guest";
-  if (role === "mayorista" || role === "admin" || role === "vip") {
-    return "wholesale";
-  }
-  return "retail";
+  return getPriceVisibility().role;
 }
 
 function addToCart(product, quantity = 1) {
@@ -522,7 +545,8 @@ function addToCart(product, quantity = 1) {
       existing.quantity += qty;
     }
   } else {
-    const price = isWholesale()
+    const priceAccess = getPriceVisibility();
+    const price = priceAccess.canSeeWholesale
       ? product.price_mayorista
       : product.price_minorista;
     cart.push({
@@ -550,9 +574,11 @@ function getPrimaryImage(product) {
 }
 
 function createPriceTier(label, value, note, modifier, options = {}) {
+  const locked = Boolean(options.locked);
+  if (!locked && (typeof value !== "number" || Number.isNaN(value))) return null;
   const tier = document.createElement("div");
   tier.className = `price-tier ${modifier || ""}`.trim();
-  if (options.locked) {
+  if (locked) {
     tier.dataset.locked = "true";
   }
   const labelEl = document.createElement("span");
@@ -561,8 +587,8 @@ function createPriceTier(label, value, note, modifier, options = {}) {
   tier.appendChild(labelEl);
   const valueEl = document.createElement("span");
   valueEl.className = "price-tier__value";
-  valueEl.textContent = options.locked
-    ? options.placeholder || "Ingresá para ver"
+  valueEl.textContent = locked
+    ? options.placeholder || WHOLESALE_LOCKED_COPY
     : formatCurrency(value);
   tier.appendChild(valueEl);
   if (note) {
@@ -626,7 +652,7 @@ function createFeaturedCard(product) {
 
   const desc = document.createElement("p");
   desc.className = "description";
-  desc.textContent = getProductDescription(product);
+  desc.textContent = getShortDescription(product);
   card.appendChild(desc);
 
   const availability = document.createElement("div");
@@ -650,8 +676,10 @@ function createFeaturedCard(product) {
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
-  const wholesaleUser = isWholesale();
-  const roleState = resolveRoleState();
+  const priceAccess = getPriceVisibility();
+  const wholesaleUser = priceAccess.canSeeWholesale;
+  const wholesalePlaceholder = priceAccess.placeholder;
+  const roleState = priceAccess.role;
   const retailTier = createPriceTier(
     "Minorista",
     product.price_minorista,
@@ -662,14 +690,14 @@ function createFeaturedCard(product) {
   );
   const wholesaleTier = createPriceTier(
     "Mayorista",
-    product.price_mayorista,
+    wholesaleUser ? product.price_mayorista : null,
     wholesaleUser
       ? "Descuentos automáticos por volumen"
-      : "Exclusivo para cuentas verificadas",
+      : wholesalePlaceholder,
     "price-tier--wholesale",
     {
       locked: !wholesaleUser,
-      placeholder: "Ingresá para ver",
+      placeholder: wholesalePlaceholder,
     },
   );
   if (retailTier) {
