@@ -1,4 +1,9 @@
-import { fetchProducts, isWholesale } from "./api.js";
+import {
+  WHOLESALE_LOCKED_COPY,
+  enforcePriceVisibility,
+  fetchProducts,
+  getPriceVisibility,
+} from "./api.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 
 const detailSection = document.getElementById("productDetail");
@@ -8,6 +13,88 @@ const lightboxElement = document.getElementById("lightbox");
 const priceFormatter = new Intl.NumberFormat("es-AR");
 const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function applyInlineMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>");
+}
+
+function markdownToHtml(markdown) {
+  if (typeof markdown !== "string") return "";
+  const sanitizedInput = escapeHtml(markdown);
+  const lines = sanitizedInput.split(/\r?\n/);
+  const output = [];
+  let listBuffer = [];
+
+  const flushList = () => {
+    if (!listBuffer.length) return;
+    const items = listBuffer.map((item) => `<li>${applyInlineMarkdown(item)}</li>`);
+    output.push(`<ul>${items.join("")}</ul>`);
+    listBuffer = [];
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushList();
+      return;
+    }
+    if (/^###\s+/.test(line)) {
+      flushList();
+      output.push(`<h3>${applyInlineMarkdown(line.replace(/^###\s+/, ""))}</h3>`);
+      return;
+    }
+    if (/^##\s+/.test(line)) {
+      flushList();
+      output.push(`<h2>${applyInlineMarkdown(line.replace(/^##\s+/, ""))}</h2>`);
+      return;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      listBuffer.push(line.replace(/^[-*]\s+/, ""));
+      return;
+    }
+    if (/^---+$/.test(line)) {
+      flushList();
+      output.push("<hr />");
+      return;
+    }
+    flushList();
+    output.push(`<p>${applyInlineMarkdown(line)}</p>`);
+  });
+
+  flushList();
+  return sanitizeHtml(output.join("") || "");
+}
+
+function sanitizeHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const allowedTags = new Set(["p", "strong", "em", "ul", "ol", "li", "h2", "h3", "hr", "br"]);
+
+  const walker = (node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (!allowedTags.has(node.tagName.toLowerCase())) {
+        node.replaceWith(...Array.from(node.childNodes));
+        return;
+      }
+      [...node.attributes].forEach((attr) => node.removeAttribute(attr.name));
+    }
+    node.childNodes.forEach(walker);
+  };
+
+  walker(template.content);
+  return template.innerHTML;
+}
 
 function getProductSlug(product) {
   if (!product || typeof product.slug !== "string") return null;
@@ -115,8 +202,20 @@ function buildBreadcrumbTrail(product, productUrl) {
 function getProductDescription(product, { preferMeta = false } = {}) {
   if (!product) return "";
   const primary = preferMeta
-    ? [product.seoDescription, product.meta_description, product.description, product.short_description]
-    : [product.description, product.seoDescription, product.meta_description, product.short_description];
+    ? [
+        product.seoDescription,
+        product.meta_description,
+        product.description,
+        product.short_description,
+        product.shortDescription,
+      ]
+    : [
+        product.description,
+        product.seoDescription,
+        product.meta_description,
+        product.short_description,
+        product.shortDescription,
+      ];
   for (const value of primary) {
     if (typeof value === "string") {
       const trimmed = value.trim();
@@ -1101,7 +1200,10 @@ function renderProduct(product) {
 
   purchaseCard.appendChild(purchaseHeader);
 
-  const wholesaleUser = isWholesale();
+  const priceAccess = getPriceVisibility();
+  const wholesaleUser = priceAccess.canSeeWholesale;
+  const wholesalePlaceholder =
+    priceAccess.placeholder || WHOLESALE_LOCKED_COPY;
   const priceSection = document.createElement("section");
   priceSection.className = "product-price-section";
 
@@ -1127,6 +1229,16 @@ function renderProduct(product) {
   const priceModeHelper = document.createElement("p");
   priceModeHelper.className = "price-mode-helper";
 
+  const wholesaleLockedCallout = document.createElement("div");
+  wholesaleLockedCallout.className = "product-wholesale-locked";
+  const wholesaleLockedCopy = document.createElement("p");
+  wholesaleLockedCopy.textContent = wholesalePlaceholder;
+  const wholesaleLoginLink = document.createElement("a");
+  wholesaleLoginLink.className = "button secondary";
+  wholesaleLoginLink.href = "/login.html";
+  wholesaleLoginLink.textContent = "Ingresar o crear cuenta mayorista";
+  wholesaleLockedCallout.append(wholesaleLockedCopy, wholesaleLoginLink);
+
   const priceValueNote = document.createElement("p");
   priceValueNote.className = "product-value-note";
   priceValueNote.textContent =
@@ -1134,8 +1246,9 @@ function renderProduct(product) {
 
   const wholesaleNote = document.createElement("p");
   wholesaleNote.className = "product-wholesale-note";
-  wholesaleNote.textContent =
-    "El precio técnico mejora automáticamente según la cantidad seleccionada.";
+  wholesaleNote.textContent = wholesaleUser
+    ? "El precio técnico mejora automáticamente según la cantidad seleccionada."
+    : wholesalePlaceholder;
 
   const tierList = document.createElement("ul");
   tierList.className = "product-wholesale-tiers product-wholesale-tiers--card";
@@ -1153,6 +1266,7 @@ function renderProduct(product) {
   priceSection.appendChild(priceModeToggle);
   priceSection.appendChild(priceHighlight);
   priceSection.appendChild(priceModeHelper);
+  priceSection.appendChild(wholesaleLockedCallout);
   priceSection.appendChild(priceValueNote);
   purchaseCard.appendChild(priceSection);
 
@@ -1173,13 +1287,14 @@ function renderProduct(product) {
     priceHighlightNote.textContent =
       mode === "retail"
         ? "Precio final minorista · IVA incluido"
-        : "Precio técnico con mejora automática por cantidad.";
+        : wholesaleUser
+        ? "Precio técnico con mejora automática por cantidad."
+        : wholesalePlaceholder;
 
     if (mode === "tech" && baseWholesale === baseRetail) {
       priceModeHelper.textContent = "El precio mejora automáticamente por cantidad.";
     } else if (mode === "tech" && !wholesaleUser) {
-      priceModeHelper.textContent =
-        "Ingresá con tu usuario de técnico/comercio para ver tu tarifa mejorada.";
+      priceModeHelper.textContent = wholesalePlaceholder;
     } else if (mode === "tech") {
       priceModeHelper.textContent = "Optimizado para talleres y cadenas con volumen.";
     } else {
@@ -1187,7 +1302,8 @@ function renderProduct(product) {
     }
 
     wholesaleNote.hidden = mode !== "tech";
-    tierList.hidden = mode !== "tech";
+    tierList.hidden = mode !== "tech" || !wholesaleUser;
+    wholesaleLockedCallout.hidden = !(mode === "tech" && !wholesaleUser);
   }
 
   priceModes.forEach((mode) => {
@@ -1195,6 +1311,10 @@ function renderProduct(product) {
     btn.type = "button";
     btn.className = "price-mode-btn";
     btn.textContent = mode.label;
+    if (!wholesaleUser && mode.key === "tech") {
+      btn.dataset.locked = "true";
+      btn.title = wholesalePlaceholder;
+    }
     btn.addEventListener("click", () => {
       renderPriceMode(mode.key);
       updatePriceLabels();
@@ -1288,6 +1408,7 @@ function renderProduct(product) {
 
   const handleAddToCart = () => {
     const qty = qtyControl.getValue();
+    const usingWholesalePricing = wholesaleUser && currentPriceMode === "tech";
     if (qty > (product.stock || 0)) {
       alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
       return;
@@ -1307,10 +1428,9 @@ function renderProduct(product) {
       cart.push({
         id: product.id,
         name: product.name,
-        price:
-          currentPriceMode === "tech"
-            ? getWholesaleUnitPrice(product, qty)
-            : product.price_minorista,
+        price: usingWholesalePricing
+          ? getWholesaleUnitPrice(product, qty)
+          : product.price_minorista,
         quantity: qty,
         image: cartImage,
       });
@@ -1344,52 +1464,62 @@ function renderProduct(product) {
   const reviewsCard = document.createElement("section");
   reviewsCard.className = "product-body__card product-reviews-snippet";
   const reviewsHeading = document.createElement("h3");
-  reviewsHeading.textContent = "Referencias de técnicos";
-  const reviewsList = document.createElement("ul");
-  reviewsList.className = "product-reviews-list";
   const providedReviews = Array.isArray(product.reviews)
     ? product.reviews.slice(0, 6)
     : [];
-  const fallbackReviews = [
-    {
-      author: "Técnico verificado",
-      comment: "Viene calibrado y con brillo original, ideal para entregas rápidas.",
-      rating: 5,
-    },
-    {
-      author: "Servicio en AMBA",
-      comment: "Llegó al día siguiente con tracking, sin píxeles muertos.",
-      rating: 5,
-    },
-    {
-      author: "Laboratorio del interior",
-      comment: "Buen embalaje Service Pack, sin rayas ni polvos en la laminación.",
-      rating: 4,
-    },
-  ];
-  const reviewsToShow = (providedReviews.length ? providedReviews : fallbackReviews).slice(0, 6);
-  reviewsToShow.forEach((review) => {
-    const li = document.createElement("li");
-    li.className = "product-review";
-    const title = document.createElement("div");
-    title.className = "product-review__header";
-    const name = document.createElement("strong");
-    name.textContent = review.author || "Cliente";
-    const rating = document.createElement("span");
-    const stars = Math.max(3, Math.min(5, Number(review.rating) || 4));
-    rating.textContent = "★".repeat(stars).padEnd(5, "☆");
-    title.append(name, rating);
-    const body = document.createElement("p");
-    body.textContent = review.comment || "Pronto verás reseñas verificadas.";
-    li.append(title, body);
-    reviewsList.appendChild(li);
-  });
-  const reviewsFootnote = document.createElement("p");
-  reviewsFootnote.className = "product-reviews-footnote";
-  reviewsFootnote.textContent = providedReviews.length
-    ? "Mostrando experiencias recientes."
-    : "Placeholder hasta conectar reseñas verificadas.";
-  reviewsCard.append(reviewsHeading, reviewsList, reviewsFootnote);
+
+  if (providedReviews.length) {
+    reviewsHeading.textContent = "Referencias de técnicos";
+    const reviewsList = document.createElement("ul");
+    reviewsList.className = "product-reviews-list";
+    providedReviews.forEach((review) => {
+      const li = document.createElement("li");
+      li.className = "product-review";
+      const title = document.createElement("div");
+      title.className = "product-review__header";
+      const name = document.createElement("strong");
+      name.textContent = review.author || "Cliente";
+      const rating = document.createElement("span");
+      const stars = Math.max(3, Math.min(5, Number(review.rating) || 4));
+      rating.textContent = "★".repeat(stars).padEnd(5, "☆");
+      title.append(name, rating);
+      const body = document.createElement("p");
+      body.textContent = review.comment || "Experiencia de compra verificada.";
+      li.append(title, body);
+      reviewsList.appendChild(li);
+    });
+    const reviewsFootnote = document.createElement("p");
+    reviewsFootnote.className = "product-reviews-footnote";
+    reviewsFootnote.textContent = "Mostrando experiencias recientes.";
+    reviewsCard.append(reviewsHeading, reviewsList, reviewsFootnote);
+  } else {
+    reviewsHeading.textContent = "Por qué confían técnicos";
+    const trustList = document.createElement("div");
+    trustList.className = "product-trust-block";
+    [
+      {
+        title: "Calibración y control",
+        text: "Probamos brillo, táctil y colores de cada lote antes de despachar.",
+      },
+      {
+        title: "Logística sin sorpresas",
+        text: "Despachos en 24h con tracking y seguimiento para cada envío.",
+      },
+      {
+        title: "Soporte especializado",
+        text: "Equipo técnico disponible por WhatsApp para validar modelos y garantías.",
+      },
+    ].forEach((item) => {
+      const wrapper = document.createElement("div");
+      const strong = document.createElement("strong");
+      strong.textContent = item.title;
+      const span = document.createElement("span");
+      span.textContent = item.text;
+      wrapper.append(strong, span);
+      trustList.appendChild(wrapper);
+    });
+    reviewsCard.append(reviewsHeading, trustList);
+  }
   buyPanel.appendChild(reviewsCard);
 
   layout.appendChild(buyPanel);
@@ -1405,9 +1535,10 @@ function renderProduct(product) {
   detailsHeading.textContent = "Descripción y detalles";
   const descriptionText =
     getProductDescription(product) || "Descripción no disponible por el momento.";
-  const desc = document.createElement("p");
+  const desc = document.createElement("div");
   desc.className = "product-detail-desc";
-  desc.textContent = descriptionText;
+  const renderedDescription = markdownToHtml(descriptionText);
+  desc.innerHTML = renderedDescription || `<p>${escapeHtml(descriptionText)}</p>`;
   detailsCard.append(detailsHeading, desc);
   detailsPanel.appendChild(detailsCard);
 
@@ -1475,31 +1606,50 @@ function renderProduct(product) {
   const updatePriceLabels = () => {
     const qty = qtyControl.getValue();
     const useTechMode = currentPriceMode === "tech";
-    const basePrice = useTechMode ? baseWholesale : baseRetail;
-    const unitPrice = useTechMode
+    const wholesalePricingActive = wholesaleUser && useTechMode;
+    const basePrice = wholesalePricingActive ? baseWholesale : baseRetail;
+    const unitPrice = wholesalePricingActive
       ? getWholesaleUnitPrice(product, qty)
       : baseRetail;
     const total = unitPrice * qty;
     const referenceTotal = basePrice * qty;
-    const savings = Math.max(0, referenceTotal - total);
+    const savings = wholesalePricingActive ? Math.max(0, referenceTotal - total) : 0;
     const savingsPct = referenceTotal > 0 ? Math.round((savings / referenceTotal) * 100) : 0;
 
-    priceHighlightValue.textContent = formatPrice(unitPrice);
-    if (useTechMode && basePrice > 0) {
-      const discount = Math.max(0, Math.round((1 - unitPrice / basePrice) * 100));
-      wholesaleNote.textContent =
-        discount > 0
-          ? `Aplicando -${discount}% por ${qty} u.`
-          : "El precio técnico mejora automáticamente según la cantidad seleccionada.";
+    if (useTechMode && !wholesaleUser) {
+      priceHighlightValue.textContent = wholesalePlaceholder;
+      priceHighlightNote.textContent = wholesalePlaceholder;
+      wholesaleNote.textContent = wholesalePlaceholder;
+      priceLabel.textContent = wholesalePlaceholder;
+      priceLabel.dataset.locked = "true";
+      stickyPrice.textContent = `Técnico: ${wholesalePlaceholder}`;
+      return;
+    } else {
+      priceHighlightValue.textContent = formatPrice(unitPrice);
+      delete priceLabel.dataset.locked;
+      if (useTechMode && basePrice > 0) {
+        const discount = Math.max(0, Math.round((1 - unitPrice / basePrice) * 100));
+        wholesaleNote.textContent =
+          discount > 0
+            ? `Aplicando -${discount}% por ${qty} u.`
+            : "El precio técnico mejora automáticamente según la cantidad seleccionada.";
+      }
     }
 
-    priceLabel.textContent =
-      `Unitario: ${formatPrice(unitPrice)} | Total: ${formatPrice(total)} | Ahorrás: ${formatPrice(
-        savings,
-      )} (${savingsPct ? `-${savingsPct}%` : "0%"})`;
+    const labelParts = [`Unitario: ${formatPrice(unitPrice)}`, `Total: ${formatPrice(total)}`];
+    if (wholesalePricingActive) {
+      labelParts.push(
+        `Ahorrás: ${formatPrice(savings)} (${savingsPct ? `-${savingsPct}%` : "0%"})`,
+      );
+    }
+    priceLabel.textContent = labelParts.join(" | ");
 
-    const stickyLabel = useTechMode ? "Técnico" : "Minorista";
-    stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty}`;
+    if (useTechMode && !wholesaleUser) {
+      stickyPrice.textContent = `Técnico: ${wholesalePlaceholder}`;
+    } else {
+      const stickyLabel = useTechMode ? "Técnico" : "Minorista";
+      stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty}`;
+    }
     if (stickyMeta) {
       stickyMeta.textContent = stockCopy || "";
     }
@@ -1525,7 +1675,9 @@ async function fetchPreviewProduct() {
   try {
     const res = await fetch("/api/dev/preview-product", { cache: "no-store" });
     if (!res.ok) return null;
-    return res.json();
+    const priceAccess = getPriceVisibility();
+    const data = await res.json();
+    return enforcePriceVisibility(data, priceAccess);
   } catch (err) {
     console.warn("preview-product", err);
     return null;

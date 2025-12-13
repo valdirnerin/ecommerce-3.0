@@ -1,4 +1,9 @@
-import { fetchProducts, isWholesale, getUserRole } from "./api.js";
+import {
+  WHOLESALE_LOCKED_COPY,
+  fetchProducts,
+  getPriceVisibility,
+  getUserRole,
+} from "./api.js";
 
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -189,6 +194,7 @@ function getPrimaryImage(product) {
 function getProductDescription(product) {
   if (!product) return "";
   const candidates = [
+    product.shortDescription,
     product.description,
     product.meta_description,
     product.short_description,
@@ -200,6 +206,28 @@ function getProductDescription(product) {
     }
   }
   return "";
+}
+
+function buildExcerpt(text, minLength = 140, maxLength = 180) {
+  if (typeof text !== "string") return "";
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const limit = Math.max(minLength, Math.min(maxLength, normalized.length));
+  if (normalized.length <= limit) return normalized;
+  const slice = normalized.slice(0, limit + 1);
+  const lastSpace = slice.lastIndexOf(" ");
+  const base = lastSpace > minLength ? slice.slice(0, lastSpace) : slice;
+  return `${base.replace(/[\s,.!?;:-]+$/, "")}…`;
+}
+
+function getShortDescription(product) {
+  if (!product) return "";
+  const manual = [product.shortDescription, product.short_description].find(
+    (value) => typeof value === "string" && value.trim(),
+  );
+  if (manual) return manual.trim();
+  const detailed = getProductDescription(product);
+  return buildExcerpt(detailed, 140, 180);
 }
 
 function getPartKey(product) {
@@ -285,12 +313,7 @@ const mobileLayoutQuery = window.matchMedia
   : null;
 
 function resolveRoleState() {
-  const role = getUserRole();
-  if (!role) return "guest";
-  if (role === "mayorista" || role === "admin" || role === "vip") {
-    return "wholesale";
-  }
-  return "retail";
+  return getPriceVisibility().role;
 }
 
 function applyRoleState() {
@@ -643,7 +666,7 @@ function createPriceTier(label, value, note, modifier, options = {}) {
   const placeholder =
     typeof options.placeholder === "string"
       ? options.placeholder
-      : "Iniciá sesión";
+      : WHOLESALE_LOCKED_COPY;
   if (!locked && (typeof value !== "number" || Number.isNaN(value))) return null;
   const tier = document.createElement("div");
   tier.className = `price-tier ${modifier || ""}`.trim();
@@ -679,8 +702,10 @@ function createProductCard(product) {
   const cover = getPrimaryImage(product);
   const retailPrice = Number(product.price_minorista);
   const wholesalePrice = Number(product.price_mayorista);
-  const wholesaleUser = isWholesale();
-  const roleState = resolveRoleState();
+  const priceAccess = getPriceVisibility();
+  const wholesaleUser = priceAccess.canSeeWholesale;
+  const wholesalePlaceholder = priceAccess.placeholder;
+  const roleState = priceAccess.role;
   const img = document.createElement("img");
   img.src = cover || PLACEHOLDER_IMAGE;
   img.alt = product.name || product.model || "Producto";
@@ -720,7 +745,7 @@ function createProductCard(product) {
   const desc = document.createElement("p");
   desc.className = "description";
   const descriptionText =
-    getProductDescription(product) || "Descripción no disponible.";
+    getShortDescription(product) || "Descripción no disponible.";
   desc.textContent = descriptionText;
   card.appendChild(desc);
 
@@ -767,14 +792,14 @@ function createProductCard(product) {
   );
   const wholesaleTier = createPriceTier(
     "Mayorista",
-    wholesalePrice,
+    wholesaleUser ? wholesalePrice : null,
     wholesaleUser
       ? "Descuentos automáticos por volumen"
-      : "Exclusivo para cuentas mayoristas verificadas",
+      : wholesalePlaceholder,
     "price-tier--wholesale",
     {
       locked: !wholesaleUser,
-      placeholder: "Ingresá para ver",
+      placeholder: wholesalePlaceholder,
     },
   );
   if (retailTier) {

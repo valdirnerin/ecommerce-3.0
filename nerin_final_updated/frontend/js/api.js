@@ -45,7 +45,8 @@ export async function fetchProducts() {
     if (!data || !Array.isArray(data.products)) {
       throw new Error("Respuesta de productos inválida");
     }
-    return data.products;
+    const priceAccess = getPriceVisibility();
+    return enforcePriceVisibility(data.products, priceAccess);
   } catch (error) {
     console.warn("Fallo el endpoint de productos, usando datos locales", error);
     try {
@@ -57,7 +58,8 @@ export async function fetchProducts() {
       }
       const fallbackData = await fallbackResponse.json();
       if (fallbackData && Array.isArray(fallbackData.products)) {
-        return fallbackData.products;
+        const priceAccess = getPriceVisibility();
+        return enforcePriceVisibility(fallbackData.products, priceAccess);
       }
       throw new Error("Fallback de productos inválido");
     } catch (fallbackError) {
@@ -113,11 +115,77 @@ export function logout() {
 }
 
 // Determinar si el usuario es mayorista (ver precios mayoristas)
-export function isWholesale() {
-  const role = getUserRole();
-  // Los clientes VIP también acceden a precios mayoristas y descuentos
-  return role === "mayorista" || role === "admin" || role === "vip";
+const WHOLESALE_LOCKED_COPY =
+  "Ingresá con tu cuenta mayorista verificada para ver tu tarifa";
+
+function safeParseProfile(value) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    console.warn("profile-parse", err);
+    return null;
+  }
 }
+
+function isWholesaleApproved(profile, role) {
+  const roleWholesale =
+    role === "mayorista" || role === "admin" || role === "vip";
+  if (!profile) return roleWholesale;
+
+  const status = profile.wholesaleStatus || profile.wholesale_status || profile.status;
+  const explicitApproval =
+    profile.wholesaleApproved === true || status === "approved" || status === "aprobada";
+  const explicitDenial = status && !["approved", "aprobada"].includes(status);
+  const profileRole =
+    profile.account_type === "mayorista" || profile.role === "mayorista";
+
+  if (explicitDenial) return false;
+  if (explicitApproval) return true;
+  return roleWholesale || profileRole;
+}
+
+export function getPriceVisibility(session) {
+  const storedRole = getUserRole();
+  const profile = safeParseProfile(localStorage.getItem("nerinUserProfile"));
+  const role = session?.role ?? storedRole;
+  const canSeeWholesale = isWholesaleApproved(session?.profile ?? profile, role);
+  return {
+    role: canSeeWholesale ? "wholesale" : role ? "retail" : "guest",
+    canSeeWholesale,
+    placeholder: WHOLESALE_LOCKED_COPY,
+  };
+}
+
+export function isWholesale() {
+  return getPriceVisibility().canSeeWholesale;
+}
+
+function stripWholesalePricing(product) {
+  if (!product || typeof product !== "object") return product;
+  const cleaned = { ...product };
+  ["price_mayorista", "wholesalePrice", "techPrice", "precio_tecnico"].forEach(
+    (field) => {
+      if (field in cleaned) delete cleaned[field];
+    },
+  );
+  if (cleaned.pricing && typeof cleaned.pricing === "object") {
+    const pricing = { ...cleaned.pricing };
+    delete pricing.wholesale;
+    cleaned.pricing = pricing;
+  }
+  return cleaned;
+}
+
+export function enforcePriceVisibility(products, priceAccess = getPriceVisibility()) {
+  if (priceAccess.canSeeWholesale) return products;
+  if (Array.isArray(products)) {
+    return products.map((item) => stripWholesalePricing(item));
+  }
+  return stripWholesalePricing(products);
+}
+
+export { WHOLESALE_LOCKED_COPY };
 
 if (typeof window !== "undefined") {
   if (!window.NERIN_BUILD_API_URL) {
