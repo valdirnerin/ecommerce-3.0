@@ -86,6 +86,32 @@ function resolveAbsoluteUrl(url) {
   }
 }
 
+function buildBreadcrumbTrail(product, productUrl) {
+  const brand = normalizeText(product?.brand || product?.catalog_brand);
+  const model = normalizeText(product?.model || product?.catalog_model);
+  const sku = normalizeText(product?.sku);
+  const trail = [
+    { label: "Catálogo", href: resolveAbsoluteUrl("/shop.html") },
+  ];
+
+  if (brand) {
+    trail.push({ label: brand, href: `/shop.html?brand=${encodeURIComponent(brand)}` });
+  }
+
+  if (model) {
+    const hrefBase = brand
+      ? `/shop.html?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`
+      : `/shop.html?model=${encodeURIComponent(model)}`;
+    trail.push({ label: model, href: hrefBase });
+  }
+
+  if (sku) {
+    trail.push({ label: `SKU ${sku}`, href: productUrl });
+  }
+
+  return trail;
+}
+
 function getProductDescription(product, { preferMeta = false } = {}) {
   if (!product) return "";
   const primary = preferMeta
@@ -103,6 +129,38 @@ function getProductDescription(product, { preferMeta = false } = {}) {
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim();
+}
+
+function buildCatalogHeading(product, seoTitle) {
+  const baseTitle = normalizeText(stripBrandSuffix(seoTitle) || product?.name);
+  const model = normalizeText(product?.model || product?.catalog_model);
+  const sku = normalizeText(product?.sku);
+  const brand = normalizeText(product?.brand || product?.catalog_brand);
+  const titleParts = [];
+
+  if (baseTitle) {
+    titleParts.push(baseTitle);
+  }
+
+  if (model && !baseTitle.toLowerCase().includes(model.toLowerCase())) {
+    titleParts.push(model);
+  }
+
+  if (!/service\s*pack/i.test(baseTitle)) {
+    titleParts.push("Service Pack");
+  }
+
+  if (sku) {
+    titleParts.push(`SKU ${sku}`);
+  }
+
+  const brandSuffix = brand && !baseTitle.toLowerCase().includes(brand.toLowerCase())
+    ? `${brand} · NERIN Parts`
+    : "NERIN Parts";
+
+  titleParts.push(brandSuffix);
+
+  return titleParts.filter(Boolean).join(" · ");
 }
 
 function resolveSeo(product) {
@@ -184,32 +242,18 @@ function setCanonicalUrl(url) {
 function updateBreadcrumbJsonLd(product, productUrl) {
   const script = document.getElementById("product-breadcrumbs");
   if (!script || !product) return;
-  const heading = stripBrandSuffix(resolveSeo(product).title) || product.name || "Producto";
-  const breadcrumbs = {
+  const breadcrumbs = buildBreadcrumbTrail(product, productUrl);
+  const jsonLd = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
-    itemListElement: [
-      {
-        "@type": "ListItem",
-        position: 1,
-        name: "Inicio",
-        item: resolveAbsoluteUrl("/"),
-      },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: "Productos",
-        item: resolveAbsoluteUrl("/shop.html"),
-      },
-      {
-        "@type": "ListItem",
-        position: 3,
-        name: heading,
-        item: productUrl,
-      },
-    ],
+    itemListElement: breadcrumbs.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.label,
+      item: item.href || productUrl,
+    })),
   };
-  script.textContent = JSON.stringify(breadcrumbs, null, 2);
+  script.textContent = JSON.stringify(jsonLd, null, 2);
   script.dataset.productBreadcrumbsTemplate = script.textContent;
 }
 
@@ -954,8 +998,33 @@ function renderProduct(product) {
   const summary = document.createElement("header");
   summary.className = "product-summary product-buy-header";
 
+  const breadcrumbNav = document.createElement("nav");
+  breadcrumbNav.className = "product-breadcrumb";
+  breadcrumbNav.setAttribute("aria-label", "Ruta del producto");
+  const breadcrumbList = document.createElement("ol");
+  breadcrumbList.className = "product-breadcrumb__list";
+  const breadcrumbItems = buildBreadcrumbTrail(product, metaInfo.productUrl);
+  breadcrumbItems.forEach((item, index) => {
+    const li = document.createElement("li");
+    li.className = "product-breadcrumb__item";
+    const isLast = index === breadcrumbItems.length - 1;
+    if (item.href && !isLast) {
+      const link = document.createElement("a");
+      link.href = item.href;
+      link.textContent = item.label;
+      li.appendChild(link);
+    } else {
+      const span = document.createElement("span");
+      span.textContent = item.label;
+      li.appendChild(span);
+    }
+    breadcrumbList.appendChild(li);
+  });
+  breadcrumbNav.appendChild(breadcrumbList);
+  summary.appendChild(breadcrumbNav);
+
   const title = document.createElement("h1");
-  title.textContent = stripBrandSuffix(seoTitle) || product.name || "Producto";
+  title.textContent = buildCatalogHeading(product, seoTitle) || "Producto";
   summary.appendChild(title);
 
   const meta = document.createElement("div");
@@ -1352,31 +1421,37 @@ function renderProduct(product) {
     detailsPanel.appendChild(specsCard);
   }
 
+  const perksCard = document.createElement("article");
+  perksCard.className = "product-body__card product-benefits-card";
+  const perksTitle = document.createElement("h3");
+  perksTitle.textContent = "Beneficios y garantías del catálogo";
   const perks = document.createElement("ul");
-  perks.className = "product-trust-block";
+  perks.className = "product-benefits";
+  perks.setAttribute("aria-label", "Beneficios logísticos y de garantía");
   [
     {
-      title: "Retiro en sucursal",
-      detail: "Coordina y retiralo sin costo en San Telmo.",
+      title: "Service Pack sellado",
+      detail: "Módulo original calibrado, brillo y táctil como fábrica.",
     },
     {
-      title: "Pagá como quieras",
-      detail: "Transferencia, tarjetas o Mercado Pago con cuotas.",
+      title: "Despacho 24h + tracking",
+      detail: "Salidas diarias a todo el país con seguimiento en línea.",
     },
     {
-      title: "Despacho 24h",
-      detail: "Envíos a todo el país con seguimiento en línea.",
+      title: "Garantía técnica real",
+      detail: "Cobertura por defecto de fábrica y soporte por WhatsApp.",
     },
     {
-      title: "Garantía técnica",
-      detail: "Cobertura real por defecto de fábrica.",
+      title: "Pagá como en el catálogo",
+      detail: "Transferencia, tarjetas o Mercado Pago con cuotas claras.",
     },
   ].forEach((item) => {
     const li = document.createElement("li");
     li.innerHTML = `<strong>${item.title}</strong><span>${item.detail}</span>`;
     perks.appendChild(li);
   });
-  detailsPanel.appendChild(perks);
+  perksCard.append(perksTitle, perks);
+  detailsPanel.appendChild(perksCard);
 
   if (detailSection) {
     detailSection.appendChild(detailsPanel);
