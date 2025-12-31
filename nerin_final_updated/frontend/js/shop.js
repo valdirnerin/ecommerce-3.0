@@ -202,6 +202,17 @@ function getProductDescription(product) {
   return "";
 }
 
+function createDescriptionPreview(description, maxLength = 200) {
+  if (typeof description !== "string") return "";
+  const normalized = description.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength) return normalized;
+  const slice = normalized.slice(0, maxLength);
+  const cutoff = slice.lastIndexOf(" ");
+  const safeText = cutoff > maxLength * 0.6 ? slice.slice(0, cutoff) : slice;
+  return `${safeText.trim()}…`;
+}
+
 function getPartKey(product) {
   if (!product) return "";
   if (typeof product.catalog_piece === "string") {
@@ -721,7 +732,8 @@ function createProductCard(product) {
   desc.className = "description";
   const descriptionText =
     getProductDescription(product) || "Descripción no disponible.";
-  desc.textContent = descriptionText;
+  desc.textContent = createDescriptionPreview(descriptionText);
+  desc.title = descriptionText;
   card.appendChild(desc);
 
   const availability = document.createElement("div");
