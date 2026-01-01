@@ -620,6 +620,11 @@ body.cart-indicator-visible .toastify {
   color: #4b5563;
   flex-grow: 1;
   margin-bottom: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .price {
@@ -1378,6 +1383,11 @@ body.cart-indicator-visible .toastify {
   margin: 0 0 1.1rem;
   color: #374151;
   font-size: 0.95rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .price-block {
