@@ -479,6 +479,17 @@ function getProductDescription(product) {
   return "Descripción no disponible.";
 }
 
+function createDescriptionPreview(description, maxLength = 200) {
+  if (typeof description !== "string") return "";
+  const normalized = description.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized.length <= maxLength) return normalized;
+  const slice = normalized.slice(0, maxLength);
+  const cutoff = slice.lastIndexOf(" ");
+  const safeText = cutoff > maxLength * 0.6 ? slice.slice(0, cutoff) : slice;
+  return `${safeText.trim()}…`;
+}
+
 function getStockStatus(product) {
   if (!product || typeof product.stock !== "number") return "unknown";
   if (product.stock <= 0) return "out";
@@ -626,7 +637,9 @@ function createFeaturedCard(product) {
 
   const desc = document.createElement("p");
   desc.className = "description";
-  desc.textContent = getProductDescription(product);
+  const descriptionText = getProductDescription(product);
+  desc.textContent = createDescriptionPreview(descriptionText);
+  desc.title = descriptionText;
   card.appendChild(desc);
 
   const availability = document.createElement("div");
