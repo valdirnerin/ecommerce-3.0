@@ -1,5 +1,23 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
 
+const CONFIG_CACHE_KEY = "nerin:config-cache";
+
+function primeConfigFromCache() {
+  if (typeof window === "undefined" || window.NERIN_CONFIG) return;
+  try {
+    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      window.NERIN_CONFIG = parsed;
+    }
+  } catch (err) {
+    console.warn("home-cache-read", err);
+  }
+}
+
+primeConfigFromCache();
+
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
   currency: "ARS",
@@ -130,7 +148,9 @@ const DEFAULT_HOME_CONTENT = {
   },
 };
 
-let currentHomeContent = deepClone(DEFAULT_HOME_CONTENT);
+let currentHomeContent = getResolvedHomeConfig(
+  typeof window !== "undefined" ? window.NERIN_CONFIG : {},
+);
 
 function deepClone(value) {
   if (value == null) return value;
