@@ -1,6 +1,28 @@
 import { apiFetch } from "./api.js";
 import { startTracking, trackEvent } from "./tracker.js";
 
+const CONFIG_CACHE_KEY = "nerin:config-cache";
+
+function readCachedConfig() {
+  try {
+    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (err) {
+    console.warn("config-cache-read", err);
+  }
+  return null;
+}
+
+function writeCachedConfig(cfg) {
+  try {
+    localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cfg || {}));
+  } catch (err) {
+    console.warn("config-cache-write", err);
+  }
+}
+
 /*
  * Carga la configuración global desde el backend y aplica ajustes en la
  * interfaz (número de WhatsApp, Google Analytics, Meta Pixel). Esta
@@ -93,12 +115,19 @@ function dispatchConfigLoaded(cfg) {
 
 async function loadConfig() {
   let cfg = {};
+  const cached = readCachedConfig();
+  if (cached) {
+    window.NERIN_CONFIG = cached;
+    applySeoConfig(cached);
+    dispatchConfigLoaded(cached);
+  }
   try {
     const res = await apiFetch("/api/config");
     if (!res.ok) throw new Error("No se pudo obtener la configuración");
     cfg = await res.json();
     // Exponer a nivel global
     window.NERIN_CONFIG = cfg;
+    writeCachedConfig(cfg);
     // Permitir que otros módulos conozcan la URL base del backend si está definida
     if (cfg.apiBase) {
       window.API_BASE_URL = cfg.apiBase;
