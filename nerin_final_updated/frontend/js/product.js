@@ -977,6 +977,19 @@ function renderProduct(product) {
 
   purchaseCard.appendChild(purchaseHeader);
 
+  const shippingBanner = document.createElement("div");
+  shippingBanner.className = "product-shipping-banner";
+  shippingBanner.innerHTML = `
+    <div class="shipping-banner__badge" aria-hidden="true">🚚</div>
+    <div class="shipping-banner__copy">
+      <span class="shipping-banner__title">Envío gratis a todo el país</span>
+      <span class="shipping-banner__meta">
+        Despachamos a diario con empaque blindado y seguimiento en vivo.
+      </span>
+    </div>
+  `;
+  purchaseCard.appendChild(shippingBanner);
+
   const priceGrid = document.createElement("div");
   priceGrid.className = "product-buy-price-grid";
 
@@ -987,6 +1000,9 @@ function renderProduct(product) {
     <span class="price-tier__label">MINORISTA</span>
     <strong class="price-tier__value">${formatPrice(product.price_minorista)}</strong>
     <span class="price-tier__note">Precio final minorista · IVA incluido</span>
+    <span class="price-tier__tax-note">Precio sin impuestos: ${formatPrice(
+      Number(product.price_minorista || 0) / 1.21,
+    )}</span>
   `;
   priceGrid.appendChild(retailTier);
 
@@ -999,6 +1015,9 @@ function renderProduct(product) {
       <span class="price-tier__label">MAYORISTA</span>
       <strong class="price-tier__value">${formatPrice(product.price_mayorista)}</strong>
       <span class="price-tier__note">Precio mayorista desde este valor con descuentos automáticos por cantidad.</span>
+      <span class="price-tier__tax-note">Precio sin impuestos: ${formatPrice(
+        Number(product.price_mayorista || 0) / 1.21,
+      )}</span>
     `;
   } else {
     wholesaleTier.dataset.locked = "true";
@@ -1058,6 +1077,9 @@ function renderProduct(product) {
 
   const priceLabel = document.createElement("p");
   priceLabel.className = "product-detail-unit-price";
+
+  const taxFreeNote = document.createElement("p");
+  taxFreeNote.className = "product-price-tax-note";
 
   const billingNote = document.createElement("p");
   billingNote.className = "product-price-footnote";
@@ -1127,7 +1149,14 @@ function renderProduct(product) {
     assuranceList.appendChild(li);
   });
 
-  purchaseCard.append(addBtn, priceLabel, billingNote, protectionNote, assuranceList);
+  purchaseCard.append(
+    addBtn,
+    priceLabel,
+    taxFreeNote,
+    billingNote,
+    protectionNote,
+    assuranceList,
+  );
 
   buyPanel.appendChild(purchaseCard);
 
@@ -1213,6 +1242,11 @@ function renderProduct(product) {
       ? "Precio mayorista por unidad"
       : "Precio minorista por unidad";
     priceLabel.textContent = `${unitLabel}: ${formatPrice(unitPrice)} · x${qty}`;
+    const netUnitPrice = Number(unitPrice) / 1.21;
+    const netText = Number.isFinite(netUnitPrice)
+      ? formatPrice(netUnitPrice)
+      : formatPrice(0);
+    taxFreeNote.textContent = `Precio sin impuestos: ${netText}`;
     const stickyLabel = wholesaleUser ? "Mayorista" : "Minorista";
     stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
   };
