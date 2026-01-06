@@ -1429,6 +1429,12 @@ body.cart-indicator-visible .toastify {
   color: rgba(15, 23, 42, 0.6);
 }
 
+.price-tier__tax-note {
+  font-size: 0.72rem;
+  color: rgba(15, 23, 42, 0.58);
+  letter-spacing: 0.01em;
+}
+
 .price-tier[data-locked="true"] {
   border-style: dashed;
   background: linear-gradient(135deg, rgba(148, 163, 184, 0.14), #ffffff);
@@ -4328,6 +4334,53 @@ footer .legal {
   gap: 1rem;
 }
 
+.product-shipping-banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.6rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  background: linear-gradient(120deg, rgba(59, 130, 246, 0.06), rgba(59, 130, 246, 0.1));
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+}
+
+.shipping-banner__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.1rem;
+  box-shadow: 0 5px 12px rgba(14, 165, 233, 0.22);
+}
+
+.shipping-banner__copy {
+  color: #0b1b47;
+  font-weight: 600;
+  line-height: 1.4;
+  font-size: 0.86rem;
+}
+
+.shipping-banner__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.93rem;
+  letter-spacing: 0.01em;
+}
+
+.shipping-banner__meta {
+  display: block;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
 .product-purchase-card__header {
   display: flex;
   justify-content: space-between;
@@ -4529,6 +4582,15 @@ footer .legal {
   font-size: 0.95rem;
   text-align: center;
   line-height: 1.5;
+}
+
+.product-price-tax-note {
+  margin: -0.05rem 0 0.2rem;
+  color: #334155;
+  font-size: 0.86rem;
+  text-align: center;
+  font-weight: 400;
+  letter-spacing: 0.005em;
 }
 
 .product-protection-note {
