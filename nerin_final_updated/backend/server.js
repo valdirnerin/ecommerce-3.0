@@ -26,6 +26,7 @@ const {
 } = require("./utils/productSeo");
 const {
   sendEmail,
+  getSupportEmail,
   sendOrderPreparing,
   sendOrderShipped,
   sendOrderDelivered,
@@ -1523,6 +1524,20 @@ const USERS = [
     name: "Cliente VIP",
   },
 ];
+
+function findUserByEmail(email) {
+  const normalized = normalizeEmailInput(email);
+  if (!normalized) return null;
+  const sample = USERS.find(
+    (user) => normalizeEmailInput(user.email) === normalized,
+  );
+  if (sample) return sample;
+  const registered = getUsers();
+  return (
+    registered.find((user) => normalizeEmailInput(user.email) === normalized) ||
+    null
+  );
+}
 
 // ------------------------ Gestión de usuarios registrados ------------------------
 
@@ -4381,6 +4396,70 @@ async function requestHandler(req, res) {
       }
     });
     return;
+  }
+
+  if (pathname === "/api/password/forgot" && req.method === "POST") {
+    await parseBody(req);
+    const email = normalizeEmailInput(req.body?.email);
+    if (!email) {
+      return sendJson(res, 400, { error: "Correo inválido" });
+    }
+    const user = findUserByEmail(email);
+    if (!user) {
+      return sendJson(res, 404, {
+        success: false,
+        message: "No encontramos un usuario con ese correo en el portal mayorista.",
+      });
+    }
+
+    const publicUrl = getPublicBaseUrl(CONFIG) || DEFAULT_PUBLIC_URL;
+    const supportEmail = getSupportEmail();
+    const recoveryLink = `${publicUrl}/login.html`;
+    const displayName = user.name || "cliente";
+    const subject = "Recuperá tu contraseña de NERIN";
+    const html = `
+      <div style="font-family: Arial, sans-serif; background: #f6f8fb; padding: 24px; color: #0f172a;">
+        <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 24px;">
+          <h1 style="font-size: 20px; margin: 0 0 12px;">Hola ${displayName},</h1>
+          <p style="margin: 0 0 12px; font-size: 15px; line-height: 22px;">
+            Recibimos tu solicitud para recuperar el acceso a tu cuenta mayorista.
+          </p>
+          <p style="margin: 0 0 12px; font-size: 15px; line-height: 22px;">
+            Usaremos el correo registrado en el administrador (Render Disk). Si necesitas ingresar de inmediato, podés iniciar sesión desde <a href="${recoveryLink}" style="color: #2563eb;">${recoveryLink}</a> y solicitarnos una clave temporal.
+          </p>
+          <p style="margin: 0 0 12px; font-size: 15px; line-height: 22px;">
+            Si no solicitaste este correo, desestimá este mensaje.
+          </p>
+          ${
+            supportEmail
+              ? `<p style="margin: 16px 0 0; font-size: 14px; color: #475569;">¿Necesitás ayuda? Escribinos a <a href="mailto:${supportEmail}" style="color:#2563eb;">${supportEmail}</a>.</p>`
+              : ""
+          }
+        </div>
+      </div>
+    `;
+
+    try {
+      await sendEmail({ to: email, subject, html, type: "contacto" });
+      if (supportEmail && supportEmail !== email) {
+        await sendEmail({
+          to: supportEmail,
+          subject: `Solicitud de recuperación de acceso (${email})`,
+          html: `<p style="font-family: Arial, sans-serif; color: #0f172a;">${displayName} (${email}) pidió recuperar su contraseña desde el portal mayorista.</p>`,
+          type: "contacto",
+        });
+      }
+      return sendJson(res, 200, {
+        success: true,
+        message: "Te enviamos un correo con las instrucciones para recuperar tu acceso.",
+      });
+    } catch (err) {
+      console.error("forgot-password", err);
+      return sendJson(res, 500, {
+        error: "No se pudo enviar el correo de recuperación",
+        detail: err?.message || err,
+      });
+    }
   }
 
   // API: subir imagen de producto

@@ -187,9 +187,22 @@ function getFrom(type = 'no-reply') {
     ventas: sanitizeFrom(process.env.FROM_EMAIL_VENTAS),
     contacto: sanitizeFrom(process.env.FROM_EMAIL_CONTACTO),
   };
-  const requested = map[key];
-  const fallback = map['no-reply'];
-  const resolved = requested || fallback || Object.values(map).find(Boolean);
+  const cfg = readConfigFile();
+  const configMap = {
+    'no-reply': sanitizeFrom(cfg?.fromEmailNoReply || cfg?.fromEmail),
+    ventas: sanitizeFrom(cfg?.fromEmailVentas),
+    contacto: sanitizeFrom(cfg?.fromEmailContacto),
+  };
+  const supportFallback = sanitizeFrom(process.env.SUPPORT_EMAIL) ||
+    sanitizeFrom(cfg?.supportEmail);
+  const requested = map[key] || configMap[key];
+  const fallback =
+    map['no-reply'] ||
+    configMap['no-reply'] ||
+    Object.values(map).find(Boolean) ||
+    Object.values(configMap).find(Boolean) ||
+    supportFallback;
+  const resolved = requested || fallback;
   if (resolved) return resolved;
   throw new Error('FROM_EMAIL not configured');
 }
@@ -650,6 +663,7 @@ async function sendWholesaleInternalNotification({ request, baseUrl } = {}) {
 module.exports = {
   getFrom,
   getEmailConfig,
+  getSupportEmail,
   sendEmail,
   sendOrderConfirmed,
   sendPaymentPending,

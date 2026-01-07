@@ -100,6 +100,24 @@ export async function login(email, password) {
   }
 }
 
+export async function requestPasswordReset(email) {
+  const res = await apiFetch("/api/password/forgot", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      data.message || data.error || "No se pudo enviar el correo de recuperación",
+    );
+  }
+  return data;
+}
+
 // Obtener rol de usuario almacenado
 export function getUserRole() {
   return localStorage.getItem("nerinUserRole");
