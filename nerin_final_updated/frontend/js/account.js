@@ -1357,6 +1357,7 @@ async function initAccount() {
   const pCityInput = document.getElementById("pCity");
   const pProvinceInput = document.getElementById("pProvince");
   const pZipInput = document.getElementById("pZip");
+  const pPasswordInput = document.getElementById("pPassword");
   const pCUITInput = document.getElementById("pCUIT");
   const prefWhatsApp = document.getElementById("prefWhatsApp");
   const prefEmail = document.getElementById("prefEmail");
@@ -1654,6 +1655,7 @@ async function initAccount() {
       const cityValue = normalizeProfileText(pCityInput?.value);
       const provinceValue = normalizeProfileText(pProvinceInput?.value);
       const zipValue = normalizeProfileText(pZipInput?.value);
+      const passwordValue = normalizeProfileText(pPasswordInput?.value);
       const cuitValue = normalizeProfileText(pCUITInput?.value);
       const whatsappPref = Boolean(prefWhatsApp?.checked);
       const emailPref =
@@ -1706,6 +1708,9 @@ async function initAccount() {
         },
         profile: profilePayload,
       };
+      if (passwordValue) {
+        update.password = passwordValue;
+      }
       try {
         const res = await apiFetch(`/api/clients/${encodeURIComponent(email)}`, {
           method: "PUT",
@@ -1732,6 +1737,9 @@ async function initAccount() {
             }
           }
           showToast("Perfil actualizado correctamente.", "success");
+          if (pPasswordInput) {
+            pPasswordInput.value = "";
+          }
           refreshHero();
           updateCreditCard(
             {

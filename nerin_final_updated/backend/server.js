@@ -1563,6 +1563,32 @@ function saveUsers(users) {
   fs.writeFileSync(filePath, JSON.stringify({ users }, null, 2), "utf8");
 }
 
+function updateUserPassword(email, nextPassword) {
+  const normalized = normalizeEmailInput(email);
+  if (!normalized || !nextPassword) return false;
+  let updated = false;
+  const sampleUser = USERS.find(
+    (user) => normalizeEmailInput(user.email) === normalized,
+  );
+  if (sampleUser) {
+    sampleUser.password = nextPassword;
+    updated = true;
+  }
+  const registered = getUsers();
+  const registeredIndex = registered.findIndex(
+    (user) => normalizeEmailInput(user.email) === normalized,
+  );
+  if (registeredIndex >= 0) {
+    registered[registeredIndex] = {
+      ...registered[registeredIndex],
+      password: nextPassword,
+    };
+    saveUsers(registered);
+    updated = true;
+  }
+  return updated;
+}
+
 // ========================= NUEVAS UTILIDADES PARA MÓDULOS AVANZADOS =========================
 
 /**
@@ -4424,6 +4450,8 @@ async function requestHandler(req, res) {
     const supportEmail = getSupportEmail();
     const recoveryLink = `${publicUrl}/login.html`;
     const displayName = user.name || "cliente";
+    const tempPassword = generateTempPassword();
+    updateUserPassword(email, tempPassword);
     const subject = "Recuperá tu contraseña de NERIN";
     const html = `
       <div style="font-family: Arial, sans-serif; background: #f6f8fb; padding: 24px; color: #0f172a;">
@@ -4433,7 +4461,10 @@ async function requestHandler(req, res) {
             Recibimos tu solicitud para recuperar el acceso a tu cuenta mayorista.
           </p>
           <p style="margin: 0 0 12px; font-size: 15px; line-height: 22px;">
-            Usaremos el correo registrado en el administrador (Render Disk). Si necesitas ingresar de inmediato, podés iniciar sesión desde <a href="${recoveryLink}" style="color: #2563eb;">${recoveryLink}</a> y solicitarnos una clave temporal.
+            Tu clave temporal es <strong>${tempPassword}</strong>. Ingresá desde <a href="${recoveryLink}" style="color: #2563eb;">${recoveryLink}</a> y luego actualizá tu contraseña en la sección “Mi cuenta”.
+          </p>
+          <p style="margin: 0 0 12px; font-size: 15px; line-height: 22px;">
+            Por seguridad, cambiá la clave temporal apenas ingreses.
           </p>
           <p style="margin: 0 0 12px; font-size: 15px; line-height: 22px;">
             Si no solicitaste este correo, desestimá este mensaje.
@@ -4459,7 +4490,8 @@ async function requestHandler(req, res) {
       }
       return sendJson(res, 200, {
         success: true,
-        message: "Te enviamos un correo con las instrucciones para recuperar tu acceso.",
+        message:
+          "Te enviamos un correo con una clave temporal para recuperar tu acceso.",
       });
     } catch (err) {
       console.error("forgot-password", err);
@@ -6836,6 +6868,19 @@ async function requestHandler(req, res) {
     req.on("end", () => {
       try {
         const update = JSON.parse(body || "{}");
+        const hasPasswordUpdate = Object.prototype.hasOwnProperty.call(
+          update,
+          "password",
+        );
+        const nextPassword = normalizeTextInput(update.password || "");
+        if (hasPasswordUpdate) {
+          delete update.password;
+          if (!nextPassword) {
+            return sendJson(res, 400, {
+              error: "La contraseña no puede estar vacía",
+            });
+          }
+        }
         const profileUpdate =
           update.profile && typeof update.profile === "object"
             ? { ...update.profile }
@@ -6873,6 +6918,9 @@ async function requestHandler(req, res) {
         }
         clients[idx] = applyProfileToClient(merged, profilePayload);
         saveClients(clients);
+        if (hasPasswordUpdate) {
+          updateUserPassword(email, nextPassword);
+        }
         const profile = buildClientProfile(clients[idx], email);
         return sendJson(res, 200, {
           success: true,
