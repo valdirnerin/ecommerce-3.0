@@ -1384,6 +1384,45 @@ function parseBody(req) {
   });
 }
 
+function parseSvixSignatures(headerValue) {
+  if (!headerValue || typeof headerValue !== "string") return [];
+  return headerValue
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) => {
+      const pieces = part.split(",").map((piece) => piece.trim());
+      if (pieces.length < 2) return [];
+      const version = pieces[0];
+      return pieces.slice(1).filter(Boolean).map((signature) => ({
+        version,
+        signature,
+      }));
+    });
+}
+
+function verifySvixSignature({ payload, headers, secret }) {
+  if (!secret) return false;
+  const svixId = headers["svix-id"];
+  const svixTimestamp = headers["svix-timestamp"];
+  const svixSignature = headers["svix-signature"];
+  if (!svixId || !svixTimestamp || !svixSignature) return false;
+  const signedContent = `${svixId}.${svixTimestamp}.${payload}`;
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(signedContent)
+    .digest("base64");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  return parseSvixSignatures(svixSignature).some(
+    ({ version, signature }) => {
+      if (version !== "v1") return false;
+      const signatureBuffer = Buffer.from(signature, "utf8");
+      if (signatureBuffer.length !== expectedBuffer.length) return false;
+      return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+    },
+  );
+}
+
 async function mpWebhookRelay(req, res, parsedUrl) {
   await parseBody(req);
   res.writeHead(200, {
@@ -8148,6 +8187,74 @@ async function requestHandler(req, res) {
         res.end();
         return;
       }
+    });
+    return;
+  }
+
+  if (pathname === "/api/webhooks/resend" && req.method === "POST") {
+    parseBody(req).then(async () => {
+      const secret = process.env.RESEND_WEBHOOK_SECRET || "";
+      const rawPayload = req.rawBody ? req.rawBody.toString("utf8") : "";
+      const isValid = verifySvixSignature({
+        payload: rawPayload,
+        headers: req.headers,
+        secret,
+      });
+      if (!isValid) {
+        res.writeHead(400, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": ORIGIN,
+        });
+        res.end(JSON.stringify({ error: "invalid-signature" }));
+        return;
+      }
+
+      let event = req.body;
+      if (!event || typeof event !== "object") {
+        try {
+          event = JSON.parse(rawPayload || "{}");
+        } catch {
+          event = {};
+        }
+      }
+
+      if (event?.type === "email.received") {
+        const emailId = event?.data?.email_id;
+        if (emailId && resend) {
+          try {
+            const received = await resend.emails.receiving.get(emailId);
+            const data = received?.data || received || {};
+            console.log("resend-inbound received", {
+              emailId,
+              from: data?.from,
+              to: data?.to,
+              subject: data?.subject,
+              created_at: data?.created_at,
+            });
+            if (data?.html) {
+              console.log("resend-inbound html", data.html);
+            }
+            if (data?.text) {
+              console.log("resend-inbound text", data.text);
+            }
+          } catch (error) {
+            console.error("resend-inbound fetch failed", error?.message || error);
+          }
+        } else {
+          console.warn("resend-inbound missing email_id or API key", {
+            emailId,
+            hasResend: Boolean(resend),
+          });
+        }
+      } else if (event?.type) {
+        console.log("resend-inbound ignored event", { type: event.type });
+      }
+
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": ORIGIN,
+      });
+      res.end(JSON.stringify({ ok: true }));
     });
     return;
   }

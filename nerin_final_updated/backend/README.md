@@ -46,5 +46,23 @@ Esta actualización agrega persistencia básica de pedidos y soporte de seguimie
   - `RESEND_API_KEY`: API key de Resend con permisos para enviar emails.
   - `FROM_EMAIL`: remitente verificado que verán los clientes.
   - `SUPPORT_EMAIL`: casilla que recibirá respuestas o consultas.
+  - `RESEND_WEBHOOK_SECRET`: secret del webhook inbound configurado en Resend.
 - Verificá el dominio remitente en Resend (registros SPF y DKIM) antes de enviar correos en producción.
 - Probar envío local: `GET /test-email?to=TU_EMAIL&type=confirmed`.
+
+### Inbound (email.received)
+
+- Webhook público: `POST /api/webhooks/resend`.
+- El endpoint valida la firma Svix (`svix-id`, `svix-timestamp`, `svix-signature`) usando
+  el `RESEND_WEBHOOK_SECRET` y luego consulta el email recibido con
+  `resend.emails.receiving.get(email_id)`.
+
+#### Cómo probar en Render
+1. Configurá en Render:
+   - `RESEND_API_KEY`
+   - `RESEND_WEBHOOK_SECRET`
+2. En Resend, configurá el webhook de inbound con el evento `email.received`
+   apuntando al URL público de Render `/api/webhooks/resend`.
+3. Enviá un email a `test@diadol.resend.app`.
+4. Revisá los logs de Render: deberían verse `from`, `to`, `subject`,
+   `created_at` y el contenido `html/text`.
