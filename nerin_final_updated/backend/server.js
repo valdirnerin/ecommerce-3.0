@@ -4343,58 +4343,66 @@ async function requestHandler(req, res) {
 
   // API: login
   if (pathname === "/api/login" && req.method === "POST") {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", async () => {
-      try {
-        const { email, password } = JSON.parse(body || "{}");
-        // Buscar en usuarios de ejemplo y usuarios registrados
-        let user = USERS.find(
-          (u) => u.email === email && u.password === password,
-        );
-        if (!user) {
-          const regUsers = getUsers();
-          user = regUsers.find(
-            (u) => u.email === email && u.password === password,
-          );
-        }
-        if (user) {
-          // Generar token simple (base64) para demostración
-          const token = Buffer.from(`${user.email}:${Date.now()}`).toString(
-            "base64",
-          );
-          const normalizedEmail = normalizeEmailInput(email);
-          let profile = null;
-          try {
-            const clients = getClients();
-            const client = clients.find(
-              (c) => normalizeEmailInput(c.email) === normalizedEmail,
-            );
-            profile = buildClientProfile(client, email);
-          } catch (clientErr) {
-            console.error("login profile lookup failed", clientErr);
-            profile = buildClientProfile(null, email);
-          }
-          return sendJson(res, 200, {
-            success: true,
-            token,
-            role: user.role || "mayorista",
-            name: user.name || "Cliente",
-            profile,
-          });
-        } else {
-          return sendJson(res, 401, {
-            success: false,
-            message: "Credenciales incorrectas",
-          });
-        }
-      } catch (err) {
-        console.error(err);
-        return sendJson(res, 400, { error: err.message });
+    await parseBody(req);
+    try {
+      const emailInput = normalizeEmailInput(req.body?.email || "");
+      const passwordInput = normalizeTextInput(req.body?.password || "");
+      if (!emailInput || !passwordInput) {
+        return sendJson(res, 400, {
+          success: false,
+          message: "Completá correo y contraseña para ingresar.",
+        });
       }
-    });
+      // Buscar en usuarios de ejemplo y usuarios registrados
+      let user = USERS.find(
+        (u) =>
+          normalizeEmailInput(u.email) === emailInput &&
+          u.password === passwordInput,
+      );
+      if (!user) {
+        const regUsers = getUsers();
+        user = regUsers.find(
+          (u) =>
+            normalizeEmailInput(u.email) === emailInput &&
+            u.password === passwordInput,
+        );
+      }
+      if (user) {
+        // Generar token simple (base64) para demostración
+        const token = Buffer.from(`${user.email}:${Date.now()}`).toString(
+          "base64",
+        );
+        let profile = null;
+        try {
+          const clients = getClients();
+          const client = clients.find(
+            (c) => normalizeEmailInput(c.email) === emailInput,
+          );
+          profile = buildClientProfile(client, emailInput);
+        } catch (clientErr) {
+          console.error("login profile lookup failed", clientErr);
+          profile = buildClientProfile(null, emailInput);
+        }
+        return sendJson(res, 200, {
+          success: true,
+          token,
+          role: user.role || "mayorista",
+          name: user.name || "Cliente",
+          profile,
+        });
+      }
+      return sendJson(res, 401, {
+        success: false,
+        message: "Credenciales incorrectas",
+      });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 400, {
+        success: false,
+        message: "No se pudo procesar el inicio de sesión.",
+        error: err.message,
+      });
+    }
     return;
   }
 
