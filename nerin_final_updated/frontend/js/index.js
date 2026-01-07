@@ -689,7 +689,7 @@ function createFeaturedCard(product) {
     "Minorista",
     product.price_minorista,
     roleState === "wholesale"
-      ? "Referencia minorista para tu cliente final"
+      ? "Precio normal/minorista"
       : "Precio final sugerido",
     "price-tier--retail",
   );
@@ -993,4 +993,3 @@ document.addEventListener("DOMContentLoaded", () => {
   loadFeatured();
   showPopupIfNeeded();
 });
-

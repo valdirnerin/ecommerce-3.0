@@ -773,7 +773,7 @@ function createProductCard(product) {
     "Minorista",
     retailPrice,
     roleState === "wholesale"
-      ? "Referencia minorista para tu cliente final"
+      ? "Precio normal/minorista"
       : "Precio final sugerido",
     "price-tier--retail",
   );
