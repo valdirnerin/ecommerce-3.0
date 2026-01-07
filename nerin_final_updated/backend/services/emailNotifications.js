@@ -346,6 +346,30 @@ async function sendPaymentRejected({ to, order } = {}) {
   });
 }
 
+async function sendPaymentCancelled({ to, order } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(order);
+  const orderNumber = resolveOrderNumber(order);
+  const supportEmail = getSupportEmail();
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás ayuda o ya abonaste, escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Pedido cancelado por falta de pago, ${customer}`,
+    message:
+      'No recibimos la confirmación del pago y el pedido fue cancelado. Podés intentar nuevamente realizando una nueva compra desde nuestro sitio.',
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Pedido cancelado por falta de pago - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
 async function sendOrderPreparing({ to, order } = {}) {
   const recipients = ensureArray(to);
   if (!recipients.length) return null;
@@ -668,6 +692,7 @@ module.exports = {
   sendOrderConfirmed,
   sendPaymentPending,
   sendPaymentRejected,
+  sendPaymentCancelled,
   sendOrderPreparing,
   sendOrderShipped,
   sendOrderDelivered,

@@ -31,6 +31,7 @@ const {
   sendOrderShipped,
   sendOrderDelivered,
   sendInvoiceUploaded,
+  sendPaymentCancelled,
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
   sendWholesaleInternalNotification,
@@ -6537,6 +6538,14 @@ async function requestHandler(req, res) {
           update.estado_pago ??
           update.payment_status_code ??
           null;
+        const prevPaymentCode = mapPaymentStatusCode(
+          prev.payment_status_code ??
+            prev.payment_status ??
+            prev.estado_pago ??
+            prev.status ??
+            null,
+        );
+        let nextPaymentCode = prevPaymentCode;
         const next = { ...orders[index], ...update };
         if (incomingStatus != null) {
           const normalized = mapPaymentStatusCode(incomingStatus);
@@ -6544,6 +6553,7 @@ async function requestHandler(req, res) {
           next.payment_status_code = normalized;
           next.payment_status = localized;
           next.estado_pago = localized;
+          nextPaymentCode = normalized;
         }
         const incomingShippingStatus =
           update.shipping_status ??
@@ -6600,6 +6610,23 @@ async function requestHandler(req, res) {
         }
         orders[index] = next;
         saveOrders(orders);
+        if (
+          incomingStatus != null &&
+          nextPaymentCode === "cancelled" &&
+          prevPaymentCode !== "cancelled"
+        ) {
+          const payload = prepareOrderEmailPayload(orders[index]);
+          if (payload) {
+            try {
+              await sendPaymentCancelled({
+                to: payload.recipient,
+                order: payload.order,
+              });
+            } catch (emailErr) {
+              console.error("order cancelled email failed", emailErr);
+            }
+          }
+        }
         const prevShippingCode = mapShippingStatusCode(
           prev.shipping_status ?? prev.estado_envio ?? null,
         );
