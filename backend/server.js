@@ -77,6 +77,20 @@ app.use(
   })
 );
 
+const UTF8_CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+};
+
+const setUtf8Headers = (res, filePath) => {
+  const contentType = UTF8_CONTENT_TYPES[path.extname(filePath).toLowerCase()];
+  if (contentType) {
+    res.setHeader('Content-Type', contentType);
+  }
+};
+
 app.get('/success', (req, res) => {
   const { preference_id } = req.query;
   res.redirect(`/confirmacion/${preference_id}`);
@@ -194,7 +208,12 @@ const assetRoots = [
 
 for (const dir of assetRoots) {
   if (fs.existsSync(dir)) {
-    app.use('/assets', express.static(dir));
+    app.use(
+      '/assets',
+      express.static(dir, {
+        setHeaders: setUtf8Headers,
+      })
+    );
     break;
   }
 }
@@ -207,11 +226,17 @@ const calculatorStaticDir = path.join(
 if (fs.existsSync(calculatorStaticDir)) {
   app.use(
     ['/nerin_final_updated/import_calc_frontend', '/import_calc_frontend'],
-    express.static(calculatorStaticDir)
+    express.static(calculatorStaticDir, {
+      setHeaders: setUtf8Headers,
+    })
   );
 }
 
-app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(
+  express.static(path.join(__dirname, '../frontend'), {
+    setHeaders: setUtf8Headers,
+  })
+);
 
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
