@@ -117,6 +117,7 @@ if (process.env.NODE_ENV !== "test") {
 const DEFAULT_PUBLIC_URL = "https://nerinparts.com.ar";
 const BASE_URL = process.env.PUBLIC_URL || DEFAULT_PUBLIC_URL;
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
+const META_FEED_CACHE_MS = 10 * 60 * 1000;
 const MAX_ACTIVITY_EVENTS = 600;
 const MAX_ACTIVITY_SESSIONS = 300;
 const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
@@ -124,6 +125,7 @@ const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
 
 let _cache = { t: 0, data: null };
+let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
 
 function normalizeBaseUrl(value) {
   if (!value || typeof value !== "string") return null;
@@ -146,6 +148,20 @@ function getPublicBaseUrl(cfg) {
   const fromEnv = normalizeBaseUrl(process.env.PUBLIC_URL);
   if (fromEnv) return fromEnv;
   return FALLBACK_BASE_URL;
+}
+
+function getMetaFeedBaseUrl(req, cfg) {
+  const fromEnv = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
+  if (fromEnv) return fromEnv;
+  const forwardedProto = req?.headers?.["x-forwarded-proto"];
+  const forwardedHost = req?.headers?.["x-forwarded-host"];
+  const host = forwardedHost || req?.headers?.host;
+  const proto = forwardedProto || (req?.connection?.encrypted ? "https" : "http");
+  if (host) {
+    const inferred = normalizeBaseUrl(`${proto}://${host}`);
+    if (inferred) return inferred;
+  }
+  return getPublicBaseUrl(cfg) || FALLBACK_BASE_URL;
 }
 
 function safeParseMetadata(meta) {
@@ -732,6 +748,11 @@ function absoluteUrl(input, base) {
   }
 }
 
+function stripHtmlTags(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/<[^>]*>/g, " ");
+}
+
 function truncateText(str, limit) {
   if (typeof str !== "string") return "";
   const normalized = str.replace(/\s+/g, " ").trim();
@@ -744,6 +765,15 @@ function truncateText(str, limit) {
 
 function compactText(str) {
   return typeof str === "string" ? str.replace(/\s+/g, " ").trim() : "";
+}
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return "";
+  const stringValue = String(value);
+  if (/[",\r\n]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
 }
 
 function buildFeaturePhrase(product) {
@@ -853,6 +883,113 @@ function buildProductImages(product, siteBase) {
     return defaultAlt;
   });
   return { imageList, normalizedAlts };
+}
+
+function getProductFeedDescription(product) {
+  const raw =
+    product?.description ||
+    product?.short_description ||
+    product?.meta_description ||
+    "";
+  const withoutHtml = stripHtmlTags(String(raw));
+  return truncateText(compactText(withoutHtml), 5000);
+}
+
+function getProductFeedPrice(product) {
+  const priceSource =
+    product?.price_minorista ??
+    product?.price ??
+    product?.price_mayorista ??
+    0;
+  const numeric = Number(priceSource);
+  const formatted = Number.isFinite(numeric) ? numeric.toFixed(2) : "0.00";
+  return `${formatted} ARS`;
+}
+
+function getProductFeedAvailability(product) {
+  const stockValue = Number(
+    product?.stock ??
+      product?.available_stock ??
+      product?.inventory ??
+      product?.stock_total ??
+      0,
+  );
+  return Number.isFinite(stockValue) && stockValue > 0
+    ? "in stock"
+    : "out of stock";
+}
+
+function buildMetaFeedCsv(products, baseUrl) {
+  const headers = [
+    "id",
+    "title",
+    "description",
+    "availability",
+    "condition",
+    "price",
+    "link",
+    "image_link",
+    "brand",
+    "gtin",
+    "mpn",
+  ];
+  const lines = [headers.join(",")];
+  let count = 0;
+  let inStockCount = 0;
+
+  // Mapeo de campos para Meta:
+  // id -> sku/id/slug, title -> nombre, description -> descripción limpia,
+  // availability -> stock, condition -> new, price -> ARS,
+  // link/image_link -> URLs absolutas, brand -> marca/por defecto,
+  // gtin/mpn -> metadata si existe.
+  for (const product of products) {
+    if (!isProductPublic(product)) continue;
+    const idValue =
+      product?.sku ||
+      product?.id ||
+      product?.slug ||
+      "";
+    if (!idValue) continue;
+    const title = product?.name || product?.title || "";
+    const description = getProductFeedDescription(product);
+    const availability = getProductFeedAvailability(product);
+    const condition = "new";
+    const price = getProductFeedPrice(product);
+    const link = absoluteUrl(buildProductUrl(product), baseUrl) || "";
+    const { imageList } = buildProductImages(product, baseUrl);
+    const imageLink = imageList[0] || "";
+    const brand =
+      typeof product?.brand === "string" && product.brand.trim()
+        ? product.brand.trim()
+        : "Samsung";
+    const meta = safeParseMetadata(product?.metadata);
+    const gtin = meta?.gtin || product?.gtin || "";
+    const mpn = meta?.mpn || product?.mpn || "";
+
+    if (availability === "in stock") inStockCount += 1;
+    count += 1;
+
+    const row = [
+      idValue,
+      title,
+      description,
+      availability,
+      condition,
+      price,
+      link,
+      imageLink,
+      brand,
+      gtin,
+      mpn,
+    ].map(csvEscape);
+    lines.push(row.join(","));
+  }
+
+  return {
+    csv: lines.join("\n") + "\n",
+    count,
+    inStockCount,
+  };
 }
 
 function renderProductGallerySsr(product, siteBase) {
@@ -8434,6 +8571,67 @@ async function requestHandler(req, res) {
       "Cache-Control": "public, max-age=3600",
     });
     res.end(lines.join("\n") + "\n");
+    return;
+  }
+
+  if (pathname === "/meta-feed.csv" && req.method === "GET") {
+    const cfg = getConfig();
+    const baseUrl = getMetaFeedBaseUrl(req, cfg);
+    const now = Date.now();
+    if (
+      metaFeedCache.csv &&
+      metaFeedCache.baseUrl === baseUrl &&
+      now - metaFeedCache.t < META_FEED_CACHE_MS
+    ) {
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Cache-Control": "public, max-age=600",
+      });
+      res.end(metaFeedCache.csv);
+      return;
+    }
+    const products = await loadProducts();
+    const { csv, count, inStockCount } = buildMetaFeedCsv(products, baseUrl);
+    metaFeedCache = {
+      t: now,
+      baseUrl,
+      csv,
+      count,
+      inStockCount,
+    };
+    res.writeHead(200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Cache-Control": "public, max-age=600",
+    });
+    res.end(csv);
+    return;
+  }
+
+  if (pathname === "/meta-feed/health" && req.method === "GET") {
+    const cfg = getConfig();
+    const baseUrl = getMetaFeedBaseUrl(req, cfg);
+    const now = Date.now();
+    if (
+      !metaFeedCache.csv ||
+      metaFeedCache.baseUrl !== baseUrl ||
+      now - metaFeedCache.t >= META_FEED_CACHE_MS
+    ) {
+      const products = await loadProducts();
+      const { csv, count, inStockCount } = buildMetaFeedCsv(products, baseUrl);
+      metaFeedCache = {
+        t: now,
+        baseUrl,
+        csv,
+        count,
+        inStockCount,
+      };
+    }
+    sendJson(res, 200, {
+      ok: metaFeedCache.inStockCount > 0,
+      total: metaFeedCache.count,
+      inStock: metaFeedCache.inStockCount,
+      refreshedAt: new Date(metaFeedCache.t).toISOString(),
+    });
     return;
   }
 

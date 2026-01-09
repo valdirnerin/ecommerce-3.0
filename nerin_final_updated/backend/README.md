@@ -15,6 +15,29 @@ Esta actualización agrega persistencia básica de pedidos y soporte de seguimie
 - `PUT /api/orders/:orderNumber/cancel` marca un pedido como cancelado.
 - Webhook `/api/webhooks/mp` actualiza `payment_status` y descuenta stock una
   sola vez.
+- `GET /meta-feed.csv` entrega el feed de productos para Meta Commerce Manager.
+- `GET /meta-feed/health` devuelve el estado del feed (cantidad total y con stock).
+
+## Feed Meta (Commerce Manager)
+
+### URL pública del feed
+- `https://<tu-dominio>/meta-feed.csv`
+
+### Campos incluidos (CSV)
+`id,title,description,availability,condition,price,link,image_link,brand,gtin,mpn`
+
+### Cómo cargarlo en Meta
+1. En Meta Commerce Manager ir a **Catalog > Data sources > Scheduled feed**.
+2. Usar la URL del feed anterior.
+3. Programar la frecuencia (recomendado cada día).
+
+### Probar localmente
+```bash
+curl -s http://localhost:3000/meta-feed.csv | head -n 3
+```
+```bash
+curl -s http://localhost:3000/meta-feed/health | jq
+```
 
 ## Prueba rápida
 1. Crear una orden:
