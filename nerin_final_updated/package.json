@@ -5,7 +5,8 @@
   "main": "backend/index.js",
   "scripts": {
     "start": "node backend/server.js",
-    "test": "jest"
+    "test": "jest",
+    "validate:meta-feed": "node scripts/validate-meta-feed.js"
   },
   "dependencies": {
     "@react-email/components": "^0.5.4",

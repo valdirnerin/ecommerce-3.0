@@ -919,36 +919,32 @@ function getProductFeedAvailability(product) {
     : "out of stock";
 }
 
-function buildMetaFeedCsv(products, baseUrl) {
-  const headers = [
-    "id",
-    "title",
-    "description",
-    "availability",
-    "condition",
-    "price",
-    "link",
-    "image_link",
-    "brand",
-    "gtin",
-    "mpn",
+function resolveProductSku(product) {
+  const meta = safeParseMetadata(product?.metadata);
+  const candidates = [
+    product?.sku,
+    product?.mpn,
+    meta?.sku,
+    meta?.mpn,
+    product?.id,
   ];
-  const lines = [headers.join(",")];
-  let count = 0;
-  let inStockCount = 0;
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return "";
+}
 
-  // Mapeo de campos para Meta:
-  // id -> sku/id/slug, title -> nombre, description -> descripción limpia,
-  // availability -> stock, condition -> new, price -> ARS,
-  // link/image_link -> URLs absolutas, brand -> marca/por defecto,
-  // gtin/mpn -> metadata si existe.
+function isHttpsUrl(value) {
+  return typeof value === "string" && /^https:\/\//i.test(value);
+}
+
+function buildMetaFeedEntries(products, baseUrl) {
+  const entries = [];
+  let inStockCount = 0;
   for (const product of products) {
     if (!isProductPublic(product)) continue;
-    const idValue =
-      product?.sku ||
-      product?.id ||
-      product?.slug ||
-      "";
+    const idValue = resolveProductSku(product);
     if (!idValue) continue;
     const title = product?.name || product?.title || "";
     const description = getProductFeedDescription(product);
@@ -962,25 +958,54 @@ function buildMetaFeedCsv(products, baseUrl) {
       typeof product?.brand === "string" && product.brand.trim()
         ? product.brand.trim()
         : "Samsung";
-    const meta = safeParseMetadata(product?.metadata);
-    const gtin = meta?.gtin || product?.gtin || "";
-    const mpn = meta?.mpn || product?.mpn || "";
-
+    if (!isHttpsUrl(link) || !isHttpsUrl(imageLink)) {
+      continue;
+    }
     if (availability === "in stock") inStockCount += 1;
-    count += 1;
-
-    const row = [
-      idValue,
+    entries.push({
+      id: idValue,
       title,
       description,
       availability,
       condition,
       price,
       link,
-      imageLink,
+      image_link: imageLink,
       brand,
-      gtin,
-      mpn,
+      mpn: idValue,
+    });
+  }
+  return { entries, inStockCount, count: entries.length };
+}
+
+function buildMetaFeedCsv(products, baseUrl) {
+  const headers = [
+    "id",
+    "title",
+    "description",
+    "availability",
+    "condition",
+    "price",
+    "link",
+    "image_link",
+    "brand",
+    "mpn",
+  ];
+  const lines = [headers.join(",")];
+  const { entries, count, inStockCount } = buildMetaFeedEntries(products, baseUrl);
+
+  for (const entry of entries) {
+    const row = [
+      entry.id,
+      entry.title,
+      entry.description,
+      entry.availability,
+      entry.condition,
+      entry.price,
+      entry.link,
+      entry.image_link,
+      entry.brand,
+      entry.mpn,
     ].map(csvEscape);
     lines.push(row.join(","));
   }
@@ -8607,6 +8632,19 @@ async function requestHandler(req, res) {
     return;
   }
 
+  if (!IS_PRODUCTION && pathname === "/meta-feed-debug.json" && req.method === "GET") {
+    const cfg = getConfig();
+    const baseUrl = getMetaFeedBaseUrl(req, cfg);
+    const products = await loadProducts();
+    const { entries, count, inStockCount } = buildMetaFeedEntries(products, baseUrl);
+    return sendJson(res, 200, {
+      baseUrl,
+      total: count,
+      inStock: inStockCount,
+      items: entries,
+    });
+  }
+
   if (pathname === "/meta-feed/health" && req.method === "GET") {
     const cfg = getConfig();
     const baseUrl = getMetaFeedBaseUrl(req, cfg);
@@ -8814,7 +8852,7 @@ async function requestHandler(req, res) {
       name: h1,
       ...(imageList.length ? { image: imageList } : {}),
       ...(description ? { description } : descriptionValue ? { description: descriptionValue } : {}),
-      ...(skuValue ? { sku: skuValue } : {}),
+      ...(skuValue ? { sku: skuValue, mpn: skuValue } : {}),
       ...(brandName
         ? { brand: { "@type": "Brand", name: brandName } }
         : {}),

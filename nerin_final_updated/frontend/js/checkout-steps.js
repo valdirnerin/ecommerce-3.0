@@ -1,4 +1,11 @@
 import { apiFetch } from "./api.js";
+import {
+  buildValueFromItems,
+  getContentIds,
+  getMetaContents,
+  shouldSendEventOnce,
+  trackMetaEvent,
+} from "./meta-pixel.js";
 
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
@@ -21,6 +28,25 @@ const cart = JSON.parse(localStorage.getItem('nerinCart') || '[]');
 if (cart.length === 0) {
   window.location.href = '/cart.html';
 }
+
+function sendInitiateCheckout() {
+  const contents = getMetaContents(cart);
+  if (!contents.length) return;
+  const contentIds = getContentIds(cart);
+  const value = buildValueFromItems(cart);
+  const key = `nerin:meta:initiate:${contents
+    .map((item) => `${item.id}:${item.quantity}`)
+    .join("|")}`;
+  if (!shouldSendEventOnce(key)) return;
+  trackMetaEvent("InitiateCheckout", {
+    contents,
+    content_ids: contentIds,
+    value: Number.isFinite(value) ? value : 0,
+    currency: "ARS",
+  });
+}
+
+sendInitiateCheckout();
 
 let datos = {};
 let envio = {};
@@ -380,7 +406,9 @@ async function submitMercadoPago() {
   confirmarBtn.textContent = 'Procesando...';
   try {
     console.log('Creando preferencia MP', { cart, customer });
-    const carritoBackend = cart.map(({ name, price, quantity }) => ({
+    const carritoBackend = cart.map(({ id, sku, name, price, quantity }) => ({
+      id,
+      sku,
       titulo: name,
       precio: price,
       cantidad: quantity,
