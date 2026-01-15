@@ -1,4 +1,5 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
+import { resolveSku, trackMetaEvent } from "./meta-pixel.js";
 
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -834,6 +835,7 @@ function createProductCard(product) {
       const qty = parseInt(qtyInput.value, 10) || 1;
       const available =
         typeof product.stock === "number" ? product.stock : Infinity;
+      const sku = resolveSku(product);
       if (qty > available) {
         alert(`No hay stock suficiente. Disponibles: ${available}`);
         qtyInput.value = available;
@@ -850,9 +852,13 @@ function createProductCard(product) {
           return;
         }
         existing.quantity = newQty;
+        if (sku && !existing.sku) {
+          existing.sku = sku;
+        }
       } else {
         cart.push({
           id: product.id,
+          sku,
           name: product.name,
           price: wholesalePrice,
           quantity: qty,
@@ -870,6 +876,16 @@ function createProductCard(product) {
       } else if (window.showToast) {
         window.showToast("✅ Producto agregado al carrito");
       }
+      if (sku) {
+        const value = Number(wholesalePrice ?? 0) * qty;
+        trackMetaEvent("AddToCart", {
+          content_type: "product",
+          content_ids: [sku],
+          contents: [{ id: sku, quantity: qty }],
+          value: Number.isFinite(value) ? value : 0,
+          currency: "ARS",
+        });
+      }
     });
     cartDiv.appendChild(qtyInput);
     cartDiv.appendChild(addBtn);
@@ -884,6 +900,7 @@ function createProductCard(product) {
       }
       const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
       const existing = cart.find((item) => item.id === product.id);
+      const sku = resolveSku(product);
       const available =
         typeof product.stock === "number" ? product.stock : Infinity;
       if (existing) {
@@ -894,9 +911,13 @@ function createProductCard(product) {
           return;
         }
         existing.quantity += 1;
+        if (sku && !existing.sku) {
+          existing.sku = sku;
+        }
       } else {
         cart.push({
           id: product.id,
+          sku,
           name: product.name,
           price: retailPrice,
           quantity: 1,
@@ -913,6 +934,16 @@ function createProductCard(product) {
         window.showCartIndicator();
       } else if (window.showToast) {
         window.showToast("✅ Producto agregado al carrito");
+      }
+      if (sku) {
+        const value = Number(retailPrice ?? 0);
+        trackMetaEvent("AddToCart", {
+          content_type: "product",
+          content_ids: [sku],
+          contents: [{ id: sku, quantity: 1 }],
+          value: Number.isFinite(value) ? value : 0,
+          currency: "ARS",
+        });
       }
     });
     cartDiv.appendChild(addBtn);

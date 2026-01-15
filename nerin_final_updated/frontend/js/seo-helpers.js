@@ -255,8 +255,14 @@ export function generateProductSeo(product = {}) {
   const model = extractModelName(product);
   const modelCode = extractModelCode(product);
   const ghCode = extractGhCode(product);
-  const brandLine = compactText([brand, line].filter(Boolean).join(" ")) || brand;
-  const modelLabel = compactText(model || modelCode || product?.sku || brandLine);
+  const modelLabel = compactText(model || modelCode || product?.sku || brand);
+  const shouldDropLine =
+    line &&
+    modelLabel &&
+    modelLabel.toLowerCase().includes(line.toLowerCase());
+  const brandLine =
+    compactText([brand, shouldDropLine ? "" : line].filter(Boolean).join(" ")) ||
+    brand;
   const codeCopy =
     modelCode && (!modelLabel.toLowerCase().includes(modelCode.toLowerCase()) ? modelCode : "");
   const ghCopy = ghCode ? ghCode : "";

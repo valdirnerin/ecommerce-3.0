@@ -1,4 +1,5 @@
 import { apiFetch } from "./api.js";
+import { buildValueFromItems, getMetaContents, trackMetaEvent } from "./meta-pixel.js";
 
 const receipt = document.getElementById('card');
 
@@ -187,6 +188,36 @@ function persist(info) {
   }
 }
 
+function shouldSendPurchase(eventId) {
+  if (!eventId) return true;
+  try {
+    const key = `nerin:meta:purchase:${eventId}`;
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, "1");
+    return true;
+  } catch (err) {
+    return true;
+  }
+}
+
+function sendPurchase(info) {
+  if (!info || info.status !== "aprobado") return;
+  const contents = getMetaContents(info.items || []);
+  if (!contents.length) return;
+  const eventId = info.nrn ? `ORDER-${info.nrn}` : `ORDER-${Date.now()}`;
+  if (!shouldSendPurchase(eventId)) return;
+  const value = buildValueFromItems(info.items || []);
+  trackMetaEvent(
+    "Purchase",
+    {
+      contents,
+      value: Number.isFinite(value) ? value : 0,
+      currency: "ARS",
+    },
+    { eventID: eventId },
+  );
+}
+
 async function init() {
   const id = getNRN();
   if (!id) {
@@ -201,6 +232,7 @@ async function init() {
   const info = mapData(data, id);
   render(info);
   persist(info);
+  sendPurchase(info);
   localStorage.removeItem('mp_last_pref');
   localStorage.removeItem('mp_last_nrn');
 }

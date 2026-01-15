@@ -1,4 +1,5 @@
 import { fetchProducts, isWholesale } from "./api.js";
+import { trackMetaEvent, resolveSku, shouldSendEventOnce } from "./meta-pixel.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 
 const detailSection = document.getElementById("productDetail");
@@ -331,12 +332,7 @@ function updateJsonLd(product, images, productUrl) {
     typeof product.brand === "string" && product.brand.trim()
       ? product.brand.trim()
       : "";
-  const skuValue =
-    typeof product.sku === "string" && product.sku.trim()
-      ? product.sku.trim()
-      : product.id != null
-        ? String(product.id)
-        : "";
+  const skuValue = resolveSku(product);
   const description = getProductDescription(product, { preferMeta: true });
   const schema = {
     "@context": "https://schema.org",
@@ -346,7 +342,7 @@ function updateJsonLd(product, images, productUrl) {
     name: heading,
     ...(absoluteImages.length ? { image: absoluteImages } : {}),
     ...(description ? { description } : {}),
-    ...(skuValue ? { sku: skuValue } : {}),
+    ...(skuValue ? { sku: skuValue, mpn: skuValue } : {}),
     ...(brandName ? { brand: { "@type": "Brand", name: brandName } } : {}),
     offers: {
       "@type": "Offer",
@@ -873,6 +869,18 @@ function renderProduct(product) {
   syncBrowserUrl(metaInfo.relativeUrl);
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
+  const skuValue = resolveSku(product);
+  const priceValue = Number(
+    product.price_minorista ?? product.price ?? product.price_mayorista ?? 0,
+  );
+  if (skuValue && shouldSendEventOnce(`nerin:meta:view:${skuValue}`)) {
+    trackMetaEvent("ViewContent", {
+      content_type: "product",
+      content_ids: [skuValue],
+      value: Number.isFinite(priceValue) ? priceValue : 0,
+      currency: "ARS",
+    });
+  }
 
   if (detailSection) {
     detailSection
@@ -1101,6 +1109,7 @@ function renderProduct(product) {
     const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
     const existing = cart.find((item) => item.id === product.id);
     const available = product.stock;
+    const sku = resolveSku(product);
     if (existing) {
       if (existing.quantity + qty > available) {
         alert(
@@ -1109,9 +1118,13 @@ function renderProduct(product) {
         return;
       }
       existing.quantity += qty;
+      if (sku && !existing.sku) {
+        existing.sku = sku;
+      }
     } else {
       cart.push({
         id: product.id,
+        sku,
         name: product.name,
         price: isWholesale()
           ? product.price_mayorista
@@ -1131,6 +1144,23 @@ function renderProduct(product) {
     setTimeout(() => {
       setCtaLabels();
     }, 1500);
+    if (sku) {
+      const unitPrice = isWholesale()
+        ? product.price_mayorista
+        : product.price_minorista;
+      const numericUnit = Number(unitPrice ?? 0);
+      const value =
+        Number.isFinite(numericUnit) && Number.isFinite(qty)
+          ? numericUnit * qty
+          : 0;
+      trackMetaEvent("AddToCart", {
+        content_type: "product",
+        content_ids: [sku],
+        contents: [{ id: sku, quantity: qty }],
+        value,
+        currency: "ARS",
+      });
+    }
   };
 
   addBtn.addEventListener("click", handleAddToCart);
