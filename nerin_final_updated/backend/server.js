@@ -1680,6 +1680,30 @@ async function mpWebhookRelay(req, res, parsedUrl) {
           row.inventory_applied = true;
           console.log(`inventory applied for ${row.id || row.order_number}`);
         }
+        if (normalizedStatus === "approved" && !row.analytics_purchase_tracked) {
+          const sessionId =
+            row.session_id || row.analytics_session_id || row.sessionId || null;
+          if (sessionId) {
+            const items = normalizeAnalyticsItems(row.productos || row.items || []);
+            const orderKey =
+              row.id || row.order_number || row.external_reference || paymentId || null;
+            appendAnalyticsEvent({
+              sessionId,
+              eventType: "purchase",
+              timestamp: new Date().toISOString(),
+              path: "/success",
+              eventId: orderKey ? `order-${orderKey}` : null,
+              sku: items[0]?.sku || null,
+              name: items[0]?.name || null,
+              currency: row.currency || row.totals?.currency || "ARS",
+              orderId: orderKey,
+              total: row.total || row.totals?.grand_total || 0,
+              items,
+              userAgent: row.user_agent || row.userAgent || null,
+            });
+          }
+          row.analytics_purchase_tracked = true;
+        }
         if (
           normalizedStatus === "rejected" &&
           (row.inventoryApplied || row.inventory_applied)
@@ -1816,6 +1840,89 @@ function getSuppliers() {
 function saveSuppliers(suppliers) {
   const filePath = dataPath("suppliers.json");
   fs.writeFileSync(filePath, JSON.stringify({ suppliers }, null, 2), "utf8");
+}
+
+function normalizeAnalyticsEventType(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "ping";
+  if (raw === "view_item") return "product_view";
+  if (raw === "begin_checkout") return "checkout_start";
+  if (raw === "checkout_start") return "checkout_start";
+  if (raw === "checkout_payment") return "checkout_payment";
+  if (raw === "purchase") return "purchase";
+  return raw;
+}
+
+function isLikelyTrackingTokenPath(pathname) {
+  if (!pathname || pathname === "/") return false;
+  const cleaned = String(pathname).replace(/^\/+/, "");
+  if (!cleaned || cleaned.includes("/")) return false;
+  if (cleaned.includes(".")) return false;
+  if (/^[-_]/.test(cleaned)) return true;
+  if (/_aem_/i.test(cleaned)) return true;
+  if (cleaned.length >= 18 && /^[a-z0-9_-]+$/i.test(cleaned)) return true;
+  return false;
+}
+
+function normalizeAnalyticsPath(rawPath) {
+  if (!rawPath) return null;
+  try {
+    const parsed = new URL(String(rawPath), "http://localhost");
+    const pathname = parsed.pathname || "/";
+    if (isLikelyTrackingTokenPath(pathname)) return "/";
+    return pathname.startsWith("/") ? pathname : `/${pathname}`;
+  } catch {
+    const safe = String(rawPath).split("?")[0].split("#")[0];
+    if (!safe) return null;
+    const normalized = safe.startsWith("/") ? safe : `/${safe}`;
+    return isLikelyTrackingTokenPath(normalized) ? "/" : normalized;
+  }
+}
+
+function getRequestIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || req.connection?.remoteAddress || "";
+}
+
+function normalizeAnalyticsItems(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const sku =
+        item.sku ||
+        item.productId ||
+        item.product_id ||
+        item.id ||
+        item.mpn ||
+        item.code ||
+        "";
+      const name = item.name || item.title || item.titulo || item.productName || "";
+      const quantity = Number(item.quantity ?? item.qty ?? item.cantidad ?? 1);
+      const price = Number(
+        item.price ??
+          item.price_minorista ??
+          item.precio ??
+          item.unit_price ??
+          0,
+      );
+      const currency = item.currency || item.currency_id || "ARS";
+      const category = item.category || item.categoria || "";
+      const normalizedSku = String(sku || "").trim();
+      if (!normalizedSku) return null;
+      return {
+        sku: normalizedSku,
+        name: String(name || "").trim() || null,
+        price: Number.isFinite(price) ? price : 0,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+        currency: String(currency || "").toUpperCase() || "ARS",
+        category: String(category || "").trim() || null,
+      };
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -2059,9 +2166,24 @@ function calculateDetailedAnalytics() {
   const visitTrendMap = new Map();
   const visitsTodaySessions = new Set();
   const visitsWeekSessions = new Set();
+  const productNameBySku = new Map(
+    products.map((p) => [
+      String(p.sku || p.id),
+      p.name || p.title || p.sku || String(p.id),
+    ]),
+  );
   const productNameById = new Map(
     products.map((p) => [String(p.id), p.name || p.title || p.sku || String(p.id)]),
   );
+  const resolveProductName = (evt) => {
+    if (!evt || typeof evt !== "object") return null;
+    const skuCandidate = evt.sku || evt.productId || evt.product_id || evt.id;
+    if (skuCandidate) {
+      const skuKey = String(skuCandidate);
+      return productNameBySku.get(skuKey) || productNameById.get(skuKey) || skuKey;
+    }
+    return evt.name || evt.productName || evt.product || null;
+  };
   const productViewsToday = new Map();
   const productViewsWeek = new Map();
   const funnel = {
@@ -2115,13 +2237,12 @@ function calculateDetailedAnalytics() {
     if (isToday && evt.sessionId) {
       visitsTodaySessions.add(evt.sessionId);
     }
-    const type = String(evt.type || "").toLowerCase();
-    if (type in funnel) {
-      funnel[type] += 1;
+    const normalizedType = normalizeAnalyticsEventType(evt.type);
+    if (normalizedType in funnel) {
+      funnel[normalizedType] += 1;
     }
-    if (type === "product_view" && evt.productId) {
-      const prodId = String(evt.productId);
-      const name = productNameById.get(prodId) || prodId;
+    if (normalizedType === "product_view" && (evt.sku || evt.productId)) {
+      const name = resolveProductName(evt);
       if (isToday) {
         productViewsToday.set(name, (productViewsToday.get(name) || 0) + 1);
       }
@@ -2129,7 +2250,7 @@ function calculateDetailedAnalytics() {
         productViewsWeek.set(name, (productViewsWeek.get(name) || 0) + 1);
       }
     }
-    if (type === "page_view") {
+    if (normalizedType === "page_view") {
       const key = sessionKey ? String(sessionKey) : null;
       if (key) {
         sessionPageViewCounts.set(key, (sessionPageViewCounts.get(key) || 0) + 1);
@@ -2295,18 +2416,16 @@ function calculateDetailedAnalytics() {
     let checkoutStarted = false;
     let purchaseCount = 0;
     sortedSessionEvents.forEach((evt) => {
-      const type = String(evt.type || "").toLowerCase();
+      const type = normalizeAnalyticsEventType(evt.type);
       if (type === "product_view") {
-        const prodId = evt.productId ? String(evt.productId) : null;
-        const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+        const prodName = resolveProductName(evt);
         if (prodName) {
           productMentions.push(prodName);
         }
       }
       if (type === "add_to_cart") {
         addToCartCount += 1;
-        const prodId = evt.productId ? String(evt.productId) : null;
-        const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+        const prodName = resolveProductName(evt);
         if (prodName) {
           productMentions.push(prodName);
         }
@@ -2377,7 +2496,7 @@ function calculateDetailedAnalytics() {
     .length;
   const repeatCustomerRate =
     uniqueCustomerCount > 0 ? returningCustomerCount / uniqueCustomerCount : 0;
-  const conversionRate = funnel.product_view > 0 ? funnel.purchase / funnel.product_view : 0;
+  const conversionRate = visitorsThisWeek > 0 ? funnel.purchase / visitorsThisWeek : 0;
   const cartAbandonmentRate =
     funnel.add_to_cart > 0 ? 1 - funnel.purchase / funnel.add_to_cart : 0;
   const insights = [];
@@ -2427,12 +2546,11 @@ function calculateDetailedAnalytics() {
     });
   }
   const describeEvent = (evt) => {
-    const type = String(evt.type || "").toLowerCase();
+    const type = normalizeAnalyticsEventType(evt.type);
     const owner = formatSessionLabel(evt.sessionId);
     const stepLabel = getStepLabelFromEvent(evt);
     if (type === "product_view") {
-      const prodId = evt.productId ? String(evt.productId) : null;
-      const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+      const prodName = resolveProductName(evt);
       if (prodName && stepLabel) {
         return `${owner} está viendo ${prodName} en ${stepLabel}.`;
       }
@@ -2442,8 +2560,7 @@ function calculateDetailedAnalytics() {
       return `${owner} revisó un producto.`;
     }
     if (type === "add_to_cart") {
-      const prodId = evt.productId ? String(evt.productId) : null;
-      const prodName = evt.productName || (prodId ? productNameById.get(prodId) : null);
+      const prodName = resolveProductName(evt);
       const quantity = Number(evt.quantity ?? evt.metadata?.quantity ?? evt.cartItems ?? 0);
       let label = prodName || "un producto";
       if (Number.isFinite(quantity) && quantity > 1) {
@@ -2566,6 +2683,187 @@ function calculateDetailedAnalytics() {
   };
 }
 
+function calculateAnalyticsSummary(range = "7d") {
+  const { sessions, events } = getActivityLog();
+  const products = getProducts();
+  const now = Date.now();
+  const rangeKey = range === "24h" ? "24h" : "7d";
+  const rangeMs = rangeKey === "24h" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const rangeStart = now - rangeMs;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const productNameBySku = new Map(
+    products.map((p) => [
+      String(p.sku || p.id),
+      p.name || p.title || p.sku || String(p.id),
+    ]),
+  );
+  const filteredEvents = Array.isArray(events)
+    ? events
+        .map((evt) => ({
+          ...evt,
+          timestampMs: Date.parse(evt.timestamp || evt.created_at || evt.createdAt || ""),
+        }))
+        .filter(
+          (evt) =>
+            Number.isFinite(evt.timestampMs) && evt.timestampMs >= rangeStart,
+        )
+    : [];
+  const uniqueSessionsRange = new Set();
+  const uniqueSessionsToday = new Set();
+  const funnelSessions = {
+    view_item: new Set(),
+    add_to_cart: new Set(),
+    begin_checkout: new Set(),
+    purchase: new Set(),
+  };
+  const productViews = new Map();
+  const landingBySession = new Map();
+  const landingCounts = new Map();
+  const sessionTimes = new Map();
+  filteredEvents.forEach((evt) => {
+    const sessionId = evt.sessionId ? String(evt.sessionId) : null;
+    if (sessionId) {
+      uniqueSessionsRange.add(sessionId);
+      if (evt.timestampMs >= startOfToday.getTime()) {
+        uniqueSessionsToday.add(sessionId);
+      }
+      if (!sessionTimes.has(sessionId)) {
+        sessionTimes.set(sessionId, {
+          first: evt.timestampMs,
+          last: evt.timestampMs,
+        });
+      } else {
+        const entry = sessionTimes.get(sessionId);
+        entry.first = Math.min(entry.first, evt.timestampMs);
+        entry.last = Math.max(entry.last, evt.timestampMs);
+      }
+      if (evt.path && !landingBySession.has(sessionId)) {
+        landingBySession.set(sessionId, evt.path);
+      }
+    }
+    const normalizedType = normalizeAnalyticsEventType(evt.type || evt.normalizedType);
+    const sku = evt.sku || evt.productId || evt.product_id || null;
+    if (normalizedType === "product_view") {
+      if (sessionId) {
+        funnelSessions.view_item.add(sessionId);
+      }
+      if (sku) {
+        const key = String(sku);
+        const name =
+          productNameBySku.get(key) ||
+          evt.name ||
+          evt.productName ||
+          key;
+        productViews.set(name, (productViews.get(name) || 0) + 1);
+      }
+    }
+    if (normalizedType === "add_to_cart" && sessionId) {
+      funnelSessions.add_to_cart.add(sessionId);
+    }
+    if (normalizedType === "checkout_start" && sessionId) {
+      funnelSessions.begin_checkout.add(sessionId);
+    }
+    if (normalizedType === "purchase" && sessionId) {
+      funnelSessions.purchase.add(sessionId);
+    }
+  });
+  landingBySession.forEach((path) => {
+    const page = path || "/";
+    landingCounts.set(page, (landingCounts.get(page) || 0) + 1);
+  });
+  const topLandingPages = Array.from(landingCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([path, count]) => ({ path, count }));
+  const topProducts = Array.from(productViews.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => ({ name, count }));
+  const countView = funnelSessions.view_item.size;
+  const countAdd = funnelSessions.add_to_cart.size;
+  const countCheckout = funnelSessions.begin_checkout.size;
+  const countPurchase = funnelSessions.purchase.size;
+  const funnel = {
+    view_item: { count: countView, rate: countView > 0 ? 1 : 0 },
+    add_to_cart: {
+      count: countAdd,
+      rate: countView > 0 ? countAdd / countView : 0,
+    },
+    begin_checkout: {
+      count: countCheckout,
+      rate: countAdd > 0 ? countCheckout / countAdd : 0,
+    },
+    purchase: {
+      count: countPurchase,
+      rate: countCheckout > 0 ? countPurchase / countCheckout : 0,
+    },
+  };
+  const conversionRate =
+    uniqueSessionsRange.size > 0 ? countPurchase / uniqueSessionsRange.size : 0;
+
+  const last24h = now - 24 * 60 * 60 * 1000;
+  const cartSessions24h = new Set();
+  const purchaseSessions24h = new Set();
+  (Array.isArray(events) ? events : []).forEach((evt) => {
+    const ts = Date.parse(evt.timestamp || "");
+    if (!Number.isFinite(ts) || ts < last24h) return;
+    const sessionId = evt.sessionId ? String(evt.sessionId) : null;
+    if (!sessionId) return;
+    const normalizedType = normalizeAnalyticsEventType(evt.type || evt.normalizedType);
+    if (normalizedType === "add_to_cart") {
+      cartSessions24h.add(sessionId);
+    }
+    if (normalizedType === "purchase") {
+      purchaseSessions24h.add(sessionId);
+    }
+  });
+  const activeCarts24h = Array.from(cartSessions24h).filter(
+    (sessionId) => !purchaseSessions24h.has(sessionId),
+  ).length;
+
+  const sessionDurations = Array.from(sessionTimes.values())
+    .map((entry) => entry.last - entry.first)
+    .filter((ms) => Number.isFinite(ms) && ms >= 0);
+  const averageSessionDuration =
+    sessionDurations.length > 0
+      ? sessionDurations.reduce((sum, value) => sum + value, 0) /
+        sessionDurations.length /
+        (60 * 1000)
+      : 0;
+  const sortedDurations = sessionDurations.slice().sort((a, b) => a - b);
+  let medianSessionDuration = 0;
+  if (sortedDurations.length) {
+    const mid = Math.floor(sortedDurations.length / 2);
+    if (sortedDurations.length % 2 === 0) {
+      medianSessionDuration = (sortedDurations[mid - 1] + sortedDurations[mid]) / 2;
+    } else {
+      medianSessionDuration = sortedDurations[mid];
+    }
+    medianSessionDuration /= 60 * 1000;
+  }
+
+  const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+  const activeSessions = (Array.isArray(sessions) ? sessions : []).filter((session) => {
+    const lastSeen = Date.parse(session.lastSeenAt || session.lastSeen || session.startedAt);
+    return Number.isFinite(lastSeen) && now - lastSeen <= ACTIVE_WINDOW_MS;
+  });
+
+  return {
+    range: rangeKey,
+    activeSessions: activeSessions.length,
+    visitorsToday: uniqueSessionsToday.size,
+    visitorsRange: uniqueSessionsRange.size,
+    topProducts,
+    funnel,
+    conversionRate,
+    activeCarts24h,
+    averageSessionDuration,
+    medianSessionDuration,
+    topLandingPages,
+  };
+}
+
 // Leer productos desde el archivo JSON
 function getProducts() {
   const filePath = dataPath("products.json");
@@ -2648,6 +2946,103 @@ function saveActivityLog(log) {
     );
 
   return activityLogWriteChain;
+}
+
+function appendAnalyticsEvent({
+  sessionId,
+  eventType,
+  timestamp,
+  path,
+  referrer,
+  eventId,
+  sku,
+  name,
+  price,
+  quantity,
+  currency,
+  orderId,
+  total,
+  items,
+  userAgent,
+}) {
+  if (!sessionId || !eventType) return null;
+  const nowIso = timestamp || new Date().toISOString();
+  const normalizedType = normalizeAnalyticsEventType(eventType);
+  const { sessions: rawSessions, events: rawEvents } = getActivityLog();
+  const sessions = Array.isArray(rawSessions)
+    ? rawSessions.map((session) => ({ ...session }))
+    : [];
+  const events = Array.isArray(rawEvents) ? rawEvents.slice() : [];
+  if (eventId && events.some((evt) => evt && evt.eventId === eventId)) {
+    return { sessionId, eventId, deduped: true };
+  }
+  let session = sessions.find((s) => String(s.id) === String(sessionId));
+  if (!session) {
+    session = {
+      id: sessionId,
+      startedAt: nowIso,
+      status: "active",
+    };
+    sessions.push(session);
+  }
+  session.lastSeenAt = nowIso;
+  session.lastSeen = nowIso;
+  if (currency) {
+    session.currency = String(currency).toUpperCase();
+  }
+  if (userAgent) {
+    session.userAgent = String(userAgent).slice(0, 260);
+  }
+  if (path) {
+    session.lastPath = path;
+  }
+  const event = {
+    type: String(eventType).toLowerCase(),
+    normalizedType,
+    timestamp: nowIso,
+    sessionId,
+    path: path || null,
+    referrer: referrer || null,
+    eventId: eventId || null,
+    sku: sku || null,
+    name: name || null,
+    price: Number.isFinite(Number(price)) ? Number(price) : null,
+    quantity: Number.isFinite(Number(quantity)) ? Number(quantity) : null,
+    currency: currency || session.currency || null,
+    orderId: orderId || null,
+    total: Number.isFinite(Number(total)) ? Number(total) : null,
+    items: Array.isArray(items) && items.length ? items : null,
+  };
+  events.push(event);
+  const history = recordAnalyticsHistoryEvent(getAnalyticsHistory(), {
+    sessionId,
+    eventType: normalizedType,
+    timestamp: nowIso,
+    path,
+  });
+  saveAnalyticsHistory(history);
+  while (events.length > MAX_ACTIVITY_EVENTS) {
+    events.shift();
+  }
+  const nowMs = Date.parse(nowIso);
+  let filteredSessions = sessions.filter((s) => {
+    const lastSeen = Date.parse(s.lastSeenAt || s.lastSeen || s.startedAt || "");
+    if (!Number.isFinite(lastSeen)) return true;
+    if (nowMs - lastSeen <= ACTIVITY_SESSION_RETENTION_MS) return true;
+    return String(s.status || "").toLowerCase() === "active";
+  });
+  if (filteredSessions.length > MAX_ACTIVITY_SESSIONS) {
+    filteredSessions = filteredSessions
+      .slice()
+      .sort((a, b) => {
+        const aTime = Date.parse(a.lastSeenAt || a.lastSeen || a.startedAt || "") || 0;
+        const bTime = Date.parse(b.lastSeenAt || b.lastSeen || b.startedAt || "") || 0;
+        return bTime - aTime;
+      })
+      .slice(0, MAX_ACTIVITY_SESSIONS);
+  }
+  saveActivityLog({ sessions: filteredSessions, events });
+  return { sessionId, eventId };
 }
 
 function getAnalyticsHistory() {
@@ -2762,7 +3157,7 @@ function recordAnalyticsHistoryEvent(history, payload) {
     }
   }
 
-  const normalizedType = String(eventType || "").toLowerCase();
+  const normalizedType = normalizeAnalyticsEventType(eventType);
   const addPageView = normalizedType === "page_view" || normalizedType === "pageview";
   const addProductView = normalizedType === "product_view";
   const addToCart = normalizedType === "add_to_cart";
@@ -4467,6 +4862,26 @@ async function requestHandler(req, res) {
     return res.end();
   }
 
+  if (
+    req.method === "GET" &&
+    pathname &&
+    !pathname.startsWith("/api") &&
+    isLikelyTrackingTokenPath(pathname)
+  ) {
+    const utmParams = new URLSearchParams();
+    Object.entries(parsedUrl.query || {}).forEach(([key, value]) => {
+      if (!key.toLowerCase().startsWith("utm_")) return;
+      if (Array.isArray(value)) {
+        value.forEach((entry) => utmParams.append(key, entry));
+      } else if (value != null) {
+        utmParams.set(key, String(value));
+      }
+    });
+    const location = utmParams.toString() ? `/?${utmParams.toString()}` : "/";
+    res.writeHead(302, { Location: location });
+    return res.end();
+  }
+
   if (pathname && pathname.startsWith("/calc-api")) {
     if (hasExternalCalcApi && calcApiProxy) {
       return calcApiProxy(req, res, (proxyError) => {
@@ -5795,6 +6210,7 @@ async function requestHandler(req, res) {
         const parsed = JSON.parse(body || "{}");
         const cart = parsed.cart;
         const customer = parsed.customer;
+        const analyticsSessionId = parsed.sessionId || parsed.session_id || null;
         if (!Array.isArray(cart) || cart.length === 0) {
           return sendJson(res, 400, {
             error: "El carrito está vacío o no es válido",
@@ -5851,6 +6267,8 @@ async function requestHandler(req, res) {
           id: orderId,
           external_reference: orderId,
           date: new Date().toISOString(),
+          session_id: analyticsSessionId || null,
+          analytics_session_id: analyticsSessionId || null,
           // Clonar items para no mutar las cantidades al actualizar inventario
           items: cart.map((it) => ({ ...it })),
           estado_pago: pendingLabel,
@@ -6096,6 +6514,8 @@ async function requestHandler(req, res) {
         if (!Array.isArray(items) || items.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });
         }
+        const analyticsSessionId =
+          data.sessionId || data.session_id || data.analyticsSessionId || null;
         const orderId = generarNumeroOrden();
         const orders = getOrders();
         const provincia =
@@ -6180,6 +6600,8 @@ async function requestHandler(req, res) {
           id: orderId,
           order_number: orderId,
           external_reference: orderId,
+          session_id: analyticsSessionId || null,
+          analytics_session_id: analyticsSessionId || null,
           cliente: data.cliente || {},
           productos: items,
           provincia_envio: provincia,
@@ -7811,8 +8233,28 @@ async function requestHandler(req, res) {
           error: "sessionId requerido",
         });
       }
+      const adminIps = String(process.env.ADMIN_IPS || "")
+        .split(",")
+        .map((ip) => ip.trim())
+        .filter(Boolean);
+      const requestIp = getRequestIp(req);
+      const isAdminIp = requestIp && adminIps.includes(requestIp);
+      const isAdminSession = Boolean(body.is_admin_session || body.isAdminSession);
+      if (isAdminIp || isAdminSession) {
+        return sendJson(res, 200, { success: true, sessionId, skipped: true });
+      }
       const now = new Date();
-      const nowIso = now.toISOString();
+      const payloadTimestamp = body.timestamp || body.ts || body.time || null;
+      const parsedTimestamp = Date.parse(payloadTimestamp || "");
+      const eventDate = Number.isFinite(parsedTimestamp) ? new Date(parsedTimestamp) : now;
+      const nowIso = eventDate.toISOString();
+      const rawEventType = clampString(body.type || body.event || "ping", 60).toLowerCase();
+      const eventType = normalizeAnalyticsEventType(rawEventType);
+      const rawEventId =
+        body.eventId || body.event_id || body.eventID || body.eventid || null;
+      const eventId = rawEventId
+        ? clampString(rawEventId, 120)
+        : `evt-${sessionId}-${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`;
       const cartValue = Number(
         body.cartValue ?? body.cart_value ?? body.cartTotal ?? body.cart_total ?? 0,
       );
@@ -7826,6 +8268,9 @@ async function requestHandler(req, res) {
         ? rawSessions.map((session) => ({ ...session }))
         : [];
       const events = Array.isArray(rawEvents) ? rawEvents.slice() : [];
+      if (eventId && events.some((evt) => evt && evt.eventId === eventId)) {
+        return sendJson(res, 200, { success: true, sessionId, deduped: true });
+      }
       let session = sessions.find((s) => String(s.id) === sessionId);
       if (!session) {
         session = {
@@ -7873,25 +8318,55 @@ async function requestHandler(req, res) {
         session.userAgent = clampString(ua, 260);
       }
       const rawPath = body.path || body.url || null;
-      const normalizedPath = rawPath ? clampString(rawPath, 200) : null;
+      const normalizedPath = rawPath ? normalizeAnalyticsPath(rawPath) : null;
+      const clampedPath = normalizedPath ? clampString(normalizedPath, 200) : null;
       const inferredStep =
         formatStepLabel(body.step || body.currentStep || body.stage) ||
-        inferStepFromPath(normalizedPath) ||
+        inferStepFromPath(clampedPath) ||
         session.currentStep ||
         null;
       if (inferredStep) {
         session.currentStep = inferredStep;
       }
-      if (normalizedPath) {
-        session.lastPath = normalizedPath;
+      if (clampedPath) {
+        session.lastPath = clampedPath;
       }
 
-      const eventType = clampString(body.type || body.event || "ping", 60).toLowerCase();
+      const normalizedItems = normalizeAnalyticsItems(body.items || body.cart_items || []);
+      const rawSku =
+        body.sku ||
+        body.productSku ||
+        body.product_id ||
+        body.productId ||
+        body.id ||
+        body.metadata?.sku ||
+        null;
+      const sku = rawSku ? clampString(rawSku, 80) : null;
+      const productName = body.name || body.productName || body.product || null;
+      const price = Number(body.price ?? body.unit_price ?? body.value ?? 0);
+      const quantity = Number(body.quantity ?? body.qty ?? body.cantidad ?? 0);
+      const currency = body.currency ? clampString(String(body.currency).toUpperCase(), 8) : null;
+      const orderId =
+        body.orderId || body.order_id || body.order || body.transaction_id || null;
+      const total = Number(body.total ?? body.value ?? body.cartValue ?? 0);
+      if (["view_item", "add_to_cart"].includes(rawEventType) && !sku) {
+        return sendJson(res, 400, {
+          success: false,
+          error: "sku requerido para eventos de producto",
+        });
+      }
+      if (["begin_checkout", "purchase"].includes(rawEventType) && !normalizedItems.length) {
+        return sendJson(res, 400, {
+          success: false,
+          error: "items requeridos para checkout o compra",
+        });
+      }
       const event = {
-        type: eventType || "ping",
+        type: rawEventType || "ping",
+        normalizedType: eventType,
         timestamp: nowIso,
         sessionId,
-        path: normalizedPath,
+        path: clampedPath || null,
         title: clampString(body.title || body.pageTitle || "", 180) || null,
         referrer:
           clampString(body.referrer || body.referer || req.headers.referer || "", 200) ||
@@ -7902,14 +8377,18 @@ async function requestHandler(req, res) {
         cartItems: Number.isFinite(cartItems)
           ? cartItems
           : Number(session.cartItems || 0),
+        eventId,
+        sku,
+        name: productName ? clampString(productName, 160) : null,
+        price: Number.isFinite(price) ? price : null,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null,
+        currency: currency || session.currency || null,
+        orderId: orderId ? clampString(orderId, 120) : null,
+        total: Number.isFinite(total) ? total : null,
+        items: normalizedItems.length ? normalizedItems : null,
+        productId: body.productId ? clampString(body.productId, 80) : null,
+        productName: productName ? clampString(productName, 160) : null,
       };
-      const productName = body.productName || body.product || null;
-      if (productName || body.productId) {
-        event.product = {
-          id: body.productId ? clampString(body.productId, 80) : null,
-          name: productName ? clampString(productName, 160) : null,
-        };
-      }
       if (body.metadata && typeof body.metadata === "object") {
         event.metadata = Object.entries(body.metadata).reduce((acc, [key, value]) => {
           if (!key) return acc;
@@ -7922,7 +8401,7 @@ async function requestHandler(req, res) {
         sessionId,
         eventType,
         timestamp: nowIso,
-        path: normalizedPath,
+        path: clampedPath,
       });
       saveAnalyticsHistory(history);
       while (events.length > MAX_ACTIVITY_EVENTS) {
@@ -7954,6 +8433,23 @@ async function requestHandler(req, res) {
       return sendJson(res, 500, {
         success: false,
         error: "No se pudo registrar el evento",
+      });
+    }
+  }
+
+  /*
+   * API: Resumen de analíticas
+   * Devuelve métricas clave de sesiones, productos vistos, embudo y conversión.
+   */
+  if (pathname === "/api/analytics/summary" && req.method === "GET") {
+    try {
+      const range = parsedUrl.query.range || "7d";
+      const summary = calculateAnalyticsSummary(range);
+      return sendJson(res, 200, { summary });
+    } catch (err) {
+      console.error("analytics-summary error", err);
+      return sendJson(res, 500, {
+        error: "No se pudo calcular el resumen de analíticas",
       });
     }
   }
@@ -8011,7 +8507,9 @@ async function requestHandler(req, res) {
     });
     req.on("end", async () => {
       try {
-        const { carrito, usuario } = JSON.parse(body || "{}");
+        const { carrito, usuario, sessionId, session_id } = JSON.parse(body || "{}");
+        const analyticsSessionId =
+          sessionId || session_id || usuario?.sessionId || usuario?.session_id || null;
         const hasValidItems =
           Array.isArray(carrito) &&
           carrito.length > 0 &&
@@ -8178,6 +8676,8 @@ async function requestHandler(req, res) {
               id: numeroOrden,
               order_number: numeroOrden,
               external_reference: numeroOrden,
+              session_id: analyticsSessionId || null,
+              analytics_session_id: analyticsSessionId || null,
               preference_id: prefId,
               payment_status: pendingLabel,
               payment_status_code: pendingCode,
@@ -8210,6 +8710,9 @@ async function requestHandler(req, res) {
             row.external_reference = numeroOrden;
             row.order_number = row.order_number || numeroOrden;
             row.user_email = usuario?.email || row.user_email || null;
+            row.session_id = row.session_id || analyticsSessionId || null;
+            row.analytics_session_id =
+              row.analytics_session_id || analyticsSessionId || null;
             row.payment_method = row.payment_method || "mercado_pago";
             const statusSource =
               row.payment_status || row.estado_pago || row.payment_status_code;

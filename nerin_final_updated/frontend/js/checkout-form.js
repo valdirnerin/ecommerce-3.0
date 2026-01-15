@@ -30,6 +30,18 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function readTrackingSessionId() {
+    try {
+      const raw = localStorage.getItem("nerinActivitySession");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && parsed.id ? parsed.id : null;
+    } catch (error) {
+      console.warn("No se pudo leer la sesión de tracking", error);
+      return null;
+    }
+  }
+
   function setFieldValue(id, value) {
     if (value == null) return;
     const el = document.getElementById(id);
@@ -123,6 +135,7 @@ document.addEventListener("DOMContentLoaded", () => {
         productos: cart,
         metodo_envio: document.getElementById("metodo_envio").value,
         comentarios: document.getElementById("comentarios").value.trim(),
+        sessionId: readTrackingSessionId(),
       };
 
       try {

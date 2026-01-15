@@ -1,5 +1,6 @@
 import { fetchProducts, isWholesale } from "./api.js";
-import { trackMetaEvent, resolveSku, shouldSendEventOnce } from "./meta-pixel.js";
+import { resolveSku } from "./meta-pixel.js";
+import { trackAddToCart, trackViewItem } from "./lib/tracking.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 
 const detailSection = document.getElementById("productDetail");
@@ -873,12 +874,13 @@ function renderProduct(product) {
   const priceValue = Number(
     product.price_minorista ?? product.price ?? product.price_mayorista ?? 0,
   );
-  if (skuValue && shouldSendEventOnce(`nerin:meta:view:${skuValue}`)) {
-    trackMetaEvent("ViewContent", {
-      content_type: "product",
-      content_ids: [skuValue],
-      value: Number.isFinite(priceValue) ? priceValue : 0,
+  if (skuValue) {
+    trackViewItem({
+      sku: skuValue,
+      name: product.name,
+      price: Number.isFinite(priceValue) ? priceValue : 0,
       currency: "ARS",
+      category: product.category,
     });
   }
 
@@ -1149,16 +1151,13 @@ function renderProduct(product) {
         ? product.price_mayorista
         : product.price_minorista;
       const numericUnit = Number(unitPrice ?? 0);
-      const value =
-        Number.isFinite(numericUnit) && Number.isFinite(qty)
-          ? numericUnit * qty
-          : 0;
-      trackMetaEvent("AddToCart", {
-        content_type: "product",
-        content_ids: [sku],
-        contents: [{ id: sku, quantity: qty }],
-        value,
+      trackAddToCart({
+        sku,
+        name: product.name,
+        price: Number.isFinite(numericUnit) ? numericUnit : 0,
         currency: "ARS",
+        quantity: qty,
+        category: product.category,
       });
     }
   };

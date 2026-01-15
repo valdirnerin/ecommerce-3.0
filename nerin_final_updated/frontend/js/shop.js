@@ -1,5 +1,6 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
-import { resolveSku, trackMetaEvent } from "./meta-pixel.js";
+import { resolveSku } from "./meta-pixel.js";
+import { trackAddToCart } from "./lib/tracking.js";
 
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -877,13 +878,14 @@ function createProductCard(product) {
         window.showToast("✅ Producto agregado al carrito");
       }
       if (sku) {
-        const value = Number(wholesalePrice ?? 0) * qty;
-        trackMetaEvent("AddToCart", {
-          content_type: "product",
-          content_ids: [sku],
-          contents: [{ id: sku, quantity: qty }],
-          value: Number.isFinite(value) ? value : 0,
+        const unitPrice = Number(wholesalePrice ?? 0);
+        trackAddToCart({
+          sku,
+          name: product.name,
+          price: Number.isFinite(unitPrice) ? unitPrice : 0,
           currency: "ARS",
+          quantity: qty,
+          category: product.category,
         });
       }
     });
@@ -936,13 +938,14 @@ function createProductCard(product) {
         window.showToast("✅ Producto agregado al carrito");
       }
       if (sku) {
-        const value = Number(retailPrice ?? 0);
-        trackMetaEvent("AddToCart", {
-          content_type: "product",
-          content_ids: [sku],
-          contents: [{ id: sku, quantity: 1 }],
-          value: Number.isFinite(value) ? value : 0,
+        const unitPrice = Number(retailPrice ?? 0);
+        trackAddToCart({
+          sku,
+          name: product.name,
+          price: Number.isFinite(unitPrice) ? unitPrice : 0,
           currency: "ARS",
+          quantity: 1,
+          category: product.category,
         });
       }
     });

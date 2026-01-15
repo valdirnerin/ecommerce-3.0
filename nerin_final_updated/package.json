@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node backend/server.js",
     "test": "jest",
-    "validate:meta-feed": "node scripts/validate-meta-feed.js"
+    "validate:meta-feed": "node scripts/validate-meta-feed.js",
+    "validate:analytics": "node scripts/validate-analytics.js"
   },
   "dependencies": {
     "@react-email/components": "^0.5.4",

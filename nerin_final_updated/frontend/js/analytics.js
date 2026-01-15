@@ -303,8 +303,40 @@ export async function renderAnalyticsDashboard(
   }
   container.innerHTML = "<p>Cargando...</p>";
   try {
-    const res = await apiFetch("/api/analytics/detailed");
-    const { analytics } = await res.json();
+    const [detailedRes, summaryRes] = await Promise.all([
+      apiFetch("/api/analytics/detailed"),
+      apiFetch("/api/analytics/summary?range=7d"),
+    ]);
+    const { analytics: detailedAnalytics } = await detailedRes.json();
+    let summary = null;
+    if (summaryRes && summaryRes.ok) {
+      const summaryPayload = await summaryRes.json();
+      summary = summaryPayload?.summary || null;
+    }
+    const analytics = { ...(detailedAnalytics || {}) };
+    if (summary) {
+      analytics.activeSessions = summary.activeSessions ?? analytics.activeSessions;
+      analytics.visitorsToday = summary.visitorsToday ?? analytics.visitorsToday;
+      analytics.visitorsThisWeek = summary.visitorsRange ?? analytics.visitorsThisWeek;
+      analytics.conversionRate = summary.conversionRate ?? analytics.conversionRate;
+      analytics.activeCarts = summary.activeCarts24h ?? analytics.activeCarts;
+      analytics.topLandingPages = summary.topLandingPages ?? analytics.topLandingPages;
+      if (summary.funnel) {
+        analytics.funnel = {
+          ...(analytics.funnel || {}),
+          product_view:
+            summary.funnel.view_item?.count ?? analytics.funnel?.product_view ?? 0,
+          add_to_cart:
+            summary.funnel.add_to_cart?.count ?? analytics.funnel?.add_to_cart ?? 0,
+          checkout_start:
+            summary.funnel.begin_checkout?.count ??
+            analytics.funnel?.checkout_start ??
+            0,
+          purchase:
+            summary.funnel.purchase?.count ?? analytics.funnel?.purchase ?? 0,
+        };
+      }
+    }
     container.innerHTML = "";
     const fetchedAt = new Date();
 

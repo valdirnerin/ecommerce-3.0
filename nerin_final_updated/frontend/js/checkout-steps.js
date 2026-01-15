@@ -1,11 +1,6 @@
 import { apiFetch } from "./api.js";
-import {
-  buildValueFromItems,
-  getContentIds,
-  getMetaContents,
-  shouldSendEventOnce,
-  trackMetaEvent,
-} from "./meta-pixel.js";
+import { trackBeginCheckout } from "./lib/tracking.js";
+import { getTrackingSessionId } from "./tracker.js";
 
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
@@ -30,20 +25,8 @@ if (cart.length === 0) {
 }
 
 function sendInitiateCheckout() {
-  const contents = getMetaContents(cart);
-  if (!contents.length) return;
-  const contentIds = getContentIds(cart);
-  const value = buildValueFromItems(cart);
-  const key = `nerin:meta:initiate:${contents
-    .map((item) => `${item.id}:${item.quantity}`)
-    .join("|")}`;
-  if (!shouldSendEventOnce(key)) return;
-  trackMetaEvent("InitiateCheckout", {
-    contents,
-    content_ids: contentIds,
-    value: Number.isFinite(value) ? value : 0,
-    currency: "ARS",
-  });
+  if (!cart.length) return;
+  trackBeginCheckout({ items: cart, currency: "ARS" });
 }
 
 sendInitiateCheckout();
@@ -416,7 +399,11 @@ async function submitMercadoPago() {
     const res = await apiFetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carrito: carritoBackend, usuario: customer }),
+      body: JSON.stringify({
+        carrito: carritoBackend,
+        usuario: customer,
+        sessionId: getTrackingSessionId(),
+      }),
     });
     const text = await res.text();
     try {
@@ -498,6 +485,7 @@ async function submitOfflineOrder(paymentMethod) {
       paymentMethod === 'transferencia'
         ? { reference: 'Pendiente de comprobante' }
         : {},
+    sessionId: getTrackingSessionId(),
   };
   const originalText = confirmarBtn.textContent;
   confirmarBtn.disabled = true;

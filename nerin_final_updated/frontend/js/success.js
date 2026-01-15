@@ -1,5 +1,5 @@
 import { apiFetch } from "./api.js";
-import { buildValueFromItems, getMetaContents, trackMetaEvent } from "./meta-pixel.js";
+import { trackPurchase } from "./lib/tracking.js";
 
 const receipt = document.getElementById('card');
 
@@ -188,34 +188,14 @@ function persist(info) {
   }
 }
 
-function shouldSendPurchase(eventId) {
-  if (!eventId) return true;
-  try {
-    const key = `nerin:meta:purchase:${eventId}`;
-    if (localStorage.getItem(key)) return false;
-    localStorage.setItem(key, "1");
-    return true;
-  } catch (err) {
-    return true;
-  }
-}
-
 function sendPurchase(info) {
   if (!info || info.status !== "aprobado") return;
-  const contents = getMetaContents(info.items || []);
-  if (!contents.length) return;
-  const eventId = info.nrn ? `ORDER-${info.nrn}` : `ORDER-${Date.now()}`;
-  if (!shouldSendPurchase(eventId)) return;
-  const value = buildValueFromItems(info.items || []);
-  trackMetaEvent(
-    "Purchase",
-    {
-      contents,
-      value: Number.isFinite(value) ? value : 0,
-      currency: "ARS",
-    },
-    { eventID: eventId },
-  );
+  trackPurchase({
+    orderId: info.nrn,
+    items: info.items || [],
+    total: info.total,
+    currency: "ARS",
+  });
 }
 
 async function init() {

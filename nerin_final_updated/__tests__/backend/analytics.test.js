@@ -139,7 +139,7 @@ describe('Analíticas detalladas /api/analytics/detailed', () => {
     expect(analytics.revenueToday).toBe(0);
     expect(analytics.revenueThisWeek).toBe(152300);
     expect(analytics.ordersThisWeek).toBe(1);
-    expect(analytics.conversionRate).toBeCloseTo(0.2, 5);
+    expect(analytics.conversionRate).toBeCloseTo(1 / 6, 5);
     expect(analytics.cartAbandonmentRate).toBe(0);
     expect(analytics.averageSessionDuration).toBeCloseTo(20, 5);
     expect(analytics.bounceRate).toBeCloseTo(1 / 3, 5);

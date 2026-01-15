@@ -3,6 +3,7 @@ import { buildApiUrl } from "./api.js";
 const STORAGE_KEY = "nerinActivitySession";
 const SESSION_EXTENSION_MS = 6 * 60 * 60 * 1000; // 6 horas
 const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
+const ADMIN_ROLES = new Set(["admin", "vendedor"]);
 
 function isLocalhost(hostname) {
   return /^(localhost|127\.0\.0\.1|0\.0\.0\.0)$/i.test(hostname || "");
@@ -81,6 +82,11 @@ function safeSetLocalStorage(key, value) {
   } catch (err) {
     console.warn("tracker:localStorage:set", err);
   }
+}
+
+function readUserRole() {
+  const role = safeGetLocalStorage("nerinUserRole");
+  return typeof role === "string" ? role.trim().toLowerCase() : "";
 }
 
 function loadStoredSession() {
@@ -212,6 +218,7 @@ function buildPayload(base) {
   const cookieIdentity = readIdentityFromCookies();
   const storedEmail = safeGetLocalStorage("nerinUserEmail");
   const storedName = safeGetLocalStorage("nerinUserName");
+  const storedRole = readUserRole();
   const path =
     base.path === null
       ? null
@@ -246,6 +253,19 @@ function buildPayload(base) {
     userAgent: base.userAgent ?? navigatorObj?.userAgent ?? null,
     productId: base.productId ?? null,
     productName: base.productName ?? null,
+    eventId: base.eventId ?? base.event_id ?? base.eventID ?? null,
+    sku: base.sku ?? null,
+    name: base.name ?? null,
+    price: base.price ?? null,
+    currency: base.currency ?? null,
+    quantity: base.quantity ?? null,
+    orderId: base.orderId ?? base.order_id ?? null,
+    total: base.total ?? base.value ?? null,
+    items: base.items ?? null,
+    is_admin_session:
+      base.is_admin_session ??
+      base.isAdminSession ??
+      (storedRole ? ADMIN_ROLES.has(storedRole) : false),
     metadata: base.metadata ?? null,
   };
   if (payload.metadata && typeof payload.metadata === "object") {
@@ -265,6 +285,16 @@ function buildPayload(base) {
   }
   if (!payload.productId) delete payload.productId;
   if (!payload.productName) delete payload.productName;
+  if (!payload.eventId) delete payload.eventId;
+  if (!payload.sku) delete payload.sku;
+  if (!payload.name) delete payload.name;
+  if (!Number.isFinite(Number(payload.price || 0))) delete payload.price;
+  if (!payload.currency) delete payload.currency;
+  if (!Number.isFinite(Number(payload.quantity || 0))) delete payload.quantity;
+  if (!payload.orderId) delete payload.orderId;
+  if (!Number.isFinite(Number(payload.total || 0))) delete payload.total;
+  if (!Array.isArray(payload.items) || payload.items.length === 0) delete payload.items;
+  if (!payload.is_admin_session) delete payload.is_admin_session;
   if (!payload.title) delete payload.title;
   if (!payload.referrer) delete payload.referrer;
   if (!payload.locale) delete payload.locale;
@@ -353,6 +383,11 @@ function sendPageView() {
 export function startTracking() {
   ensureInitialized();
   sendPageView();
+}
+
+export function getTrackingSessionId() {
+  if (typeof window === "undefined") return null;
+  return ensureSession()?.id || null;
 }
 
 export function trackEvent(type, detail = {}, options = {}) {

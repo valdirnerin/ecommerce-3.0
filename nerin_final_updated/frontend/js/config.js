@@ -1,5 +1,5 @@
 import { apiFetch } from "./api.js";
-import { startTracking, trackEvent } from "./tracker.js";
+import { startTracking } from "./tracker.js";
 
 const CONFIG_CACHE_KEY = "nerin:config-cache";
 
@@ -318,24 +318,6 @@ function showCartIndicator(options = {}) {
   const messageText = (opts.message && String(opts.message).trim()) || "Producto agregado al carrito";
   const duration = Number.isFinite(opts.duration) ? Math.max(Number(opts.duration), 2200) : 3200;
   const allowFallbackToast = opts.fallbackToast !== false;
-
-  try {
-    trackEvent("add_to_cart", {
-      status: "active",
-      step: "Carrito",
-      productId: opts.productId,
-      productName: opts.productName,
-      metadata:
-        opts && (opts.productSku || opts.source)
-          ? {
-              sku: opts.productSku,
-              source: opts.source,
-            }
-          : undefined,
-    });
-  } catch (err) {
-    console.warn("tracker:add_to_cart", err);
-  }
 
   const isMobile = window.matchMedia("(max-width: 768px)").matches;
   const target = isMobile
