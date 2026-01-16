@@ -1342,11 +1342,11 @@ body.cart-indicator-visible .toastify {
 .premium-grid .product-card img {
   width: 100%;
   height: 200px;
-  object-fit: contain;
+  object-fit: cover;
   background: #fff;
   border-radius: 20px;
   margin-bottom: 1.25rem;
-  padding: 1rem;
+  padding: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
