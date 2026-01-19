@@ -151,6 +151,8 @@ function getPublicBaseUrl(cfg) {
 }
 
 function getMetaFeedBaseUrl(req, cfg) {
+  const fromSite = normalizeBaseUrl(process.env.SITE_URL);
+  if (fromSite) return fromSite;
   const fromEnv = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
   if (fromEnv) return fromEnv;
   const forwardedProto = req?.headers?.["x-forwarded-proto"];
@@ -748,6 +750,39 @@ function absoluteUrl(input, base) {
   }
 }
 
+function isLocalHostUrl(urlValue) {
+  try {
+    const parsed = new URL(urlValue);
+    return ["localhost", "127.0.0.1", "0.0.0.0"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function ensureHttpsUrl(urlValue) {
+  if (!urlValue) return null;
+  try {
+    const parsed = new URL(urlValue);
+    if (parsed.protocol === "http:" && !isLocalHostUrl(urlValue)) {
+      parsed.protocol = "https:";
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isValidFeedUrl(urlValue) {
+  if (!urlValue) return false;
+  try {
+    const parsed = new URL(urlValue);
+    if (parsed.protocol === "https:") return true;
+    return isLocalHostUrl(urlValue);
+  } catch {
+    return false;
+  }
+}
+
 function stripHtmlTags(value) {
   if (typeof value !== "string") return "";
   return value.replace(/<[^>]*>/g, " ");
@@ -930,7 +965,6 @@ function buildMetaFeedCsv(products, baseUrl) {
     "link",
     "image_link",
     "brand",
-    "gtin",
     "mpn",
   ];
   const lines = [headers.join(",")];
@@ -944,33 +978,48 @@ function buildMetaFeedCsv(products, baseUrl) {
   // gtin/mpn -> metadata si existe.
   for (const product of products) {
     if (!isProductPublic(product)) continue;
-    const idValue =
-      product?.sku ||
-      product?.id ||
-      product?.slug ||
-      "";
-    if (!idValue) continue;
+    const meta = safeParseMetadata(product?.metadata);
+    const skuValue =
+      (typeof product?.sku === "string" && product.sku.trim()
+        ? product.sku.trim()
+        : "") ||
+      (typeof meta?.sku === "string" && meta.sku.trim()
+        ? meta.sku.trim()
+        : "") ||
+      (product?.id != null ? String(product.id) : "");
+    if (!skuValue) continue;
     const title = product?.name || product?.title || "";
     const description = getProductFeedDescription(product);
     const availability = getProductFeedAvailability(product);
     const condition = "new";
     const price = getProductFeedPrice(product);
-    const link = absoluteUrl(buildProductUrl(product), baseUrl) || "";
+    const link = ensureHttpsUrl(
+      absoluteUrl(buildProductUrl(product), baseUrl) || "",
+    );
     const { imageList } = buildProductImages(product, baseUrl);
-    const imageLink = imageList[0] || "";
+    const imageLink = ensureHttpsUrl(imageList[0] || "");
     const brand =
       typeof product?.brand === "string" && product.brand.trim()
         ? product.brand.trim()
         : "Samsung";
-    const meta = safeParseMetadata(product?.metadata);
-    const gtin = meta?.gtin || product?.gtin || "";
-    const mpn = meta?.mpn || product?.mpn || "";
+    const mpn =
+      (typeof meta?.mpn === "string" && meta.mpn.trim()
+        ? meta.mpn.trim()
+        : "") ||
+      (typeof product?.mpn === "string" && product.mpn.trim()
+        ? product.mpn.trim()
+        : "") ||
+      skuValue;
+
+    if (!isValidFeedUrl(link) || !isValidFeedUrl(imageLink)) {
+      continue;
+    }
 
     if (availability === "in stock") inStockCount += 1;
     count += 1;
 
     const row = [
-      idValue,
+      skuValue,
       title,
       description,
       availability,
@@ -979,7 +1028,6 @@ function buildMetaFeedCsv(products, baseUrl) {
       link,
       imageLink,
       brand,
-      gtin,
       mpn,
     ].map(csvEscape);
     lines.push(row.join(","));
@@ -8607,6 +8655,21 @@ async function requestHandler(req, res) {
     return;
   }
 
+  if (!IS_PRODUCTION && pathname === "/meta-feed-debug.json" && req.method === "GET") {
+    const cfg = getConfig();
+    const baseUrl = getMetaFeedBaseUrl(req, cfg);
+    const products = await loadProducts();
+    const { csv, count, inStockCount } = buildMetaFeedCsv(products, baseUrl);
+    const preview = csv.split("\n").slice(0, 6);
+    return sendJson(res, 200, {
+      baseUrl,
+      total: count,
+      inStock: inStockCount,
+      generatedAt: new Date().toISOString(),
+      preview,
+    });
+  }
+
   if (pathname === "/meta-feed/health" && req.method === "GET") {
     const cfg = getConfig();
     const baseUrl = getMetaFeedBaseUrl(req, cfg);
@@ -8814,7 +8877,7 @@ async function requestHandler(req, res) {
       name: h1,
       ...(imageList.length ? { image: imageList } : {}),
       ...(description ? { description } : descriptionValue ? { description: descriptionValue } : {}),
-      ...(skuValue ? { sku: skuValue } : {}),
+      ...(skuValue ? { sku: skuValue, mpn: skuValue } : {}),
       ...(brandName
         ? { brand: { "@type": "Brand", name: brandName } }
         : {}),

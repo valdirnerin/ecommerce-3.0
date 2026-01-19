@@ -1,4 +1,5 @@
 import { apiFetch } from "./api.js";
+import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
@@ -20,6 +21,21 @@ const metodoInfo = document.getElementById('metodoInfo');
 const cart = JSON.parse(localStorage.getItem('nerinCart') || '[]');
 if (cart.length === 0) {
   window.location.href = '/cart.html';
+}
+const { contents: checkoutContents, value: checkoutValue } = buildPixelContents(cart);
+const checkoutIds = checkoutContents.map((item) => item.id).filter(Boolean);
+if (checkoutIds.length) {
+  trackPixelOnce(
+    "InitiateCheckout",
+    {
+      content_type: "product",
+      content_ids: checkoutIds,
+      contents: checkoutContents,
+      value: checkoutValue,
+      currency: "ARS",
+    },
+    checkoutIds.join("|"),
+  );
 }
 
 let datos = {};

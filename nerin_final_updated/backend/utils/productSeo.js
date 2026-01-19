@@ -272,7 +272,16 @@ function generateProductSeo(product = {}) {
     modelCode && (!modelLabel.toLowerCase().includes(modelCode.toLowerCase()) ? modelCode : "");
   const ghCopy = ghCode ? ghCode : "";
 
-  const modelSegment = compactText([brandLine, modelLabel].filter(Boolean).join(" ")) || brandLine;
+  const lowerModel = modelLabel.toLowerCase();
+  const lowerLine = line.toLowerCase();
+  let adjustedBrandLine = brandLine;
+  if (line && lowerModel.includes(lowerLine)) {
+    adjustedBrandLine = compactText([brand].filter(Boolean).join(" ")) || brandLine;
+  }
+  let modelSegment = compactText([adjustedBrandLine, modelLabel].filter(Boolean).join(" ")) || adjustedBrandLine;
+  if (adjustedBrandLine && lowerModel.includes(adjustedBrandLine.toLowerCase())) {
+    modelSegment = modelLabel || adjustedBrandLine;
+  }
 
   const title = compactText(
     `Módulo Pantalla ${modelSegment}${codeCopy ? ` ${codeCopy}` : ""} Original Service Pack${

@@ -1,5 +1,10 @@
 import { fetchProducts, isWholesale } from "./api.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
+import {
+  normalizeContentId,
+  trackPixel,
+  trackPixelOnce,
+} from "./meta-pixel.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -103,6 +108,16 @@ function getProductDescription(product, { preferMeta = false } = {}) {
 function normalizeText(value) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim();
+}
+
+function getProductSku(product) {
+  if (!product) return "";
+  const direct = normalizeContentId(product.sku);
+  if (direct) return direct;
+  const meta = typeof product.metadata === "object" && product.metadata ? product.metadata : {};
+  const fromMeta = normalizeContentId(meta.sku);
+  if (fromMeta) return fromMeta;
+  return normalizeContentId(product.id);
 }
 
 function resolveSeo(product) {
@@ -331,12 +346,7 @@ function updateJsonLd(product, images, productUrl) {
     typeof product.brand === "string" && product.brand.trim()
       ? product.brand.trim()
       : "";
-  const skuValue =
-    typeof product.sku === "string" && product.sku.trim()
-      ? product.sku.trim()
-      : product.id != null
-        ? String(product.id)
-        : "";
+  const skuValue = getProductSku(product);
   const description = getProductDescription(product, { preferMeta: true });
   const schema = {
     "@context": "https://schema.org",
@@ -346,7 +356,7 @@ function updateJsonLd(product, images, productUrl) {
     name: heading,
     ...(absoluteImages.length ? { image: absoluteImages } : {}),
     ...(description ? { description } : {}),
-    ...(skuValue ? { sku: skuValue } : {}),
+    ...(skuValue ? { sku: skuValue, mpn: skuValue } : {}),
     ...(brandName ? { brand: { "@type": "Brand", name: brandName } } : {}),
     offers: {
       "@type": "Offer",
@@ -846,13 +856,14 @@ function renderProduct(product) {
   if (!infoContainer || !galleryContainer) return;
   const { product: enriched, title: seoTitle } = resolveSeo(product);
   product = enriched;
+  const skuValue = getProductSku(product);
   const arrayImages = Array.isArray(product.images)
     ? product.images.filter(Boolean)
     : [];
   const legacy = product.image ? [product.image] : [];
   const images = arrayImages.length ? arrayImages : legacy;
   const altInput = Array.isArray(product.images_alt) ? product.images_alt : [];
-  const skuLabel = product.sku || product.id || product.name || "sin-identificar";
+  const skuLabel = skuValue || product.name || "sin-identificar";
   const moduleAlt = buildModuleAltLabel(product);
   const alts = images.map((_, i) => {
     const rawAlt = altInput[i];
@@ -873,6 +884,21 @@ function renderProduct(product) {
   syncBrowserUrl(metaInfo.relativeUrl);
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
+  const priceSource =
+    product.price_minorista ?? product.price ?? product.price_mayorista ?? 0;
+  const numericPrice = Number(priceSource) || 0;
+  if (skuValue) {
+    trackPixelOnce(
+      "ViewContent",
+      {
+        content_type: "product",
+        content_ids: [skuValue],
+        value: numericPrice,
+        currency: "ARS",
+      },
+      skuValue,
+    );
+  }
 
   if (detailSection) {
     detailSection
@@ -913,10 +939,10 @@ function renderProduct(product) {
     meta.appendChild(brand);
   }
 
-  if (product.sku) {
+  if (skuValue) {
     const sku = document.createElement("span");
     sku.className = "product-meta__item";
-    sku.innerHTML = `<strong>SKU:</strong> ${product.sku}`;
+    sku.innerHTML = `<strong>SKU:</strong> ${skuValue}`;
     meta.appendChild(sku);
   }
 
@@ -1109,9 +1135,13 @@ function renderProduct(product) {
         return;
       }
       existing.quantity += qty;
+      if (skuValue && !existing.sku) {
+        existing.sku = skuValue;
+      }
     } else {
       cart.push({
         id: product.id,
+        sku: skuValue || product.id,
         name: product.name,
         price: isWholesale()
           ? product.price_mayorista
@@ -1131,6 +1161,18 @@ function renderProduct(product) {
     setTimeout(() => {
       setCtaLabels();
     }, 1500);
+    if (skuValue) {
+      const unitPrice = isWholesale()
+        ? Number(product.price_mayorista || 0)
+        : Number(product.price_minorista || 0);
+      trackPixel("AddToCart", {
+        content_type: "product",
+        content_ids: [skuValue],
+        contents: [{ id: skuValue, quantity: qty }],
+        value: unitPrice * qty,
+        currency: "ARS",
+      });
+    }
   };
 
   addBtn.addEventListener("click", handleAddToCart);

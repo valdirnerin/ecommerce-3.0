@@ -109,7 +109,7 @@ src="https://www.facebook.com/tr?id=1549364576305752&ev=PageView&noscript=1"
 
   <main>
     <h1>Términos y Condiciones</h1>
-    <p class="updated">Última actualización: {{FECHA_ACTUALIZACION: 2 de agosto de 2025}}</p>
+    <p class="updated">Última actualización: <span data-site-text="fecha_actualizacion">2 de agosto de 2025</span></p>
 
     <nav>
       <ul>
@@ -129,9 +129,11 @@ src="https://www.facebook.com/tr?id=1549364576305752&ev=PageView&noscript=1"
 
     <h2 id="identificacion">1. Identificación del proveedor</h2>
     <p>
-      Silvino Nerin – CUIT 20-93002432-6 – Paseo Colón 545, Ciudad Autónoma de Buenos Aires, Argentina.
-      Contacto: {{EMAIL_ATENCION}} | WhatsApp: {{WHATSAPP}}.
+      Silvino Nerin – CUIT 20-93002432-6 – <span data-site-text="direccion_comercial">Paseo Colón 545, CABA, Argentina</span>.
+      Contacto: <a data-site-email href="mailto:ventas@nerinparts.com.ar">ventas@nerinparts.com.ar</a> | WhatsApp:
+      <a data-site-whatsapp href="https://wa.me/5491130341550">+54 9 11 3034-1550</a>.
     </p>
+    <p>Horario de atención: <span data-site-text="horarios">Lunes a viernes de 9 a 18 h</span>.</p>
 
     <h2 id="pagos">2. Medios de pago</h2>
     <p>
@@ -145,12 +147,16 @@ src="https://www.facebook.com/tr?id=1549364576305752&ev=PageView&noscript=1"
 
     <h2 id="envios">4. Envíos</h2>
     <p>
-      Realizamos envíos a todo el país. Los plazos y costos se informan al finalizar la compra. Una vez entregado el paquete al transportista, la responsabilidad por demoras o daños corre por cuenta de éste.
+      Realizamos envíos a todo el país. Los plazos estimados son
+      <span data-site-text="plazos_envio">CABA 24 a 48 h hábiles · Interior 2 a 5 días hábiles</span>.
+      Los costos se informan al finalizar la compra. Una vez entregado el paquete al transportista, la responsabilidad por demoras o daños corre por cuenta de éste.
     </p>
 
     <h2 id="arrepentimiento">5. Derecho de arrepentimiento</h2>
     <p>
-      Conforme al art. 1110 del Código Civil y Comercial y la Resolución 424/20, el comprador puede revocar la compra dentro de los 10 días corridos de recibido el producto. Para ejercer este derecho, debe comunicarse a {{EMAIL_ATENCION}} o {{WHATSAPP}} y devolver el producto sin uso y con su embalaje original.
+      Conforme al art. 1110 del Código Civil y Comercial y la Resolución 424/20, el comprador puede revocar la compra dentro de los 10 días corridos de recibido el producto. Para ejercer este derecho, debe comunicarse a
+      <a data-site-email href="mailto:ventas@nerinparts.com.ar">ventas@nerinparts.com.ar</a> o
+      <a data-site-whatsapp href="https://wa.me/5491130341550">WhatsApp</a> y devolver el producto sin uso y con su embalaje original.
     </p>
 
     <h2 id="cambios">6. Cambios y devoluciones</h2>
@@ -185,6 +191,6 @@ src="https://www.facebook.com/tr?id=1549364576305752&ev=PageView&noscript=1"
   </main>
 
   <div id="footer-root"></div>
+  <script type="module" src="/js/legal.js"></script>
 </body>
 </html>
-
