@@ -10,6 +10,7 @@
  */
 
 import { isWholesale, fetchProducts } from "./api.js";
+import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 
 // Referencias a los elementos del DOM
 const itemsContainer = document.getElementById("cartItems");
@@ -246,6 +247,21 @@ async function renderCart() {
   };
 
   payBtn.onclick = () => {
+    const { contents, value } = buildPixelContents(cart);
+    const contentIds = contents.map((item) => item.id);
+    if (contentIds.length) {
+      trackPixelOnce(
+        "InitiateCheckout",
+        {
+          content_type: "product",
+          content_ids: contentIds,
+          contents,
+          value,
+          currency: "ARS",
+        },
+        contentIds.join("|"),
+      );
+    }
     // Siempre redirigimos al flujo de checkout para que el usuario revise sus datos
     window.location.href = "/checkout-steps.html";
   };

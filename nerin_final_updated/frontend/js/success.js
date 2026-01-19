@@ -1,4 +1,5 @@
 import { apiFetch } from "./api.js";
+import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 
 const receipt = document.getElementById('card');
 
@@ -201,6 +202,23 @@ async function init() {
   const info = mapData(data, id);
   render(info);
   persist(info);
+  if (info.status === "aprobado") {
+    const { contents, value } = buildPixelContents(info.items || []);
+    const contentIds = contents.map((item) => item.id);
+    if (contentIds.length) {
+      trackPixelOnce(
+        "Purchase",
+        {
+          contents,
+          content_type: "product",
+          content_ids: contentIds,
+          value: Number(info.total || value || 0),
+          currency: "ARS",
+        },
+        `${info.nrn || ""}:${contentIds.join("|")}`,
+      );
+    }
+  }
   localStorage.removeItem('mp_last_pref');
   localStorage.removeItem('mp_last_nrn');
 }
