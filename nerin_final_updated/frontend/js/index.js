@@ -567,7 +567,12 @@ function addToCart(product, quantity = 1) {
   localStorage.setItem("nerinCart", JSON.stringify(cart));
   if (window.updateNav) window.updateNav();
   if (window.showCartIndicator) {
-    window.showCartIndicator();
+    window.showCartIndicator({
+      productId: product.id,
+      productName: product.name,
+      productSku: product.sku || product.id,
+      source: "index",
+    });
   } else if (window.showToast) {
     window.showToast("✅ Producto agregado al carrito");
   }

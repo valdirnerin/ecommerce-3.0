@@ -19,6 +19,20 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.querySelector("form.shipping-form");
   const loading = document.getElementById("loading");
   if (!form) return;
+  const cartForTracking = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  if (typeof window.NERIN_TRACK_EVENT === "function") {
+    const totalValue = cartForTracking.reduce(
+      (acc, item) => acc + Number(item.price || 0) * Number(item.quantity || 0),
+      0,
+    );
+    window.NERIN_TRACK_EVENT("checkout_start", {
+      step: "Checkout",
+      value: totalValue,
+      metadata: {
+        items: cartForTracking.length,
+      },
+    });
+  }
 
   function safeParseLocalStorage(key) {
     try {
@@ -105,6 +119,14 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Carrito vacío");
         return;
       }
+      if (typeof window.NERIN_TRACK_EVENT === "function") {
+        window.NERIN_TRACK_EVENT("checkout_payment", {
+          step: "Pago",
+          metadata: {
+            flow: "checkout-form",
+          },
+        });
+      }
       const cliente = {
         nombre: document.getElementById("nombre").value.trim(),
         email: document.getElementById("email").value.trim(),
@@ -160,6 +182,16 @@ document.addEventListener("DOMContentLoaded", () => {
         localStorage.setItem('mp_last_pref', data.preferenceId || '');
         localStorage.setItem('mp_last_nrn', data.nrn || data.orderId || '');
         localStorage.removeItem("nerinCart");
+        if (typeof window.NERIN_TRACK_EVENT === "function") {
+          const totalValue = cart.reduce(
+            (acc, item) => acc + Number(item.price || 0) * Number(item.quantity || 0),
+            0,
+          );
+          window.NERIN_TRACK_EVENT("purchase", {
+            orderId: data.orderId || data.id,
+            value: totalValue,
+          });
+        }
         window.location.href = data.init_point;
       } else {
         alert("Pedido creado, pero no se pudo iniciar el pago");

@@ -14,6 +14,29 @@ const palette = [
 ];
 
 const activeCharts = [];
+const analyticsRangeState = {
+  range: "7d",
+  from: "",
+  to: "",
+};
+
+function buildRangeParams(state) {
+  const params = new URLSearchParams();
+  const range = state?.range || "7d";
+  params.set("range", range);
+  if (range === "custom") {
+    if (state.from) params.set("from", state.from);
+    if (state.to) params.set("to", state.to);
+  }
+  return params;
+}
+
+function toDateInputValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
 
 function formatCurrency(value) {
   const num = Number(value) || 0;
@@ -287,7 +310,7 @@ export async function renderAnalyticsDashboard(
   containerId = "analytics-dashboard",
   options = {},
 ) {
-  const { autoRefreshMs = null } = options || {};
+  const { autoRefreshMs = null, range, from, to } = options || {};
   const container =
     typeof containerId === "string"
       ? document.getElementById(containerId)
@@ -302,11 +325,88 @@ export async function renderAnalyticsDashboard(
     activeCharts.splice(0, activeCharts.length);
   }
   container.innerHTML = "<p>Cargando...</p>";
+  if (range) analyticsRangeState.range = range;
+  if (from !== undefined) analyticsRangeState.from = from || "";
+  if (to !== undefined) analyticsRangeState.to = to || "";
+  const rangeParams = buildRangeParams(analyticsRangeState);
   try {
-    const res = await apiFetch("/api/analytics/detailed");
+    const res = await apiFetch(`/api/analytics/detailed?${rangeParams.toString()}`);
     const { analytics } = await res.json();
     container.innerHTML = "";
     const fetchedAt = new Date();
+    const rangeLabelMap = {
+      today: "Hoy",
+      "7d": "Últimos 7 días",
+      "30d": "Últimos 30 días",
+      custom: "Rango personalizado",
+    };
+    const rangeLabel = analyticsRangeState.range === "custom"
+      ? `${analyticsRangeState.from || "inicio"} → ${analyticsRangeState.to || "hoy"}`
+      : rangeLabelMap[analyticsRangeState.range] || analyticsRangeState.range;
+
+    const controls = document.createElement("div");
+    controls.className = "analytics-controls";
+    const rangeGroup = document.createElement("div");
+    rangeGroup.className = "analytics-range";
+    const rangeLabelEl = document.createElement("label");
+    rangeLabelEl.textContent = "Rango de análisis";
+    const rangeSelect = document.createElement("select");
+    [
+      { value: "today", label: "Hoy" },
+      { value: "7d", label: "7 días" },
+      { value: "30d", label: "30 días" },
+      { value: "custom", label: "Personalizado" },
+    ].forEach((opt) => {
+      const option = document.createElement("option");
+      option.value = opt.value;
+      option.textContent = opt.label;
+      if (analyticsRangeState.range === opt.value) {
+        option.selected = true;
+      }
+      rangeSelect.appendChild(option);
+    });
+    const customFields = document.createElement("div");
+    customFields.className = "analytics-range__custom";
+    const fromInput = document.createElement("input");
+    fromInput.type = "date";
+    fromInput.value = analyticsRangeState.from || toDateInputValue(analytics?.range?.from);
+    const toInput = document.createElement("input");
+    toInput.type = "date";
+    toInput.value = analyticsRangeState.to || toDateInputValue(analytics?.range?.to);
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.className = "button secondary";
+    applyBtn.textContent = "Aplicar";
+    customFields.append(fromInput, toInput, applyBtn);
+    const toggleCustomFields = () => {
+      customFields.style.display =
+        analyticsRangeState.range === "custom" ? "flex" : "none";
+    };
+    toggleCustomFields();
+    rangeSelect.addEventListener("change", () => {
+      analyticsRangeState.range = rangeSelect.value;
+      if (analyticsRangeState.range !== "custom") {
+        analyticsRangeState.from = "";
+        analyticsRangeState.to = "";
+        renderAnalyticsDashboard(containerId, { autoRefreshMs, range: rangeSelect.value });
+      } else {
+        toggleCustomFields();
+      }
+    });
+    applyBtn.addEventListener("click", () => {
+      analyticsRangeState.range = "custom";
+      analyticsRangeState.from = fromInput.value;
+      analyticsRangeState.to = toInput.value;
+      renderAnalyticsDashboard(containerId, {
+        autoRefreshMs,
+        range: "custom",
+        from: fromInput.value,
+        to: toInput.value,
+      });
+    });
+    rangeGroup.append(rangeLabelEl, rangeSelect, customFields);
+    controls.appendChild(rangeGroup);
+    container.appendChild(controls);
 
     const meta = document.createElement("div");
     meta.className = "analytics-meta";
@@ -325,6 +425,26 @@ export async function renderAnalyticsDashboard(
       hint.className = "analytics-meta__hint";
       hint.textContent = `Actualización automática cada ${intervalSeconds} s`;
       meta.appendChild(hint);
+    }
+    if (analytics?.trackingHealth) {
+      const health = document.createElement("span");
+      health.className = "analytics-meta__hint";
+      const lastEventText = analytics.trackingHealth.lastEventAt
+        ? new Date(analytics.trackingHealth.lastEventAt).toLocaleTimeString("es-AR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "sin eventos";
+      health.textContent = `Último evento ${lastEventText} · ${formatNumber(
+        analytics.trackingHealth.eventsLastHour || 0,
+      )} eventos/h`;
+      meta.appendChild(health);
+      if (!analytics.trackingHealth.isPersistentDataDir) {
+        const warning = document.createElement("span");
+        warning.className = "analytics-meta__hint analytics-meta__hint--warning";
+        warning.textContent = "⚠️ DATA_DIR no persistente: los datos pueden perderse.";
+        meta.appendChild(warning);
+      }
     }
     container.appendChild(meta);
 
@@ -349,9 +469,9 @@ export async function renderAnalyticsDashboard(
         subtitle: "Sesiones únicas del día",
       },
       {
-        title: "Visitantes 7 días",
+        title: `Visitantes ${rangeLabel}`,
         value: formatNumber(analytics.visitorsThisWeek || 0),
-        subtitle: "Alcance semanal acumulado",
+        subtitle: "Sesiones únicas en el rango",
       },
       {
         title: "Ingresos hoy",
@@ -360,9 +480,9 @@ export async function renderAnalyticsDashboard(
         tone: "success",
       },
       {
-        title: "Ingresos 7 días",
+        title: `Ingresos ${rangeLabel}`,
         value: formatCurrency(analytics.revenueThisWeek || 0),
-        subtitle: `${formatNumber(analytics.ordersThisWeek || 0)} órdenes en la semana`,
+        subtitle: `${formatNumber(analytics.ordersThisWeek || 0)} órdenes en el rango`,
         tone: "primary",
       },
       {
@@ -381,6 +501,20 @@ export async function renderAnalyticsDashboard(
       summaryGrid.appendChild(createStatCard(card));
     });
     container.appendChild(summaryGrid);
+
+    const definitions = document.createElement("section");
+    definitions.className = "analytics-panel analytics-definitions";
+    const definitionsTitle = document.createElement("h4");
+    definitionsTitle.textContent = "Definiciones rápidas";
+    const definitionsList = document.createElement("ul");
+    definitionsList.innerHTML = `
+      <li><strong>Sesiones activas:</strong> visitantes con actividad en los últimos 5 minutos.</li>
+      <li><strong>Checkout en curso:</strong> usuarios en carrito o checkout.</li>
+      <li><strong>Carritos activos:</strong> sesiones con importe en carrito en 24 h.</li>
+      <li><strong>Conversión:</strong> compras / vistas de producto.</li>
+    `;
+    definitions.append(definitionsTitle, definitionsList);
+    container.appendChild(definitions);
 
     const topRow = document.createElement("div");
     topRow.className = "analytics-two-column";
@@ -504,7 +638,7 @@ export async function renderAnalyticsDashboard(
     weekColumn.className = "analytics-hot-products__column";
     const weekTitle = document.createElement("span");
     weekTitle.className = "analytics-hot-products__subtitle";
-    weekTitle.textContent = "Últimos 7 días";
+    weekTitle.textContent = rangeLabel;
     weekColumn.appendChild(weekTitle);
     const weekList = document.createElement("ol");
     weekList.className = "analytics-hot-products__list analytics-hot-products__list--muted";
@@ -521,7 +655,7 @@ export async function renderAnalyticsDashboard(
       });
     if (!weekList.children.length) {
       const li = document.createElement("li");
-      li.textContent = "Sin datos en los últimos 7 días.";
+      li.textContent = `Sin datos en ${rangeLabel.toLowerCase()}.`;
       weekList.appendChild(li);
     }
     weekColumn.appendChild(weekList);
@@ -617,7 +751,7 @@ export async function renderAnalyticsDashboard(
 
     createChart(
       chartsContainer,
-      "Visitantes últimos 7 días",
+      `Visitantes ${rangeLabel}`,
       "line",
       (analytics.visitTrend || []).map((item) => item.date),
       (analytics.visitTrend || []).map((item) => item.visitors),
@@ -630,7 +764,7 @@ export async function renderAnalyticsDashboard(
     if (hasHourlyTraffic) {
       createChart(
         chartsContainer,
-        "Tráfico por hora (7 días)",
+        `Tráfico por hora (${rangeLabel})`,
         "line",
         analytics.trafficByHour.map((item) => item.label),
         analytics.trafficByHour.map((item) => item.count),
@@ -819,6 +953,203 @@ export async function renderAnalyticsDashboard(
       stories.appendChild(empty);
     }
     container.appendChild(stories);
+
+    const sessionsPanel = document.createElement("section");
+    sessionsPanel.className = "analytics-panel analytics-sessions";
+    const sessionsHeader = document.createElement("div");
+    sessionsHeader.className = "analytics-sessions__header";
+    const sessionsTitle = document.createElement("h4");
+    sessionsTitle.textContent = "Explorador de sesiones";
+    const sessionsFilters = document.createElement("div");
+    sessionsFilters.className = "analytics-sessions__filters";
+    const searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.placeholder = "Buscar por email, nombre o ID";
+    const statusSelect = document.createElement("select");
+    [
+      { value: "", label: "Estado: todos" },
+      { value: "active", label: "Activos" },
+      { value: "idle", label: "Inactivos" },
+      { value: "ended", label: "Finalizados" },
+    ].forEach((opt) => {
+      const option = document.createElement("option");
+      option.value = opt.value;
+      option.textContent = opt.label;
+      statusSelect.appendChild(option);
+    });
+    const refreshBtn = document.createElement("button");
+    refreshBtn.type = "button";
+    refreshBtn.className = "button secondary";
+    refreshBtn.textContent = "Actualizar";
+    sessionsFilters.append(searchInput, statusSelect, refreshBtn);
+    sessionsHeader.append(sessionsTitle, sessionsFilters);
+    sessionsPanel.appendChild(sessionsHeader);
+
+    const sessionsTable = document.createElement("table");
+    sessionsTable.className = "analytics-live-table analytics-sessions__table";
+    sessionsTable.innerHTML = `
+      <thead>
+        <tr>
+          <th>Sesión</th>
+          <th>Última actividad</th>
+          <th>Etapa</th>
+          <th>Carrito</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    `;
+    const sessionsTbody = sessionsTable.querySelector("tbody");
+    const timelinePanel = document.createElement("div");
+    timelinePanel.className = "analytics-session-timeline";
+    timelinePanel.innerHTML = "<p>Seleccioná una sesión para ver su timeline.</p>";
+
+    const describeTimelineEvent = (evt) => {
+      const type = String(evt.type || "").toLowerCase();
+      const product = evt.productName || evt.productId || evt.product?.name;
+      if (type === "page_view") {
+        return `Visitó ${evt.path || evt.url || "una página"}.`;
+      }
+      if (type === "product_view") {
+        return `Vio ${product || "un producto"}.`;
+      }
+      if (type === "add_to_cart") {
+        return `Agregó ${product || "un producto"} al carrito.`;
+      }
+      if (type === "checkout_start") {
+        return "Inició el checkout.";
+      }
+      if (type === "checkout_payment") {
+        return "Seleccionó un método de pago.";
+      }
+      if (type === "purchase") {
+        return `Confirmó compra ${evt.orderId ? `#${evt.orderId}` : ""}.`;
+      }
+      return evt.step
+        ? `Pasó por ${evt.step}.`
+        : `Evento ${type || "interacción"}.`;
+    };
+
+    const renderSessionTimeline = (session, timeline) => {
+      timelinePanel.innerHTML = "";
+      const header = document.createElement("div");
+      header.className = "analytics-session-timeline__header";
+      const title = document.createElement("h5");
+      title.textContent = session?.userName || session?.userEmail || session?.id || "Sesión";
+      const meta = document.createElement("span");
+      meta.textContent = session?.lastSeenAt
+        ? `Última actividad ${new Date(session.lastSeenAt).toLocaleString("es-AR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}`
+        : "";
+      header.append(title, meta);
+      timelinePanel.appendChild(header);
+      if (!timeline.length) {
+        timelinePanel.appendChild(createEmptyState("Sin eventos en el rango seleccionado."));
+        return;
+      }
+      const list = document.createElement("ul");
+      list.className = "analytics-timeline__list";
+      timeline
+        .slice()
+        .sort((a, b) => Date.parse(a.timestamp || 0) - Date.parse(b.timestamp || 0))
+        .forEach((event) => {
+          const li = document.createElement("li");
+          const time = document.createElement("span");
+          time.className = "analytics-timeline__time";
+          time.textContent = event.timestamp
+            ? new Date(event.timestamp).toLocaleTimeString("es-AR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "—";
+          const desc = document.createElement("span");
+          desc.className = "analytics-timeline__desc";
+          desc.textContent = describeTimelineEvent(event);
+          li.append(time, desc);
+          list.appendChild(li);
+        });
+      timelinePanel.appendChild(list);
+    };
+
+    const loadSessionTimeline = async (session) => {
+      const params = buildRangeParams(analyticsRangeState);
+      const res = await apiFetch(
+        `/api/analytics/sessions/${encodeURIComponent(session.id)}?${params.toString()}`,
+      );
+      const payload = await res.json();
+      renderSessionTimeline(payload.session || session, payload.timeline || []);
+    };
+
+    const renderSessions = (sessionsList) => {
+      sessionsTbody.innerHTML = "";
+      if (!sessionsList.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 5;
+        cell.textContent = "No hay sesiones para este rango.";
+        row.appendChild(cell);
+        sessionsTbody.appendChild(row);
+        return;
+      }
+      sessionsList.forEach((session) => {
+        const row = document.createElement("tr");
+        const name = session.userName || session.userEmail || session.id;
+        const lastSeen = session.lastSeenAt
+          ? new Date(session.lastSeenAt).toLocaleTimeString("es-AR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "—";
+        const step = session.currentStep
+          ? String(session.currentStep)
+              .replace(/_/g, " ")
+              .replace(/\b\w/g, (c) => c.toUpperCase())
+          : "Explorando";
+        const cartValue = session.cartValue
+          ? formatCurrency(session.cartValue)
+          : "—";
+        row.innerHTML = `
+          <td>${name}</td>
+          <td>${lastSeen}</td>
+          <td>${step}</td>
+          <td>${cartValue}</td>
+        `;
+        const actionCell = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "button secondary";
+        btn.textContent = "Ver timeline";
+        btn.addEventListener("click", () => loadSessionTimeline(session));
+        actionCell.appendChild(btn);
+        row.appendChild(actionCell);
+        sessionsTbody.appendChild(row);
+      });
+    };
+
+    const loadSessions = async () => {
+      const params = buildRangeParams(analyticsRangeState);
+      const searchValue = searchInput.value.trim();
+      const statusValue = statusSelect.value;
+      if (searchValue) params.set("search", searchValue);
+      if (statusValue) params.set("status", statusValue);
+      const res = await apiFetch(`/api/analytics/sessions?${params.toString()}`);
+      const payload = await res.json();
+      renderSessions(payload.sessions || []);
+    };
+
+    refreshBtn.addEventListener("click", loadSessions);
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        loadSessions();
+      }
+    });
+    statusSelect.addEventListener("change", loadSessions);
+    loadSessions();
+
+    sessionsPanel.append(sessionsTable, timelinePanel);
+    container.appendChild(sessionsPanel);
 
     const timeline = document.createElement("section");
     timeline.className = "analytics-panel analytics-timeline";
