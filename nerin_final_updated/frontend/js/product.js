@@ -899,6 +899,15 @@ function renderProduct(product) {
       skuValue,
     );
   }
+  if (typeof window.NERIN_TRACK_EVENT === "function") {
+    window.NERIN_TRACK_EVENT("product_view", {
+      productId: product.id != null ? String(product.id) : undefined,
+      productName: product.name || product.title,
+      metadata: {
+        sku: skuValue,
+      },
+    });
+  }
 
   if (detailSection) {
     detailSection
@@ -1153,7 +1162,12 @@ function renderProduct(product) {
     localStorage.setItem("nerinCart", JSON.stringify(cart));
     if (window.updateNav) window.updateNav();
     if (window.showCartIndicator) {
-      window.showCartIndicator();
+      window.showCartIndicator({
+        productId: product.id,
+        productName: product.name,
+        productSku: skuValue,
+        source: "product",
+      });
     } else if (window.showToast) {
       window.showToast("✅ Producto agregado al carrito");
     }

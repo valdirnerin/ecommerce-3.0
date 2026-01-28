@@ -866,7 +866,12 @@ function createProductCard(product) {
       }, 2000);
       if (window.updateNav) window.updateNav();
       if (window.showCartIndicator) {
-        window.showCartIndicator();
+        window.showCartIndicator({
+          productId: product.id,
+          productName: product.name,
+          productSku: product.sku || product.id,
+          source: "shop",
+        });
       } else if (window.showToast) {
         window.showToast("✅ Producto agregado al carrito");
       }
@@ -910,7 +915,12 @@ function createProductCard(product) {
       }, 2000);
       if (window.updateNav) window.updateNav();
       if (window.showCartIndicator) {
-        window.showCartIndicator();
+        window.showCartIndicator({
+          productId: product.id,
+          productName: product.name,
+          productSku: product.sku || product.id,
+          source: "shop",
+        });
       } else if (window.showToast) {
         window.showToast("✅ Producto agregado al carrito");
       }

@@ -47,6 +47,15 @@ const {
   normalizeShipping,
 } = require("./utils/shippingStatus");
 const ordersRepo = require("./data/ordersRepo");
+const {
+  appendEvent,
+  upsertSession,
+  getSessions: getStoredSessions,
+  getSessionTimeline,
+  getEventsByRange,
+  rotateAndArchive,
+  getTrackingHealth,
+} = require("./utils/analyticsStore");
 
 let buildInfo = {};
 try {
@@ -1874,11 +1883,80 @@ function savePurchaseOrders(purchaseOrders) {
  * devoluciones y clientes principales. Estas métricas pueden utilizarse para
  * gráficos y análisis de negocio.
  */
-function calculateDetailedAnalytics() {
+function parseAnalyticsRange(query = {}) {
+  const now = new Date();
+  const rawRange = String(query.range || "7d").trim().toLowerCase();
+  const normalizeDayStart = (date) => {
+    const normalized = new Date(date);
+    normalized.setHours(0, 0, 0, 0);
+    return normalized;
+  };
+  const normalizeDayEnd = (date) => {
+    const normalized = new Date(date);
+    normalized.setHours(23, 59, 59, 999);
+    return normalized;
+  };
+
+  if (rawRange === "today" || rawRange === "1d") {
+    return { from: normalizeDayStart(now), to: normalizeDayEnd(now), range: "today" };
+  }
+
+  if (rawRange === "custom" || query.from || query.to) {
+    const fromRaw = query.from ? new Date(query.from) : null;
+    const toRaw = query.to ? new Date(query.to) : null;
+    const from =
+      fromRaw && !Number.isNaN(fromRaw.getTime())
+        ? normalizeDayStart(fromRaw)
+        : null;
+    const to =
+      toRaw && !Number.isNaN(toRaw.getTime())
+        ? normalizeDayEnd(toRaw)
+        : normalizeDayEnd(now);
+    return {
+      from: from || normalizeDayStart(new Date(now.getTime() - 6 * 86400000)),
+      to,
+      range: "custom",
+    };
+  }
+
+  if (rawRange.endsWith("h")) {
+    const hours = Number.parseInt(rawRange.replace("h", ""), 10);
+    if (Number.isFinite(hours) && hours > 0) {
+      return {
+        from: new Date(now.getTime() - hours * 60 * 60 * 1000),
+        to: now,
+        range: rawRange,
+      };
+    }
+  }
+
+  if (rawRange.endsWith("d")) {
+    const days = Number.parseInt(rawRange.replace("d", ""), 10);
+    if (Number.isFinite(days) && days > 0) {
+      const from = normalizeDayStart(new Date(now));
+      from.setDate(from.getDate() - (days - 1));
+      return {
+        from,
+        to: normalizeDayEnd(now),
+        range: rawRange,
+      };
+    }
+  }
+
+  const fallbackFrom = normalizeDayStart(new Date(now));
+  fallbackFrom.setDate(fallbackFrom.getDate() - 6);
+  return { from: fallbackFrom, to: normalizeDayEnd(now), range: "7d" };
+}
+
+function calculateDetailedAnalytics(options = {}) {
+  const { rangeStart, rangeEnd, events: providedEvents, sessions: providedSessions } =
+    options || {};
   const orders = getOrders();
   const returns = getReturns();
   const products = getProducts();
-  const { sessions, events } = getActivityLog();
+  const fallbackLog = getActivityLog();
+  const sessions = Array.isArray(providedSessions) ? providedSessions : fallbackLog.sessions;
+  const events = Array.isArray(providedEvents) ? providedEvents : fallbackLog.events;
   const analyticsHistory = getAnalyticsHistory();
   const historyDays = Array.isArray(analyticsHistory?.days)
     ? analyticsHistory.days
@@ -1889,8 +1967,33 @@ function calculateDetailedAnalytics() {
   const now = Date.now();
   const today = new Date(now);
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfWeek.getDate() - 6);
+  const normalizeDayStart = (date) => {
+    const normalized = new Date(date);
+    normalized.setHours(0, 0, 0, 0);
+    return normalized;
+  };
+  const normalizeDayEnd = (date) => {
+    const normalized = new Date(date);
+    normalized.setHours(23, 59, 59, 999);
+    return normalized;
+  };
+  const rawRangeStart = rangeStart ? new Date(rangeStart) : null;
+  const rawRangeEnd = rangeEnd ? new Date(rangeEnd) : null;
+  const rangeStartDate = rawRangeStart && !Number.isNaN(rawRangeStart.getTime())
+    ? normalizeDayStart(rawRangeStart)
+    : null;
+  const rangeEndDate = rawRangeEnd && !Number.isNaN(rawRangeEnd.getTime())
+    ? normalizeDayEnd(rawRangeEnd)
+    : normalizeDayEnd(today);
+  const startOfRange = rangeStartDate || new Date(startOfToday);
+  if (!rangeStartDate) {
+    startOfRange.setDate(startOfRange.getDate() - 6);
+  }
+  const rangeDays = Math.max(
+    1,
+    Math.round((normalizeDayStart(rangeEndDate) - normalizeDayStart(startOfRange)) / 86400000) +
+      1,
+  );
   const formatCurrencyArs = (value) =>
     new Intl.NumberFormat("es-AR", {
       style: "currency",
@@ -2001,7 +2104,7 @@ function calculateDetailedAnalytics() {
         revenueToday += order.total || 0;
         ordersToday += 1;
       }
-      if (orderDate >= startOfWeek.getTime()) {
+      if (orderDate >= startOfRange.getTime() && orderDate <= rangeEndDate.getTime()) {
         revenueThisWeek += order.total || 0;
         ordersThisWeek += 1;
       }
@@ -2097,10 +2200,19 @@ function calculateDetailedAnalytics() {
   const normalizedEvents = Array.isArray(events)
     ? events
         .filter((evt) => evt && evt.timestamp)
-        .map((evt) => ({
-          ...evt,
-          timestampMs: Date.parse(evt.timestamp),
-        }))
+        .map((evt) => {
+          const productId =
+            evt.productId || (evt.product && evt.product.id) || evt.metadata?.productId;
+          const productName =
+            evt.productName || (evt.product && evt.product.name) || evt.metadata?.productName;
+          return {
+            ...evt,
+            productId: productId != null ? String(productId) : null,
+            productName: productName || evt.productName || null,
+            step: evt.step || evt.currentStep || evt.metadata?.step || null,
+            timestampMs: Date.parse(evt.timestamp),
+          };
+        })
         .filter((evt) => Number.isFinite(evt.timestampMs))
     : [];
   const sortedEvents = normalizedEvents.slice().sort((a, b) => a.timestampMs - b.timestampMs);
@@ -2113,10 +2225,10 @@ function calculateDetailedAnalytics() {
   sortedEvents.forEach((evt) => {
     const eventDate = new Date(evt.timestampMs);
     const dateKey = eventDate.toISOString().slice(0, 10);
-    const isInWeek = eventDate >= startOfWeek && eventDate <= today;
+    const isInWeek = eventDate >= startOfRange && eventDate <= rangeEndDate;
     const isToday = eventDate >= startOfToday;
     const sessionKey = evt.sessionId || evt.id || dateKey;
-    if (sessionKey) {
+    if (isInWeek && sessionKey) {
       const key = String(sessionKey);
       sessionEventCounts.set(key, (sessionEventCounts.get(key) || 0) + 1);
       if (evt.sessionId) {
@@ -2125,8 +2237,6 @@ function calculateDetailedAnalytics() {
         }
         eventsBySession.get(key).push(evt);
       }
-    }
-    if (isInWeek) {
       if (!visitTrendMap.has(dateKey)) {
         visitTrendMap.set(dateKey, new Set());
       }
@@ -2139,7 +2249,7 @@ function calculateDetailedAnalytics() {
       visitsTodaySessions.add(evt.sessionId);
     }
     const type = String(evt.type || "").toLowerCase();
-    if (type in funnel) {
+    if (isInWeek && type in funnel) {
       funnel[type] += 1;
     }
     if (type === "product_view" && evt.productId) {
@@ -2152,7 +2262,7 @@ function calculateDetailedAnalytics() {
         productViewsWeek.set(name, (productViewsWeek.get(name) || 0) + 1);
       }
     }
-    if (type === "page_view") {
+    if (isInWeek && type === "page_view") {
       const key = sessionKey ? String(sessionKey) : null;
       if (key) {
         sessionPageViewCounts.set(key, (sessionPageViewCounts.get(key) || 0) + 1);
@@ -2161,7 +2271,7 @@ function calculateDetailedAnalytics() {
         }
       }
     }
-    if (Number.isFinite(evt.timestampMs)) {
+    if (isInWeek && Number.isFinite(evt.timestampMs)) {
       const hour = eventDate.getUTCHours();
       hourlyTraffic[hour] = (hourlyTraffic[hour] || 0) + 1;
     }
@@ -2174,7 +2284,11 @@ function calculateDetailedAnalytics() {
   let visitorsThisWeek = visitsWeekSessions.size;
   const historyWeekVisitors = historyDays.reduce((acc, day) => {
     const ts = Date.parse(day.date || "");
-    if (Number.isFinite(ts) && ts >= startOfWeek.getTime() && ts <= today.getTime()) {
+    if (
+      Number.isFinite(ts) &&
+      ts >= startOfRange.getTime() &&
+      ts <= rangeEndDate.getTime()
+    ) {
       return acc + Number(day.uniqueSessions || 0);
     }
     return acc;
@@ -2182,9 +2296,9 @@ function calculateDetailedAnalytics() {
   visitorsThisWeek = Math.max(visitorsThisWeek, historyWeekVisitors);
   const visitorsToday = Math.max(visitsTodaySessions.size, visitorsTodayFromHistory);
 
-  for (let i = 6; i >= 0; i -= 1) {
-    const day = new Date(startOfToday);
-    day.setDate(startOfToday.getDate() - i);
+  for (let i = 0; i < rangeDays; i += 1) {
+    const day = new Date(startOfRange);
+    day.setDate(startOfRange.getDate() + i);
     const key = day.toISOString().slice(0, 10);
     const visitorsFromEvents = visitTrendMap.has(key) ? visitTrendMap.get(key).size : 0;
     const visitorsFromHistory = Number(historyByDate.get(key)?.uniqueSessions || 0);
@@ -2231,7 +2345,7 @@ function calculateDetailedAnalytics() {
   const historyHourly = new Array(24).fill(0);
   historyDays.forEach((day) => {
     const ts = Date.parse(day.date || "");
-    if (!Number.isFinite(ts) || ts < startOfWeek.getTime() || ts > today.getTime()) {
+    if (!Number.isFinite(ts) || ts < startOfRange.getTime() || ts > rangeEndDate.getTime()) {
       return;
     }
     const hours = Array.isArray(day.hourly) ? day.hourly : [];
@@ -7897,8 +8011,9 @@ async function requestHandler(req, res) {
       }
       const rawPath = body.path || body.url || null;
       const normalizedPath = rawPath ? clampString(rawPath, 200) : null;
+      const rawStep = body.step || body.currentStep || body.stage || null;
       const inferredStep =
-        formatStepLabel(body.step || body.currentStep || body.stage) ||
+        formatStepLabel(rawStep) ||
         inferStepFromPath(normalizedPath) ||
         session.currentStep ||
         null;
@@ -7925,11 +8040,19 @@ async function requestHandler(req, res) {
         cartItems: Number.isFinite(cartItems)
           ? cartItems
           : Number(session.cartItems || 0),
+        step: rawStep ? formatStepLabel(rawStep) : null,
       };
+      const productId = body.productId ? clampString(body.productId, 80) : null;
       const productName = body.productName || body.product || null;
-      if (productName || body.productId) {
+      if (productId) {
+        event.productId = productId;
+      }
+      if (productName) {
+        event.productName = clampString(productName, 160);
+      }
+      if (productName || productId) {
         event.product = {
-          id: body.productId ? clampString(body.productId, 80) : null,
+          id: productId,
           name: productName ? clampString(productName, 160) : null,
         };
       }
@@ -7940,7 +8063,6 @@ async function requestHandler(req, res) {
           return acc;
         }, {});
       }
-      events.push(event);
       const history = recordAnalyticsHistoryEvent(getAnalyticsHistory(), {
         sessionId,
         eventType,
@@ -7948,29 +8070,43 @@ async function requestHandler(req, res) {
         path: normalizedPath,
       });
       saveAnalyticsHistory(history);
-      while (events.length > MAX_ACTIVITY_EVENTS) {
-        events.shift();
+      let storeFailed = false;
+      try {
+        await appendEvent(event);
+        await upsertSession(session);
+        rotateAndArchive();
+      } catch (storeErr) {
+        storeFailed = true;
+        console.error("analytics-store error", storeErr);
       }
 
-      const nowMs = now.getTime();
-      let filteredSessions = sessions.filter((s) => {
-        const lastSeen = Date.parse(s.lastSeenAt || s.lastSeen || s.startedAt || "");
-        if (!Number.isFinite(lastSeen)) return true;
-        if (nowMs - lastSeen <= ACTIVITY_SESSION_RETENTION_MS) return true;
-        return String(s.status || "").toLowerCase() === "active";
-      });
-      if (filteredSessions.length > MAX_ACTIVITY_SESSIONS) {
-        filteredSessions = filteredSessions
-          .slice()
-          .sort((a, b) => {
-            const aTime = Date.parse(a.lastSeenAt || a.lastSeen || a.startedAt || "") || 0;
-            const bTime = Date.parse(b.lastSeenAt || b.lastSeen || b.startedAt || "") || 0;
-            return bTime - aTime;
-          })
-          .slice(0, MAX_ACTIVITY_SESSIONS);
-      }
+      if (storeFailed) {
+        events.push(event);
+        while (events.length > MAX_ACTIVITY_EVENTS) {
+          events.shift();
+        }
 
-      saveActivityLog({ sessions: filteredSessions, events });
+        const nowMs = now.getTime();
+        let filteredSessions = sessions.filter((s) => {
+          const lastSeen = Date.parse(s.lastSeenAt || s.lastSeen || s.startedAt || "");
+          if (!Number.isFinite(lastSeen)) return true;
+          if (nowMs - lastSeen <= ACTIVITY_SESSION_RETENTION_MS) return true;
+          return String(s.status || "").toLowerCase() === "active";
+        });
+        if (filteredSessions.length > MAX_ACTIVITY_SESSIONS) {
+          filteredSessions = filteredSessions
+            .slice()
+            .sort((a, b) => {
+              const aTime =
+                Date.parse(a.lastSeenAt || a.lastSeen || a.startedAt || "") || 0;
+              const bTime = Date.parse(b.lastSeenAt || b.lastSeen || b.startedAt || "") || 0;
+              return bTime - aTime;
+            })
+            .slice(0, MAX_ACTIVITY_SESSIONS);
+        }
+
+        saveActivityLog({ sessions: filteredSessions, events });
+      }
       return sendJson(res, 200, { success: true, sessionId });
     } catch (err) {
       console.error("analytics-track error", err);
@@ -7982,6 +8118,114 @@ async function requestHandler(req, res) {
   }
 
   /*
+   * API: Listado de sesiones con filtros y rango.
+   */
+  if (pathname === "/api/analytics/sessions" && req.method === "GET") {
+    try {
+      const range = parseAnalyticsRange(parsedUrl.query);
+      let sessions = getStoredSessions({
+        from: range.from,
+        to: range.to,
+        search: parsedUrl.query.search,
+        status: parsedUrl.query.status,
+      });
+      if (!sessions.length) {
+        const fallback = getActivityLog();
+        sessions = (fallback.sessions || []).filter((session) => {
+          if (!session || !session.id) return false;
+          if (parsedUrl.query.status) {
+            const normalizedStatus = String(parsedUrl.query.status || "")
+              .trim()
+              .toLowerCase();
+            if (String(session.status || "").toLowerCase() !== normalizedStatus) {
+              return false;
+            }
+          }
+          if (parsedUrl.query.search) {
+            const haystack = [
+              session.id,
+              session.userEmail,
+              session.userName,
+              session.lastPath,
+              session.location,
+            ]
+              .map((value) => String(value || "").toLowerCase())
+              .join(" |");
+            if (!haystack.includes(String(parsedUrl.query.search).toLowerCase())) {
+              return false;
+            }
+          }
+          return true;
+        });
+      }
+      return sendJson(res, 200, { sessions, range });
+    } catch (err) {
+      console.error("analytics-sessions error", err);
+      return sendJson(res, 500, { error: "No se pudieron cargar las sesiones" });
+    }
+  }
+
+  if (pathname.startsWith("/api/analytics/sessions/") && req.method === "GET") {
+    const sessionId = pathname.split("/").pop();
+    try {
+      const range = parseAnalyticsRange(parsedUrl.query);
+      let timeline = getSessionTimeline(sessionId, {
+        from: range.from,
+        to: range.to,
+      });
+      const storedSessions = getStoredSessions();
+      let session = storedSessions.find((s) => String(s.id) === String(sessionId));
+      if (!timeline.length) {
+        const fallback = getActivityLog();
+        timeline = (fallback.events || []).filter(
+          (evt) => String(evt.sessionId || "") === String(sessionId),
+        );
+        if (!session) {
+          session = (fallback.sessions || []).find(
+            (s) => String(s.id) === String(sessionId),
+          );
+        }
+      }
+      return sendJson(res, 200, { session, timeline, range });
+    } catch (err) {
+      console.error("analytics-session-timeline error", err);
+      return sendJson(res, 500, {
+        error: "No se pudo cargar el timeline de la sesión",
+      });
+    }
+  }
+
+  if (pathname === "/api/analytics/events" && req.method === "GET") {
+    try {
+      const range = parseAnalyticsRange(parsedUrl.query);
+      let events = getEventsByRange({
+        from: range.from,
+        to: range.to,
+        type: parsedUrl.query.type,
+      });
+      if (!events.length) {
+        const fallback = getActivityLog();
+        events = (fallback.events || []).filter((evt) => {
+          const ts = Date.parse(evt.timestamp || "");
+          if (Number.isFinite(ts)) {
+            if (range.from && ts < range.from.getTime()) return false;
+            if (range.to && ts > range.to.getTime()) return false;
+          }
+          if (parsedUrl.query.type) {
+            const typeFilter = String(parsedUrl.query.type).toLowerCase();
+            if (String(evt.type || "").toLowerCase() !== typeFilter) return false;
+          }
+          return true;
+        });
+      }
+      return sendJson(res, 200, { events, range });
+    } catch (err) {
+      console.error("analytics-events error", err);
+      return sendJson(res, 500, { error: "No se pudieron cargar los eventos" });
+    }
+  }
+
+  /*
    * API: Analíticas avanzadas
    * Devuelve métricas más detalladas: ventas por categoría, volumen por producto,
    * devoluciones por producto y clientes con mayor facturación. Útil para
@@ -7989,7 +8233,26 @@ async function requestHandler(req, res) {
    */
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
     try {
-      const analytics = calculateDetailedAnalytics();
+      const range = parseAnalyticsRange(parsedUrl.query);
+      const storeSessions = getStoredSessions();
+      const storeEvents = getEventsByRange({ from: range.from, to: range.to });
+      const analytics = calculateDetailedAnalytics({
+        rangeStart: range.from,
+        rangeEnd: range.to,
+        events: storeEvents.length ? storeEvents : undefined,
+        sessions: storeSessions.length ? storeSessions : undefined,
+      });
+      analytics.trackingHealth = getTrackingHealth();
+      analytics.range = {
+        from: range.from ? range.from.toISOString() : null,
+        to: range.to ? range.to.toISOString() : null,
+        label: range.range || "7d",
+      };
+      if (!IS_DATA_DIR_PERSISTENT && process.env.NODE_ENV !== "test") {
+        console.warn(
+          "[analytics] DATA_DIR no es persistente; los datos pueden perderse tras reinicios.",
+        );
+      }
       return sendJson(res, 200, { analytics });
     } catch (err) {
       console.error(err);

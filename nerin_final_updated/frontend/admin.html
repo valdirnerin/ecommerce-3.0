@@ -1543,6 +1543,12 @@
     <!-- Configuración y analíticas globales -->
     <script type="module" src="/admin-footer.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script>
+      window.NERIN_CONFIG = {
+        ...(window.NERIN_CONFIG || {}),
+        disableAnalytics: true,
+      };
+    </script>
     <script type="module" src="/js/config.js"></script>
     <!-- Traducciones -->
     <script type="module" src="/js/lang.js"></script>

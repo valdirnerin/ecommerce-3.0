@@ -2266,6 +2266,51 @@ body.cart-indicator-visible .toastify {
   color: var(--color-text-muted, #6b7280);
 }
 
+.analytics-meta__hint--warning {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.analytics-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin: 1rem 0;
+}
+
+.analytics-range {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 220px;
+}
+
+.analytics-range label {
+  font-weight: 600;
+  color: var(--color-text, #1f2937);
+  font-size: 0.9rem;
+}
+
+.analytics-range select {
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius, 8px);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+}
+
+.analytics-range__custom {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.analytics-range__custom input[type="date"] {
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius, 8px);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+}
+
 .analytics-card {
   background: var(--color-surface, #fff);
   border: 1px solid rgba(37, 99, 235, 0.08);
@@ -2355,6 +2400,51 @@ body.cart-indicator-visible .toastify {
 .analytics-panel h4 {
   margin-top: 0;
   margin-bottom: 1rem;
+}
+
+.analytics-definitions ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.4rem;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 0.9rem;
+}
+
+.analytics-sessions__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.analytics-sessions__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.analytics-sessions__filters input,
+.analytics-sessions__filters select {
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius, 8px);
+  border: 1px solid rgba(148, 163, 184, 0.5);
+}
+
+.analytics-session-timeline {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.4);
+}
+
+.analytics-session-timeline__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .analytics-live-table {
@@ -2717,6 +2807,15 @@ body.cart-indicator-visible .toastify {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.analytics-timeline__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .analytics-timeline__time {

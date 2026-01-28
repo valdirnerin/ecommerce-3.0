@@ -37,11 +37,21 @@ if (checkoutIds.length) {
     checkoutIds.join("|"),
   );
 }
+if (typeof window.NERIN_TRACK_EVENT === "function") {
+  window.NERIN_TRACK_EVENT("checkout_start", {
+    step: "Checkout",
+    value: checkoutValue,
+    metadata: {
+      items: cart.length,
+    },
+  });
+}
 
 let datos = {};
 let envio = {};
 let paymentSettings = null;
 let allowedCashMethods = [];
+let lastTrackedPaymentMethod = null;
 function safeParseLocalStorage(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -377,6 +387,15 @@ function updateMetodoInfo() {
   if (metodoInfo) metodoInfo.innerHTML = html;
   renderProtectionNote(metodo);
   toggleCashValidation();
+  if (typeof window.NERIN_TRACK_EVENT === "function" && metodo !== lastTrackedPaymentMethod) {
+    window.NERIN_TRACK_EVENT("checkout_payment", {
+      step: "Pago",
+      metadata: {
+        method: metodo,
+      },
+    });
+    lastTrackedPaymentMethod = metodo;
+  }
 }
 
 function toggleCashValidation() {
@@ -503,6 +522,17 @@ async function submitOfflineOrder(paymentMethod) {
       return;
     }
     const orderId = data.orderId || data.id;
+    const totalValue = cart.reduce((acc, item) => acc + item.price * item.quantity, 0) +
+      (envio.costo || 0);
+    if (typeof window.NERIN_TRACK_EVENT === "function") {
+      window.NERIN_TRACK_EVENT("purchase", {
+        orderId,
+        value: totalValue,
+        metadata: {
+          paymentMethod,
+        },
+      });
+    }
     localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
     try {
       localStorage.setItem('nerinUserProfile', JSON.stringify(customer));

@@ -15,6 +15,15 @@ function apiFetch(path, options) {
   return fetch(buildApiUrl(path), options);
 }
 
+if (typeof window.NERIN_TRACK_EVENT === "function") {
+  window.NERIN_TRACK_EVENT("checkout_start", {
+    step: "Checkout",
+    metadata: {
+      flow: "checkout",
+    },
+  });
+}
+
 document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
@@ -22,6 +31,15 @@ document.querySelector(".mp-buy").addEventListener("click", async (ev) => {
   const title = localStorage.getItem("mp_title") || "Producto NERIN";
   const price = Number(localStorage.getItem("mp_price")) || 0;
   const quantity = Number(localStorage.getItem("mp_quantity")) || 1;
+  if (typeof window.NERIN_TRACK_EVENT === "function") {
+    window.NERIN_TRACK_EVENT("checkout_payment", {
+      step: "Pago",
+      value: price * quantity,
+      metadata: {
+        flow: "checkout",
+      },
+    });
+  }
 
   try {
     const res = await apiFetch("/crear-preferencia", {
