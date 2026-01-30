@@ -10,9 +10,106 @@ const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
 const infoContainer = document.getElementById("productInfo");
 const lightboxElement = document.getElementById("lightbox");
+const reviewsSection = document.getElementById("verifiedReviews");
+const reviewsList = document.getElementById("reviewsList");
+const reviewsSummary = document.getElementById("reviewsSummary");
 const priceFormatter = new Intl.NumberFormat("es-AR");
 const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+function formatReviewDate(value) {
+  if (!value) return "";
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("es-AR", {
+      dateStyle: "medium",
+    }).format(date);
+  } catch (err) {
+    return "";
+  }
+}
+
+function renderReviewsState(message) {
+  if (!reviewsSection || !reviewsSummary || !reviewsList) return;
+  reviewsSummary.textContent = message;
+  reviewsList.innerHTML = "";
+}
+
+function renderReviewsList(reviews = []) {
+  if (!reviewsSection || !reviewsSummary || !reviewsList) return;
+  reviewsList.innerHTML = "";
+  if (!reviews.length) {
+    reviewsSummary.textContent = "Todavía no hay reseñas verificadas.";
+    return;
+  }
+  const avg =
+    reviews.reduce((acc, review) => acc + Number(review.rating || 0), 0) /
+    reviews.length;
+  reviewsSummary.textContent = `Promedio ${avg.toFixed(1)} · ${reviews.length} reseñas verificadas`;
+  reviews.forEach((review) => {
+    const card = document.createElement("article");
+    card.className = "review-card";
+
+    const header = document.createElement("div");
+    header.className = "review-card__header";
+    const stars = document.createElement("span");
+    stars.className = "review-card__stars";
+    const rating = Math.max(0, Math.min(5, Number(review.rating || 0)));
+    stars.textContent = "★".repeat(rating) + "☆".repeat(5 - rating);
+    const meta = document.createElement("span");
+    meta.className = "review-card__meta";
+    meta.textContent = formatReviewDate(review.created_at || review.createdAt);
+    header.append(stars, meta);
+
+    const body = document.createElement("p");
+    body.className = "review-card__text";
+    body.textContent = review.text || "";
+
+    const badge = document.createElement("span");
+    badge.className = "review-card__badge";
+    badge.textContent =
+      review.verification_type === "service"
+        ? "Servicio verificado"
+        : "Compra verificada";
+
+    card.append(header, body, badge);
+    reviewsList.appendChild(card);
+  });
+}
+
+async function loadReviews(productId) {
+  if (!reviewsSection || !productId) return;
+  renderReviewsState("Cargando reseñas verificadas…");
+  const previewParam = new URLSearchParams(window.location.search).get("previewReviews");
+  if (previewParam === "1") {
+    renderReviewsList([
+      {
+        id: "demo-1",
+        rating: 5,
+        text: "Excelente atención, el repuesto llegó en 24hs y estaba impecable.",
+        verification_type: "purchase",
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: "demo-2",
+        rating: 4,
+        text: "Muy buena experiencia con el técnico. Instalación rápida y prolija.",
+        verification_type: "service",
+        created_at: new Date(Date.now() - 86400000).toISOString(),
+      },
+    ]);
+    return;
+  }
+  try {
+    const res = await fetch(`/api/reviews?productId=${encodeURIComponent(productId)}`);
+    if (!res.ok) throw new Error("load-reviews-failed");
+    const data = await res.json();
+    renderReviewsList(Array.isArray(data.reviews) ? data.reviews : []);
+  } catch (err) {
+    renderReviewsState("No pudimos cargar las reseñas verificadas.");
+  }
+}
 
 function getProductSlug(product) {
   if (!product || typeof product.slug !== "string") return null;
@@ -1321,6 +1418,10 @@ function renderProduct(product) {
   updatePriceLabels();
   setCtaLabels();
   window.matchMedia("(max-width: 768px)").addEventListener("change", setCtaLabels);
+
+  if (product && product.id != null) {
+    loadReviews(String(product.id));
+  }
 }
 
 async function fetchPreviewProduct() {

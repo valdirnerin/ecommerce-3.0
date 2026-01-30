@@ -137,6 +137,14 @@ navButtons.forEach((btn) => {
       loadPurchaseOrders();
     } else if (target === "shippingSection") {
       loadShippingTable();
+    } else if (target === "partnersSection") {
+      loadPartnersAdmin();
+    } else if (target === "referralsSection") {
+      loadReferralsAdmin();
+    } else if (target === "reviewsSection") {
+      loadReviewsAdmin();
+    } else if (target === "auditSection") {
+      loadAuditAdmin();
     }
   });
 });
@@ -149,6 +157,13 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function getAdminHeaders(extra = {}) {
+  const headers = { ...extra };
+  const adminKey = localStorage.getItem("nerinAdminKey");
+  if (adminKey) headers["x-admin-key"] = adminKey;
+  return headers;
 }
 
 function cleanLabel(value) {
@@ -6242,6 +6257,360 @@ if (savePaymentSettingsBtn && paymentSettingsForm) {
       paymentSettingsStatus.textContent = "No se pudo guardar la configuración";
     }
   });
+}
+
+const partnerForm = document.getElementById("partnerForm");
+const partnersTableBody = document.querySelector("#partnersTable tbody");
+const referralForm = document.getElementById("referralForm");
+const referralsTableBody = document.querySelector("#referralsTable tbody");
+const reviewsTableBody = document.querySelector("#reviewsTable tbody");
+const auditTableBody = document.querySelector("#auditTable tbody");
+const auditRefreshBtn = document.getElementById("auditRefresh");
+const partnerAddressInput = document.getElementById("partnerAddress");
+const partnerAddressSuggestions = document.getElementById(
+  "partnerAddressSuggestions",
+);
+const partnerLatInput = document.getElementById("partnerLat");
+const partnerLngInput = document.getElementById("partnerLng");
+
+let addressAutocompleteTimer = null;
+let lastAddressQuery = "";
+
+function parseCommaList(value) {
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function clearPartnerAddressSuggestions() {
+  if (!partnerAddressSuggestions) return;
+  partnerAddressSuggestions.innerHTML = "";
+  partnerAddressSuggestions.classList.remove("is-visible");
+}
+
+function renderPartnerAddressSuggestions(items) {
+  if (!partnerAddressSuggestions) return;
+  partnerAddressSuggestions.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "address-autocomplete__empty";
+    empty.textContent = "No se encontraron direcciones.";
+    partnerAddressSuggestions.appendChild(empty);
+    partnerAddressSuggestions.classList.add("is-visible");
+    return;
+  }
+
+  items.forEach((item) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "address-autocomplete__option";
+    option.textContent = item.display_name || "";
+    option.addEventListener("click", () => {
+      if (partnerAddressInput) {
+        partnerAddressInput.value = item.display_name || "";
+      }
+      if (partnerLatInput) partnerLatInput.value = item.lat || "";
+      if (partnerLngInput) partnerLngInput.value = item.lon || "";
+      clearPartnerAddressSuggestions();
+    });
+    partnerAddressSuggestions.appendChild(option);
+  });
+  partnerAddressSuggestions.classList.add("is-visible");
+}
+
+async function fetchPartnerAddressSuggestions(query) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("limit", "5");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("q", query);
+  const res = await fetch(url.toString(), {
+    headers: { "Accept-Language": "es" },
+  });
+  if (!res.ok) throw new Error("address-search");
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+async function loadPartnersAdmin() {
+  if (!partnersTableBody) return;
+  partnersTableBody.innerHTML = "";
+  try {
+    const res = await apiFetch("/api/admin/partners", {
+      headers: getAdminHeaders({ Accept: "application/json" }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error");
+    const partners = Array.isArray(data.partners) ? data.partners : [];
+    partners.forEach((partner) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${escapeHtml(partner.name || "")}</td>
+        <td></td>
+        <td>${escapeHtml((partner.tags || []).join(", "))}</td>
+        <td></td>
+      `;
+      const statusCell = row.children[1];
+      const select = document.createElement("select");
+      ["PENDING", "APPROVED", "SUSPENDED"].forEach((status) => {
+        const option = document.createElement("option");
+        option.value = status;
+        option.textContent = status;
+        if (partner.status === status) option.selected = true;
+        select.appendChild(option);
+      });
+      statusCell.appendChild(select);
+      const actionsCell = row.children[3];
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "button";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Actualizar";
+      saveBtn.addEventListener("click", async () => {
+        await apiFetch(`/api/admin/partners/${partner.id}`, {
+          method: "PUT",
+          headers: getAdminHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ status: select.value }),
+        });
+        loadPartnersAdmin();
+      });
+      actionsCell.appendChild(saveBtn);
+      partnersTableBody.appendChild(row);
+    });
+  } catch (error) {
+    console.error(error);
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="4">No se pudieron cargar partners.</td>`;
+    partnersTableBody.appendChild(row);
+  }
+}
+
+if (partnerForm) {
+  if (partnerAddressInput && partnerAddressSuggestions) {
+    partnerAddressInput.addEventListener("input", () => {
+      const query = partnerAddressInput.value.trim();
+      if (addressAutocompleteTimer) {
+        window.clearTimeout(addressAutocompleteTimer);
+      }
+      if (query.length < 3) {
+        clearPartnerAddressSuggestions();
+        lastAddressQuery = query;
+        return;
+      }
+      addressAutocompleteTimer = window.setTimeout(async () => {
+        lastAddressQuery = query;
+        try {
+          const results = await fetchPartnerAddressSuggestions(query);
+          if (partnerAddressInput.value.trim() !== lastAddressQuery) return;
+          renderPartnerAddressSuggestions(results);
+        } catch (error) {
+          console.error(error);
+          clearPartnerAddressSuggestions();
+        }
+      }, 300);
+    });
+
+    partnerAddressInput.addEventListener("blur", () => {
+      window.setTimeout(() => {
+        clearPartnerAddressSuggestions();
+      }, 150);
+    });
+
+    partnerAddressInput.addEventListener("focus", () => {
+      if (partnerAddressSuggestions?.children.length) {
+        partnerAddressSuggestions.classList.add("is-visible");
+      }
+    });
+  }
+
+  partnerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {
+      name: document.getElementById("partnerName")?.value.trim(),
+      address: document.getElementById("partnerAddress")?.value.trim(),
+      whatsapp: document.getElementById("partnerWhatsapp")?.value.trim(),
+      lat: document.getElementById("partnerLat")?.value,
+      lng: document.getElementById("partnerLng")?.value,
+      tags: parseCommaList(document.getElementById("partnerTags")?.value),
+      photos: parseCommaList(document.getElementById("partnerPhotos")?.value),
+      status: document.getElementById("partnerStatus")?.value,
+    };
+    await apiFetch("/api/admin/partners", {
+      method: "POST",
+      headers: getAdminHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    });
+    partnerForm.reset();
+    loadPartnersAdmin();
+  });
+}
+
+async function loadReferralsAdmin() {
+  if (!referralsTableBody) return;
+  referralsTableBody.innerHTML = "";
+  try {
+    const res = await apiFetch("/api/admin/referrals", {
+      headers: getAdminHeaders({ Accept: "application/json" }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error");
+    const referrals = Array.isArray(data.referrals) ? data.referrals : [];
+    referrals.forEach((referral) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${escapeHtml(referral.id)}</td>
+        <td>${escapeHtml(referral.partner_id || "")}</td>
+        <td>${escapeHtml(referral.customer_email || "")}</td>
+        <td></td>
+        <td></td>
+      `;
+      const statusCell = row.children[3];
+      const select = document.createElement("select");
+      ["OPEN", "ACCEPTED", "COMPLETED", "CLOSED"].forEach((status) => {
+        const option = document.createElement("option");
+        option.value = status;
+        option.textContent = status;
+        if (referral.status === status) option.selected = true;
+        select.appendChild(option);
+      });
+      statusCell.appendChild(select);
+      const actionsCell = row.children[4];
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "button";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Actualizar";
+      saveBtn.addEventListener("click", async () => {
+        await apiFetch(`/api/admin/referrals/${referral.id}`, {
+          method: "PUT",
+          headers: getAdminHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ status: select.value }),
+        });
+        loadReferralsAdmin();
+      });
+      actionsCell.appendChild(saveBtn);
+      referralsTableBody.appendChild(row);
+    });
+  } catch (error) {
+    console.error(error);
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="5">No se pudieron cargar referrals.</td>`;
+    referralsTableBody.appendChild(row);
+  }
+}
+
+if (referralForm) {
+  referralForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {
+      orderId: document.getElementById("referralOrderId")?.value.trim(),
+      partnerId: document.getElementById("referralPartnerId")?.value.trim(),
+      customerName: document.getElementById("referralCustomerName")?.value.trim(),
+      customerEmail: document.getElementById("referralCustomerEmail")?.value.trim(),
+      status: document.getElementById("referralStatus")?.value,
+    };
+    await apiFetch("/api/admin/referrals", {
+      method: "POST",
+      headers: getAdminHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    });
+    referralForm.reset();
+    loadReferralsAdmin();
+  });
+}
+
+async function loadReviewsAdmin() {
+  if (!reviewsTableBody) return;
+  reviewsTableBody.innerHTML = "";
+  try {
+    const res = await apiFetch("/api/admin/reviews", {
+      headers: getAdminHeaders({ Accept: "application/json" }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error");
+    const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+    reviews.forEach((review) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${escapeHtml(review.id)}</td>
+        <td>${escapeHtml(review.verification_type || "")}</td>
+        <td>${escapeHtml(String(review.rating || ""))}</td>
+        <td></td>
+        <td></td>
+      `;
+      const statusCell = row.children[3];
+      const select = document.createElement("select");
+      ["PENDING", "PUBLISHED", "FLAGGED", "REMOVED"].forEach((status) => {
+        const option = document.createElement("option");
+        option.value = status;
+        option.textContent = status;
+        if (review.status === status) option.selected = true;
+        select.appendChild(option);
+      });
+      statusCell.appendChild(select);
+      const actionsCell = row.children[4];
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "button";
+      saveBtn.type = "button";
+      saveBtn.textContent = "Actualizar";
+      saveBtn.addEventListener("click", async () => {
+        await apiFetch(`/api/admin/reviews/${review.id}`, {
+          method: "PUT",
+          headers: getAdminHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ status: select.value }),
+        });
+        loadReviewsAdmin();
+      });
+      actionsCell.appendChild(saveBtn);
+      reviewsTableBody.appendChild(row);
+    });
+  } catch (error) {
+    console.error(error);
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="5">No se pudieron cargar reseñas.</td>`;
+    reviewsTableBody.appendChild(row);
+  }
+}
+
+async function loadAuditAdmin() {
+  if (!auditTableBody) return;
+  auditTableBody.innerHTML = "";
+  try {
+    const from = document.getElementById("auditFrom")?.value;
+    const to = document.getElementById("auditTo")?.value;
+    const params = new URLSearchParams();
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    const res = await apiFetch(`/api/admin/audit?${params.toString()}`, {
+      headers: getAdminHeaders({ Accept: "application/json" }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Error");
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    entries.forEach((entry) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${escapeHtml(entry.created_at || "")}</td>
+        <td>${escapeHtml(entry.type || "")}</td>
+        <td>${escapeHtml(JSON.stringify(entry.data || {}))}</td>
+      `;
+      auditTableBody.appendChild(row);
+    });
+    if (!entries.length) {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td colspan="3">Sin eventos.</td>`;
+      auditTableBody.appendChild(row);
+    }
+  } catch (error) {
+    console.error(error);
+    const row = document.createElement("tr");
+    row.innerHTML = `<td colspan="3">No se pudo cargar la auditoría.</td>`;
+    auditTableBody.appendChild(row);
+  }
+}
+
+if (auditRefreshBtn) {
+  auditRefreshBtn.addEventListener("click", loadAuditAdmin);
 }
 
 // Cargar productos inicialmente

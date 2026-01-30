@@ -41,7 +41,11 @@ if (BASE !== LOCAL_DIR) {
       for (const f of fs.readdirSync(LOCAL_DIR)) {
         const src = path.join(LOCAL_DIR, f);
         const dest = path.join(BASE, f);
-        if (!fs.existsSync(dest)) fs.copyFileSync(src, dest);
+        if (fs.existsSync(dest)) continue;
+        const stat = fs.statSync(src);
+        if (stat.isFile()) {
+          fs.copyFileSync(src, dest);
+        }
       }
     }
   } catch (e) {

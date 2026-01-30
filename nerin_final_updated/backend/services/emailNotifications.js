@@ -684,6 +684,41 @@ async function sendWholesaleInternalNotification({ request, baseUrl } = {}) {
   });
 }
 
+async function sendReviewRequest({ to, reviewLink, context = {}, verificationType } = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(context);
+  const orderNumber = resolveOrderNumber(context);
+  const supportEmail = getSupportEmail();
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si necesitás ayuda, escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const typeLabel =
+    verificationType === 'service' ? 'servicio técnico' : 'compra';
+  const actionLabel =
+    verificationType === 'service'
+      ? 'Compartí tu experiencia del servicio'
+      : 'Dejanos tu reseña de compra';
+  const linkMarkup = reviewLink
+    ? `<p style="margin: 24px 0;"><a href="${escapeHtml(
+        reviewLink,
+      )}" style="display:inline-block;padding:12px 18px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;">${actionLabel}</a></p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Hola ${customer}, tu opinión importa`,
+    message:
+      `Queremos saber cómo fue tu experiencia de ${typeLabel}. Tu reseña ayuda a otras personas a confiar en NERIN.`,
+    footer: `${linkMarkup}${footer}`,
+    order: context,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Reseña verificada – Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
 module.exports = {
   getFrom,
   getEmailConfig,
@@ -700,4 +735,5 @@ module.exports = {
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
   sendWholesaleInternalNotification,
+  sendReviewRequest,
 };

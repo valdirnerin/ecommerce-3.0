@@ -54,3 +54,73 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   ref_id TEXT,
   created_at timestamptz DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS partners (
+  id TEXT PRIMARY KEY,
+  status TEXT,
+  name TEXT,
+  address TEXT,
+  lat NUMERIC,
+  lng NUMERIC,
+  whatsapp TEXT,
+  photos JSONB DEFAULT '[]'::jsonb,
+  tags JSONB DEFAULT '[]'::jsonb,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS referrals (
+  id TEXT PRIMARY KEY,
+  order_id TEXT,
+  partner_id TEXT REFERENCES partners(id),
+  customer_email TEXT,
+  customer_name TEXT,
+  status TEXT,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS reviews (
+  id TEXT PRIMARY KEY,
+  rating INTEGER,
+  text TEXT,
+  photos JSONB DEFAULT '[]'::jsonb,
+  product_id TEXT,
+  partner_id TEXT REFERENCES partners(id),
+  order_id TEXT,
+  referral_id TEXT,
+  verification_type TEXT,
+  status TEXT,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  soft_deleted_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS review_tokens (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT,
+  token_salt TEXT,
+  scope TEXT,
+  order_id TEXT,
+  referral_id TEXT,
+  recipient_email TEXT,
+  expires_at timestamptz,
+  used_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  created_ip_hash TEXT,
+  used_ip_hash TEXT
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  type TEXT,
+  actor TEXT,
+  data JSONB DEFAULT '{}'::jsonb,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS reviews_product_status_idx ON reviews (product_id, status);
+CREATE INDEX IF NOT EXISTS reviews_partner_status_idx ON reviews (partner_id, status);
+CREATE INDEX IF NOT EXISTS review_tokens_expires_idx ON review_tokens (expires_at, used_at);
+CREATE INDEX IF NOT EXISTS referrals_partner_status_idx ON referrals (partner_id, status);
+CREATE INDEX IF NOT EXISTS partners_status_tags_idx ON partners (status, tags);
