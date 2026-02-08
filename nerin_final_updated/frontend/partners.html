@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Partners verificados – NERIN</title>
+    <link rel="stylesheet" href="/style.css?v=partners-r1" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo">
+          <a href="/index.html" class="brand">
+            <img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" />
+          </a>
+        </div>
+        <button class="menu-toggle" id="navToggle">&#9776;</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container partners-page">
+      <section class="partners-hero">
+        <h1>Partners / Técnicos Verificados</h1>
+        <p>
+          Encontrá técnicos y talleres aprobados por NERIN. Podés filtrar por especialidad y
+          contactarlos directamente por WhatsApp.
+        </p>
+      </section>
+      <section class="partners-layout">
+        <aside class="partners-filters">
+          <label>
+            Buscar
+            <input type="search" id="partnerSearch" placeholder="Nombre, ciudad, tag" />
+          </label>
+          <label>
+            Tag
+            <select id="partnerTag">
+              <option value="">Todos</option>
+            </select>
+          </label>
+        </aside>
+        <section class="partners-map" aria-label="Mapa de partners">
+          <div id="partnersMap"></div>
+        </section>
+      </section>
+      <section class="partners-results">
+        <h2>Partners disponibles</h2>
+        <div id="partnersList" class="partners-grid"></div>
+      </section>
+    </main>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script type="module" src="/js/partners.js"></script>
+  </body>
+</html>

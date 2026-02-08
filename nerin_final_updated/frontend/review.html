@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Dejar reseña verificada – NERIN</title>
+    <link rel="stylesheet" href="/style.css?v=review-r1" />
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo">
+          <a href="/index.html" class="brand">
+            <img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" />
+          </a>
+        </div>
+        <button class="menu-toggle" id="navToggle">&#9776;</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/login.html">Acceder</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+    <main class="container review-page">
+      <section class="review-card">
+        <h1>Dejá tu reseña verificada</h1>
+        <p id="reviewStatus">Validando tu token…</p>
+        <div id="tokenEntry" class="review-token-entry" hidden>
+          <div class="review-token-entry__header">
+            <span class="review-token-entry__badge">Paso 1</span>
+            <div>
+              <h2>Validá tu link de reseña</h2>
+              <p>
+                Te enviamos un link de verificación cuando tu pedido fue entregado o tu servicio
+                fue cerrado. Pegalo acá para habilitar el formulario.
+              </p>
+            </div>
+          </div>
+          <label>
+            Link de reseña
+            <input type="url" id="reviewLinkInput" placeholder="https://nerinparts.com.ar/review.html?tid=...&t=..." />
+          </label>
+          <div class="review-token-divider">o cargá los datos manualmente</div>
+          <div class="review-token-grid">
+            <label>
+              Token ID
+              <input type="text" id="reviewTokenId" placeholder="Ej: 6f2e..." />
+            </label>
+            <label>
+              Token
+              <input type="text" id="reviewTokenValue" placeholder="Ej: 4kJ..." />
+            </label>
+          </div>
+          <button type="button" class="button primary review-token-entry__cta" id="reviewTokenSubmit">
+            Continuar y dejar reseña
+          </button>
+          <p class="review-token-entry__hint">
+            ¿No encontrás el link? Revisá la bandeja de correo o la carpeta de spam.
+          </p>
+        </div>
+        <div id="reviewContext" class="review-context"></div>
+        <form id="reviewForm" class="review-form" hidden>
+          <div class="review-form__grid">
+            <label>
+              Tu nombre
+              <input type="text" name="customerName" maxlength="80" placeholder="Nombre y apellido" />
+            </label>
+            <label>
+              Email
+              <input type="email" name="email" required placeholder="tu@email.com" />
+            </label>
+          </div>
+          <label class="review-form__rating">
+            Calificación
+            <select name="rating" required>
+              <option value="">Seleccioná</option>
+              <option value="5">★★★★★ Excelente</option>
+              <option value="4">★★★★☆ Muy bueno</option>
+              <option value="3">★★★☆☆ Bueno</option>
+              <option value="2">★★☆☆☆ Regular</option>
+              <option value="1">★☆☆☆☆ Malo</option>
+            </select>
+          </label>
+          <label>
+            Comentario
+            <textarea name="text" required minlength="10" maxlength="2000" rows="4" placeholder="Contanos tu experiencia"></textarea>
+          </label>
+          <fieldset class="review-photos">
+            <legend>Fotos (opcional, hasta 4 imágenes)</legend>
+            <input type="file" name="photos" accept="image/*" multiple />
+            <small>Podés seleccionar hasta 4 fotos desde tu celular.</small>
+          </fieldset>
+          <button type="submit" class="button primary review-submit">Enviar reseña</button>
+        </form>
+      </section>
+    </main>
+    <script type="module" src="/js/review.js"></script>
+  </body>
+</html>

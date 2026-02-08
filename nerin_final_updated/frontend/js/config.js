@@ -102,6 +102,10 @@ function applySeoConfig(cfg = {}) {
     node.setAttribute(attr, resolveAbsoluteUrl(value, baseUrl));
   });
   hydrateJsonLd(baseUrl);
+  if (cfg.show && typeof cfg.show === "object") {
+    window.NERIN_CONFIG = window.NERIN_CONFIG || {};
+    window.NERIN_CONFIG.showPartners = cfg.show.partners !== false;
+  }
 }
 
 function dispatchConfigLoaded(cfg) {
@@ -487,6 +491,7 @@ function attachCartPreview(a) {
 function updateNav() {
   const navUl = document.querySelector("header nav ul");
   if (!navUl) return;
+  const config = window.NERIN_CONFIG || {};
   const role = localStorage.getItem("nerinUserRole");
   const token = localStorage.getItem("nerinToken");
   const loggedIn = Boolean(role && token);
@@ -515,6 +520,11 @@ function updateNav() {
     const a = li.querySelector("a");
     if (!a) return;
     const href = a.getAttribute("href");
+    if (href && href.includes("/partners.html")) {
+      const shouldShow = config.showPartners !== false;
+      li.style.display = shouldShow ? "" : "none";
+      return;
+    }
     // Actualizar carrito
     if (href && href.includes("/cart.html")) {
       a.classList.add("cart-link");

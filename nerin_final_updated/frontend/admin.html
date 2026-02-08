@@ -274,6 +274,10 @@
         <button data-target="metricsSection" data-i18n="nav.metrics">
           Métricas
         </button>
+        <button data-target="partnersSection">Partners</button>
+        <button data-target="referralsSection">Referidos</button>
+        <button data-target="reviewsSection">Reseñas</button>
+        <button data-target="auditSection">Auditoría</button>
         <button data-target="calculatorSection" data-i18n="nav.calculator">
           Calculadora
         </button>
@@ -1518,6 +1522,122 @@
           />
           <button type="submit" class="button primary">Crear orden</button>
         </form>
+      </section>
+
+      <section id="partnersSection" class="admin-section" style="display: none">
+        <h3>Partners verificados</h3>
+        <form id="partnerForm" class="admin-form">
+          <input type="text" id="partnerName" placeholder="Nombre" required />
+          <div class="address-autocomplete">
+            <input
+              type="text"
+              id="partnerAddress"
+              placeholder="Dirección"
+              autocomplete="off"
+            />
+            <div
+              id="partnerAddressSuggestions"
+              class="address-autocomplete__suggestions"
+              role="listbox"
+            ></div>
+          </div>
+          <input type="text" id="partnerWhatsapp" placeholder="WhatsApp (ej: 54911...)" />
+          <div class="form-row">
+            <input type="number" step="any" id="partnerLat" placeholder="Latitud" />
+            <input type="number" step="any" id="partnerLng" placeholder="Longitud" />
+          </div>
+          <input type="text" id="partnerTags" placeholder="Tags (separadas por coma)" />
+          <input type="text" id="partnerPhotos" placeholder="Fotos (URLs separadas por coma)" />
+          <select id="partnerStatus">
+            <option value="PENDING">PENDING</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="SUSPENDED">SUSPENDED</option>
+          </select>
+          <button type="submit" class="button primary">Guardar partner</button>
+        </form>
+        <div class="table-wrapper">
+          <table id="partnersTable">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Status</th>
+                <th>Tags</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="referralsSection" class="admin-section" style="display: none">
+        <h3>Referidos técnicos</h3>
+        <form id="referralForm" class="admin-form">
+          <input type="text" id="referralOrderId" placeholder="Order ID (opcional)" />
+          <input type="text" id="referralPartnerId" placeholder="Partner ID" required />
+          <input type="text" id="referralCustomerName" placeholder="Nombre cliente" />
+          <input type="email" id="referralCustomerEmail" placeholder="Email cliente" required />
+          <select id="referralStatus">
+            <option value="OPEN">OPEN</option>
+            <option value="ACCEPTED">ACCEPTED</option>
+            <option value="COMPLETED">COMPLETED</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+          <button type="submit" class="button primary">Crear referral</button>
+        </form>
+        <div class="table-wrapper">
+          <table id="referralsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Partner</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="reviewsSection" class="admin-section" style="display: none">
+        <h3>Reseñas verificadas</h3>
+        <div class="table-wrapper">
+          <table id="reviewsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Tipo</th>
+                <th>Rating</th>
+                <th>Status</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="auditSection" class="admin-section" style="display: none">
+        <h3>Auditoría de reseñas</h3>
+        <div class="form-row">
+          <input type="date" id="auditFrom" />
+          <input type="date" id="auditTo" />
+          <button type="button" class="button" id="auditRefresh">Actualizar</button>
+        </div>
+        <div class="table-wrapper">
+          <table id="auditTable">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Tipo</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </section>
 
       <!-- Sección de analíticas avanzadas -->

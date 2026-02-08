@@ -35,6 +35,7 @@ const {
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
   sendWholesaleInternalNotification,
+  sendReviewRequest,
 } = require("./services/emailNotifications");
 const {
   STATUS_ES_TO_CODE,
@@ -47,6 +48,17 @@ const {
   normalizeShipping,
 } = require("./utils/shippingStatus");
 const ordersRepo = require("./data/ordersRepo");
+const partnersRepo = require("./data/partnersRepo");
+const referralsRepo = require("./data/referralsRepo");
+const reviewsRepo = require("./data/reviewsRepo");
+const reviewTokensRepo = require("./data/reviewTokensRepo");
+const { appendAuditEvent, getAuditEvents } = require("./utils/auditLog");
+const { checkRateLimit } = require("./utils/rateLimiter");
+const { hashIp } = require("./utils/security");
+const {
+  validatePurchaseReview,
+  validateServiceReview,
+} = require("./utils/reviewValidation");
 const {
   appendEvent,
   upsertSession,
@@ -132,6 +144,12 @@ const MAX_ACTIVITY_SESSIONS = 300;
 const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
+const REVIEW_TOKEN_TTL_DAYS =
+  parseInt(process.env.REVIEW_TOKEN_TTL_DAYS, 10) || 14;
+
+const PARTNER_STATUSES = ["PENDING", "APPROVED", "SUSPENDED"];
+const REFERRAL_STATUSES = ["OPEN", "ACCEPTED", "COMPLETED", "CLOSED"];
+const REVIEW_STATUSES = ["PENDING", "PUBLISHED", "FLAGGED", "REMOVED"];
 
 let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
@@ -157,6 +175,22 @@ function getPublicBaseUrl(cfg) {
   const fromEnv = normalizeBaseUrl(process.env.PUBLIC_URL);
   if (fromEnv) return fromEnv;
   return FALLBACK_BASE_URL;
+}
+
+function buildReviewLink({ tokenId, tokenPlain, cfg } = {}) {
+  const base = getPublicBaseUrl(cfg || getConfig());
+  const urlBase = (base || FALLBACK_BASE_URL).replace(/\/+$/, "");
+  const params = new URLSearchParams({
+    tid: tokenId,
+    t: tokenPlain,
+  });
+  return `${urlBase}/review.html?${params.toString()}`;
+}
+
+function buildReviewTokenExpiry() {
+  return new Date(
+    Date.now() + REVIEW_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
 }
 
 function getMetaFeedBaseUrl(req, cfg) {
@@ -1385,6 +1419,7 @@ const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const INVOICES_DIR = path.join(DATA_DIR, 'invoices');
 const PRODUCT_UPLOADS_DIR = path.join(UPLOADS_DIR, 'products');
 const ACCOUNT_DOCS_DIR = path.join(UPLOADS_DIR, 'account-docs');
+const REVIEW_UPLOADS_DIR = path.join(UPLOADS_DIR, 'reviews');
 const ACCOUNT_DOCUMENT_KEYS = ["afip", "iva", "bank", "agreement"];
 const ACCOUNT_DOCUMENT_ALLOWED_STATUSES = new Set([
   "pending",
@@ -1398,6 +1433,7 @@ try {
   fs.mkdirSync(INVOICES_DIR, { recursive: true });
   fs.mkdirSync(PRODUCT_UPLOADS_DIR, { recursive: true });
   fs.mkdirSync(ACCOUNT_DOCS_DIR, { recursive: true });
+  fs.mkdirSync(REVIEW_UPLOADS_DIR, { recursive: true });
 } catch (e) {
   // En entornos donde no haya permisos, los directorios se crearán al primer uso
 }
@@ -1538,6 +1574,7 @@ const DEFAULT_FOOTER = {
     badges: true,
     newsletter: false,
     legal: true,
+    partners: false,
   },
   theme: {
     accentFrom: "#60a5fa",
@@ -1576,6 +1613,48 @@ function parseBody(req) {
       resolve();
     });
   });
+}
+
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const RATE_LIMITS = {
+  redeem: 10,
+  submit: 5,
+  admin: 60,
+};
+
+function getRequestIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress || null;
+}
+
+function enforceRateLimit(req, res, group) {
+  const ip = getRequestIp(req);
+  const key = `${group}:${hashIp(ip) || ip || "unknown"}`;
+  const limit = RATE_LIMITS[group] || RATE_LIMITS.submit;
+  const result = checkRateLimit({
+    key,
+    limit,
+    windowMs: RATE_LIMIT_WINDOW_MS,
+  });
+  if (!result.allowed) {
+    return sendJson(res, 429, {
+      error: "Rate limit exceeded",
+      retryAfterMs: Math.max(0, result.resetAt - Date.now()),
+    });
+  }
+  return null;
+}
+
+function requireAdmin(req, res) {
+  const adminKey = req.headers["x-admin-key"];
+  if (process.env.ADMIN_KEY && adminKey !== process.env.ADMIN_KEY) {
+    sendJson(res, 401, { error: "Unauthorized" });
+    return false;
+  }
+  return true;
 }
 
 function parseSvixSignatures(headerValue) {
@@ -3800,6 +3879,50 @@ function sanitizeText(value) {
   return String(value).trim();
 }
 
+function normalizeReviewPhotos(input) {
+  const list = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? [input]
+      : [];
+  const filtered = list
+    .map((value) => sanitizeText(value))
+    .filter(
+      (value) =>
+        value &&
+        value.length <= 500 &&
+        (/^https?:\/\//i.test(value) || value.startsWith("/uploads/")),
+    )
+    .slice(0, 4);
+  return filtered;
+}
+
+function validateReviewPayload(payload = {}) {
+  const errors = [];
+  const rating = Number(payload.rating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    errors.push("rating");
+  }
+  const text = sanitizeText(payload.text);
+  if (text.length < 10 || text.length > 2000) {
+    errors.push("text");
+  }
+  const email = normalizeEmailInput(payload.email);
+  if (!email) errors.push("email");
+  const photos = normalizeReviewPhotos(payload.photos);
+  return {
+    errors,
+    data: {
+      rating,
+      text,
+      email,
+      photos,
+      productId: sanitizeText(payload.productId || payload.product_id) || null,
+      customerName: sanitizeText(payload.customerName || payload.customer_name) || null,
+    },
+  };
+}
+
 function normalizePaymentDetailsInput(details) {
   if (details == null) return {};
   if (typeof details === "string") return { note: details.trim() };
@@ -4477,6 +4600,28 @@ const generalUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const reviewUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      fs.mkdirSync(REVIEW_UPLOADS_DIR, { recursive: true });
+      cb(null, REVIEW_UPLOADS_DIR);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
+      const stamp = Date.now().toString(36);
+      const rand = Math.random().toString(16).slice(2, 8);
+      cb(null, `review-${stamp}-${rand}${ext}`);
+    },
+  }),
+  limits: { fileSize: 3 * 1024 * 1024, files: 4 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp'];
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error('Formato de imagen no permitido'));
+  },
+});
+
 const invoiceUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
@@ -4899,6 +5044,26 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo" });
       }
       return sendJson(res, 201, { filename: req.file.filename });
+    });
+    return;
+  }
+
+  // API: subir fotos de reseñas (multipart/form-data)
+  // Ruta: /api/reviews/upload (POST)
+  if (pathname === "/api/reviews/upload" && req.method === "POST") {
+    const rateLimitError = enforceRateLimit(req, res, "submit");
+    if (rateLimitError) return;
+    reviewUpload.array("photos", 4)(req, res, (err) => {
+      if (err) {
+        console.error("review-upload", err);
+        return sendJson(res, 400, { error: err.message });
+      }
+      const files = Array.isArray(req.files) ? req.files : [];
+      if (!files.length) {
+        return sendJson(res, 400, { error: "No se recibieron fotos" });
+      }
+      const urls = files.map((file) => `/uploads/reviews/${encodeURIComponent(file.filename)}`);
+      return sendJson(res, 201, { urls });
     });
     return;
   }
@@ -6219,6 +6384,475 @@ async function requestHandler(req, res) {
     return;
   }
 
+  // API: listado público de partners (mapa)
+  if (pathname === "/api/partners" && req.method === "GET") {
+    try {
+      const statusParam = sanitizeText(parsedUrl.query.status || "APPROVED");
+      const tagParam = sanitizeText(parsedUrl.query.tag || "");
+      const list = await partnersRepo.getAll();
+      const filtered = list.filter((partner) => {
+        if (statusParam && partner.status !== statusParam) return false;
+        if (tagParam) {
+          const tags = Array.isArray(partner.tags) ? partner.tags : [];
+          const match = tags.some(
+            (tag) => String(tag).toLowerCase() === tagParam.toLowerCase(),
+          );
+          if (!match) return false;
+        }
+        return true;
+      });
+      return sendJson(res, 200, { partners: filtered });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "No se pudieron cargar partners" });
+    }
+  }
+
+  const partnerMatch = pathname.match(/^\/api\/partners\/([^/]+)$/);
+  if (partnerMatch && req.method === "GET") {
+    try {
+      const partnerId = decodeURIComponent(partnerMatch[1]);
+      const partner = await partnersRepo.getById(partnerId);
+      if (!partner) return sendJson(res, 404, { error: "Partner no encontrado" });
+      const reviews = await reviewsRepo.listPublishedByPartner(partnerId);
+      return sendJson(res, 200, { partner, reviews });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al obtener partner" });
+    }
+  }
+
+  // API: reseñas publicadas por producto
+  if (pathname === "/api/reviews" && req.method === "GET") {
+    const productId = sanitizeText(parsedUrl.query.productId || parsedUrl.query.product_id);
+    if (!productId) {
+      return sendJson(res, 400, { error: "productId requerido" });
+    }
+    try {
+      const reviews = await reviewsRepo.listPublishedByProduct(productId);
+      return sendJson(res, 200, { reviews });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al obtener reseñas" });
+    }
+  }
+
+  // API: validar token de reseña
+  if (pathname === "/api/review-tokens/redeem" && req.method === "POST") {
+    const rateLimitError = enforceRateLimit(req, res, "redeem");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const tid = sanitizeText(req.body?.tid || req.body?.tokenId);
+    const tokenPlain = sanitizeText(req.body?.t || req.body?.token);
+    if (!tid || !tokenPlain) {
+      return sendJson(res, 400, { error: "Token inválido" });
+    }
+    const verification = await reviewTokensRepo.verifyTokenById(tid, tokenPlain);
+    if (!verification.valid) {
+      return sendJson(res, 400, { error: "Token inválido" });
+    }
+    const tokenRecord = verification.record;
+    let context = null;
+    if (tokenRecord.scope === "purchase") {
+      const order = await ordersRepo.getById(tokenRecord.order_id);
+      if (!order) return sendJson(res, 404, { error: "Pedido no encontrado" });
+      const orderEmail = normalizeEmailInput(resolveOrderCustomerEmail(order));
+      if (
+        tokenRecord.recipient_email &&
+        orderEmail &&
+        normalizeEmailInput(tokenRecord.recipient_email) !== orderEmail
+      ) {
+        return sendJson(res, 400, { error: "Token inválido" });
+      }
+      const items = ordersRepo.getNormalizedItems(order).map((item) => ({
+        id: item.id || item.product_id || item.sku || "",
+        name: item.name || item.title || item.descripcion || "",
+        qty: item.qty || item.quantity || 0,
+      }));
+      context = {
+        scope: "purchase",
+        order: {
+          id: order.id || tokenRecord.order_id,
+          number: order.order_number || order.external_reference || order.id,
+          items,
+        },
+      };
+    } else if (tokenRecord.scope === "service") {
+      const referral = await referralsRepo.getById(tokenRecord.referral_id);
+      if (!referral) {
+        return sendJson(res, 404, { error: "Referral no encontrado" });
+      }
+      if (referral.status !== "CLOSED") {
+        return sendJson(res, 400, { error: "Referral no cerrado" });
+      }
+      const partner = referral.partner_id
+        ? await partnersRepo.getById(referral.partner_id)
+        : null;
+      if (!partner || partner.status !== "APPROVED") {
+        return sendJson(res, 400, { error: "Partner no verificado" });
+      }
+      context = {
+        scope: "service",
+        referral: {
+          id: referral.id,
+          customer_name: referral.customer_name,
+        },
+        partner: {
+          id: partner.id,
+          name: partner.name,
+          address: partner.address,
+          whatsapp: partner.whatsapp,
+          tags: partner.tags || [],
+        },
+      };
+    } else {
+      return sendJson(res, 400, { error: "Scope inválido" });
+    }
+    await appendAuditEvent({
+      type: "redeem_token",
+      actor: "public",
+      data: { token_id: tokenRecord.id, scope: tokenRecord.scope },
+    });
+    return sendJson(res, 200, { context });
+  }
+
+  // API: enviar reseña verificada
+  if (pathname === "/api/reviews/submit" && req.method === "POST") {
+    const rateLimitError = enforceRateLimit(req, res, "submit");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const tid = sanitizeText(req.body?.tid || req.body?.tokenId);
+    const tokenPlain = sanitizeText(req.body?.t || req.body?.token);
+    if (!tid || !tokenPlain) {
+      return sendJson(res, 400, { error: "Token inválido" });
+    }
+    const { errors, data } = validateReviewPayload(req.body || {});
+    if (errors.length) {
+      return sendJson(res, 400, { error: "Datos inválidos", fields: errors });
+    }
+    const verification = await reviewTokensRepo.verifyTokenById(tid, tokenPlain);
+    if (!verification.valid) {
+      return sendJson(res, 400, { error: "Token inválido" });
+    }
+    const tokenRecord = verification.record;
+    const normalizedEmail = normalizeEmailInput(data.email);
+    let reviewPayload = null;
+    if (tokenRecord.scope === "purchase") {
+      const order = await ordersRepo.getById(tokenRecord.order_id);
+      if (!order) return sendJson(res, 404, { error: "Pedido no encontrado" });
+      const orderItems = ordersRepo.getNormalizedItems(order);
+      const validation = validatePurchaseReview({
+        tokenRecord,
+        order,
+        orderItems,
+        email: normalizedEmail,
+        productId: data.productId,
+      });
+      if (!validation.ok) {
+        const message =
+          validation.error === "product"
+            ? "Producto inválido"
+            : "Email no coincide";
+        return sendJson(res, 400, { error: message });
+      }
+      reviewPayload = {
+        rating: data.rating,
+        text: data.text,
+        photos: data.photos,
+        product_id: validation.productId || null,
+        order_id: tokenRecord.order_id,
+        verification_type: "purchase",
+        status: "PENDING",
+        customer_email: normalizedEmail,
+        customer_name: data.customerName || null,
+      };
+    } else if (tokenRecord.scope === "service") {
+      const referral = await referralsRepo.getById(tokenRecord.referral_id);
+      if (!referral) {
+        return sendJson(res, 404, { error: "Referral no encontrado" });
+      }
+      const partner = referral.partner_id
+        ? await partnersRepo.getById(referral.partner_id)
+        : null;
+      const validation = validateServiceReview({
+        tokenRecord,
+        referral,
+        partner,
+        email: normalizedEmail,
+      });
+      if (!validation.ok) {
+        const message =
+          validation.error === "partner"
+            ? "Partner no verificado"
+            : "Email no coincide";
+        return sendJson(res, 400, { error: message });
+      }
+      reviewPayload = {
+        rating: data.rating,
+        text: data.text,
+        photos: data.photos,
+        partner_id: validation.partnerId,
+        referral_id: referral.id,
+        verification_type: "service",
+        status: "PENDING",
+        customer_email: normalizedEmail,
+        customer_name: data.customerName || referral.customer_name || null,
+      };
+    } else {
+      return sendJson(res, 400, { error: "Scope inválido" });
+    }
+
+    const ipHash = hashIp(getRequestIp(req));
+    const consumeResult = await reviewTokensRepo.consumeToken({
+      id: tid,
+      tokenPlain,
+      usedIpHash: ipHash,
+    });
+    if (!consumeResult.ok) {
+      return sendJson(res, 400, { error: "Token inválido" });
+    }
+
+    const review = await reviewsRepo.create(reviewPayload);
+    await appendAuditEvent({
+      type: "review_created",
+      actor: "public",
+      data: { review_id: review.id, scope: review.verification_type },
+    });
+    return sendJson(res, 201, { review });
+  }
+
+  // API admin: partners
+  if (pathname === "/api/admin/partners" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const partners = await partnersRepo.getAll();
+      return sendJson(res, 200, { partners });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al cargar partners" });
+    }
+  }
+
+  if (pathname === "/api/admin/partners" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    const rateLimitError = enforceRateLimit(req, res, "admin");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const payload = req.body || {};
+    const status = PARTNER_STATUSES.includes(payload.status)
+      ? payload.status
+      : "PENDING";
+    const partner = await partnersRepo.create({
+      status,
+      name: sanitizeText(payload.name),
+      address: sanitizeText(payload.address),
+      lat: payload.lat,
+      lng: payload.lng,
+      whatsapp: sanitizeText(payload.whatsapp),
+      photos: Array.isArray(payload.photos) ? payload.photos : [],
+      tags: Array.isArray(payload.tags) ? payload.tags : [],
+    });
+    await appendAuditEvent({
+      type: "partner_status_changed",
+      actor: "admin",
+      data: { partner_id: partner.id, status: partner.status },
+    });
+    return sendJson(res, 201, { partner });
+  }
+
+  const adminPartnerMatch = pathname.match(/^\/api\/admin\/partners\/([^/]+)$/);
+  if (adminPartnerMatch && req.method === "PUT") {
+    if (!requireAdmin(req, res)) return;
+    const rateLimitError = enforceRateLimit(req, res, "admin");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const partnerId = decodeURIComponent(adminPartnerMatch[1]);
+    const existing = await partnersRepo.getById(partnerId);
+    if (!existing) return sendJson(res, 404, { error: "Partner no encontrado" });
+    const payload = req.body || {};
+    const status = PARTNER_STATUSES.includes(payload.status)
+      ? payload.status
+      : existing.status;
+    const updated = await partnersRepo.update(partnerId, {
+      status,
+      name: sanitizeText(payload.name || existing.name),
+      address: sanitizeText(payload.address || existing.address),
+      lat: payload.lat != null ? payload.lat : existing.lat,
+      lng: payload.lng != null ? payload.lng : existing.lng,
+      whatsapp: sanitizeText(payload.whatsapp || existing.whatsapp),
+      photos: Array.isArray(payload.photos) ? payload.photos : existing.photos,
+      tags: Array.isArray(payload.tags) ? payload.tags : existing.tags,
+    });
+    if (existing.status !== updated.status) {
+      await appendAuditEvent({
+        type: "partner_status_changed",
+        actor: "admin",
+        data: { partner_id: updated.id, status: updated.status },
+      });
+    }
+    return sendJson(res, 200, { partner: updated });
+  }
+
+  // API admin: referrals
+  if (pathname === "/api/admin/referrals" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const referrals = await referralsRepo.getAll();
+      return sendJson(res, 200, { referrals });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al cargar referrals" });
+    }
+  }
+
+  if (pathname === "/api/admin/referrals" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    const rateLimitError = enforceRateLimit(req, res, "admin");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const payload = req.body || {};
+    const status = REFERRAL_STATUSES.includes(payload.status)
+      ? payload.status
+      : "OPEN";
+    const referral = await referralsRepo.create({
+      order_id: sanitizeText(payload.order_id || payload.orderId) || null,
+      partner_id: sanitizeText(payload.partner_id || payload.partnerId) || null,
+      customer_email: normalizeEmailInput(payload.customer_email || payload.customerEmail),
+      customer_name: sanitizeText(payload.customer_name || payload.customerName),
+      status,
+    });
+    await appendAuditEvent({
+      type: "referral_status_changed",
+      actor: "admin",
+      data: { referral_id: referral.id, status: referral.status },
+    });
+    return sendJson(res, 201, { referral });
+  }
+
+  const adminReferralMatch = pathname.match(/^\/api\/admin\/referrals\/([^/]+)$/);
+  if (adminReferralMatch && req.method === "PUT") {
+    if (!requireAdmin(req, res)) return;
+    const rateLimitError = enforceRateLimit(req, res, "admin");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const referralId = decodeURIComponent(adminReferralMatch[1]);
+    const existing = await referralsRepo.getById(referralId);
+    if (!existing) return sendJson(res, 404, { error: "Referral no encontrado" });
+    const payload = req.body || {};
+    const status = REFERRAL_STATUSES.includes(payload.status)
+      ? payload.status
+      : existing.status;
+    const updated = await referralsRepo.update(referralId, {
+      order_id: sanitizeText(payload.order_id || payload.orderId) || existing.order_id,
+      partner_id: sanitizeText(payload.partner_id || payload.partnerId) || existing.partner_id,
+      customer_email: normalizeEmailInput(payload.customer_email || payload.customerEmail) || existing.customer_email,
+      customer_name: sanitizeText(payload.customer_name || payload.customerName) || existing.customer_name,
+      status,
+    });
+    if (existing.status !== updated.status) {
+      await appendAuditEvent({
+        type: "referral_status_changed",
+        actor: "admin",
+        data: { referral_id: updated.id, status: updated.status },
+      });
+    }
+    if (existing.status !== "CLOSED" && updated.status === "CLOSED") {
+      const partner = updated.partner_id
+        ? await partnersRepo.getById(updated.partner_id)
+        : null;
+      if (partner && partner.status === "APPROVED") {
+        const expiresAt = buildReviewTokenExpiry();
+        const { token, record } = await reviewTokensRepo.issueToken({
+          scope: "service",
+          referralId: updated.id,
+          recipientEmail: updated.customer_email,
+          createdIpHash: hashIp(getRequestIp(req)),
+          expiresAt,
+        });
+        const reviewLink = buildReviewLink({
+          tokenId: record.id,
+          tokenPlain: token,
+        });
+        await appendAuditEvent({
+          type: "issue_token",
+          actor: "admin",
+          data: { token_id: record.id, scope: "service", referral_id: updated.id },
+        });
+        if (updated.customer_email) {
+          try {
+            await sendReviewRequest({
+              to: updated.customer_email,
+              reviewLink,
+              context: { name: updated.customer_name || "cliente", id: updated.id },
+              verificationType: "service",
+            });
+          } catch (emailErr) {
+            console.error("referral review email failed", emailErr);
+          }
+        }
+      }
+    }
+    return sendJson(res, 200, { referral: updated });
+  }
+
+  // API admin: reviews
+  if (pathname === "/api/admin/reviews" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const statusParam = sanitizeText(parsedUrl.query.status || "");
+      const reviews = await reviewsRepo.getAll();
+      const filtered = statusParam
+        ? reviews.filter((review) => review.status === statusParam)
+        : reviews;
+      return sendJson(res, 200, { reviews: filtered });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al cargar reseñas" });
+    }
+  }
+
+  const adminReviewMatch = pathname.match(/^\/api\/admin\/reviews\/([^/]+)$/);
+  if (adminReviewMatch && req.method === "PUT") {
+    if (!requireAdmin(req, res)) return;
+    const rateLimitError = enforceRateLimit(req, res, "admin");
+    if (rateLimitError) return;
+    await parseBody(req);
+    const reviewId = decodeURIComponent(adminReviewMatch[1]);
+    const existing = await reviewsRepo.getById(reviewId);
+    if (!existing) return sendJson(res, 404, { error: "Reseña no encontrada" });
+    const payload = req.body || {};
+    const status = REVIEW_STATUSES.includes(payload.status)
+      ? payload.status
+      : existing.status;
+    const softDeleted = payload.softDelete === true || payload.soft_deleted === true;
+    const updated = await reviewsRepo.update(reviewId, {
+      status,
+      soft_deleted_at: softDeleted ? new Date().toISOString() : existing.soft_deleted_at,
+    });
+    if (existing.status !== updated.status || softDeleted) {
+      await appendAuditEvent({
+        type: "review_status_changed",
+        actor: "admin",
+        data: { review_id: updated.id, status: updated.status, soft_deleted: softDeleted },
+      });
+    }
+    return sendJson(res, 200, { review: updated });
+  }
+
+  if (pathname === "/api/admin/audit" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const entries = await getAuditEvents({
+        from: parsedUrl.query.from,
+        to: parsedUrl.query.to,
+      });
+      return sendJson(res, 200, { entries });
+    } catch (err) {
+      console.error(err);
+      return sendJson(res, 500, { error: "Error al cargar auditoría" });
+    }
+  }
+
   // API: crear nueva orden pendiente con datos de cliente y envío
   if (pathname === "/api/orders" && req.method === "POST") {
     let body = "";
@@ -7025,6 +7659,38 @@ async function requestHandler(req, res) {
               });
             } catch (emailErr) {
               console.error("order delivered email failed", emailErr);
+            }
+          }
+          const orderEmail = normalizeEmailInput(
+            resolveOrderCustomerEmail(orders[index]),
+          );
+          if (orderEmail) {
+            try {
+              const expiresAt = buildReviewTokenExpiry();
+              const { token, record } = await reviewTokensRepo.issueToken({
+                scope: "purchase",
+                orderId: orders[index].id,
+                recipientEmail: orderEmail,
+                createdIpHash: hashIp(getRequestIp(req)),
+                expiresAt,
+              });
+              const reviewLink = buildReviewLink({
+                tokenId: record.id,
+                tokenPlain: token,
+              });
+              await appendAuditEvent({
+                type: "issue_token",
+                actor: "system",
+                data: { token_id: record.id, scope: "purchase", order_id: orders[index].id },
+              });
+              await sendReviewRequest({
+                to: orderEmail,
+                reviewLink,
+                context: orders[index],
+                verificationType: "purchase",
+              });
+            } catch (err) {
+              console.error("order review token issue failed", err);
             }
           }
         }
