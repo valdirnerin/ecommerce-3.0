@@ -108,13 +108,13 @@ function normalizeItems(order = {}) {
       id: p.id ?? p.product_id ?? p.codigo ?? undefined,
       sku: p.sku ?? p.codigo ?? undefined,
       name: p.name ?? p.titulo ?? p.descripcion ?? '',
-      qty: Number(p.qty ?? p.cantidad ?? p.cant ?? 1),
+      qty: Number(p.qty ?? p.quantity ?? p.cantidad ?? p.cant ?? 1),
       price: Number(p.price ?? p.precio ?? 0),
       total:
         Number(
           p.total ??
             Number(p.price ?? p.precio ?? 0) *
-              Number(p.qty ?? p.cantidad ?? p.cant ?? 1)
+              Number(p.qty ?? p.quantity ?? p.cantidad ?? p.cant ?? 1)
         ),
     }))
     .filter((x) => x.qty > 0);
@@ -264,10 +264,35 @@ function normalizeAddress(order = {}) {
     order?.comentarios,
     order?.notas,
   ]);
+  const floor = firstNonEmpty([
+    existing.floor,
+    existing.piso,
+    existing.apartment,
+    existing.departamento,
+    checkoutAddress?.floor,
+    checkoutAddress?.piso,
+    checkoutAddress?.apartment,
+    checkoutAddress?.apartamento,
+    checkoutAddress?.departamento,
+    combinedCustomer.piso,
+    combinedCustomer.apartamento,
+    combinedCustomer.departamento,
+    userAddress?.piso,
+    userAddress?.apartamento,
+    userAddress?.departamento,
+    rawCustomer?.piso,
+    rawCustomer?.apartamento,
+    rawCustomer?.departamento,
+    order?.floor,
+    order?.piso,
+    order?.apartment,
+    order?.departamento,
+  ]);
 
   const result = { ...existing };
   if (street) result.street = street;
   if (number) result.number = number;
+  if (floor) result.floor = floor;
   if (city) result.city = city;
   if (province) result.province = province;
   if (zip) result.zip = zip;
