@@ -3990,10 +3990,17 @@ const OrdersUI = (() => {
 
   function parseDateString(value) {
     if (!value) return null;
-    if (typeof value === "string" && value.includes("-")) {
-      const [y, m, d] = value.split("-").map((part) => Number(part));
-      if ([y, m, d].some((part) => Number.isNaN(part))) return null;
-      return new Date(y, m - 1, d);
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      const ymdMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+      if (ymdMatch) {
+        const y = Number(ymdMatch[1]);
+        const m = Number(ymdMatch[2]);
+        const d = Number(ymdMatch[3]);
+        if (![y, m, d].some((part) => Number.isNaN(part))) {
+          return new Date(y, m - 1, d);
+        }
+      }
     }
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? null : date;
@@ -4030,10 +4037,13 @@ const OrdersUI = (() => {
       shipping.piso ||
       shipping.apartment ||
       shipping.apartamento ||
+      shipping.departamento ||
       direccion.piso ||
       direccion.apartamento ||
+      direccion.departamento ||
       cliente.piso ||
       cliente.apartamento ||
+      cliente.departamento ||
       "";
     const city = shipping.city || direccion.localidad || cliente.localidad || "";
     const province =
@@ -4510,6 +4520,10 @@ const OrdersUI = (() => {
         <dl>
           <dt>Código postal</dt>
           <dd>${displayValue(shipping.zip)}</dd>
+        </dl>
+        <dl>
+          <dt>Piso / Depto</dt>
+          <dd>${displayValue(shipping.floor)}</dd>
         </dl>
         <dl>
           <dt>Pago</dt>
