@@ -5,6 +5,10 @@ import {
   trackPixel,
   trackPixelOnce,
 } from "./meta-pixel.js";
+import {
+  createComparisonQualityTable,
+  removeQualitySelector,
+} from "./components/ComparisonQualityTable.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -1013,6 +1017,7 @@ function renderProduct(product) {
   }
 
   infoContainer.innerHTML = "";
+  removeQualitySelector();
 
   const layout = document.createElement("div");
   layout.className = "product-layout";
@@ -1079,6 +1084,16 @@ function renderProduct(product) {
   }
 
   summary.appendChild(meta);
+
+  const qualityComparison = createComparisonQualityTable({
+    brand: product.brand,
+    isServicePack: product.isServicePack,
+    category: product.category,
+  });
+  if (qualityComparison?.jumpLink) {
+    summary.appendChild(qualityComparison.jumpLink);
+  }
+
   buyPanel.appendChild(summary);
 
   const purchaseCard = document.createElement("section");
@@ -1190,13 +1205,6 @@ function renderProduct(product) {
     purchaseCard.appendChild(tierList);
   }
 
-  if (stockCopy) {
-    const stockInfo = document.createElement("p");
-    stockInfo.className = "product-stock-info";
-    stockInfo.textContent = stockCopy;
-    purchaseCard.appendChild(stockInfo);
-  }
-
   const qtyControl = createQuantityControl(product);
   const qtyWrapper = document.createElement("div");
   qtyWrapper.className = "product-buy-qty";
@@ -1292,7 +1300,7 @@ function renderProduct(product) {
   assuranceList.className = "product-buy-assurance";
   [
     "Service Pack original Samsung (GH82-XXXXXX).",
-    "Factura A/B para estudios, cadenas y laboratorios.",
+    "Factura A/B.",
     "Envíos a todo el país con seguimiento.",
     'Garantía técnica por defectos de fábrica (<a href="/garantia.html">ver términos</a>).',
     "Soporte técnico real por WhatsApp antes y después de la compra.",
@@ -1307,6 +1315,7 @@ function renderProduct(product) {
     priceLabel,
     taxFreeNote,
     billingNote,
+    ...(qualityComparison?.section ? [qualityComparison.section] : []),
     protectionNote,
     assuranceList,
   );
