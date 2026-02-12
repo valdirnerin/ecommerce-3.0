@@ -179,12 +179,14 @@ function getPublicBaseUrl(cfg) {
 
 function buildReviewLink({ tokenId, tokenPlain, cfg } = {}) {
   const base = getPublicBaseUrl(cfg || getConfig());
-  const urlBase = (base || FALLBACK_BASE_URL).replace(/\/+$/, "");
+  const urlBase = base || FALLBACK_BASE_URL;
   const params = new URLSearchParams({
     tid: tokenId,
     t: tokenPlain,
   });
-  return `${urlBase}/review.html?${params.toString()}`;
+  const reviewUrl = new URL("/review.html", `${urlBase}/`);
+  reviewUrl.search = params.toString();
+  return reviewUrl.toString();
 }
 
 function buildReviewTokenExpiry() {
