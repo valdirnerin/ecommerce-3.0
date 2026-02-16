@@ -3,8 +3,28 @@ const statusEl = document.getElementById("reviewStatus");
 const contextEl = document.getElementById("reviewContext");
 
 const params = new URLSearchParams(window.location.search);
-const tokenId = params.get("tid");
-const tokenPlain = params.get("t");
+
+function getRawQueryParam(name) {
+  const raw = window.location.search.startsWith("?")
+    ? window.location.search.slice(1)
+    : window.location.search;
+  if (!raw) return "";
+  const segments = raw.split("&");
+  for (const segment of segments) {
+    const [key, ...valueParts] = segment.split("=");
+    if (decodeURIComponent(key || "") !== name) continue;
+    return decodeURIComponent(valueParts.join("=") || "");
+  }
+  return "";
+}
+
+function normalizeTokenValue(value) {
+  if (!value) return "";
+  return String(value).trim().replace(/\s+/g, "+");
+}
+
+const tokenId = normalizeTokenValue(params.get("tid") || getRawQueryParam("tid"));
+const tokenPlain = normalizeTokenValue(params.get("t") || getRawQueryParam("t"));
 
 let currentContext = null;
 let productSelect = null;
@@ -88,7 +108,10 @@ async function redeemToken() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tid: tokenId, t: tokenPlain }),
     });
-    if (!res.ok) throw new Error("redeem-failed");
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "No pudimos validar el token. Revisá el link.");
+    }
     const data = await res.json();
     currentContext = data.context;
     renderContext(currentContext);
@@ -96,15 +119,14 @@ async function redeemToken() {
       buildProductSelect(currentContext.order?.items || []);
     }
     setStatus("Token validado. Completá el formulario:");
+    if (tokenEntry) tokenEntry.hidden = true;
     if (form) form.hidden = false;
   } catch (err) {
-    setStatus("No pudimos validar el token. Revisá el link.", true);
+    renderContext(null);
+    if (form) form.hidden = true;
+    setStatus(err?.message || "No pudimos validar el token. Revisá el link.", true);
+    if (tokenEntry) tokenEntry.hidden = false;
   }
-}
-
-function normalizeTokenValue(value) {
-  if (!value) return "";
-  return String(value).trim();
 }
 
 function handleTokenEntry() {
@@ -114,8 +136,12 @@ function handleTokenEntry() {
   if (linkValue) {
     try {
       const url = new URL(linkValue, window.location.origin);
-      tid = tid || url.searchParams.get("tid") || "";
-      t = t || url.searchParams.get("t") || "";
+      tid = normalizeTokenValue(
+        tid || url.searchParams.get("tid") || getRawQueryParam("tid") || "",
+      );
+      t = normalizeTokenValue(
+        t || url.searchParams.get("t") || getRawQueryParam("t") || "",
+      );
     } catch (err) {
       setStatus("El link pegado no es válido.", true);
       return;
@@ -125,8 +151,8 @@ function handleTokenEntry() {
     setStatus("Completá el Token ID y Token para continuar.", true);
     return;
   }
-  const params = new URLSearchParams({ tid, t });
-  window.location.search = `?${params.toString()}`;
+  const next = new URLSearchParams({ tid, t });
+  window.location.search = `?${next.toString()}`;
 }
 
 if (reviewTokenSubmit) {
