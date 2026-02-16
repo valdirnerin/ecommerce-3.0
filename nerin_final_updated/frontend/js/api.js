@@ -30,8 +30,16 @@ export function buildApiUrl(path = "") {
   return `${trimmedBase}${safePath}`;
 }
 
-export function apiFetch(path, options) {
-  return fetch(buildApiUrl(path), options);
+export function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = localStorage.getItem("nerinToken");
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return fetch(buildApiUrl(path), {
+    ...options,
+    headers,
+  });
 }
 
 // Obtener la lista de productos desde el backend

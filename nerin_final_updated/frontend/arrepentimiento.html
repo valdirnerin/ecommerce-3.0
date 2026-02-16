@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Botón de arrepentimiento | NERIN</title>
+    <meta name="robots" content="index,follow" />
+    <link rel="stylesheet" href="/style.css?v=cartfix-2" />
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <button class="menu-toggle" id="navToggle">&#9776;</button>
+        <nav id="mainNav">
+          <ul>
+            <li><a href="/index.html">Inicio</a></li>
+            <li><a href="/shop.html">Productos</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
+            <li><a href="/cart.html">Carrito</a></li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container arrepent-page">
+      <section class="product-page__layout" aria-label="Botón de arrepentimiento">
+        <div class="product-page__info">
+          <h1>BOTÓN DE ARREPENTIMIENTO</h1>
+          <p class="lead">Iniciá tu solicitud de revocación de compra sin necesidad de registro.</p>
+          <form id="arrepentForm" class="contact-form" novalidate>
+            <div class="contact-form__row">
+              <label class="contact-form__field">
+                <span>Email</span>
+                <input type="email" id="arrepentEmail" required placeholder="tu@email.com" />
+              </label>
+              <label class="contact-form__field">
+                <span>Nro de orden</span>
+                <input type="text" id="arrepentOrder" required placeholder="Ej: NER-12345" />
+              </label>
+            </div>
+            <label class="contact-form__field">
+              <span>Motivo (opcional)</span>
+              <input type="text" id="arrepentReason" placeholder="Ej: Compra duplicada" />
+            </label>
+            <label class="contact-form__field">
+              <span>Mensaje</span>
+              <textarea id="arrepentMessage" rows="5" placeholder="Contanos el detalle para procesarlo más rápido"></textarea>
+            </label>
+            <div class="buttons">
+              <button type="submit" class="button primary">Enviar solicitud</button>
+              <a href="/index.html" class="button secondary">Volver al inicio</a>
+            </div>
+          </form>
+          <div id="arrepentResult" class="contact-status" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/js/arrepentimiento.js"></script>
+    <script type="module" src="/js/config.js"></script>
+  </body>
+</html>

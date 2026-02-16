@@ -1,4 +1,6 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
+import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
+import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
 const CONFIG_CACHE_KEY = "nerin:config-cache";
 
@@ -680,7 +682,6 @@ function createFeaturedCard(product) {
     );
   }
   if (product.vip_only) {
-    availability.appendChild(createAvailabilityBadge("Exclusivo VIP", "vip"));
   }
   if (availability.childElementCount > 0) {
     card.appendChild(availability);
@@ -688,39 +689,14 @@ function createFeaturedCard(product) {
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
-  const wholesaleUser = isWholesale();
-  const roleState = resolveRoleState();
-  const retailTier = createPriceTier(
-    "Minorista",
-    product.price_minorista,
-    roleState === "wholesale"
-      ? "Precio normal/minorista"
-      : "Precio final sugerido",
-    "price-tier--retail",
-  );
-  const wholesaleTier = createPriceTier(
-    "Mayorista",
-    product.price_mayorista,
-    wholesaleUser
-      ? "Descuentos automáticos por volumen"
-      : "Exclusivo para cuentas verificadas",
-    "price-tier--wholesale",
-    {
-      locked: !wholesaleUser,
-      placeholder: "Ingresá para ver",
-    },
-  );
-  if (retailTier) {
-    if (!wholesaleUser) retailTier.tier.dataset.active = "true";
-    priceBlock.appendChild(retailTier.tier);
-  }
-  if (wholesaleTier) {
-    if (wholesaleUser) wholesaleTier.tier.dataset.active = "true";
-    priceBlock.appendChild(wholesaleTier.tier);
-  }
-  if (priceBlock.childElementCount > 0) {
-    card.appendChild(priceBlock);
-  }
+  const priceFinal = Number(product.price_minorista) || 0;
+  const legalPrice = createPriceLegalBlock({
+    priceFinal,
+    priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
+    compact: true,
+  });
+  priceBlock.appendChild(legalPrice);
+  card.appendChild(priceBlock);
 
   const actions = document.createElement("div");
   actions.className = "product-actions";

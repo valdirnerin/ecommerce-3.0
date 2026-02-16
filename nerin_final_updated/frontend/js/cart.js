@@ -10,6 +10,8 @@
  */
 
 import { isWholesale, fetchProducts } from "./api.js";
+import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
+import { calculateNetNoNationalTaxes, formatArs } from "./utils/pricing.js";
 import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 
 // Referencias a los elementos del DOM
@@ -115,11 +117,14 @@ async function renderCart() {
       unitPrice = calculateDiscountedPrice(basePrice, item.quantity);
     }
     const priceEl = document.createElement("div");
-    priceEl.className = "cart-price cart-meta-row";
-    priceEl.innerHTML = `
-      <span class="cart-meta-label">Precio unidad</span>
-      <span class="cart-meta-value">$${unitPrice.toLocaleString("es-AR")}</span>
-    `;
+    priceEl.className = "cart-price";
+    priceEl.appendChild(
+      createPriceLegalBlock({
+        priceFinal: unitPrice,
+        priceNetNoNationalTaxes: calculateNetNoNationalTaxes(unitPrice),
+        compact: true,
+      }),
+    );
     details.appendChild(priceEl);
 
     const itemTotal = unitPrice * item.quantity;
@@ -209,16 +214,17 @@ async function renderCart() {
   summaryContainer.innerHTML = `
     <div class="cart-summary-row">
       <span>Subtotal (${totalItems} ${totalItems === 1 ? "artículo" : "artículos"})</span>
-      <span class="cart-summary-amount cart-total-amount">$${subtotal.toLocaleString("es-AR")}</span>
+      <span class="cart-summary-amount cart-total-amount">${formatArs(subtotal)}</span>
     </div>
     <p class="cart-summary-note">Los costos de envío y promociones se calculan en el checkout.</p>
   `;
-  if (isWholesale()) {
-    summaryContainer.insertAdjacentHTML(
-      "beforeend",
-      '<p class="cart-summary-note cart-summary-note--highlight">Los precios incluyen descuentos mayoristas por cantidad.</p>',
-    );
-  }
+  const totalLegal = createPriceLegalBlock({
+    priceFinal: subtotal,
+    priceNetNoNationalTaxes: calculateNetNoNationalTaxes(subtotal),
+    compact: true,
+  });
+  totalLegal.classList.add("cart-summary-legal");
+  summaryContainer.appendChild(totalLegal);
 
   // Configurar acciones
   whatsappBtn.onclick = () => {

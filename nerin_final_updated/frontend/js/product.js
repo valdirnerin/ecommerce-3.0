@@ -1,4 +1,4 @@
-import { fetchProducts, isWholesale } from "./api.js";
+import { fetchProducts } from "./api.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 import {
   normalizeContentId,
@@ -9,6 +9,8 @@ import {
   createComparisonQualityTable,
   removeQualitySelector,
 } from "./components/ComparisonQualityTable.js";
+import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
+import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -20,6 +22,20 @@ const reviewsSummary = document.getElementById("reviewsSummary");
 const priceFormatter = new Intl.NumberFormat("es-AR");
 const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+
+function sanitizeStorefrontCopy(text) {
+  if (typeof text !== "string") return "";
+  return text
+    .replace(/mayorista/gi, "preferencial")
+    .replace(/vip/gi, "")
+    .replace(/t[eé]cnico/gi, "especializado")
+    .replace(/portal/gi, "acceso")
+    .replace(/tarifa/gi, "precio")
+    .replace(/ingres[aá]/gi, "accedé")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
 
 function formatReviewDate(value) {
   if (!value) return "";
@@ -98,7 +114,7 @@ async function loadReviews(productId) {
       {
         id: "demo-2",
         rating: 4,
-        text: "Muy buena experiencia con el técnico. Instalación rápida y prolija.",
+        text: "Muy buena experiencia con el especialista. Instalación rápida y prolija.",
         verification_type: "service",
         created_at: new Date(Date.now() - 86400000).toISOString(),
       },
@@ -438,7 +454,7 @@ function updateJsonLd(product, images, productUrl) {
       ? "https://schema.org/InStock"
       : "https://schema.org/OutOfStock";
   const priceSource =
-    product.price_minorista ?? product.price ?? product.price_mayorista ?? 0;
+    product.price_minorista ?? product.price ?? 0;
   const numericPrice = Number(priceSource);
   const formattedPrice = Number.isFinite(numericPrice)
     ? numericPrice.toFixed(2)
@@ -875,12 +891,8 @@ function formatPrice(value) {
   return `$${priceFormatter.format(Number(value || 0))}`;
 }
 
-function getWholesaleUnitPrice(product, quantity) {
-  let discount = 0;
-  if (quantity >= 20) discount = 0.15;
-  else if (quantity >= 10) discount = 0.1;
-  else if (quantity >= 5) discount = 0.05;
-  return Math.round(Number(product.price_mayorista || 0) * (1 - discount));
+function getRetailUnitPrice(product) {
+  return Number(product.price_minorista || product.price || 0);
 }
 
 function createQuantityControl(product) {
@@ -986,7 +998,7 @@ function renderProduct(product) {
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
   const priceSource =
-    product.price_minorista ?? product.price ?? product.price_mayorista ?? 0;
+    product.price_minorista ?? product.price ?? 0;
   const numericPrice = Number(priceSource) || 0;
   if (skuValue) {
     trackPixelOnce(
@@ -1140,70 +1152,13 @@ function renderProduct(product) {
   const priceGrid = document.createElement("div");
   priceGrid.className = "product-buy-price-grid";
 
-  const retailTier = document.createElement("article");
-  retailTier.className = "price-tier price-tier--retail product-price-emphasis";
-  retailTier.dataset.active = "true";
-  retailTier.innerHTML = `
-    <span class="price-tier__label">MINORISTA</span>
-    <strong class="price-tier__value">${formatPrice(product.price_minorista)}</strong>
-    <span class="price-tier__note">Precio final minorista · IVA incluido</span>
-    <span class="price-tier__tax-note">Precio sin impuestos: ${formatPrice(
-      Number(product.price_minorista || 0) / 1.21,
-    )}</span>
-  `;
-  priceGrid.appendChild(retailTier);
-
-  const wholesaleTier = document.createElement("article");
-  wholesaleTier.className = "price-tier price-tier--wholesale product-price-emphasis";
-
-  if (isWholesale()) {
-    wholesaleTier.dataset.active = "true";
-    wholesaleTier.innerHTML = `
-      <span class="price-tier__label">MAYORISTA</span>
-      <strong class="price-tier__value">${formatPrice(product.price_mayorista)}</strong>
-      <span class="price-tier__note">Precio mayorista desde este valor con descuentos automáticos por cantidad.</span>
-      <span class="price-tier__tax-note">Precio sin impuestos: ${formatPrice(
-        Number(product.price_mayorista || 0) / 1.21,
-      )}</span>
-    `;
-  } else {
-    wholesaleTier.dataset.locked = "true";
-    wholesaleTier.innerHTML = `
-      <span class="price-tier__label">MAYORISTA</span>
-      <strong class="price-tier__value">Ingresá para ver</strong>
-      <span class="price-tier__note">Ingresá para ver tu tarifa exclusiva para técnicos y comercios</span>
-    `;
-    const wholesaleCta = document.createElement("a");
-    wholesaleCta.href = "/login.html";
-    wholesaleCta.className = "wholesale-login-link";
-    wholesaleCta.textContent = "Ingresar a portal mayorista";
-    wholesaleTier.appendChild(wholesaleCta);
-  }
-
-  priceGrid.appendChild(wholesaleTier);
+  const priceFinal = Number(product.price_minorista || 0);
+  const legalPriceBlock = createPriceLegalBlock({
+    priceFinal,
+    priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
+  });
+  priceGrid.appendChild(legalPriceBlock);
   purchaseCard.appendChild(priceGrid);
-
-  if (isWholesale()) {
-    const wholesaleNote = document.createElement("p");
-    wholesaleNote.className = "product-wholesale-note";
-    wholesaleNote.textContent =
-      "El precio mayorista mejora automáticamente según la cantidad seleccionada.";
-    purchaseCard.appendChild(wholesaleNote);
-
-    const tierList = document.createElement("ul");
-    tierList.className = "product-wholesale-tiers product-wholesale-tiers--card";
-    [
-      { range: "1–4 u", discount: "Precio base" },
-      { range: "5–9 u", discount: "–5%" },
-      { range: "10–19 u", discount: "–10%" },
-      { range: "20+ u", discount: "–15%" },
-    ].forEach((tier) => {
-      const li = document.createElement("li");
-      li.innerHTML = `<span>${tier.range}</span><strong>${tier.discount}</strong>`;
-      tierList.appendChild(li);
-    });
-    purchaseCard.appendChild(tierList);
-  }
 
   const qtyControl = createQuantityControl(product);
   const qtyWrapper = document.createElement("div");
@@ -1229,7 +1184,7 @@ function renderProduct(product) {
   protectionNote.className = "product-protection-note";
   protectionNote.innerHTML = `
     <a class="product-protection-link" href="/garantia.html">Compra protegida NERINParts</a>:
-    módulo Samsung Service Pack original, factura A/B y soporte técnico real por WhatsApp.
+    módulo Samsung Service Pack original, factura A/B y soporte por WhatsApp.
   `;
 
   const handleAddToCart = () => {
@@ -1257,9 +1212,7 @@ function renderProduct(product) {
         id: product.id,
         sku: skuValue || product.id,
         name: product.name,
-        price: isWholesale()
-          ? product.price_mayorista
-          : product.price_minorista,
+        price: product.price_minorista,
         quantity: qty,
         image: cartImage,
       });
@@ -1281,9 +1234,7 @@ function renderProduct(product) {
       setCtaLabels();
     }, 1500);
     if (skuValue) {
-      const unitPrice = isWholesale()
-        ? Number(product.price_mayorista || 0)
-        : Number(product.price_minorista || 0);
+      const unitPrice = Number(product.price_minorista || 0);
       trackPixel("AddToCart", {
         content_type: "product",
         content_ids: [skuValue],
@@ -1296,14 +1247,15 @@ function renderProduct(product) {
 
   addBtn.addEventListener("click", handleAddToCart);
 
+  const legalNote = document.createElement("p");
+  legalNote.className = "product-buy-legal";
+  legalNote.textContent = "Exhibición de precios conforme normativa vigente · Factura A/B · Garantía según términos.";
+
   const assuranceList = document.createElement("ul");
   assuranceList.className = "product-buy-assurance";
   [
-    "Service Pack original Samsung (GH82-XXXXXX).",
-    "Factura A/B.",
-    "Envíos a todo el país con seguimiento.",
-    'Garantía técnica por defectos de fábrica (<a href="/garantia.html">ver términos</a>).',
-    "Soporte técnico real por WhatsApp antes y después de la compra.",
+    "Garantía DOA 7 días (probás sin pegar).",
+    "Despacho diario / Envío.",
   ].forEach((item) => {
     const li = document.createElement("li");
     li.innerHTML = item;
@@ -1315,6 +1267,7 @@ function renderProduct(product) {
     priceLabel,
     taxFreeNote,
     billingNote,
+    legalNote,
     ...(qualityComparison?.section ? [qualityComparison.section] : []),
     protectionNote,
     assuranceList,
@@ -1333,8 +1286,9 @@ function renderProduct(product) {
   detailsCard.className = "product-body__card";
   const detailsHeading = document.createElement("h2");
   detailsHeading.textContent = "Descripción y detalles";
-  const descriptionText =
-    getProductDescription(product) || "Descripción no disponible por el momento.";
+  const descriptionText = sanitizeStorefrontCopy(
+    getProductDescription(product) || "Descripción no disponible por el momento.",
+  );
   const desc = document.createElement("p");
   desc.className = "product-detail-desc";
   desc.textContent = descriptionText;
@@ -1346,7 +1300,7 @@ function renderProduct(product) {
     const specsCard = document.createElement("article");
     specsCard.className = "product-body__card product-specs-card";
     const specsHeading = document.createElement("h3");
-    specsHeading.textContent = "Especificaciones técnicas";
+    specsHeading.textContent = "Especificaciones";
     specsCard.append(specsHeading, attrs);
     detailsPanel.appendChild(specsCard);
   }
@@ -1367,7 +1321,7 @@ function renderProduct(product) {
       detail: "Envíos a todo el país con seguimiento en línea.",
     },
     {
-      title: "Garantía técnica",
+      title: "Garantía",
       detail: "Cobertura real por defecto de fábrica.",
     },
   ].forEach((item) => {
@@ -1396,26 +1350,19 @@ function renderProduct(product) {
 
   const updatePriceLabels = () => {
     const qty = qtyControl.getValue();
-    const wholesaleUser = isWholesale();
-    const unitPrice = wholesaleUser
-      ? getWholesaleUnitPrice(product, qty)
-      : product.price_minorista;
-    const unitLabel = wholesaleUser
-      ? "Precio mayorista por unidad"
-      : "Precio minorista por unidad";
-    priceLabel.textContent = `${unitLabel}: ${formatPrice(unitPrice)} · x${qty}`;
+    const unitPrice = getRetailUnitPrice(product);
+    priceLabel.textContent = `Precio por unidad: ${formatPrice(unitPrice)} · x${qty}`;
     const netUnitPrice = Number(unitPrice) / 1.21;
     const netText = Number.isFinite(netUnitPrice)
       ? formatPrice(netUnitPrice)
       : formatPrice(0);
     taxFreeNote.textContent = `Precio sin impuestos: ${netText}`;
-    const stickyLabel = wholesaleUser ? "Mayorista" : "Minorista";
-    stickyPrice.textContent = `${stickyLabel}: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
+    stickyPrice.textContent = `Precio: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
   };
 
   const setCtaLabels = () => {
     const isMobile = window.matchMedia("(max-width: 768px)").matches;
-    const label = isMobile ? "COMPRAR MÓDULO AHORA" : "COMPRAR AHORA";
+    const label = "COMPRAR MÓDULO AHORA";
     addBtn.textContent = label;
     stickyBtn.textContent = label;
   };

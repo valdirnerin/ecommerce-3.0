@@ -1,5 +1,6 @@
 import { apiFetch } from "./api.js";
 import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
+import { calculateNetNoNationalTaxes, formatArs } from "./utils/pricing.js";
 
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
@@ -280,27 +281,36 @@ Array.from(pagoRadios).forEach((radio) =>
 function buildResumen() {
   const subtotal = cart.reduce((t, it) => t + it.price * it.quantity, 0);
   const itemsHtml = cart
-    .map(
-      (i) =>
-        `<li>${i.name} x${i.quantity} - $${(i.price * i.quantity).toLocaleString('es-AR')}</li>`
-    )
+    .map((i) => {
+      const itemTotal = Number(i.price || 0) * Number(i.quantity || 0);
+      return `<li><div class="checkout-resumen-item"><span>${i.name} x${i.quantity}</span>${legalPriceHtml(itemTotal)}</div></li>`;
+    })
     .join('');
   const total = subtotal + (envio.costo || 0);
   const metodoLabel =
     envio.metodoLabel || SHIPPING_METHOD_LABELS[envio.metodo] || '';
   const resumenHtml = `
     <ul>${itemsHtml}</ul>
-    <p>Subtotal: $${subtotal.toLocaleString('es-AR')}</p>
-    <p>Costo estimado de envío: $${(envio.costo || 0).toLocaleString('es-AR')}</p>
+    <p>Subtotal:</p>
+    ${legalPriceHtml(subtotal)}
+    <p>Costo estimado de envío: ${formatArs(envio.costo || 0)}</p>
     ${
       metodoLabel
         ? `<p>Método de envío: ${metodoLabel}</p>`
         : ''
     }
-    <p><strong>Total estimado: $${total.toLocaleString('es-AR')}</strong></p>
+    <p><strong>Total estimado:</strong></p>
+    ${legalPriceHtml(total)}
   `;
   resumenEl.innerHTML = resumenHtml;
   if (resumenPaso2El) resumenPaso2El.innerHTML = resumenHtml;
+}
+
+
+function legalPriceHtml(value) {
+  const total = Number(value) || 0;
+  const net = calculateNetNoNationalTaxes(total);
+  return `<div class="checkout-legal-price"><strong>${formatArs(total)} <span>Precio final</span></strong><small>PRECIO SIN IMPUESTOS NACIONALES: ${formatArs(net)}</small></div>`;
 }
 
 function shippingLabel(id) {
