@@ -939,6 +939,15 @@ function formatArs(value) {
   return "$0";
 }
 
+
+function calculateNetNoNationalTaxes(value, taxRate = 0.21) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  const divisor = 1 + Number(taxRate || 0);
+  if (!Number.isFinite(divisor) || divisor <= 0) return Math.round(amount);
+  return Math.round(amount / divisor);
+}
+
 function buildProductUrl(product) {
   if (product && typeof product.slug === "string" && product.slug.trim()) {
     return `/p/${encodeURIComponent(product.slug.trim())}`;
@@ -1134,7 +1143,6 @@ function renderProductInfoSsr(product, siteBase) {
   const compatibilityHtml = compatibility
     ? `<p class=\"product-compatibility\">Compatible con ${esc(compatibility)}.</p>`
     : "";
-  const wholesalePrice = Number(product?.price_mayorista);
   const retailPrice = Number(product?.price_minorista);
   const priceBlock = `<div class=\"product-detail-price\">${
     Number.isFinite(retailPrice)
@@ -1221,7 +1229,6 @@ function buildShopCard(product, siteBase) {
     }
   }
   const retailPrice = Number(product?.price_minorista);
-  const wholesalePrice = Number(product?.price_mayorista);
   return `
     <article class=\"product-card\" role=\"listitem\">
       <a class=\"product-card__image\" href=\"${esc(url)}\">
@@ -1237,19 +1244,14 @@ function buildShopCard(product, siteBase) {
       <h3><a href=\"${esc(url)}\">${esc(product?.name || "Repuesto")}</a></h3>
       <p class=\"description\">${esc(description)}</p>
       <div class=\"availability-badges\">${stockBadge}</div>
-      <div class=\"price-grid\">
+      <div class="price-grid">
         ${
           Number.isFinite(retailPrice)
-            ? `<div class=\"price-tier\"><span class=\"price-tier__label\">Minorista</span><span class=\"price-tier__value\">${esc(
+            ? `<div class="price-legal-block price-legal-block--compact"><div class="price-legal-block__main"><strong class="price-legal-block__amount">${esc(
                 formatArs(retailPrice),
-              )}</span></div>`
-            : ""
-        }
-        ${
-          Number.isFinite(wholesalePrice)
-            ? `<div class=\"price-tier\"><span class=\"price-tier__label\">Mayorista</span><span class=\"price-tier__value\">${esc(
-                formatArs(wholesalePrice),
-              )}</span></div>`
+              )}</strong><span class="price-legal-block__tag">Precio final</span></div><p class="price-legal-block__net">PRECIO SIN IMPUESTOS NACIONALES: ${esc(
+                formatArs(calculateNetNoNationalTaxes(retailPrice)),
+              )}</p></div>`
             : ""
         }
       </div>
@@ -1840,6 +1842,42 @@ const USERS = [
   },
 ];
 
+
+
+function resolveAuthUser(req) {
+  const header = req.headers?.authorization || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) return null;
+  try {
+    const decoded = Buffer.from(match[1], "base64").toString("utf8");
+    const email = normalizeEmailInput(decoded.split(":")[0] || "");
+    if (!email) return null;
+    return findUserByEmail(email);
+  } catch {
+    return null;
+  }
+}
+
+function canSeeWholesalePrices(req) {
+  const user = resolveAuthUser(req);
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const approved =
+    user.is_wholesale_approved === true ||
+    user?.profile?.is_wholesale_approved === true;
+  return approved;
+}
+
+function sanitizePublicProducts(products) {
+  if (!Array.isArray(products)) return [];
+  return products.map((product) => {
+    if (!product || typeof product !== "object") return product;
+    const sanitized = { ...product };
+    delete sanitized.price_mayorista;
+    delete sanitized.price_wholesale;
+    return sanitized;
+  });
+}
 function findUserByEmail(email) {
   const normalized = normalizeEmailInput(email);
   if (!normalized) return null;
@@ -3856,6 +3894,33 @@ function saveWholesaleRequests(requests) {
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
 }
 
+
+function getRegretRequests() {
+  const filePath = dataPath("regret_requests.json");
+  try {
+    const file = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(file);
+    return Array.isArray(parsed.requests) ? parsed.requests : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRegretRequests(requests) {
+  const filePath = dataPath("regret_requests.json");
+  const payload = { requests: Array.isArray(requests) ? requests : [] };
+  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+function generateRegretCode() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const rand = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `ARP-${y}${m}${day}-${rand}`;
+}
+
 // Leer facturas desde el archivo JSON
 function getInvoices() {
   const filePath = dataPath("invoices.json");
@@ -4828,7 +4893,10 @@ async function requestHandler(req, res) {
   if (pathname === "/api/products" && req.method === "GET") {
     try {
       const products = getProducts();
-      return sendJson(res, 200, { products });
+      const withWholesale = canSeeWholesalePrices(req);
+      return sendJson(res, 200, {
+        products: withWholesale ? products : sanitizePublicProducts(products),
+      });
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, {
@@ -4846,7 +4914,11 @@ async function requestHandler(req, res) {
       if (!product) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
       }
-      return sendJson(res, 200, normalizeProductImages(product));
+      const withWholesale = canSeeWholesalePrices(req);
+      const responseProduct = withWholesale
+        ? product
+        : sanitizePublicProducts([product])[0];
+      return sendJson(res, 200, normalizeProductImages(responseProduct));
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, { error: "No se pudo cargar el producto" });
@@ -4989,6 +5061,53 @@ async function requestHandler(req, res) {
   }
 
   // API: subir imagen de producto
+
+  if (pathname === "/api/arrepentimiento" && req.method === "POST") {
+    await parseBody(req);
+    try {
+      const email = normalizeEmailInput(req.body?.email || "");
+      const orderNumber = normalizeTextInput(req.body?.orderNumber || "");
+      const reason = normalizeTextInput(req.body?.reason || "");
+      const message = normalizeTextInput(req.body?.message || "");
+      if (!email || !orderNumber) {
+        return sendJson(res, 400, {
+          ok: false,
+          error: "Completá email y número de orden.",
+        });
+      }
+      const code = generateRegretCode();
+      const requests = getRegretRequests();
+      requests.unshift({
+        id: code,
+        email,
+        orderNumber,
+        reason,
+        message,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      });
+      saveRegretRequests(requests);
+
+      const subject = `Solicitud de arrepentimiento ${code}`;
+      const html = `
+        <h2>Solicitud de arrepentimiento registrada</h2>
+        <p>Código: <strong>${code}</strong></p>
+        <p>Número de orden: <strong>${orderNumber}</strong></p>
+        <p>Conservá este código para seguimiento.</p>
+      `;
+      try {
+        await sendEmail({ to: email, subject, html, type: "contacto" });
+      } catch (mailError) {
+        console.warn("arrepentimiento email", mailError?.message || mailError);
+      }
+
+      return sendJson(res, 200, { ok: true, code });
+    } catch (error) {
+      console.error("arrepentimiento", error);
+      return sendJson(res, 500, { ok: false, error: "No se pudo registrar la solicitud" });
+    }
+  }
+
   // Ruta: /api/product-image/{sku} (POST)
   if (pathname.startsWith("/api/product-image/") && req.method === "POST") {
     const sku = decodeURIComponent(pathname.split("/").pop());
