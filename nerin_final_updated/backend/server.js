@@ -6451,6 +6451,16 @@ async function requestHandler(req, res) {
     }
     const verification = await reviewTokensRepo.verifyTokenById(tid, tokenPlain);
     if (!verification.valid) {
+      if (verification.reason === "used") {
+        return sendJson(res, 400, {
+          error: "Este link ya fue usado para enviar una reseña.",
+        });
+      }
+      if (verification.reason === "expired") {
+        return sendJson(res, 400, {
+          error: "Este link de reseña venció. Pedinos uno nuevo.",
+        });
+      }
       return sendJson(res, 400, { error: "Token inválido" });
     }
     const tokenRecord = verification.record;
