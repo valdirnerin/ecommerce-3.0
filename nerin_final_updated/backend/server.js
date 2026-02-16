@@ -1144,15 +1144,24 @@ function renderProductInfoSsr(product, siteBase) {
     ? `<p class=\"product-compatibility\">Compatible con ${esc(compatibility)}.</p>`
     : "";
   const retailPrice = Number(product?.price_minorista);
+  const canAccessWholesalePricing =
+    product?.viewerRole === "admin" ||
+    product?.viewerRole === "wholesale" ||
+    product?.isAdmin === true ||
+    product?.isApprovedWholesale === true;
+  const rawWholesalePrice = canAccessWholesalePricing
+    ? Number(product?.price_mayorista ?? product?.wholesale_price)
+    : NaN;
+  const wholesalePrice =
+    Number.isFinite(rawWholesalePrice) && rawWholesalePrice >= 0
+      ? rawWholesalePrice
+      : undefined;
   const priceBlock = `<div class=\"product-detail-price\">${
     Number.isFinite(retailPrice)
       ? `<p><span>Precio minorista</span><strong>${esc(formatArs(retailPrice))}</strong></p>`
       : ""
-  }${
-    Number.isFinite(wholesalePrice)
-      ? `<p><span>Precio mayorista</span><strong>${esc(formatArs(wholesalePrice))}</strong></p>`
-      : ""
   }</div>`;
+  void wholesalePrice; // El precio mayorista no se renderiza en storefront público SSR.
   const trustList = [
     "Asesoría especializada en repuestos originales y OEM.",
     "Logística a todo el país con despachos en 24h.",
