@@ -53,6 +53,12 @@ const defaultConfig = {
     youtube: "",
   },
   badges: { mercadoPago: true, andreani: true, efectivo: true, transferencia: true },
+  badgeImages: {
+    mercadoPago: "/assets/footer-badges/mercadopago.png",
+    andreani: "/assets/footer-badges/andreani.png",
+    efectivo: "/assets/footer-badges/efectivo.png",
+    transferencia: "/assets/footer-badges/transferencia.png",
+  },
   newsletter: {
     enabled: false,
     placeholder: "Tu email para recibir novedades",
@@ -81,6 +87,7 @@ const defaultConfig = {
 const form = document.getElementById('footerForm');
 const resetBtn = document.getElementById('footerReset');
 const viewBtn = document.getElementById('footerView');
+const BADGE_KEYS = ["mercadoPago", "andreani", "efectivo", "transferencia"];
 
 async function loadFooterConfig() {
   try {
@@ -125,6 +132,10 @@ function fillForm(cfg) {
   for (const k in cfg.badges) {
     if (form[`badge_${k}`]) form[`badge_${k}`].checked = cfg.badges[k];
   }
+  form.badgeImage_mercadoPago.value = cfg.badgeImages?.mercadoPago || defaultConfig.badgeImages.mercadoPago;
+  form.badgeImage_andreani.value = cfg.badgeImages?.andreani || defaultConfig.badgeImages.andreani;
+  form.badgeImage_efectivo.value = cfg.badgeImages?.efectivo || defaultConfig.badgeImages.efectivo;
+  form.badgeImage_transferencia.value = cfg.badgeImages?.transferencia || defaultConfig.badgeImages.transferencia;
   form.columns.value = JSON.stringify(cfg.columns, null, 2);
 }
 
@@ -190,6 +201,12 @@ function collectForm() {
   for (const k in defaultConfig.badges) {
     cfg.badges[k] = form[`badge_${k}`].checked;
   }
+  cfg.badgeImages = {
+    mercadoPago: form.badgeImage_mercadoPago.value.trim() || defaultConfig.badgeImages.mercadoPago,
+    andreani: form.badgeImage_andreani.value.trim() || defaultConfig.badgeImages.andreani,
+    efectivo: form.badgeImage_efectivo.value.trim() || defaultConfig.badgeImages.efectivo,
+    transferencia: form.badgeImage_transferencia.value.trim() || defaultConfig.badgeImages.transferencia,
+  };
   return cfg;
 }
 
@@ -227,3 +244,47 @@ viewBtn.addEventListener('click', () => {
 });
 
 loadFooterConfig();
+
+async function uploadBadgeImage(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers = {};
+  const token = localStorage.getItem("nerinToken");
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const adminKey = localStorage.getItem("nerinAdminKey");
+  if (adminKey) headers["x-admin-key"] = adminKey;
+  const res = await fetch("/api/upload", {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.filename) {
+    throw new Error(data.error || "No se pudo subir la imagen del badge");
+  }
+  return `/uploads/${encodeURIComponent(data.filename)}`;
+}
+
+async function handleBadgeFileChange(event) {
+  const input = event.target;
+  if (!input?.name?.startsWith("badgeImageFile_") || !input.files?.length) return;
+  const key = input.name.replace("badgeImageFile_", "");
+  if (!BADGE_KEYS.includes(key)) return;
+  try {
+    input.disabled = true;
+    const file = input.files[0];
+    const url = await uploadBadgeImage(file);
+    const textInput = form[`badgeImage_${key}`];
+    if (textInput) textInput.value = url;
+  } catch (err) {
+    console.error("footer-badge-upload", err);
+    alert(err.message || "Error al subir la imagen del badge");
+  } finally {
+    input.value = "";
+    input.disabled = false;
+  }
+}
+
+if (form) {
+  form.addEventListener("change", handleBadgeFileChange);
+}

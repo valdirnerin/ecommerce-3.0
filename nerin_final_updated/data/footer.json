@@ -3,13 +3,13 @@
   "slogan": "Samsung Service Pack Original",
   "cta": {
     "enabled": true,
-    "text": "\u00bfSos t\u00e9cnico o mayorista?",
+    "text": "¿Sos técnico o mayorista?",
     "buttonLabel": "Ingresar a portal mayorista",
     "href": "/account-minorista.html#mayoristas"
   },
   "columns": [
     {
-      "title": "Cat\u00e1logo",
+      "title": "Catálogo",
       "links": [
         {
           "label": "Productos",
@@ -20,7 +20,7 @@
           "href": "/shop.html?category=pantallas"
         },
         {
-          "label": "Bater\u00edas originales",
+          "label": "Baterías originales",
           "href": "/shop.html?category=baterias"
         }
       ]
@@ -33,7 +33,7 @@
           "href": "/seguimiento.html"
         },
         {
-          "label": "Garant\u00eda y devoluciones",
+          "label": "Garantía y devoluciones",
           "href": "/pages/terminos.html#garantia"
         },
         {
@@ -54,7 +54,7 @@
           "href": "/register.html"
         },
         {
-          "label": "Soporte t\u00e9cnico",
+          "label": "Soporte técnico",
           "href": "/contact.html"
         }
       ]
@@ -63,7 +63,7 @@
       "title": "Empresa",
       "links": [
         {
-          "label": "Qui\u00e9nes somos",
+          "label": "Quiénes somos",
           "href": "/index.html#quienes-somos"
         },
         {
@@ -71,7 +71,7 @@
           "href": "#contacto"
         },
         {
-          "label": "T\u00e9rminos y condiciones",
+          "label": "Términos y condiciones",
           "href": "/pages/terminos.html"
         }
       ]
@@ -96,7 +96,7 @@
   "newsletter": {
     "enabled": false,
     "placeholder": "Tu email para recibir novedades",
-    "successMsg": "\u00a1Listo! Te sumamos a nuestra lista."
+    "successMsg": "¡Listo! Te sumamos a nuestra lista."
   },
   "legal": {
     "cuit": "30-93002432-2",
@@ -124,5 +124,11 @@
     "accentBar": true,
     "mode": "dark",
     "link": "#93c5fd"
+  },
+  "badgeImages": {
+    "mercadoPago": "/assets/footer-badges/mercadopago.png",
+    "andreani": "/assets/footer-badges/andreani.png",
+    "efectivo": "/assets/footer-badges/efectivo.png",
+    "transferencia": "/assets/footer-badges/transferencia.png"
   }
 }
