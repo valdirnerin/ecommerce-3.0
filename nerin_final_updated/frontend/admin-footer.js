@@ -88,6 +88,7 @@ const form = document.getElementById('footerForm');
 const resetBtn = document.getElementById('footerReset');
 const viewBtn = document.getElementById('footerView');
 const BADGE_KEYS = ["mercadoPago", "andreani", "efectivo", "transferencia"];
+let isBadgeUploadInProgress = false;
 
 async function loadFooterConfig() {
   try {
@@ -210,8 +211,7 @@ function collectForm() {
   return cfg;
 }
 
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
+async function persistFooterConfig({ showSuccessAlert = true } = {}) {
   const cfg = collectForm();
   const headers = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('nerinToken');
@@ -224,10 +224,20 @@ form.addEventListener('submit', async (e) => {
     body: JSON.stringify(cfg),
   });
   if (res.ok) {
-    alert('Footer guardado');
+    if (showSuccessAlert) alert('Footer guardado');
   } else {
     alert('Error al guardar footer');
   }
+  return res.ok;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (isBadgeUploadInProgress) {
+    alert('Esperá a que termine la carga de la imagen antes de guardar.');
+    return;
+  }
+  await persistFooterConfig();
 });
 
 resetBtn.addEventListener('click', async () => {
@@ -271,15 +281,18 @@ async function handleBadgeFileChange(event) {
   const key = input.name.replace("badgeImageFile_", "");
   if (!BADGE_KEYS.includes(key)) return;
   try {
+    isBadgeUploadInProgress = true;
     input.disabled = true;
     const file = input.files[0];
     const url = await uploadBadgeImage(file);
     const textInput = form[`badgeImage_${key}`];
     if (textInput) textInput.value = url;
+    await persistFooterConfig({ showSuccessAlert: false });
   } catch (err) {
     console.error("footer-badge-upload", err);
     alert(err.message || "Error al subir la imagen del badge");
   } finally {
+    isBadgeUploadInProgress = false;
     input.value = "";
     input.disabled = false;
   }
