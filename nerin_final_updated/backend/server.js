@@ -1567,6 +1567,12 @@ const DEFAULT_FOOTER = {
     efectivo: true,
     transferencia: true,
   },
+  badgeImages: {
+    mercadoPago: "/assets/footer-badges/mercadopago.png",
+    andreani: "/assets/footer-badges/andreani.png",
+    efectivo: "/assets/footer-badges/efectivo.png",
+    transferencia: "/assets/footer-badges/transferencia.png",
+  },
   newsletter: {
     enabled: false,
     placeholder: "Tu email para recibir novedades",
@@ -4252,6 +4258,28 @@ function normalizeFooter(data) {
     andreani: Boolean(data?.badges?.andreani),
     efectivo: Boolean(data?.badges?.efectivo),
     transferencia: Boolean(data?.badges?.transferencia),
+  };
+  out.badgeImages = {
+    mercadoPago: String(
+      data?.badgeImages?.mercadoPago ||
+        base?.badgeImages?.mercadoPago ||
+        "/assets/footer-badges/mercadopago.png",
+    ),
+    andreani: String(
+      data?.badgeImages?.andreani ||
+        base?.badgeImages?.andreani ||
+        "/assets/footer-badges/andreani.png",
+    ),
+    efectivo: String(
+      data?.badgeImages?.efectivo ||
+        base?.badgeImages?.efectivo ||
+        "/assets/footer-badges/efectivo.png",
+    ),
+    transferencia: String(
+      data?.badgeImages?.transferencia ||
+        base?.badgeImages?.transferencia ||
+        "/assets/footer-badges/transferencia.png",
+    ),
   };
   out.newsletter = {
     enabled: Boolean(data?.newsletter?.enabled),

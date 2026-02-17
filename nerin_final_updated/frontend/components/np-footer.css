@@ -299,77 +299,44 @@
   height: 20px;
 }
 
-.np-footer__badges {
+.np-footer__badges,
+.footer-badges {
   display: flex;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 16px;
   justify-content: center;
 }
 
-.np-footer__badge {
-  --np-badge-bg: linear-gradient(135deg, #1f2937, #0f172a);
-  --np-badge-border: rgba(255, 255, 255, 0.12);
-  --np-badge-shadow: rgba(0, 0, 0, 0.25);
-  --np-badge-label: #f8fafc;
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  height: 52px;
-  min-width: 220px;
-  justify-content: flex-start;
+.np-footer__badge,
+.footer-badge {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 14px;
-  border: 1px solid var(--np-badge-border);
-  background: var(--np-badge-bg);
-  color: var(--np-badge-label);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  box-shadow: 0 10px 24px var(--np-badge-shadow);
-}
-
-.np-footer__badge-icon {
-  display: inline-flex;
+  padding: 10px 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.08);
+  gap: 10px;
+  transition: box-shadow 0.18s ease;
 }
 
-.np-footer__badge-icon svg {
-  width: 32px;
-  height: 32px;
+.np-footer__badge:hover,
+.np-footer__badge:focus-within {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+.np-footer__badge-image {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
   display: block;
 }
 
 .np-footer__badge-label {
   white-space: nowrap;
   font-size: 14px;
-}
-
-.np-footer__badge--mercadoPago {
-  --np-badge-bg: linear-gradient(135deg, #00a7e2, #007bc4);
-  --np-badge-border: #0069a5;
-  --np-badge-shadow: rgba(0, 120, 193, 0.32);
-}
-
-.np-footer__badge--andreani {
-  --np-badge-bg: linear-gradient(135deg, #f4472e, #c80000);
-  --np-badge-border: #a10000;
-  --np-badge-shadow: rgba(200, 0, 0, 0.32);
-}
-
-.np-footer__badge--efectivo {
-  --np-badge-bg: linear-gradient(135deg, #2bb673, #0e8d4e);
-  --np-badge-border: #0b7541;
-  --np-badge-shadow: rgba(11, 117, 65, 0.32);
-}
-
-.np-footer__badge--transferencia {
-  --np-badge-bg: linear-gradient(135deg, #7c8cf8, #4256d0);
-  --np-badge-border: #3241ab;
-  --np-badge-shadow: rgba(50, 65, 171, 0.32);
+  color: #111827;
+  font-weight: 600;
 }
 
 .np-footer__legal {
