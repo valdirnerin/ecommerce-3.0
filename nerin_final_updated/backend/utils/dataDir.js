@@ -4,14 +4,17 @@ const fs = require('fs');
 
 // 1) Si definiste DATA_DIR en Render, usamos eso
 const ENV_DIR = process.env.DATA_DIR;
+const RENDER_MOUNT_DIR = process.env.RENDER_DISK_MOUNT_PATH;
 
 // 2) Si tenés el disco montado en /var/nerin-data (lo que muestra tu log), usamos ahí.
 //    Si en tu servicio lo montaste en /var/data, también lo detectamos y preferimos /var/data/nerin.
 const CANDIDATES = [
+  RENDER_MOUNT_DIR,
   '/var/nerin-data',        // como muestra tu error/log
+  '/var/data/nerin_final_updated',
   '/var/data/nerin',        // patrón recomendado
   '/var/data'               // disco genérico
-];
+].filter(Boolean);
 
 let RENDER_DIR = null;
 for (const c of CANDIDATES) {
