@@ -286,14 +286,26 @@ async function persistBadgeImageOnly(key, url) {
   const adminKey = localStorage.getItem('nerinAdminKey');
   if (adminKey) headers['x-admin-key'] = adminKey;
 
+  const currentRes = await fetch('/api/footer', { headers });
+  const current = await currentRes.json().catch(() => ({}));
+  if (!currentRes.ok) {
+    throw new Error('No se pudo leer la configuración actual del footer');
+  }
+
+  const payload = {
+    ...defaultConfig,
+    ...current,
+    badgeImages: {
+      ...defaultConfig.badgeImages,
+      ...(current?.badgeImages || {}),
+      [key]: url,
+    },
+  };
+
   const res = await fetch('/api/footer', {
     method: 'POST',
     headers,
-    body: JSON.stringify({
-      badgeImages: {
-        [key]: url,
-      },
-    }),
+    body: JSON.stringify(payload),
   });
 
   const data = await res.json().catch(() => ({}));
