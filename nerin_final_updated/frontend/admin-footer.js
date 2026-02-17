@@ -88,7 +88,11 @@ const form = document.getElementById('footerForm');
 const resetBtn = document.getElementById('footerReset');
 const viewBtn = document.getElementById('footerView');
 const BADGE_KEYS = ["mercadoPago", "andreani", "efectivo", "transferencia"];
-let isBadgeUploadInProgress = false;
+let badgeUploadsInProgress = 0;
+
+function isBadgeUploadInProgress() {
+  return badgeUploadsInProgress > 0;
+}
 
 async function loadFooterConfig() {
   try {
@@ -233,7 +237,7 @@ async function persistFooterConfig({ showSuccessAlert = true } = {}) {
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (isBadgeUploadInProgress) {
+  if (isBadgeUploadInProgress()) {
     alert('Esperá a que termine la carga de la imagen antes de guardar.');
     return;
   }
@@ -275,24 +279,49 @@ async function uploadBadgeImage(file) {
   return `/uploads/${encodeURIComponent(data.filename)}`;
 }
 
+async function persistBadgeImageOnly(key, url) {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('nerinToken');
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const adminKey = localStorage.getItem('nerinAdminKey');
+  if (adminKey) headers['x-admin-key'] = adminKey;
+
+  const res = await fetch('/api/footer', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      badgeImages: {
+        [key]: url,
+      },
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'No se pudo guardar la imagen del badge');
+  }
+
+  return data;
+}
+
 async function handleBadgeFileChange(event) {
   const input = event.target;
   if (!input?.name?.startsWith("badgeImageFile_") || !input.files?.length) return;
   const key = input.name.replace("badgeImageFile_", "");
   if (!BADGE_KEYS.includes(key)) return;
   try {
-    isBadgeUploadInProgress = true;
+    badgeUploadsInProgress += 1;
     input.disabled = true;
     const file = input.files[0];
     const url = await uploadBadgeImage(file);
     const textInput = form[`badgeImage_${key}`];
     if (textInput) textInput.value = url;
-    await persistFooterConfig({ showSuccessAlert: false });
+    await persistBadgeImageOnly(key, url);
   } catch (err) {
     console.error("footer-badge-upload", err);
     alert(err.message || "Error al subir la imagen del badge");
   } finally {
-    isBadgeUploadInProgress = false;
+    badgeUploadsInProgress = Math.max(0, badgeUploadsInProgress - 1);
     input.value = "";
     input.disabled = false;
   }
