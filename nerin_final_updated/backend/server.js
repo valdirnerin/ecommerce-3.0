@@ -184,7 +184,13 @@ function buildReviewLink({ tokenId, tokenPlain, cfg } = {}) {
     tid: tokenId,
     t: tokenPlain,
   });
-  const reviewUrl = new URL("/review.html", `${urlBase}/`);
+  const parsedBase = new URL(`${urlBase}/`);
+  const basePath = parsedBase.pathname.endsWith("/")
+    ? parsedBase.pathname
+    : `${parsedBase.pathname}/`;
+  const reviewPath = new URL("review.html", `https://placeholder${basePath}`)
+    .pathname;
+  const reviewUrl = new URL(reviewPath, parsedBase);
   reviewUrl.search = params.toString();
   return reviewUrl.toString();
 }
