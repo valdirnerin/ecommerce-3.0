@@ -4,27 +4,73 @@ const contextEl = document.getElementById("reviewContext");
 
 const params = new URLSearchParams(window.location.search);
 
-function getRawQueryParam(name) {
-  const raw = window.location.search.startsWith("?")
-    ? window.location.search.slice(1)
-    : window.location.search;
-  if (!raw) return "";
-  const segments = raw.split("&");
-  for (const segment of segments) {
-    const [key, ...valueParts] = segment.split("=");
-    if (decodeURIComponent(key || "") !== name) continue;
-    return decodeURIComponent(valueParts.join("=") || "");
-  }
-  return "";
-}
-
 function normalizeTokenValue(value) {
   if (!value) return "";
   return String(value).trim().replace(/\s+/g, "+");
 }
 
-const tokenId = normalizeTokenValue(params.get("tid") || getRawQueryParam("tid"));
-const tokenPlain = normalizeTokenValue(params.get("t") || getRawQueryParam("t"));
+function normalizeParamKey(value) {
+  let key = String(value || "").trim();
+  while (key.toLowerCase().startsWith("amp;")) {
+    key = key.slice(4);
+  }
+  return key;
+}
+
+function pickParam(searchParams, keys = []) {
+  if (!searchParams || !keys.length) return "";
+  const expected = new Set(keys.map((key) => String(key)));
+  for (const [rawKey, rawValue] of searchParams.entries()) {
+    const normalizedKey = normalizeParamKey(rawKey);
+    if (!expected.has(rawKey) && !expected.has(normalizedKey)) continue;
+    const value = normalizeTokenValue(rawValue);
+    if (value) return value;
+  }
+  return "";
+}
+
+function extractTokensFromParams(searchParams) {
+  const tid = pickParam(searchParams, ["tid", "tokenId", "token_id", "reviewTokenId"]);
+  const t = pickParam(searchParams, ["t", "token", "reviewToken"]);
+  return { tid, t };
+}
+
+function readTokensFromEmbeddedLink(rawLink) {
+  const link = normalizeTokenValue(rawLink);
+  if (!link) return { tid: "", t: "" };
+  try {
+    const embeddedUrl = new URL(link, window.location.origin);
+    const direct = extractTokensFromParams(embeddedUrl.searchParams);
+    if (direct.tid && direct.t) return direct;
+    const nestedLink = pickParam(embeddedUrl.searchParams, ["reviewLink", "review_link", "url", "u", "link"]);
+    if (!nestedLink) return { tid: "", t: "" };
+    const nestedUrl = new URL(nestedLink, window.location.origin);
+    return extractTokensFromParams(nestedUrl.searchParams);
+  } catch {
+    return { tid: "", t: "" };
+  }
+}
+
+function readTokenFromLocation() {
+  const direct = extractTokensFromParams(params);
+  if (direct.tid && direct.t) return direct;
+
+  const embeddedLink = pickParam(params, ["reviewLink", "review_link", "url", "u", "link"]);
+  const fromEmbedded = readTokensFromEmbeddedLink(embeddedLink);
+  if (fromEmbedded.tid && fromEmbedded.t) return fromEmbedded;
+
+  const fromHash = window.location.hash.startsWith("#")
+    ? new URLSearchParams(window.location.hash.slice(1))
+    : null;
+  if (fromHash) {
+    const fromHashTokens = extractTokensFromParams(fromHash);
+    if (fromHashTokens.tid && fromHashTokens.t) return fromHashTokens;
+  }
+  return { tid: "", t: "" };
+}
+
+const { tid: tokenId, t: tokenPlain } = readTokenFromLocation();
+const silentAccessMode = Boolean(tokenId && tokenPlain);
 
 let currentContext = null;
 let productSelect = null;
@@ -35,10 +81,52 @@ const reviewTokenIdInput = document.getElementById("reviewTokenId");
 const reviewTokenValueInput = document.getElementById("reviewTokenValue");
 const reviewTokenSubmit = document.getElementById("reviewTokenSubmit");
 
+if (silentAccessMode && statusEl) {
+  statusEl.hidden = true;
+}
+
 function setStatus(message, isError = false) {
   if (!statusEl) return;
+  statusEl.hidden = false;
   statusEl.textContent = message;
-  statusEl.style.color = isError ? "#b91c1c" : "inherit";
+  statusEl.style.color = isError ? "#b91c1c" : "#0f172a";
+  statusEl.style.fontWeight = "400";
+}
+
+function showVerifiedStatus() {
+  setStatus(
+    "Link verificado correctamente. Ya podés dejar tu reseña. ¡Muchas gracias por confiar en NERINParts!",
+  );
+  if (statusEl) {
+    statusEl.style.color = "#166534";
+    statusEl.style.fontWeight = "600";
+  }
+}
+
+function setTokenEntryVisibility(show) {
+  if (!tokenEntry) return;
+  tokenEntry.hidden = !show;
+  tokenEntry.style.display = show ? "" : "none";
+}
+
+function mapTokenError(message) {
+  const raw = String(message || "").trim();
+  const normalized = raw.toLowerCase();
+  if (!normalized) return "No pudimos validar el link de reseña. Probá abrir nuevamente el botón del mail.";
+  if (
+    normalized.includes("object can not be found") ||
+    normalized.includes("token inválido") ||
+    normalized.includes("token invalido") ||
+    normalized.includes("invalid token") ||
+    normalized.includes("not found") ||
+    normalized.includes("cannot post /api/review-tokens/redeem")
+  ) {
+    return "No pudimos validar el link automáticamente. Probá abrir de nuevo el botón del mail o pegá el enlace completo en el campo de link.";
+  }
+  if (normalized.includes("unexpected token <") || normalized.includes("<!doctype html")) {
+    return "El servidor devolvió una respuesta inválida al validar el link. Probá nuevamente en unos minutos.";
+  }
+  return raw;
 }
 
 function renderContext(context) {
@@ -74,8 +162,12 @@ function renderContext(context) {
 
 function buildProductSelect(items = []) {
   if (!form) return;
-  if (productSelect) productSelect.remove();
+  if (productSelect?.parentNode) {
+    productSelect.parentNode.removeChild(productSelect);
+  }
+  productSelect = null;
   if (!items.length) return;
+
   const wrapper = document.createElement("label");
   wrapper.textContent = "Producto";
   const select = document.createElement("select");
@@ -85,21 +177,40 @@ function buildProductSelect(items = []) {
   placeholder.value = "";
   placeholder.textContent = items.length > 1 ? "Seleccioná" : "Producto";
   select.appendChild(placeholder);
+
   items.forEach((item) => {
     const option = document.createElement("option");
     option.value = item.id || "";
     option.textContent = item.name || item.id || "Producto";
     select.appendChild(option);
   });
+
   wrapper.appendChild(select);
-  form.insertBefore(wrapper, form.querySelector("label"));
+
+  const firstDirectChild = form.firstElementChild;
+  if (firstDirectChild) {
+    form.insertBefore(wrapper, firstDirectChild);
+  } else {
+    form.appendChild(wrapper);
+  }
+
   productSelect = wrapper;
+}
+
+async function parseResponseError(res) {
+  const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    const data = await res.json().catch(() => ({}));
+    return mapTokenError(data.error || data.message || "");
+  }
+  const rawText = await res.text().catch(() => "");
+  return mapTokenError(rawText);
 }
 
 async function redeemToken() {
   if (!tokenId || !tokenPlain) {
     setStatus("Necesitamos tu link de reseña para continuar.", true);
-    if (tokenEntry) tokenEntry.hidden = false;
+    setTokenEntryVisibility(true);
     return;
   }
   try {
@@ -109,8 +220,8 @@ async function redeemToken() {
       body: JSON.stringify({ tid: tokenId, t: tokenPlain }),
     });
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "No pudimos validar el token. Revisá el link.");
+      const errorMessage = await parseResponseError(res);
+      throw new Error(errorMessage);
     }
     const data = await res.json();
     currentContext = data.context;
@@ -118,14 +229,14 @@ async function redeemToken() {
     if (currentContext?.scope === "purchase") {
       buildProductSelect(currentContext.order?.items || []);
     }
-    setStatus("Token validado. Completá el formulario:");
-    if (tokenEntry) tokenEntry.hidden = true;
+    showVerifiedStatus();
+    setTokenEntryVisibility(false);
     if (form) form.hidden = false;
   } catch (err) {
     renderContext(null);
     if (form) form.hidden = true;
-    setStatus(err?.message || "No pudimos validar el token. Revisá el link.", true);
-    if (tokenEntry) tokenEntry.hidden = false;
+    setStatus(mapTokenError(err?.message), true);
+    setTokenEntryVisibility(true);
   }
 }
 
@@ -134,16 +245,11 @@ function handleTokenEntry() {
   let tid = normalizeTokenValue(reviewTokenIdInput?.value);
   let t = normalizeTokenValue(reviewTokenValueInput?.value);
   if (linkValue) {
-    try {
-      const url = new URL(linkValue, window.location.origin);
-      tid = normalizeTokenValue(
-        tid || url.searchParams.get("tid") || getRawQueryParam("tid") || "",
-      );
-      t = normalizeTokenValue(
-        t || url.searchParams.get("t") || getRawQueryParam("t") || "",
-      );
-    } catch (err) {
-      setStatus("El link pegado no es válido.", true);
+    const extracted = readTokensFromEmbeddedLink(linkValue);
+    tid = normalizeTokenValue(tid || extracted.tid);
+    t = normalizeTokenValue(t || extracted.t);
+    if (!tid || !t) {
+      setStatus("El link pegado no es válido o no contiene token.", true);
       return;
     }
   }
