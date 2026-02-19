@@ -298,6 +298,51 @@ async function sendOrderConfirmed({ to, order } = {}) {
   });
 }
 
+
+async function sendTransferPaymentPending({
+  to,
+  order,
+  statusUrl,
+  paymentRetryUrl,
+} = {}) {
+  const recipients = ensureArray(to);
+  if (!recipients.length) return null;
+  const customer = resolveCustomerName(order);
+  const orderNumber = resolveOrderNumber(order);
+  const supportEmail = getSupportEmail();
+  const links = [];
+  if (statusUrl) {
+    links.push(
+      `<a href="${escapeHtml(statusUrl)}" style="color: #2563eb;">Ver estado del pedido</a>`,
+    );
+  }
+  if (paymentRetryUrl) {
+    links.push(
+      `<a href="${escapeHtml(paymentRetryUrl)}" style="color: #2563eb;">Retomar pago de la orden</a>`,
+    );
+  }
+  let message =
+    'Registramos tu pedido con pago por transferencia y está pendiente de acreditación. Cuando confirmemos el comprobante, avanzaremos con la preparación.';
+  if (links.length) {
+    message += `<br /><br />${links.join('<br />')}`;
+  }
+  const footer = supportEmail
+    ? `<p style="font-size: 14px; line-height: 20px; margin: 16px 0 0;">Si ya realizaste la transferencia o necesitás ayuda, respondé este correo o escribinos a <a href="mailto:${supportEmail}">${supportEmail}</a>.</p>`
+    : '';
+  const html = buildHtmlTemplate({
+    heading: `Pedido en espera de pago, ${customer}`,
+    message,
+    footer,
+    order,
+  });
+  return sendEmail({
+    to: recipients,
+    subject: `Esperando pago por transferencia - Orden #${orderNumber}`,
+    html,
+    type: 'no-reply',
+  });
+}
+
 async function sendPaymentPending({ to, order } = {}) {
   const recipients = ensureArray(to);
   if (!recipients.length) return null;
@@ -725,6 +770,7 @@ module.exports = {
   getSupportEmail,
   sendEmail,
   sendOrderConfirmed,
+  sendTransferPaymentPending,
   sendPaymentPending,
   sendPaymentRejected,
   sendPaymentCancelled,

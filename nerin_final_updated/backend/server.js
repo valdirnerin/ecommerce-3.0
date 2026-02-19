@@ -32,6 +32,7 @@ const {
   sendOrderDelivered,
   sendInvoiceUploaded,
   sendPaymentCancelled,
+  sendTransferPaymentPending,
   sendWholesaleVerificationEmail,
   sendWholesaleApplicationReceived,
   sendWholesaleInternalNotification,
@@ -7176,6 +7177,22 @@ async function requestHandler(req, res) {
           orderItems.push(line);
         });
         saveOrderItems(orderItems);
+
+        if (paymentMethod === "transferencia") {
+          try {
+            const payload = prepareOrderEmailPayload(baseOrder);
+            if (payload) {
+              await sendTransferPaymentPending({
+                to: payload.recipient,
+                order: payload.order,
+                statusUrl: payload.statusUrl,
+                paymentRetryUrl: buildAbsoluteUrl(payload.baseUrl, `/checkout/confirmacion-transferencia.html?order=${encodeURIComponent(orderId)}`),
+              });
+            }
+          } catch (emailErr) {
+            console.error("transfer pending email failed", emailErr);
+          }
+        }
         let initPoint = null;
         if (mpPreference && paymentMethod === "mercado_pago") {
           try {
