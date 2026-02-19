@@ -8,6 +8,17 @@ const protectionEl = document.getElementById('protectionBlock');
 const shippingEl = document.getElementById('shippingSummary');
 const method = document.body.dataset.paymentMethod || 'transferencia';
 
+const trackOrderLinkEl = document.getElementById('trackOrderLink');
+
+function updateTrackingLink(orderId, orderEmail) {
+  if (!trackOrderLinkEl || !orderId) return;
+  const params = new URLSearchParams();
+  params.set('order', orderId);
+  const normalizedEmail = typeof orderEmail === 'string' ? orderEmail.trim() : '';
+  if (normalizedEmail) params.set('email', normalizedEmail);
+  trackOrderLinkEl.href = `/seguimiento.html?${params.toString()}`;
+}
+
 const currency = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
@@ -153,6 +164,7 @@ async function init() {
     ]);
     const totals = resolveTotals(order);
     orderNumberEl.textContent = order.order_number || order.id || order.external_reference || orderId;
+    updateTrackingLink(order.order_number || order.id || order.external_reference || orderId, order?.cliente?.email || order?.customer?.email || order?.user_email || '');
     orderTotalEl.textContent = formatCurrency(totals.grand);
     itemsEl.innerHTML = renderItems(order);
     instructionEl.innerHTML = renderInstructions(order, settings);
