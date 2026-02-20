@@ -1883,7 +1883,13 @@ function resolveAuthUser(req) {
 function canSeeWholesalePrices(req) {
   const user = resolveAuthUser(req);
   if (!user) return false;
-  if (user.role === "admin") return true;
+  if (
+    user.role === "admin" ||
+    user.role === "mayorista" ||
+    user.role === "vip"
+  ) {
+    return true;
+  }
   const approved =
     user.is_wholesale_approved === true ||
     user?.profile?.is_wholesale_approved === true;

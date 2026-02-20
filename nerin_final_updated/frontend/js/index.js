@@ -540,6 +540,16 @@ function resolveRoleState() {
   return "retail";
 }
 
+
+function resolveDisplayPrice(product) {
+  const retail = Number(product?.price_minorista);
+  const wholesale = Number(product?.price_mayorista ?? product?.price_wholesale);
+  if (isWholesale() && Number.isFinite(wholesale) && wholesale >= 0) {
+    return wholesale;
+  }
+  return Number.isFinite(retail) && retail >= 0 ? retail : 0;
+}
+
 function addToCart(product, quantity = 1) {
   const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
   const existing = cart.find((item) => item.id === product.id);
@@ -555,9 +565,7 @@ function addToCart(product, quantity = 1) {
       existing.quantity += qty;
     }
   } else {
-    const price = isWholesale()
-      ? product.price_mayorista
-      : product.price_minorista;
+    const price = resolveDisplayPrice(product);
     cart.push({
       id: product.id,
       name: product.name,
@@ -689,7 +697,7 @@ function createFeaturedCard(product) {
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
-  const priceFinal = Number(product.price_minorista) || 0;
+  const priceFinal = resolveDisplayPrice(product);
   const legalPrice = createPriceLegalBlock({
     priceFinal,
     priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),

@@ -1480,6 +1480,73 @@ body.cart-indicator-visible .toastify {
   border-color: rgba(148, 163, 184, 0.45);
 }
 
+
+.price-reference {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.price-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
+  gap: 0.55rem;
+}
+
+.price-comparison-summary {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.price-comparison-volume {
+  margin: -0.15rem 0 0;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.product-price-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 1fr));
+  gap: 0.65rem;
+}
+
+.product-price-comparison__summary,
+.product-price-comparison__volume {
+  margin: 0;
+  text-align: center;
+}
+
+.product-price-comparison__summary {
+  color: #0b1b47;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.product-price-comparison__volume {
+  color: #1f2937;
+  font-size: 0.9rem;
+}
+
+.product-price-comparison__insights {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.03);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 900px) {
+  .price-comparison-grid,
+  .product-price-comparison {
+    grid-template-columns: 1fr;
+  }
+}
+
 .availability-badges {
   display: flex;
   flex-wrap: wrap;
@@ -8962,4 +9029,85 @@ html, body{ max-width:100%; overflow-x:hidden; }
 .header-repent-link {
   font-weight: 700;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+
+
+
+
+.price-block--wholesale {
+  grid-template-columns: 1fr;
+  gap: 0.55rem;
+}
+
+.price-block--wholesale .price-legal-block {
+  margin-bottom: 0;
+}
+
+.price-block--wholesale .price-comparison-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.price-block--wholesale .price-tier {
+  border-radius: 12px;
+  padding: 0.55rem 0.5rem;
+}
+
+.price-block--wholesale .price-tier__label {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+
+.price-block--wholesale .price-tier__value {
+  font-size: 1.02rem;
+}
+
+.price-block--wholesale .price-comparison-summary {
+  margin-top: 0.05rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+@media (max-width: 1280px) {
+  .price-block--wholesale .price-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.price-comparison-locked {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-align: center;
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+@media (max-width: 1200px) {
+  .product-buy-price-grid {
+    grid-template-columns: 1fr;
+  }
+  .price-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .price-comparison-summary,
+  .price-comparison-volume,
+  .product-price-comparison__summary,
+  .product-price-comparison__volume {
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+  .price-tier__value {
+    font-size: 1.1rem;
+  }
 }
