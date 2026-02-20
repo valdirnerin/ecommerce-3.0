@@ -1,4 +1,4 @@
-import { fetchProducts, getUserRole } from "./api.js";
+import { fetchProducts, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
@@ -91,9 +91,73 @@ function getStockStatus(product) {
 function sanitizePublicProduct(product) {
   if (!product || typeof product !== "object") return null;
   const sanitized = { ...product };
-  delete sanitized.price_mayorista;
-  delete sanitized.price_wholesale;
+  if (!isWholesale()) {
+    delete sanitized.price_mayorista;
+    delete sanitized.price_wholesale;
+  }
   return sanitized;
+}
+
+function resolvePriceContext(product) {
+  const retail = Number(product.price_minorista);
+  const wholesale = Number(product.price_mayorista ?? product.price_wholesale);
+  const canUseWholesale =
+    isWholesale() && Number.isFinite(wholesale) && wholesale >= 0;
+  const safeRetail = Number.isFinite(retail) && retail >= 0 ? retail : 0;
+  const safeWholesale = canUseWholesale ? wholesale : null;
+  const active = canUseWholesale ? safeWholesale : safeRetail;
+  const discountAmount =
+    canUseWholesale && safeRetail > safeWholesale ? safeRetail - safeWholesale : 0;
+  const discountPercent =
+    discountAmount > 0 && safeRetail > 0
+      ? Math.round((discountAmount / safeRetail) * 100)
+      : 0;
+  return {
+    retail: safeRetail,
+    wholesale: safeWholesale,
+    active,
+    canUseWholesale,
+    discountAmount,
+    discountPercent,
+  };
+}
+
+function resolveDisplayPrice(product) {
+  const context = resolvePriceContext(product);
+  if (context.canUseWholesale) {
+    return {
+      active: context.wholesale,
+      retail: context.retail,
+      mode: "wholesale",
+      discountAmount: context.discountAmount,
+      discountPercent: context.discountPercent,
+    };
+  }
+  return {
+    active: context.retail,
+    retail: null,
+    mode: "retail",
+    discountAmount: 0,
+    discountPercent: 0,
+  };
+}
+
+function shouldShowWholesaleLockedNotice(product) {
+  const wholesale = Number(product?.price_mayorista ?? product?.price_wholesale);
+  return isWholesale() && !Number.isFinite(wholesale);
+}
+
+function createPriceTierCard(label, value, modifier) {
+  const tier = document.createElement("div");
+  tier.className = `price-tier ${modifier || ""}`.trim();
+  const labelEl = document.createElement("span");
+  labelEl.className = "price-tier__label";
+  labelEl.textContent = label;
+  const valueEl = document.createElement("span");
+  valueEl.className = "price-tier__value";
+  valueEl.textContent = formatCurrency(value);
+  tier.append(labelEl, valueEl);
+  return tier;
 }
 
 function populateSelect(select, values) {
@@ -142,7 +206,7 @@ function updateModelOptions(selectedBrand) {
 function configurePriceSlider(products) {
   if (!priceRange || !priceRangeValue) return;
   const maxPrice = products.reduce((max, product) => {
-    const price = Number(product.price_minorista);
+    const price = resolveDisplayPrice(product).active;
     return Number.isFinite(price) && price > max ? price : max;
   }, 0);
   const normalizedMax = Math.max(1000, Math.ceil(maxPrice / 500) * 500);
@@ -197,10 +261,11 @@ function addToCart(product) {
     }
     existing.quantity += 1;
   } else {
+    const display = resolveDisplayPrice(product);
     cart.push({
       id: product.id,
       name: product.name,
-      price: Number(product.price_minorista) || 0,
+      price: display.active,
       quantity: 1,
       image: getPrimaryImage(product) || PLACEHOLDER_IMAGE,
     });
@@ -270,14 +335,41 @@ function createProductCard(product) {
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
-  const priceFinal = Number(product.price_minorista) || 0;
+  const display = resolveDisplayPrice(product);
+  if (display.mode === "wholesale") {
+    priceBlock.classList.add("price-block--wholesale");
+  }
+  const priceFinal = display.active;
   const legalPrice = createPriceLegalBlock({
     priceFinal,
     priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
     compact: true,
   });
   priceBlock.appendChild(legalPrice);
+  if (display.mode === "wholesale" && Number.isFinite(display.retail)) {
+    const comparison = document.createElement("div");
+    comparison.className = "price-comparison-grid";
+    comparison.append(
+      createPriceTierCard("Precio minorista", display.retail, "price-tier--retail"),
+      createPriceTierCard(
+        "Tu precio mayorista",
+        display.active,
+        "price-tier--wholesale",
+      ),
+    );
+    const summary = document.createElement("p");
+    summary.className = "price-comparison-summary";
+    summary.textContent = `Ahorro mayorista: ${display.discountPercent}% (${formatCurrency(display.discountAmount)}).`;
+    priceBlock.append(comparison, summary);
+  } else if (shouldShowWholesaleLockedNotice(product)) {
+    const locked = document.createElement("p");
+    locked.className = "price-comparison-locked";
+    locked.textContent =
+      "Cuenta mayorista detectada, pero sin autorización activa para ver precio mayorista en este momento.";
+    priceBlock.appendChild(locked);
+  }
   card.appendChild(priceBlock);
+
 
   const actions = document.createElement("div");
   actions.className = "product-actions";
@@ -332,7 +424,7 @@ function computeRelevance(product, searchTerm) {
 
 function sortProducts(products, sortMode, searchTerm) {
   const copy = [...products];
-  const getPrice = (product) => Number(product.price_minorista) || 0;
+  const getPrice = (product) => resolveDisplayPrice(product).active;
   const getStock = (product) => Number(product.stock) || 0;
   switch (sortMode) {
     case "price-asc":
@@ -412,7 +504,7 @@ function renderProducts() {
     if (category && normalizeKey(product.category) !== normalizeKey(category)) return false;
     const status = getStockStatus(product);
     if (stock === "in-stock" && status !== "in" && status !== "low") return false;
-    if (priceActive && (Number(product.price_minorista) || 0) > price) return false;
+    if (priceActive && resolveDisplayPrice(product).active > price) return false;
     return true;
   });
 

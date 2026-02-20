@@ -1,4 +1,4 @@
-import { fetchProducts } from "./api.js";
+import { fetchProducts, isWholesale } from "./api.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 import {
   normalizeContentId,
@@ -22,6 +22,35 @@ const reviewsSummary = document.getElementById("reviewsSummary");
 const priceFormatter = new Intl.NumberFormat("es-AR");
 const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+
+function resolveProductPriceContext(product) {
+  const retailRaw = Number(product?.price_minorista ?? product?.price);
+  const wholesaleRaw = Number(product?.price_mayorista ?? product?.price_wholesale);
+  const retail = Number.isFinite(retailRaw) && retailRaw >= 0 ? retailRaw : 0;
+  const canUseWholesale =
+    isWholesale() && Number.isFinite(wholesaleRaw) && wholesaleRaw >= 0;
+  const wholesale = canUseWholesale ? wholesaleRaw : null;
+  const active = canUseWholesale ? wholesale : retail;
+  const discountAmount =
+    canUseWholesale && retail > wholesale ? retail - wholesale : 0;
+  const discountPercent =
+    discountAmount > 0 && retail > 0
+      ? Math.round((discountAmount / retail) * 100)
+      : 0;
+  return {
+    retail,
+    wholesale,
+    active,
+    canUseWholesale,
+    discountAmount,
+    discountPercent,
+  };
+}
+
+function resolveProductDisplayPrice(product) {
+  return resolveProductPriceContext(product).active;
+}
 
 
 function sanitizeStorefrontCopy(text) {
@@ -453,8 +482,7 @@ function updateJsonLd(product, images, productUrl) {
     typeof product.stock === "number" && product.stock > 0
       ? "https://schema.org/InStock"
       : "https://schema.org/OutOfStock";
-  const priceSource =
-    product.price_minorista ?? product.price ?? 0;
+  const priceSource = resolveProductDisplayPrice(product);
   const numericPrice = Number(priceSource);
   const formattedPrice = Number.isFinite(numericPrice)
     ? numericPrice.toFixed(2)
@@ -892,7 +920,7 @@ function formatPrice(value) {
 }
 
 function getRetailUnitPrice(product) {
-  return Number(product.price_minorista || product.price || 0);
+  return resolveProductDisplayPrice(product);
 }
 
 function createQuantityControl(product) {
@@ -997,8 +1025,7 @@ function renderProduct(product) {
   syncBrowserUrl(metaInfo.relativeUrl);
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
-  const priceSource =
-    product.price_minorista ?? product.price ?? 0;
+  const priceSource = resolveProductDisplayPrice(product);
   const numericPrice = Number(priceSource) || 0;
   if (skuValue) {
     trackPixelOnce(
@@ -1152,13 +1179,41 @@ function renderProduct(product) {
   const priceGrid = document.createElement("div");
   priceGrid.className = "product-buy-price-grid";
 
-  const priceFinal = Number(product.price_minorista || 0);
+  const priceFinal = resolveProductDisplayPrice(product);
   const legalPriceBlock = createPriceLegalBlock({
     priceFinal,
     priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
   });
   priceGrid.appendChild(legalPriceBlock);
+
+  const priceComparison = document.createElement("div");
+  priceComparison.className = "product-price-comparison";
+  const priceComparisonSummary = document.createElement("p");
+  priceComparisonSummary.className = "product-price-comparison__summary";
+  const priceComparisonVolume = document.createElement("p");
+  priceComparisonVolume.className = "product-price-comparison__volume";
+  const priceComparisonInsights = document.createElement("div");
+  priceComparisonInsights.className = "product-price-comparison__insights";
+  const productPriceContext = resolveProductPriceContext(product);
+  if (productPriceContext.canUseWholesale) {
+    const retailTier = document.createElement("div");
+    retailTier.className = "price-tier price-tier--retail";
+    retailTier.innerHTML = `<span class="price-tier__label">Precio minorista</span><span class="price-tier__value">${formatPrice(productPriceContext.retail)}</span>`;
+    const wholesaleTier = document.createElement("div");
+    wholesaleTier.className = "price-tier price-tier--wholesale";
+    wholesaleTier.innerHTML = `<span class="price-tier__label">Tu precio mayorista</span><span class="price-tier__value">${formatPrice(productPriceContext.wholesale)}</span>`;
+    priceComparison.append(retailTier, wholesaleTier);
+    if (productPriceContext.discountAmount > 0) {
+      priceComparisonSummary.textContent = `Ahorrás ${productPriceContext.discountPercent}% por unidad (${formatPrice(productPriceContext.discountAmount)} menos).`;
+    } else {
+      priceComparisonSummary.textContent = "Precio mayorista activo para tu cuenta.";
+    }
+  }
+
   purchaseCard.appendChild(priceGrid);
+  if (productPriceContext.canUseWholesale) {
+    purchaseCard.append(priceComparison, priceComparisonInsights);
+  }
 
   const qtyControl = createQuantityControl(product);
   const qtyWrapper = document.createElement("div");
@@ -1178,7 +1233,7 @@ function renderProduct(product) {
 
   const billingNote = document.createElement("p");
   billingNote.className = "product-price-footnote";
-  billingNote.textContent = "Precio final minorista · Incluye IVA · Factura A/B";
+  billingNote.textContent = "Precio final · Incluye IVA · Factura A/B";
 
   const protectionNote = document.createElement("p");
   protectionNote.className = "product-protection-note";
@@ -1212,7 +1267,7 @@ function renderProduct(product) {
         id: product.id,
         sku: skuValue || product.id,
         name: product.name,
-        price: product.price_minorista,
+        price: resolveProductDisplayPrice(product),
         quantity: qty,
         image: cartImage,
       });
@@ -1234,7 +1289,7 @@ function renderProduct(product) {
       setCtaLabels();
     }, 1500);
     if (skuValue) {
-      const unitPrice = Number(product.price_minorista || 0);
+      const unitPrice = resolveProductDisplayPrice(product);
       trackPixel("AddToCart", {
         content_type: "product",
         content_ids: [skuValue],
@@ -1358,6 +1413,21 @@ function renderProduct(product) {
       : formatPrice(0);
     taxFreeNote.textContent = `Precio sin impuestos: ${netText}`;
     stickyPrice.textContent = `Precio: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
+    if (productPriceContext.canUseWholesale) {
+      const bulkSavings = productPriceContext.discountAmount * qty;
+      if (productPriceContext.discountAmount > 0) {
+        priceComparisonSummary.textContent = `Ahorrás ${productPriceContext.discountPercent}% por unidad (${formatPrice(productPriceContext.discountAmount)} menos).`;
+        priceComparisonVolume.textContent = `Con ${qty} unidad${qty === 1 ? "" : "es"} ahorrás ${formatPrice(bulkSavings)} vs. minorista.`;
+      } else {
+        priceComparisonSummary.textContent = "Precio mayorista activo para tu cuenta.";
+        priceComparisonVolume.textContent = "Precio mayorista fijo por unidad (sin escala automática).";
+      }
+      priceComparisonInsights.replaceChildren(priceComparisonSummary, priceComparisonVolume);
+      billingNote.textContent = "Precio mayorista aplicado · Incluye IVA · Factura A/B";
+    } else {
+      priceComparisonInsights.replaceChildren();
+      billingNote.textContent = "Precio final minorista · Incluye IVA · Factura A/B";
+    }
   };
 
   const setCtaLabels = () => {
