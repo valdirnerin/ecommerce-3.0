@@ -244,6 +244,36 @@ let cartIndicatorBubble = null;
 let cartIndicatorTarget = null;
 let cartIndicatorCleanup = null;
 let lastToastInstance = null;
+let cartPreviewHideTimer = null;
+
+function readCartItems() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_err) {
+    return [];
+  }
+}
+
+function saveCartItems(items) {
+  localStorage.setItem("nerinCart", JSON.stringify(items));
+  updateNav();
+}
+
+function trackCartPreviewEvent(action, metadata = {}) {
+  try {
+    trackEvent("cart_preview_interaction", {
+      status: "active",
+      step: "Carrito",
+      metadata: {
+        action,
+        ...metadata,
+      },
+    });
+  } catch (err) {
+    console.warn("tracker:cart_preview_interaction", err);
+  }
+}
 
 function clearCartIndicator(immediate = false) {
   if (cartIndicatorTimer) {
@@ -258,13 +288,13 @@ function clearCartIndicator(immediate = false) {
     document.body.classList.remove("cart-indicator-visible");
   }
   if (cartIndicatorBubble) {
-    const bubble = cartIndicatorBubble;
+    const panel = cartIndicatorBubble;
     cartIndicatorBubble = null;
     if (!immediate) {
-      bubble.classList.remove("show");
-      setTimeout(() => bubble.remove(), 220);
+      panel.classList.remove("show");
+      setTimeout(() => panel.remove(), 180);
     } else {
-      bubble.remove();
+      panel.remove();
     }
   }
   if (cartIndicatorTarget) {
@@ -273,44 +303,8 @@ function clearCartIndicator(immediate = false) {
   }
 }
 
-function positionCartIndicator(bubble, target) {
-  if (!bubble || !target) return;
-  const rect = target.getBoundingClientRect();
-  const margin = 16;
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-  const bubbleRect = bubble.getBoundingClientRect();
-  const bubbleWidth = bubbleRect.width;
-  const bubbleHeight = bubbleRect.height;
-
-  let left = rect.left + rect.width / 2 - bubbleWidth / 2;
-  if (left < margin) {
-    left = margin;
-  }
-  const maxLeft = viewportWidth - margin - bubbleWidth;
-  if (left > maxLeft) {
-    left = maxLeft;
-  }
-  const arrowLeft = rect.left + rect.width / 2 - left;
-  bubble.style.left = `${left}px`;
-  bubble.style.setProperty("--indicator-arrow-left", `${arrowLeft}px`);
-
-  let top = rect.bottom + 14;
-  let flipped = false;
-  const maxTop = viewportHeight - margin - bubbleHeight;
-  if (top > maxTop && rect.top - bubbleHeight - 14 >= margin) {
-    top = rect.top - bubbleHeight - 14;
-    flipped = true;
-  }
-  if (top < margin) {
-    top = margin;
-  }
-  bubble.style.top = `${top}px`;
-  if (flipped) {
-    bubble.classList.add("cart-indicator-bubble--flipped");
-  } else {
-    bubble.classList.remove("cart-indicator-bubble--flipped");
-  }
+function formatMoney(value) {
+  return `$${Number(value || 0).toLocaleString("es-AR")}`;
 }
 
 function showCartIndicator(options = {}) {
@@ -320,9 +314,9 @@ function showCartIndicator(options = {}) {
       : options && typeof options === "object"
         ? { ...options }
         : {};
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   const messageText = (opts.message && String(opts.message).trim()) || "Producto agregado al carrito";
-  const duration = Number.isFinite(opts.duration) ? Math.max(Number(opts.duration), 2200) : 3200;
+  const duration = Number.isFinite(opts.duration) ? Math.max(Number(opts.duration), 3800) : 7000;
   const allowFallbackToast = opts.fallbackToast !== false;
 
   try {
@@ -343,15 +337,8 @@ function showCartIndicator(options = {}) {
     console.warn("tracker:add_to_cart", err);
   }
 
-  const isMobile = window.matchMedia("(max-width: 768px)").matches;
-  const target = isMobile
-    ? document.getElementById("navToggle") || document.querySelector(".menu-toggle")
-    : document.querySelector('header nav a[href*="/cart.html"]');
-
   const runFallback = () => {
-    if (!allowFallbackToast) {
-      return false;
-    }
+    if (!allowFallbackToast) return false;
     if (typeof showToast === "function") {
       showToast(`✅ ${messageText}`);
     } else if (typeof window !== "undefined" && typeof window.alert === "function") {
@@ -360,126 +347,266 @@ function showCartIndicator(options = {}) {
     return false;
   };
 
-  if (!target) {
+  if (!document || !document.body) {
     return runFallback();
   }
 
-  const rect = target.getBoundingClientRect();
-  if (!rect || (rect.width === 0 && rect.height === 0)) {
-    return runFallback();
-  }
+  const cart = readCartItems();
+  const addedItem =
+    cart.find((item) => String(item.id) === String(opts.productId || "")) ||
+    cart.find((item) => item.name === opts.productName) ||
+    cart[cart.length - 1] ||
+    null;
+
+  const cartTotals = cart.reduce(
+    (acc, item) => {
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.price || 0);
+      if (qty > 0) {
+        acc.items += qty;
+        acc.value += qty * price;
+      }
+      return acc;
+    },
+    { items: 0, value: 0 },
+  );
 
   clearCartIndicator(true);
 
-  cartIndicatorTarget = target;
-  if (isMobile) {
-    target.classList.add("menu-toggle--highlight");
-  } else {
-    target.classList.add("cart-link--highlight");
-  }
+  const popup = document.createElement("aside");
+  popup.className = "cart-indicator-popup";
+  popup.setAttribute("role", "dialog");
+  popup.setAttribute("aria-modal", "false");
+  popup.setAttribute("aria-label", "Producto agregado al carrito");
 
-  if (lastToastInstance && typeof lastToastInstance.hideToast === "function") {
-    lastToastInstance.hideToast();
-    lastToastInstance = null;
-  }
+  popup.innerHTML = `
+    <button type="button" class="cart-indicator-close" aria-label="Cerrar">✕</button>
+    <h3 class="cart-indicator-title">¡Agregado al carrito!</h3>
+    <div class="cart-indicator-layout">
+      <div class="cart-indicator-product">
+        <div class="cart-indicator-thumb-wrap">
+          <img class="cart-indicator-thumb" src="${addedItem?.image || "/assets/placeholder-product.png"}" alt="${addedItem?.name || "Producto"}" loading="lazy" />
+        </div>
+        <div class="cart-indicator-product-copy">
+          <strong>${addedItem?.name || messageText}</strong>
+          <span>Cantidad: ${Number(addedItem?.quantity || 1)}</span>
+          <span>Precio unitario: ${formatMoney(addedItem?.price || 0)}</span>
+        </div>
+      </div>
+      <div class="cart-indicator-summary">
+        <span>${cartTotals.items} ${cartTotals.items === 1 ? "producto" : "productos"} en carrito</span>
+        <span>Subtotal</span>
+        <strong>${formatMoney(cartTotals.value)}</strong>
+        <small>Envío se calcula en checkout</small>
+      </div>
+    </div>
+    <div class="cart-indicator-actions">
+      <a href="/cart.html" class="cart-indicator-btn cart-indicator-btn--primary" data-action="view_cart">Ver carrito</a>
+      <a href="/checkout-steps.html" class="cart-indicator-btn" data-action="checkout">Finalizar compra</a>
+      <button type="button" class="cart-indicator-btn cart-indicator-btn--ghost" data-action="keep_shopping">Seguir comprando</button>
+    </div>
+  `;
 
-  const bubble = document.createElement("div");
-  bubble.className = `cart-indicator-bubble ${
-    isMobile ? "cart-indicator-bubble--mobile" : "cart-indicator-bubble--desktop"
-  }`;
-  bubble.setAttribute("role", "status");
-  bubble.setAttribute("aria-live", "polite");
+  document.body.appendChild(popup);
+  cartIndicatorBubble = popup;
+  document.body.classList.add("cart-indicator-visible");
 
-  const icon = document.createElement("span");
-  icon.className = "cart-indicator-icon";
-  icon.textContent = "🛒";
-  bubble.appendChild(icon);
-
-  const textWrapper = document.createElement("span");
-  textWrapper.className = "cart-indicator-text";
-
-  const mainText = document.createElement("span");
-  mainText.className = "cart-indicator-main";
-  mainText.textContent = messageText;
-  textWrapper.appendChild(mainText);
-
-  const hint = document.createElement("span");
-  hint.className = "cart-indicator-hint";
-  hint.textContent = isMobile
-    ? "Abrí el menú superior para ver tu carrito."
-    : "Revisá el carrito en la barra superior.";
-  textWrapper.appendChild(hint);
-
-  bubble.appendChild(textWrapper);
-
-  document.body.appendChild(bubble);
-  cartIndicatorBubble = bubble;
-
-  positionCartIndicator(bubble, target);
-  if (!prefersReducedMotion) {
-    requestAnimationFrame(() => {
-      positionCartIndicator(bubble, target);
-      bubble.classList.add("show");
-    });
-  } else {
-    bubble.classList.add("show");
-  }
-
-  if (document.body) {
-    document.body.classList.add("cart-indicator-visible");
-  }
-
-  const reposition = () => positionCartIndicator(bubble, target);
-  window.addEventListener("resize", reposition, { passive: true });
-  window.addEventListener("orientationchange", reposition);
-  const viewport = window.visualViewport;
-  if (viewport && typeof viewport.addEventListener === "function") {
-    viewport.addEventListener("resize", reposition, { passive: true });
-    viewport.addEventListener("scroll", reposition, { passive: true });
-  }
-
-  cartIndicatorCleanup = () => {
-    window.removeEventListener("resize", reposition);
-    window.removeEventListener("orientationchange", reposition);
-    if (viewport && typeof viewport.removeEventListener === "function") {
-      viewport.removeEventListener("resize", reposition);
-      viewport.removeEventListener("scroll", reposition);
+  const closePopup = (reason) => {
+    if (reason) {
+      trackCartPreviewEvent("popup_close", { reason });
     }
+    clearCartIndicator();
   };
 
+  const closeButton = popup.querySelector(".cart-indicator-close");
+  if (closeButton) {
+    closeButton.addEventListener("click", () => closePopup("close_button"));
+  }
+
+  popup.querySelectorAll("[data-action]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const action = node.getAttribute("data-action") || "unknown";
+      trackCartPreviewEvent("popup_action", { action });
+      if (action === "keep_shopping") {
+        closePopup("keep_shopping");
+      }
+    });
+  });
+
+  const onKeydown = (event) => {
+    if (event.key === "Escape") {
+      closePopup("escape");
+    }
+  };
+  document.addEventListener("keydown", onKeydown);
+
+  cartIndicatorCleanup = () => {
+    document.removeEventListener("keydown", onKeydown);
+  };
+
+  requestAnimationFrame(() => popup.classList.add("show"));
+
   cartIndicatorTimer = setTimeout(() => {
-    clearCartIndicator();
+    closePopup("timeout");
   }, duration);
 
   return true;
 }
 
 function renderCartPreview(container) {
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cart = readCartItems();
   if (cart.length === 0) {
-    container.innerHTML = "<p>Carrito vacío</p>";
+    container.innerHTML = `
+      <div class="cart-preview__panel cart-preview__panel--empty">
+        <p class="cart-preview__empty-title">Tu carrito está vacío</p>
+        <p class="cart-preview__empty-text">Agregá productos para ver un resumen rápido acá.</p>
+        <a class="cart-preview__cta" href="/shop.html">Explorar productos</a>
+      </div>
+    `;
     return;
   }
+
   const items = cart
-    .slice(0, 3)
-    .map((i) => `<div class="prev-item">${i.name} x${i.quantity}</div>`)
+    .slice(0, 4)
+    .map(
+      (item, index) => `
+      <div class="prev-item" data-index="${index}">
+        <div class="prev-item__content">
+          <div class="prev-item__name">${item.name || "Producto"}</div>
+          <div class="prev-item__meta">$${Number(item.price || 0).toLocaleString("es-AR")} c/u</div>
+        </div>
+        <div class="prev-item__actions">
+          <button type="button" class="preview-qty-btn" data-preview-action="decrease" data-index="${index}" aria-label="Quitar una unidad">−</button>
+          <span class="prev-item__qty">${Number(item.quantity || 0)}</span>
+          <button type="button" class="preview-qty-btn" data-preview-action="increase" data-index="${index}" aria-label="Sumar una unidad">+</button>
+        </div>
+      </div>`,
+    )
     .join("");
-  const total = cart.reduce(
-    (sum, i) => sum + (i.price || 0) * (i.quantity || 0),
-    0,
+
+  const totals = cart.reduce(
+    (acc, item) => {
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.price || 0);
+      if (qty > 0) {
+        acc.items += qty;
+        acc.value += qty * price;
+      }
+      return acc;
+    },
+    { items: 0, value: 0 },
   );
-  container.innerHTML =
-    items +
-    `<div class="prev-total">Total: $${total.toLocaleString("es-AR")}</div>`;
+
+  container.innerHTML = `
+    <div class="cart-preview__panel">
+      <div class="cart-preview__header">
+        <strong>Tu carrito</strong>
+        <span>${totals.items} ${totals.items === 1 ? "producto" : "productos"}</span>
+      </div>
+      <div class="cart-preview__items">${items}</div>
+      <div class="prev-total">Total: <strong>$${totals.value.toLocaleString("es-AR")}</strong></div>
+      <div class="cart-preview__actions">
+        <a class="cart-preview__cta cart-preview__cta--ghost" href="/shop.html">Seguir comprando</a>
+        <a class="cart-preview__cta" href="/cart.html">Ir al carrito</a>
+      </div>
+    </div>`;
+}
+
+function updatePreviewItemQuantity(index, delta) {
+  const cart = readCartItems();
+  const item = cart[index];
+  if (!item) return;
+
+  const nextQty = Number(item.quantity || 0) + delta;
+  if (nextQty <= 0) {
+    cart.splice(index, 1);
+    trackCartPreviewEvent("remove_item", { itemName: item.name });
+  } else {
+    item.quantity = nextQty;
+    cart[index] = item;
+    trackCartPreviewEvent(delta > 0 ? "increase_qty" : "decrease_qty", {
+      itemName: item.name,
+      quantity: nextQty,
+    });
+  }
+  saveCartItems(cart);
 }
 
 function attachCartPreview(a) {
   if (a.dataset.previewAttached) return;
   const preview = document.createElement("div");
   preview.className = "cart-preview";
+  preview.setAttribute("role", "dialog");
+  preview.setAttribute("aria-label", "Vista previa del carrito");
   a.appendChild(preview);
-  a.addEventListener("mouseenter", () => renderCartPreview(preview));
-  a.addEventListener("focus", () => renderCartPreview(preview));
+
+  const openPreview = () => {
+    if (cartPreviewHideTimer) {
+      clearTimeout(cartPreviewHideTimer);
+      cartPreviewHideTimer = null;
+    }
+    renderCartPreview(preview);
+    preview.classList.add("is-visible");
+    trackCartPreviewEvent("open_preview", {
+      trigger: window.matchMedia("(hover: hover)").matches ? "hover" : "tap",
+    });
+  };
+
+  const hidePreview = () => {
+    preview.classList.remove("is-visible");
+  };
+
+  const closePreview = () => {
+    if (cartPreviewHideTimer) clearTimeout(cartPreviewHideTimer);
+    cartPreviewHideTimer = setTimeout(hidePreview, 140);
+  };
+
+  const onDocumentClick = (event) => {
+    if (!preview.classList.contains("is-visible")) return;
+    if (a.contains(event.target)) return;
+    hidePreview();
+  };
+
+  const onDocumentKeydown = (event) => {
+    if (event.key === "Escape") {
+      hidePreview();
+    }
+  };
+
+  a.addEventListener("mouseenter", openPreview);
+  a.addEventListener("focus", openPreview);
+  a.addEventListener("mouseleave", closePreview);
+  a.addEventListener("blur", closePreview);
+  a.addEventListener("click", (event) => {
+    if (window.matchMedia("(hover: none)").matches) {
+      const willOpen = !preview.classList.contains("is-visible");
+      if (willOpen) {
+        event.preventDefault();
+        openPreview();
+      }
+    }
+  });
+
+  preview.addEventListener("mouseenter", () => {
+    if (cartPreviewHideTimer) {
+      clearTimeout(cartPreviewHideTimer);
+      cartPreviewHideTimer = null;
+    }
+  });
+  preview.addEventListener("mouseleave", closePreview);
+  preview.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-preview-action]");
+    if (!btn) return;
+    event.preventDefault();
+    const index = Number(btn.dataset.index);
+    const action = btn.dataset.previewAction;
+    updatePreviewItemQuantity(index, action === "increase" ? 1 : -1);
+    renderCartPreview(preview);
+  });
+
+  document.addEventListener("click", onDocumentClick);
+  document.addEventListener("keydown", onDocumentKeydown);
+
   a.dataset.previewAttached = "true";
 }
 
