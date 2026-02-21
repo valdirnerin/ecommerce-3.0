@@ -3,47 +3,55 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-
-<!-- Meta Pixel Code -->
-  <script>
-  !function(f,b,e,v,n,t,s)
-  {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-  n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-  if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-  n.queue=[];t=b.createElement(e);t.async=!0;
-  t.src=v;s=b.getElementsByTagName(e)[0];
-  s.parentNode.insertBefore(t,s)}(window, document,'script',
-  'https://connect.facebook.net/en_US/fbevents.js');
-  fbq('init', '2627676134264110');
-  fbq('track', 'PageView');
-  </script>
-  <noscript><img height="1" width="1" style="display:none"
-  src="https://www.facebook.com/tr?id=2627676134264110&ev=PageView&noscript=1"
-  /></noscript>
-  <!-- End Meta Pixel Code -->
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-W0NY5MHXND"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-W0NY5MHXND');
-  </script>
-<meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Mi cuenta – NERIN</title>
     <meta name="robots" content="noindex, nofollow" />
-        <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css"
-    />
-      <link rel="stylesheet" href="/style.css?v=cartfix-2" />
-    <link rel="stylesheet" href="/components/np-footer.css?v=np-r2">
-  <script src="/components/np-footer.js?v=np-r2" defer></script>
-</head>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css" />
+    <link rel="stylesheet" href="/style.css?v=cartfix-2" />
+    <link rel="stylesheet" href="/components/np-footer.css?v=np-r2" />
+    <script src="/components/np-footer.js?v=np-r2" defer></script>
+    <style>
+      .account-simple { display: grid; gap: 1rem; }
+      .account-simple .account-card {
+        min-width: 0;
+      }
+      .account-simple .card-header {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: .45rem;
+      }
+      .account-simple .card-header .helper-text {
+        max-width: 100%;
+      }
+      .selector-box { border: 1px solid #d7d8de; border-radius: 16px; padding: 1rem; background: #fff; }
+      .selector-box select, .return-form textarea { width: 100%; }
+      .return-form { display: grid; gap: .75rem; }
+      .table-wrapper { overflow-x: auto; width: 100%; }
+      .account-simple .admin-table {
+        width: 100%;
+        table-layout: fixed;
+      }
+      .account-simple .admin-table th,
+      .account-simple .admin-table td {
+        white-space: normal;
+        word-break: break-word;
+        font-size: .84rem;
+      }
+      .status-pill { display: inline-block; padding: .2rem .55rem; border-radius: 999px; background: #eef2ff; font-size: .82rem; }
+
+      @media (max-width: 480px) {
+        .account-simple {
+          gap: .75rem;
+        }
+        .account-simple .admin-table th,
+        .account-simple .admin-table td {
+          padding: .45rem .3rem;
+          font-size: .74rem;
+        }
+      }
+    </style>
+  </head>
   <body>
     <header>
       <div class="header-inner">
@@ -61,347 +69,90 @@
         </nav>
       </div>
     </header>
-    <main class="container account-dashboard">
-      <section class="account-hero">
-        <div class="account-hero__content">
-          <p class="account-hero__tag">Canal mayorista NERIN</p>
+
+    <main class="container account-dashboard account-simple">
+      <section class="account-card">
+        <div class="card-header">
           <h1>Mi cuenta mayorista</h1>
-          <p id="heroSubtitle">
-            Organizá tu crédito, documentos y pedidos desde un único panel.
-          </p>
-          <div class="account-hero__cta">
-            <a href="/shop.html" class="button primary">Ver catálogo mayorista</a>
-            <button type="button" class="button outline" id="downloadStatementBtn">
-              Descargar estado de cuenta
-            </button>
-          </div>
-        </div>
-        <div class="account-hero__stats">
-          <div class="hero-stat">
-            <span class="hero-stat__label">Cliente</span>
-            <span class="hero-stat__value" id="heroName">—</span>
-            <span class="hero-stat__meta" id="heroStatus">Cuenta activa</span>
-          </div>
-          <div class="hero-stat">
-            <span class="hero-stat__label">Saldo actual</span>
-            <span class="hero-stat__value" id="heroBalance">$0</span>
-            <span class="hero-stat__meta" id="heroLimit">Límite $0</span>
-          </div>
-          <div class="hero-stat">
-            <span class="hero-stat__label">Último movimiento</span>
-            <span class="hero-stat__value" id="heroLastMovement">—</span>
-            <span class="hero-stat__meta" id="heroLastOrder">Sin pedidos registrados</span>
-          </div>
         </div>
       </section>
 
-      <section class="account-section account-card" id="quickActionsSection">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Gestión rápida</p>
-            <h2>Acciones principales</h2>
-          </div>
-        </div>
-        <div class="action-grid">
-          <button class="action-tile" type="button" data-action="limit">
-            <span class="action-icon">📈</span>
-            <div>
-              <strong>Solicitar aumento de límite</strong>
-              <p>Compartinos tus datos financieros actualizados.</p>
-            </div>
-          </button>
-          <button class="action-tile" type="button" data-action="statement">
-            <span class="action-icon">📄</span>
-            <div>
-              <strong>Descargar estado de cuenta</strong>
-              <p>Exportá movimientos y facturas en segundos.</p>
-            </div>
-          </button>
-          <button class="action-tile" type="button" data-action="team">
-            <span class="action-icon">🤝</span>
-            <div>
-              <strong>Invitar comprador autorizado</strong>
-              <p>Sumá personas de tu equipo para que gestionen pedidos.</p>
-            </div>
-          </button>
-          <button class="action-tile" type="button" data-action="reminder">
-            <span class="action-icon">⏰</span>
-            <div>
-              <strong>Agendar recordatorio de pago</strong>
-              <p>Definí alertas internas para tus vencimientos.</p>
-            </div>
-          </button>
-        </div>
-      </section>
-
-      <section class="account-panels">
-        <article class="account-card account-card--credit" id="creditCard">
-          <div class="card-header">
-            <h3>Crédito disponible</h3>
-            <span class="badge" id="creditStatusBadge">Al día</span>
-          </div>
-          <div class="credit-overview">
-            <div class="credit-gauge" id="creditGauge" data-usage="0%"></div>
-            <div class="credit-details">
-              <p class="credit-amount" id="creditBalance">$0</p>
-              <p class="credit-available">
-                Disponible: <strong id="creditAvailable">$0</strong>
-              </p>
-              <div class="progress-bar">
-                <div class="progress" id="creditUsageBar"></div>
-              </div>
-              <p class="microcopy" id="creditUsageLabel">0% del límite utilizado.</p>
-            </div>
-          </div>
-          <ul class="card-list">
-            <li id="nextReview">Próxima revisión de cuenta: —</li>
-            <li id="paymentRecommendation">No hay pagos pendientes.</li>
-          </ul>
-        </article>
-
-        <article class="account-card account-card--documents" id="documentsCard">
-          <div class="card-header">
-            <h3>Documentación fiscal</h3>
-            <p class="helper-text" id="documentSummary">
-              0 de 4 documentos recibidos.
-            </p>
-          </div>
-          <ul class="document-list" id="documentChecklist">
-            <li data-doc-row="afip">
-              <div class="doc-main">
-                <div class="doc-info">
-                  <strong>Constancia AFIP</strong>
-                  <small>Última actualización de responsable inscripto.</small>
-                  <p class="doc-note" data-doc-note="afip" hidden></p>
-                  <ul class="doc-files" data-doc-files="afip"></ul>
-                  <input
-                    type="file"
-                    data-doc-input="afip"
-                    accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    hidden
-                  />
-                </div>
-                <div class="doc-actions">
-                  <button type="button" class="button secondary small" data-doc-upload="afip">
-                    Adjuntar archivo
-                  </button>
-                  <button type="button" class="button small" data-doc-latest="afip" hidden>
-                    Ver último
-                  </button>
-                </div>
-              </div>
-              <span class="doc-chip" data-doc-status="afip">Pendiente</span>
-            </li>
-            <li data-doc-row="iva">
-              <div class="doc-main">
-                <div class="doc-info">
-                  <strong>Padrón IVA</strong>
-                  <small>Necesario para facturación exenta o M.</small>
-                  <p class="doc-note" data-doc-note="iva" hidden></p>
-                  <ul class="doc-files" data-doc-files="iva"></ul>
-                  <input
-                    type="file"
-                    data-doc-input="iva"
-                    accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    hidden
-                  />
-                </div>
-                <div class="doc-actions">
-                  <button type="button" class="button secondary small" data-doc-upload="iva">
-                    Adjuntar archivo
-                  </button>
-                  <button type="button" class="button small" data-doc-latest="iva" hidden>
-                    Ver último
-                  </button>
-                </div>
-              </div>
-              <span class="doc-chip" data-doc-status="iva">Pendiente</span>
-            </li>
-            <li data-doc-row="bank">
-              <div class="doc-main">
-                <div class="doc-info">
-                  <strong>Datos bancarios</strong>
-                  <small>CBU/CVU para devoluciones y notas de crédito.</small>
-                  <p class="doc-note" data-doc-note="bank" hidden></p>
-                  <ul class="doc-files" data-doc-files="bank"></ul>
-                  <input
-                    type="file"
-                    data-doc-input="bank"
-                    accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    hidden
-                  />
-                </div>
-                <div class="doc-actions">
-                  <button type="button" class="button secondary small" data-doc-upload="bank">
-                    Adjuntar archivo
-                  </button>
-                  <button type="button" class="button small" data-doc-latest="bank" hidden>
-                    Ver último
-                  </button>
-                </div>
-              </div>
-              <span class="doc-chip" data-doc-status="bank">Pendiente</span>
-            </li>
-            <li data-doc-row="agreement">
-              <div class="doc-main">
-                <div class="doc-info">
-                  <strong>Contrato de revendedor</strong>
-                  <small>Firmado digitalmente por el titular de la cuenta.</small>
-                  <p class="doc-note" data-doc-note="agreement" hidden></p>
-                  <ul class="doc-files" data-doc-files="agreement"></ul>
-                  <input
-                    type="file"
-                    data-doc-input="agreement"
-                    accept=".pdf,.jpg,.jpeg,.png,.webp"
-                    hidden
-                  />
-                </div>
-                <div class="doc-actions">
-                  <button type="button" class="button secondary small" data-doc-upload="agreement">
-                    Adjuntar archivo
-                  </button>
-                  <button type="button" class="button small" data-doc-latest="agreement" hidden>
-                    Ver último
-                  </button>
-                </div>
-              </div>
-              <span class="doc-chip" data-doc-status="agreement">Pendiente</span>
-            </li>
-          </ul>
-          <p class="microcopy">
-            Marcá los documentos que ya enviaste para llevar un control interno. Un asesor los validará dentro de las 24 hs hábiles.
-          </p>
-        </article>
-
-        <article class="account-card account-card--team" id="teamCard">
-          <div class="card-header">
-            <h3>Compradores autorizados</h3>
-            <p class="helper-text">
-              Gestioná quién puede confirmar pedidos y usar tu crédito.
-            </p>
-          </div>
-          <ul class="pill-list" id="authorizedBuyersList">
-            <li class="empty">Todavía no agregaste compradores.</li>
-          </ul>
-          <form id="authorizedBuyerForm" class="inline-form">
-            <div class="form-row">
-              <label for="buyerName">Nombre y apellido</label>
-              <input type="text" id="buyerName" autocomplete="name" />
-            </div>
-            <div class="form-row">
-              <label for="buyerEmail">Correo corporativo</label>
-              <input type="email" id="buyerEmail" autocomplete="email" />
-            </div>
-            <div class="form-row">
-              <label for="buyerPhone">Teléfono</label>
-              <input type="tel" id="buyerPhone" autocomplete="tel" />
-            </div>
-            <button type="submit" class="button primary small">
-              Invitar comprador
-            </button>
-          </form>
-        </article>
-
-        <article class="account-card account-card--reminders" id="remindersCard">
-          <div class="card-header">
-            <h3>Recordatorios de pago</h3>
-            <p class="helper-text">
-              Agendá compromisos de pago para evitar bloqueos de crédito.
-            </p>
-          </div>
-          <ul class="timeline" id="reminderList">
-            <li class="empty">Sin recordatorios programados.</li>
-          </ul>
-          <form id="reminderForm" class="inline-form">
-            <div class="form-row">
-              <label for="reminderDate">Fecha límite</label>
-              <input type="date" id="reminderDate" />
-            </div>
-            <div class="form-row">
-              <label for="reminderAmount">Importe estimado</label>
-              <input type="number" id="reminderAmount" min="0" step="0.01" />
-            </div>
-            <div class="form-row">
-              <label for="reminderNotes">Notas internas</label>
-              <input type="text" id="reminderNotes" maxlength="120" />
-            </div>
-            <button type="submit" class="button secondary small">
-              Crear recordatorio
-            </button>
-          </form>
-        </article>
-      </section>
-
-      <section class="account-card" id="timelineSection">
+      <section class="account-card" id="salesHistorySection">
         <div class="card-header">
-          <h3>Actividad reciente</h3>
-        </div>
-        <ol class="timeline timeline--dense" id="timelineList">
-          <li class="empty">Aún no registramos movimientos.</li>
-        </ol>
-      </section>
-
-      <section id="loyaltySection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Estado de cliente</h3>
-          <p class="helper-text">
-            Sumá compras y mejorá tus beneficios exclusivos.
-          </p>
-        </div>
-        <div id="loyaltyCard" class="loyalty-card">
-          <div id="loyaltyLevel" class="loyalty-level">Nuevo</div>
-          <div class="progress-bar">
-            <div id="loyaltyProgress" class="progress"></div>
-          </div>
-          <p id="loyaltyMessage"></p>
-        </div>
-      </section>
-
-      <section id="benefitsSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Beneficios activos</h3>
-          <p class="helper-text">
-            Elegimos estos beneficios según tu historial mayorista.
-          </p>
-        </div>
-        <div id="benefitsList" class="benefits-grid"></div>
-      </section>
-
-      <section id="ordersSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Mis pedidos</h3>
-          <p class="helper-text">
-            Consultá estados, facturas y repetí compras frecuentes.
-          </p>
+          <h3>Historial de ventas</h3>
         </div>
         <div class="table-wrapper">
-          <table class="admin-table" id="userOrdersTable">
+          <table class="admin-table" id="salesHistoryTable">
             <thead>
               <tr>
-                <th>ID</th>
+                <th>Pedido</th>
                 <th>Fecha</th>
-                <th>Productos</th>
                 <th>Estado</th>
                 <th>Transportista</th>
                 <th>Total</th>
-                <th>Factura</th>
-                <th>Acciones</th>
               </tr>
             </thead>
-            <tbody></tbody>
+            <tbody>
+              <tr><td colspan="5">Cargando pedidos…</td></tr>
+            </tbody>
           </table>
         </div>
       </section>
 
-      <section id="returnsSection" class="account-section account-card">
+      <section class="account-card selector-box" id="carrierSelectorSection">
         <div class="card-header">
-          <h3>Mis devoluciones</h3>
-          <p class="helper-text">
-            Seguimiento centralizado de garantías y reclamos.
-          </p>
+          <h3>Selector de transportista</h3>
+          <p class="helper-text">Elegí el transportista preferido para próximos envíos y devoluciones.</p>
         </div>
-        <div class="table-wrapper">
-          <table class="admin-table" id="userReturnsTable">
+        <label for="preferredCarrier">Transportista</label>
+        <select id="preferredCarrier">
+          <option value="Andreani">Andreani</option>
+          <option value="Correo Argentino">Correo Argentino</option>
+          <option value="OCA">OCA</option>
+          <option value="Moto mensajería">Moto mensajería</option>
+          <option value="Retiro por sucursal">Retiro por sucursal</option>
+        </select>
+      </section>
+
+
+      <section class="account-card" id="passwordSection">
+        <div class="card-header">
+          <h3>Cambiar contraseña</h3>
+          <p class="helper-text">Actualizá tu clave de acceso al panel mayorista.</p>
+        </div>
+        <form id="passwordForm" class="return-form">
+          <div class="form-row">
+            <label for="newPassword">Nueva contraseña</label>
+            <input type="password" id="newPassword" minlength="6" autocomplete="new-password" required />
+          </div>
+          <div class="form-row">
+            <label for="confirmPassword">Confirmar contraseña</label>
+            <input type="password" id="confirmPassword" minlength="6" autocomplete="new-password" required />
+          </div>
+          <button type="submit" class="button primary small">Guardar nueva contraseña</button>
+        </form>
+      </section>
+
+      <section class="account-card" id="returnsSection">
+        <div class="card-header">
+          <h3>Sistema de devolución</h3>
+          <p class="helper-text">Las devoluciones quedan pendientes hasta aprobación del administrador.</p>
+        </div>
+
+        <form id="returnForm" class="return-form">
+          <div class="form-row">
+            <label for="returnOrderId">Pedido entregado</label>
+            <select id="returnOrderId" required></select>
+          </div>
+          <div class="form-row">
+            <label for="returnReason">Motivo</label>
+            <textarea id="returnReason" rows="3" required placeholder="Describí la falla o el motivo de la devolución"></textarea>
+          </div>
+          <button type="submit" class="button primary small">Crear devolución</button>
+        </form>
+
+        <div class="table-wrapper" style="margin-top:1rem;">
+          <table class="admin-table" id="returnsTable">
             <thead>
               <tr>
                 <th>ID</th>
@@ -409,143 +160,18 @@
                 <th>Fecha</th>
                 <th>Motivo</th>
                 <th>Estado</th>
-                <th>Acciones</th>
               </tr>
             </thead>
-            <tbody></tbody>
+            <tbody>
+              <tr><td colspan="5">Cargando devoluciones…</td></tr>
+            </tbody>
           </table>
         </div>
       </section>
-
-      <section id="filesSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Archivos y facturas</h3>
-          <p class="helper-text">
-            Descargá todas tus facturas y documentos adjuntos.
-          </p>
-        </div>
-        <ul id="invoiceList" class="document-links"></ul>
-        <button id="downloadAll" class="button secondary small" type="button">
-          Descargar todo en ZIP
-        </button>
-      </section>
-
-      <section id="profileSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Configuración del perfil</h3>
-          <p class="helper-text">
-            Actualizá tus datos fiscales y de contacto para facturar sin demoras.
-          </p>
-        </div>
-        <form id="profileForm" class="profile-form">
-          <div class="form-row">
-            <label for="pName">Nombre completo</label>
-            <input type="text" id="pName" />
-          </div>
-          <div class="form-row">
-            <label for="pEmail">Correo</label>
-            <input type="email" id="pEmail" disabled />
-          </div>
-          <div class="form-row">
-            <label for="pPhone">Teléfono</label>
-            <input type="text" id="pPhone" />
-          </div>
-          <div class="form-row">
-            <label for="pStreet">Calle</label>
-            <input type="text" id="pStreet" />
-          </div>
-          <div class="form-row form-row--split">
-            <div class="field">
-              <label for="pNumber">Número</label>
-              <input type="text" id="pNumber" />
-            </div>
-            <div class="field">
-              <label for="pFloor">Piso / Depto</label>
-              <input type="text" id="pFloor" />
-            </div>
-          </div>
-          <div class="form-row">
-            <label for="pCity">Localidad</label>
-            <input type="text" id="pCity" />
-          </div>
-          <div class="form-row">
-            <label for="pProvince">Provincia</label>
-            <input type="text" id="pProvince" />
-          </div>
-          <div class="form-row">
-            <label for="pZip">Código postal</label>
-            <input type="text" id="pZip" />
-          </div>
-          <div class="form-row">
-            <label for="pPassword">Contraseña</label>
-            <input
-              type="password"
-              id="pPassword"
-              placeholder="Nueva contraseña"
-            />
-          </div>
-          <div class="form-row">
-            <label for="pCUIT">CUIT/CUIL</label>
-            <input type="text" id="pCUIT" />
-          </div>
-          <div class="contact-prefs">
-            <label><input type="checkbox" id="prefWhatsApp" /> WhatsApp</label>
-            <label><input type="checkbox" id="prefEmail" /> Mail</label>
-          </div>
-          <button type="submit" class="button primary small">
-            Guardar cambios
-          </button>
-        </form>
-      </section>
-
-      <section id="supportSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Soporte dedicado</h3>
-          <p class="helper-text">
-            Nuestro equipo mayorista responde en menos de 1&nbsp;hora hábil.
-          </p>
-        </div>
-        <p>
-          ¿Necesitás ayuda? Elegí tu canal preferido y un asesor se pondrá en
-          contacto con vos.
-        </p>
-        <div class="support-actions">
-          <a id="supportBtn" class="button primary" target="_blank">
-            Contactar asesor
-          </a>
-          <a href="mailto:mayoristas@nerinparts.com.ar" class="button secondary">
-            Enviar correo
-          </a>
-        </div>
-      </section>
-
-      <section id="helpSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Centro de ayuda</h3>
-          <p class="helper-text">
-            Respuestas rápidas para tu equipo de compras y administración.
-          </p>
-        </div>
-        <ul class="link-list">
-          <li><a href="#">¿Cómo comprar?</a></li>
-          <li><a href="#">Métodos de pago</a></li>
-          <li><a href="#">Política de garantía</a></li>
-          <li><a href="#">¿Dónde veo mi factura?</a></li>
-        </ul>
-      </section>
-
-      <section id="metricsSection" class="account-section account-card">
-        <div class="card-header">
-          <h3>Métricas personales</h3>
-          <p class="helper-text">
-            Visualizá tu performance como distribuidor NERIN.
-          </p>
-        </div>
-        <div id="metricsInfo" class="metrics-grid"></div>
-      </section>
     </main>
-    <script type="module" src="/js/account.js"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="module" src="/js/account-simple.js"></script>
     <script type="module" src="/js/config.js"></script>
   </body>
 </html>
