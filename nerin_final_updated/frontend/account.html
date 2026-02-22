@@ -27,6 +27,8 @@
       .selector-box { border: 1px solid #d7d8de; border-radius: 16px; padding: 1rem; background: #fff; }
       .selector-box select, .return-form textarea { width: 100%; }
       .return-form { display: grid; gap: .75rem; }
+      .password-form { display: grid; gap: .75rem; max-width: 520px; }
+      .password-form .helper-text { margin-top: -.2rem; }
       .table-wrapper { overflow-x: auto; width: 100%; }
       .account-simple .admin-table {
         width: 100%;
@@ -112,6 +114,42 @@
           <option value="Moto mensajería">Moto mensajería</option>
           <option value="Retiro por sucursal">Retiro por sucursal</option>
         </select>
+      </section>
+
+      <section class="account-card" id="passwordSection">
+        <div class="card-header">
+          <h3>Seguridad de la cuenta</h3>
+          <p class="helper-text">Actualizá tu contraseña para el acceso al portal mayorista.</p>
+        </div>
+
+        <form id="passwordForm" class="password-form" novalidate>
+          <div class="form-row">
+            <label for="newPassword">Nueva contraseña</label>
+            <input
+              id="newPassword"
+              name="newPassword"
+              type="password"
+              autocomplete="new-password"
+              minlength="6"
+              required
+              placeholder="Mínimo 6 caracteres"
+            />
+          </div>
+          <div class="form-row">
+            <label for="confirmPassword">Confirmar nueva contraseña</label>
+            <input
+              id="confirmPassword"
+              name="confirmPassword"
+              type="password"
+              autocomplete="new-password"
+              minlength="6"
+              required
+              placeholder="Repetí la nueva contraseña"
+            />
+          </div>
+          <p class="helper-text">Tip: usá una combinación de letras, números y símbolos.</p>
+          <button type="submit" class="button primary small">Guardar nueva contraseña</button>
+        </form>
       </section>
 
       <section class="account-card" id="returnsSection">

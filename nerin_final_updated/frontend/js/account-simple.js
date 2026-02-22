@@ -163,6 +163,56 @@ function initCarrierSelector() {
   });
 }
 
+function initPasswordForm(email) {
+  const form = document.getElementById("passwordForm");
+  if (!form) return;
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const newPassword = document.getElementById("newPassword")?.value?.trim() || "";
+    const confirmPassword = document.getElementById("confirmPassword")?.value?.trim() || "";
+
+    if (newPassword.length < 6) {
+      showToast("La nueva contraseña debe tener al menos 6 caracteres.", "danger");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("Las contraseñas no coinciden.", "danger");
+      return;
+    }
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const previousLabel = submitBtn?.textContent || "";
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Guardando...";
+    }
+
+    try {
+      const res = await apiFetch(`/api/clients/${encodeURIComponent(email)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data?.error || "No se pudo actualizar la contraseña.", "danger");
+        return;
+      }
+
+      form.reset();
+      showToast("Contraseña actualizada correctamente.", "success");
+    } catch (error) {
+      showToast("Error de red al actualizar contraseña.", "danger");
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = previousLabel || "Guardar nueva contraseña";
+      }
+    }
+  });
+}
+
 async function init() {
   const email = localStorage.getItem("nerinUserEmail");
   if (!email) {
@@ -171,6 +221,7 @@ async function init() {
   }
 
   initCarrierSelector();
+  initPasswordForm(email);
 
   let orders = [];
   try {
