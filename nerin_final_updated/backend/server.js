@@ -1281,7 +1281,7 @@ function renderShopListing(products, siteBase) {
     : [];
   const cards = valid.slice(0, 30).map((p) => buildShopCard(p, siteBase)).join("");
   const count = valid.length;
-  const summary = count === 1 ? "1 producto disponible." : `${count} productos listados.`;
+  const summary = count === 1 ? "producto disponible." : "productos listados.";
   return { cards, count, summary };
 }
 
