@@ -541,6 +541,9 @@ function attachCartPreview(a) {
   a.appendChild(preview);
 
   const openPreview = () => {
+    if (window.matchMedia("(max-width: 900px), (hover: none)").matches) {
+      return;
+    }
     if (cartPreviewHideTimer) {
       clearTimeout(cartPreviewHideTimer);
       cartPreviewHideTimer = null;
@@ -578,12 +581,13 @@ function attachCartPreview(a) {
   a.addEventListener("mouseleave", closePreview);
   a.addEventListener("blur", closePreview);
   a.addEventListener("click", (event) => {
-    if (window.matchMedia("(hover: none)").matches) {
-      const willOpen = !preview.classList.contains("is-visible");
-      if (willOpen) {
-        event.preventDefault();
-        openPreview();
-      }
+    if (window.matchMedia("(max-width: 900px), (hover: none)").matches) {
+      return;
+    }
+    const willOpen = !preview.classList.contains("is-visible");
+    if (willOpen) {
+      event.preventDefault();
+      openPreview();
     }
   });
 
@@ -690,7 +694,7 @@ function updateNav() {
           a.setAttribute("href", "/account.html");
         }
       } else {
-        a.textContent = "Acceder";
+        a.textContent = "Ingresar";
         a.setAttribute("href", "/login.html");
       }
     }
@@ -735,7 +739,7 @@ function updateNav() {
       signupLi.className = "signup-item";
       const signupLink = document.createElement("a");
       signupLink.href = "/register.html";
-      signupLink.textContent = "Registrarse";
+      signupLink.textContent = "Crear cuenta";
       signupLi.appendChild(signupLink);
       navUl.appendChild(signupLi);
     }
