@@ -859,12 +859,19 @@ body.cart-indicator-visible .toastify {
   font-size: 0.9rem;
   color: #4b5563;
   flex-grow: 1;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.product-card .product-fulfillment-note {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  color: #2563eb;
+  font-weight: 600;
 }
 
 .price {
@@ -9042,9 +9049,16 @@ html, body{ max-width:100%; overflow-x:hidden; }
 
 /* Ajustes visuales pro: botones y legales en catálogo */
 .shop-results-legal {
-  margin: 0.25rem 0 0.85rem;
+  margin: 0.25rem 0 0.45rem;
   color: #6b7280;
   font-size: 0.86rem;
+}
+
+.shop-results-legal--highlight {
+  margin-top: 0;
+  margin-bottom: 0.9rem;
+  color: #111827;
+  font-weight: 600;
 }
 
 .shop-page .button,
@@ -9354,4 +9368,23 @@ html, body{ max-width:100%; overflow-x:hidden; }
   .price-tier__value {
     font-size: 1.1rem;
   }
+}
+
+
+.product-page .product-fulfillment-trust {
+  margin: 0.75rem 0 1rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  color: #1f2937;
+  font-size: 0.88rem;
+}
+
+.product-page .product-fulfillment-trust p {
+  margin: 0;
+}
+
+.product-page .product-fulfillment-trust p + p {
+  margin-top: 0.35rem;
 }

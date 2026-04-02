@@ -24,6 +24,63 @@ const FALLBACK_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
 
+
+function toNumberOrNull(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function normalizeProductPayload(product) {
+  if (!product || typeof product !== "object") return product;
+  const normalized = { ...product };
+  if (!normalized.name && typeof normalized.title === "string") {
+    normalized.name = normalized.title.trim();
+  }
+  if (!normalized.category && typeof normalized.categoria === "string") {
+    normalized.category = normalized.categoria.trim();
+  }
+  if (!Number.isFinite(Number(normalized.stock))) {
+    const parsedStock =
+      toNumberOrNull(normalized.quantity) ??
+      toNumberOrNull(normalized.available_quantity) ??
+      toNumberOrNull(normalized.qty_available);
+    if (parsedStock !== null) normalized.stock = parsedStock;
+  }
+
+  const imageCandidates = [];
+  const pushImage = (value) => {
+    if (typeof value !== "string") return;
+    const cleaned = value.trim();
+    if (!cleaned) return;
+    imageCandidates.push(cleaned);
+  };
+
+  if (Array.isArray(normalized.images)) {
+    normalized.images.forEach((img) => {
+      if (typeof img === "string") pushImage(img);
+      else pushImage(img?.url || img?.secure_url || "");
+    });
+  }
+  if (Array.isArray(normalized.pictures)) {
+    normalized.pictures.forEach((img) => {
+      if (typeof img === "string") pushImage(img);
+      else pushImage(img?.url || img?.secure_url || "");
+    });
+  }
+  pushImage(normalized.image);
+  pushImage(normalized.image_url);
+  pushImage(normalized.thumbnail);
+  pushImage(normalized.picture);
+
+  const uniqueImages = Array.from(new Set(imageCandidates));
+  if (uniqueImages.length) {
+    normalized.images = uniqueImages;
+    normalized.image = uniqueImages[0];
+  }
+
+  return normalized;
+}
+
 function resolveProductPriceContext(product) {
   const retailRaw = Number(product?.price_minorista ?? product?.price);
   const wholesaleRaw = Number(product?.price_mayorista ?? product?.price_wholesale);
@@ -52,6 +109,35 @@ function resolveProductDisplayPrice(product) {
   return resolveProductPriceContext(product).active;
 }
 
+
+function resolveFulfillmentProfile(product) {
+  const explicitMode = String(product?.stock_mode || product?.fulfillment_mode || "")
+    .trim()
+    .toLowerCase();
+  const stock = toNumberOrNull(product?.stock);
+  const textSignals = [product?.name, product?.description, product?.category, product?.subcategory]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const hasRemoteText = /a pedido|preventa|importad|internacional|encargo|bajo pedido/.test(textSignals);
+  const isRemote =
+    explicitMode === "remote" ||
+    explicitMode === "remoto" ||
+    Number(product?.remote_stock) > 0 ||
+    Number(product?.remote_lead_days) > 0 ||
+    hasRemoteText ||
+    (Number.isFinite(stock) && stock <= 0 && /a pedido|encargo/.test(textSignals));
+
+  const minDays = Number(product?.remote_lead_min_days || product?.remote_lead_days || 4);
+  const maxDays = Number(product?.remote_lead_max_days || (isRemote ? Math.max(minDays, 10) : minDays));
+
+  return {
+    mode: isRemote ? "remote" : "physical",
+    isConfigured: Boolean(explicitMode) || Number(product?.remote_lead_days) > 0,
+    minDays,
+    maxDays: maxDays >= minDays ? maxDays : minDays,
+  };
+}
 
 function sanitizeStorefrontCopy(text) {
   if (typeof text !== "string") return "";
@@ -1165,16 +1251,43 @@ function renderProduct(product) {
 
   const shippingBanner = document.createElement("div");
   shippingBanner.className = "product-shipping-banner";
+  const fulfillment = resolveFulfillmentProfile(product);
+  const leadCopy =
+    fulfillment.minDays === fulfillment.maxDays
+      ? `${fulfillment.minDays} día${fulfillment.minDays === 1 ? "" : "s"}`
+      : `${fulfillment.minDays} a ${fulfillment.maxDays} días`;
   shippingBanner.innerHTML = `
     <div class="shipping-banner__badge" aria-hidden="true">🚚</div>
     <div class="shipping-banner__copy">
       <span class="shipping-banner__title">Envío gratis a todo el país</span>
       <span class="shipping-banner__meta">
-        Despachamos a diario con empaque blindado y seguimiento en vivo.
+        ${
+          fulfillment.mode === "remote"
+            ? `Stock remoto: entrega estimada en ${leadCopy} (incluye preparación del proveedor).`
+            : fulfillment.isConfigured
+              ? "Stock físico: despacho prioritario en 24 h hábiles con seguimiento en vivo."
+              : "Despachamos a diario con empaque blindado y seguimiento en vivo."
+        }
       </span>
     </div>
   `;
   purchaseCard.appendChild(shippingBanner);
+
+  const shouldShowTrust =
+    fulfillment.mode === "remote" ||
+    product.show_marketplace_trust === true ||
+    product.show_marketplace_trust === 1 ||
+    product.show_marketplace_trust === "1";
+  if (shouldShowTrust) {
+    const fulfillmentTrust = document.createElement("div");
+    fulfillmentTrust.className = "product-fulfillment-trust";
+    fulfillmentTrust.innerHTML = `
+      <p><strong>${fulfillment.mode === "remote" ? "Stock remoto" : "Stock físico"}</strong> · Entrega asegurada.</p>
+      <p>También vendemos en Mercado Libre para que puedas validar reputación y comprar con la misma seguridad.</p>
+      <p>Acá el precio publicado ya es final: IVA incluido, factura A y envío gratis.</p>
+    `;
+    purchaseCard.appendChild(fulfillmentTrust);
+  }
 
   const priceGrid = document.createElement("div");
   priceGrid.className = "product-buy-price-grid";
@@ -1482,12 +1595,12 @@ async function initProduct() {
     if (previewMode) {
       const previewProduct = await fetchPreviewProduct();
       if (previewProduct) {
-        renderProduct(previewProduct);
+        renderProduct(normalizeProductPayload(previewProduct));
         return;
       }
     }
 
-    const products = await fetchProducts();
+    const products = (await fetchProducts()).map(normalizeProductPayload);
     let product = null;
     if (targetSlug) {
       product = products.find((p) => getProductSlug(p) === targetSlug);
@@ -1498,7 +1611,7 @@ async function initProduct() {
     if (!product && !products.length) {
       const previewProduct = await fetchPreviewProduct();
       if (previewProduct) {
-        renderProduct(previewProduct);
+        renderProduct(normalizeProductPayload(previewProduct));
         return;
       }
     }
@@ -1508,7 +1621,7 @@ async function initProduct() {
       if (galleryContainer) galleryContainer.innerHTML = "";
       return;
     }
-    renderProduct(product);
+    renderProduct(normalizeProductPayload(product));
   } catch (err) {
     if (infoContainer)
       infoContainer.innerHTML = `<p>Error al cargar producto: ${err.message}</p>`;
