@@ -546,6 +546,40 @@
               step="0.01"
             />
             <select id="productSupplier" name="supplier_id"></select>
+            <div class="form-section form-grid-span" id="fulfillmentAssistSection">
+              <div class="form-section__header">
+                <h5>Disponibilidad y entrega (opcional)</h5>
+              </div>
+              <p class="form-hint">
+                Si no completás estos campos, la tienda mantiene el comportamiento actual.
+                Usá <strong>stock remoto</strong> solo para productos a pedido.
+              </p>
+              <div class="catalog-grid">
+                <div class="catalog-field">
+                  <label for="productStockMode">Modo de stock</label>
+                  <select id="productStockMode" name="stock_mode">
+                    <option value="">Automático (actual)</option>
+                    <option value="physical">Stock físico</option>
+                    <option value="remote">Stock remoto</option>
+                  </select>
+                </div>
+                <div class="catalog-field">
+                  <label for="productRemoteLeadMinDays">Entrega remota mínima (días)</label>
+                  <input type="number" id="productRemoteLeadMinDays" name="remote_lead_min_days" min="1" />
+                </div>
+                <div class="catalog-field">
+                  <label for="productRemoteLeadMaxDays">Entrega remota máxima (días)</label>
+                  <input type="number" id="productRemoteLeadMaxDays" name="remote_lead_max_days" min="1" />
+                </div>
+              </div>
+              <label class="assist-toggle" style="margin-top:0.5rem;">
+                <input type="checkbox" id="productShowMarketplaceTrust" name="show_marketplace_trust" value="1" />
+                <span>Mostrar bloque “Entrega asegurada + Mercado Libre” en la ficha</span>
+              </label>
+              <button type="button" class="button secondary" id="suggestFulfillmentBtn" style="margin-top:0.75rem;">
+                Sugerir con IA
+              </button>
+            </div>
             <div class="form-section form-grid-span form-section--description" id="descriptionAssistSection">
               <div class="form-section__header">
                 <h5>Descripción para la tienda</h5>

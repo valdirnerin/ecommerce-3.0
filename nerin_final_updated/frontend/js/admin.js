@@ -1732,6 +1732,7 @@ const productPreviewSku = document.getElementById("productPreviewSku");
 const productPreviewPrice = document.getElementById("productPreviewPrice");
 const productPreviewStock = document.getElementById("productPreviewStock");
 const productPreviewMeta = document.getElementById("productPreviewMeta");
+const suggestFulfillmentBtn = document.getElementById("suggestFulfillmentBtn");
 
 const currencyFormatter = typeof Intl !== "undefined"
   ? new Intl.NumberFormat("es-AR", {
@@ -2509,8 +2510,83 @@ function gatherProductBasics() {
     cost: getNumber("cost"),
     stock: getNumber("stock"),
     min_stock: getNumber("min_stock"),
+    stock_mode: get("stock_mode"),
+    remote_lead_min_days: getNumber("remote_lead_min_days"),
+    remote_lead_max_days: getNumber("remote_lead_max_days"),
+    show_marketplace_trust: Boolean(productForm.elements["show_marketplace_trust"]?.checked),
     description: descriptionInput ? descriptionInput.value.trim() : "",
   };
+}
+
+
+function suggestFulfillmentByHeuristics(data = {}) {
+  const text = [
+    data.name,
+    data.description,
+    data.category,
+    data.subcategory,
+    Array.isArray(data.tags) ? data.tags.join(" ") : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const stock = Number(data.stock);
+  const hasRemoteSignals =
+    /a pedido|preventa|importad|internacional|encargo|bajo pedido/.test(text) ||
+    (Number.isFinite(stock) && stock <= 0);
+
+  const isDisplayAssembly = /pantalla|modulo|módulo|display|service pack/.test(text);
+  const isAccessory = /funda|cable|cargador|templado|accesorio/.test(text);
+
+  const mode = hasRemoteSignals ? "remote" : "physical";
+  let minDays = null;
+  let maxDays = null;
+  if (mode === "remote") {
+    if (isAccessory) {
+      minDays = 3;
+      maxDays = 7;
+    } else if (isDisplayAssembly) {
+      minDays = 4;
+      maxDays = 10;
+    } else {
+      minDays = 5;
+      maxDays = 12;
+    }
+  }
+
+  return {
+    mode,
+    minDays,
+    maxDays,
+    showTrust: mode === "remote",
+  };
+}
+
+function applySuggestedFulfillment() {
+  if (!productForm) return;
+  const data = serializeProductForm(productForm);
+  const suggestion = suggestFulfillmentByHeuristics(data);
+  if (productForm.elements["stock_mode"]) {
+    productForm.elements["stock_mode"].value = suggestion.mode;
+  }
+  if (productForm.elements["remote_lead_min_days"]) {
+    productForm.elements["remote_lead_min_days"].value = suggestion.minDays ?? "";
+  }
+  if (productForm.elements["remote_lead_max_days"]) {
+    productForm.elements["remote_lead_max_days"].value = suggestion.maxDays ?? "";
+  }
+  if (productForm.elements["show_marketplace_trust"]) {
+    productForm.elements["show_marketplace_trust"].checked = suggestion.showTrust;
+  }
+  renderProductFormPreview();
+  if (window.showToast) {
+    showToast(
+      suggestion.mode === "remote"
+        ? "Sugerencia IA aplicada: stock remoto con ventana de entrega estimada."
+        : "Sugerencia IA aplicada: stock físico inmediato.",
+    );
+  }
 }
 
 function formatCurrencyValue(value) {
@@ -2867,6 +2943,15 @@ function fillProductForm(p) {
   set("price_mayorista", p.price_mayorista);
   set("cost", p.cost);
   set("supplier_id", p.supplier_id);
+  set("stock_mode", p.stock_mode || p.fulfillment_mode);
+  set("remote_lead_min_days", p.remote_lead_min_days || p.remote_lead_days);
+  set("remote_lead_max_days", p.remote_lead_max_days);
+  if (productForm.elements["show_marketplace_trust"]) {
+    productForm.elements["show_marketplace_trust"].checked =
+      p.show_marketplace_trust === true ||
+      p.show_marketplace_trust === 1 ||
+      p.show_marketplace_trust === "1";
+  }
   set("slug", p.slug);
   set("description", p.description);
   set("seoTitle", p.seoTitle || p.meta_title);
@@ -2916,11 +3001,19 @@ function serializeProductForm(form) {
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  ["stock", "min_stock", "price_minorista", "price_mayorista", "cost", "weight"].forEach(
+  ["stock", "min_stock", "price_minorista", "price_mayorista", "cost", "weight", "remote_lead_min_days", "remote_lead_max_days"].forEach(
     (k) => {
       if (k in obj && obj[k] !== "") obj[k] = Number(obj[k]);
     },
   );
+  if ("show_marketplace_trust" in obj) {
+    obj.show_marketplace_trust = obj.show_marketplace_trust === "1";
+  }
+  if (!obj.stock_mode) delete obj.stock_mode;
+  if (!(obj.stock_mode === "remote" || obj.stock_mode === "physical")) {
+    delete obj.remote_lead_min_days;
+    delete obj.remote_lead_max_days;
+  }
   ["catalog_brand", "catalog_model", "catalog_piece"].forEach((field) => {
     if (!(field in obj)) return;
     const value = cleanLabel(obj[field]);
@@ -3000,6 +3093,18 @@ function renderProductFormPreview() {
       }
     } else if (Number.isFinite(minStock) && minStock > 0) {
       stockMessage = `Stock mínimo deseado: ${minStock}`;
+    }
+    const stockMode = (data.stock_mode || "").toLowerCase();
+    if (stockMode === "remote") {
+      const minLead = Number(data.remote_lead_min_days);
+      const maxLead = Number(data.remote_lead_max_days);
+      if (Number.isFinite(minLead) && minLead > 0) {
+        stockMessage += Number.isFinite(maxLead) && maxLead >= minLead
+          ? ` · Remoto: ${minLead}-${maxLead} días`
+          : ` · Remoto: ${minLead} días`;
+      } else {
+        stockMessage += " · Remoto: plazo a confirmar";
+      }
     }
     productPreviewStock.textContent = stockMessage;
   }
@@ -3208,6 +3313,9 @@ async function saveProduct(e) {
 }
 
 productForm.addEventListener("submit", saveProduct);
+if (suggestFulfillmentBtn) {
+  suggestFulfillmentBtn.addEventListener("click", applySuggestedFulfillment);
+}
 
 async function loadProducts(options = {}) {
   if (!productsTableBody) return;

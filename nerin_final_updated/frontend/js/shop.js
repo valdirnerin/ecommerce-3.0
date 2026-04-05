@@ -8,6 +8,61 @@ const currencyFormatter = new Intl.NumberFormat("es-AR", {
   maximumFractionDigits: 0,
 });
 
+
+function toNumberOrNull(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function resolveProductTitle(product) {
+  return cleanLabel(product.name || product.title || product.product_title || "");
+}
+
+function resolveCategoryLabel(product) {
+  return cleanLabel(product.category || product.categoria || product.product_category || "");
+}
+
+function resolveStockQuantity(product) {
+  const candidates = [product.stock, product.quantity, product.available_quantity, product.qty_available];
+  for (const candidate of candidates) {
+    const parsed = toNumberOrNull(candidate);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function normalizeStorefrontProduct(product) {
+  if (!product || typeof product !== "object") return product;
+  const normalized = { ...product };
+  const title = resolveProductTitle(product);
+  if (title && !cleanLabel(normalized.name)) normalized.name = title;
+  const category = resolveCategoryLabel(product);
+  if (category && !cleanLabel(normalized.category)) normalized.category = category;
+  const stockQty = resolveStockQuantity(product);
+  if (stockQty !== null && !Number.isFinite(Number(normalized.stock))) normalized.stock = stockQty;
+  if (!normalized.image) {
+    normalized.image =
+      product.image_url ||
+      product.thumbnail ||
+      product.picture ||
+      (Array.isArray(product.pictures) && product.pictures[0]) ||
+      "";
+  }
+  if (!Array.isArray(normalized.images) || !normalized.images.length) {
+    const candidates = [normalized.image, product.image_url, product.thumbnail, product.picture]
+      .map((value) => cleanLabel(value))
+      .filter(Boolean);
+    if (Array.isArray(product.pictures)) {
+      product.pictures.forEach((pic) => {
+        const value = cleanLabel(typeof pic === "string" ? pic : pic?.url || pic?.secure_url || "");
+        if (value) candidates.push(value);
+      });
+    }
+    normalized.images = Array.from(new Set(candidates));
+  }
+  return normalized;
+}
+
 const PLACEHOLDER_IMAGE =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
@@ -78,8 +133,40 @@ function getPrimaryImage(product) {
   return product.image;
 }
 
+
+function getFulfillmentMode(product) {
+  const explicitMode = cleanLabel(product.stock_mode || product.fulfillment_mode || "").toLowerCase();
+  if (explicitMode === "remote" || explicitMode === "remoto") return "remote";
+  if (explicitMode === "physical" || explicitMode === "fisico" || explicitMode === "físico") return "physical";
+
+  if (Number(product.remote_stock) > 0 || Number(product.remote_lead_days) > 0) return "remote";
+
+  const stock = resolveStockQuantity(product);
+  const textSignals = [product.name, product.description, product.category, product.subcategory]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/a pedido|preventa|importad|internacional|encargo|bajo pedido/.test(textSignals)) {
+    return "remote";
+  }
+  if (Number.isFinite(stock) && stock <= 0 && /a pedido|encargo/.test(textSignals)) {
+    return "remote";
+  }
+  return "physical";
+}
+
+function getRemoteLeadTimeCopy(product) {
+  const minDays = Number(product.remote_lead_min_days || product.remote_lead_days || 0);
+  const maxDays = Number(product.remote_lead_max_days || minDays || 0);
+  if (minDays > 0 && maxDays >= minDays) {
+    if (maxDays === minDays) return `Entrega estimada: ${minDays} día${minDays === 1 ? "" : "s"}.`;
+    return `Entrega estimada: ${minDays} a ${maxDays} días.`;
+  }
+  return "Entrega estimada: 4 a 10 días (incluye preparación del proveedor).";
+}
+
 function getStockStatus(product) {
-  const stock = Number(product.stock);
+  const stock = resolveStockQuantity(product);
   if (!Number.isFinite(stock)) return "unknown";
   if (stock <= 0) return "out";
   if (Number.isFinite(Number(product.min_stock)) && stock <= Number(product.min_stock)) {
@@ -179,7 +266,7 @@ function populateFilters(products) {
   const categories = new Map();
   products.forEach((product) => {
     const brand = getCatalogBrand(product);
-    const category = cleanLabel(product.category);
+    const category = resolveCategoryLabel(product);
     if (brand) brands.set(normalizeKey(brand), brand);
     if (category) categories.set(normalizeKey(category), category);
   });
@@ -328,10 +415,18 @@ function createProductCard(product) {
   const availability = document.createElement("p");
   availability.className = "description";
   const status = getStockStatus(product);
+  const fulfillmentMode = getFulfillmentMode(product);
   if (status === "out") availability.textContent = "Sin stock";
   else if (status === "low") availability.textContent = `Pocas unidades (${product.stock})`;
-  else availability.textContent = `Stock: ${Number(product.stock) || 0} unidades`;
+  else availability.textContent = `Stock: ${resolveStockQuantity(product) || 0} unidades`;
   card.appendChild(availability);
+
+  if (fulfillmentMode === "remote") {
+    const fulfillmentNote = document.createElement("p");
+    fulfillmentNote.className = "product-fulfillment-note";
+    fulfillmentNote.textContent = `Stock remoto • ${getRemoteLeadTimeCopy(product)}`;
+    card.appendChild(fulfillmentNote);
+  }
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
@@ -463,7 +558,14 @@ function updateActiveFilters(filters) {
     ["Marca", filters.brand],
     ["Modelo", filters.model],
     ["Tipo", filters.category],
-    ["Stock", filters.stock === "in-stock" ? "Solo con stock" : ""],
+    ["Stock",
+      filters.stock === "in-stock"
+        ? "Solo con stock"
+        : filters.stock === "physical"
+          ? "Stock físico"
+          : filters.stock === "remote"
+            ? "Stock remoto"
+            : ""],
     ["Precio ≤", filters.priceActive ? formatCurrency(filters.price) : ""],
   ];
   descriptors.filter(([, value]) => value).forEach(([label, value]) => {
@@ -503,7 +605,10 @@ function renderProducts() {
     if (model && normalizeKey(getCatalogModel(product)) !== normalizeKey(model)) return false;
     if (category && normalizeKey(product.category) !== normalizeKey(category)) return false;
     const status = getStockStatus(product);
+    const fulfillmentMode = getFulfillmentMode(product);
     if (stock === "in-stock" && status !== "in" && status !== "low") return false;
+    if (stock === "physical" && fulfillmentMode !== "physical") return false;
+    if (stock === "remote" && fulfillmentMode !== "remote") return false;
     if (priceActive && resolveDisplayPrice(product).active > price) return false;
     return true;
   });
@@ -529,7 +634,12 @@ function applyInitialFilters() {
   updateModelOptions(brandFilter?.value || "");
   if (modelFilter && params.get("model")) modelFilter.value = params.get("model");
   if (categoryFilter && params.get("category")) categoryFilter.value = params.get("category");
-  if (stockFilter && params.get("stock") === "in-stock") stockFilter.value = "in-stock";
+  if (stockFilter) {
+    const stockParam = params.get("stock");
+    if (["in-stock", "physical", "remote"].includes(stockParam)) {
+      stockFilter.value = stockParam;
+    }
+  }
   if (sortSelect && params.get("sort")) sortSelect.value = params.get("sort");
   if (priceRange && params.get("price_max")) {
     const value = Number(params.get("price_max"));
@@ -578,7 +688,10 @@ function setupFiltersUi() {
 async function initShop() {
   try {
     const rawProducts = await fetchProducts();
-    allProducts = rawProducts.map(sanitizePublicProduct).filter(Boolean);
+    allProducts = rawProducts
+      .map(normalizeStorefrontProduct)
+      .map(sanitizePublicProduct)
+      .filter(Boolean);
     populateFilters(allProducts);
     updateModelOptions("");
     configurePriceSlider(allProducts);
