@@ -6,13 +6,15 @@
   "scripts": {
     "start": "node backend/server.js",
     "test": "jest",
-    "validate:meta-feed": "node scripts/validate-meta-feed.js"
+    "validate:meta-feed": "node scripts/validate-meta-feed.js",
+    "catalog:enrich-csv": "node scripts/enrichCatalogCsv.js"
   },
   "dependencies": {
     "@react-email/components": "^0.5.4",
     "afip.ts": "^3.2.2",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
+    "csv-parse": "^5.5.6",
     "decimal.js": "^10.4.3",
     "express": "^4.19.2",
     "http-proxy-middleware": "^3.0.0",
