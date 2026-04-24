@@ -396,6 +396,14 @@
               accept=".csv,text/csv"
               aria-label="Seleccionar CSV de catálogo"
             />
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="catalogCsvIncludeOutOfStock" />
+              Incluir sin stock/no ordenables
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="catalogCsvArchiveMissing" checked />
+              Desactivar no incluidos en este CSV
+            </label>
             <button id="importCatalogCsvBtn" class="button secondary">
               Importar CSV proveedor
             </button>

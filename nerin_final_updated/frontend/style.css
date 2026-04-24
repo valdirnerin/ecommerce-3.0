@@ -3656,6 +3656,46 @@ body.cart-indicator-visible .toastify {
   font-style: italic;
 }
 
+
+#productsTable th,
+#productsTable td {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+  vertical-align: middle;
+}
+
+#productsTable .product-cell {
+  max-width: 170px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#productsTable .product-cell--main {
+  max-width: 260px;
+  font-weight: 600;
+}
+
+#productsTable .product-cell--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+#productsTable .inline-edit--compact {
+  width: 112px;
+  min-height: 32px;
+  padding: 0.3rem 0.45rem;
+}
+
+@media (max-width: 1200px) {
+  #productsTable .product-cell {
+    max-width: 135px;
+  }
+
+  #productsTable .product-cell--main {
+    max-width: 200px;
+  }
+}
+
 .admin-table th {
   background-color: var(--color-muted);
   font-weight: 600;

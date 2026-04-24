@@ -159,6 +159,13 @@ function escapeHtml(text) {
     .replace(/'/g, "&#39;");
 }
 
+function compactText(value, maxLength = 72) {
+  if (value == null) return "";
+  const normalized = String(value).replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(8, maxLength - 1)).trimEnd()}…`;
+}
+
 function getAdminHeaders(extra = {}) {
   const headers = { ...extra };
   const adminKey = localStorage.getItem("nerinAdminKey");
@@ -1724,6 +1731,8 @@ const bulkValueInput = document.getElementById("bulkValue");
 const applyBulkBtn = document.getElementById("applyBulkBtn");
 const importCatalogCsvBtn = document.getElementById("importCatalogCsvBtn");
 const catalogCsvFileInput = document.getElementById("catalogCsvFile");
+const catalogCsvIncludeOutOfStock = document.getElementById("catalogCsvIncludeOutOfStock");
+const catalogCsvArchiveMissing = document.getElementById("catalogCsvArchiveMissing");
 const catalogCsvImportStatus = document.getElementById("catalogCsvImportStatus");
 const selectAllCheckbox = document.getElementById("selectAllProducts");
 const productPreviewCard = document.getElementById("productPreview");
@@ -2016,15 +2025,23 @@ function buildProductRow(product) {
   } else if (isLowStock(product)) {
     stockBadge = '<span class="badge">Bajo</span>';
   }
-  const tags = Array.isArray(product.tags)
-    ? product.tags.map((tag) => escapeHtml(tag)).join(", ")
-    : escapeHtml(product.tags || "");
+
+  const tagsArray = Array.isArray(product.tags)
+    ? product.tags.map((tag) => String(tag).trim()).filter(Boolean)
+    : String(product.tags || "")
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean);
+  const tagsPreview =
+    tagsArray.length > 4 ? `${tagsArray.slice(0, 4).join(", ")} +${tagsArray.length - 4}` : tagsArray.join(", ");
+
   const safeSku = escapeHtml(product.sku ?? "");
-  const safeName = escapeHtml(product.name ?? "");
-  const safeBrand = escapeHtml(product.brand || "");
-  const safeModel = escapeHtml(product.model || "");
-  const safeCategory = escapeHtml(product.category || "");
-  const safeSubcategory = escapeHtml(product.subcategory || "");
+  const fullName = String(product.name ?? "");
+  const safeName = escapeHtml(compactText(fullName, 84));
+  const safeBrand = escapeHtml(compactText(product.brand || "", 42));
+  const safeModel = escapeHtml(compactText(product.model || "", 42));
+  const safeCategory = escapeHtml(compactText(product.category || "", 30));
+  const safeSubcategory = escapeHtml(compactText(product.subcategory || "", 42));
   const safeVisibility = escapeHtml(product.visibility || "");
   const explorerParts = [
     resolveCatalogBrand(product),
@@ -2038,21 +2055,23 @@ function buildProductRow(product) {
   );
   const explorerText = explorerParts.length ? explorerParts.join(" › ") : "Automático";
   const explorerCellAttr = hasManualExplorer ? "" : ' data-mode="auto"';
-  const safeExplorer = escapeHtml(explorerText);
+  const safeExplorer = escapeHtml(compactText(explorerText, 64));
+  const safeTags = escapeHtml(compactText(tagsPreview, 72));
+
   tr.innerHTML = `
     <td><input type="checkbox" class="select-product" /></td>
-    <td>${safeSku}</td>
-    <td>${safeName}</td>
-    <td>${safeBrand}</td>
-    <td>${safeModel}</td>
-    <td>${safeCategory}</td>
-    <td>${safeSubcategory}</td>
-    <td${explorerCellAttr}>${safeExplorer}</td>
-    <td>${tags}</td>
-    <td><input type="number" class="inline-edit" data-field="stock" min="0" value="${product.stock ?? 0}" />${stockBadge}</td>
+    <td class="product-cell product-cell--mono" title="${safeSku}">${safeSku}</td>
+    <td class="product-cell product-cell--main" title="${escapeHtml(fullName)}">${safeName}</td>
+    <td class="product-cell" title="${escapeHtml(product.brand || "")}">${safeBrand}</td>
+    <td class="product-cell" title="${escapeHtml(product.model || "")}">${safeModel}</td>
+    <td class="product-cell" title="${escapeHtml(product.category || "")}">${safeCategory}</td>
+    <td class="product-cell" title="${escapeHtml(product.subcategory || "")}">${safeSubcategory}</td>
+    <td class="product-cell"${explorerCellAttr} title="${escapeHtml(explorerText)}">${safeExplorer}</td>
+    <td class="product-cell" title="${escapeHtml(tagsArray.join(", "))}">${safeTags}</td>
+    <td><input type="number" class="inline-edit inline-edit--compact" data-field="stock" min="0" value="${product.stock ?? 0}" />${stockBadge}</td>
     <td>${product.min_stock ?? ""}</td>
-    <td><input type="number" class="inline-edit" data-field="price_minorista" min="0" value="${product.price_minorista ?? 0}" /></td>
-    <td><input type="number" class="inline-edit" data-field="price_mayorista" min="0" value="${product.price_mayorista ?? 0}" /></td>
+    <td><input type="number" class="inline-edit inline-edit--compact" data-field="price_minorista" min="0" value="${product.price_minorista ?? 0}" /></td>
+    <td><input type="number" class="inline-edit inline-edit--compact" data-field="price_mayorista" min="0" value="${product.price_mayorista ?? 0}" /></td>
     <td>${safeVisibility}</td>
     <td><button class="edit-btn" data-id="${safeIdAttr}">Editar</button> <button class="delete-btn" data-id="${safeIdAttr}">Eliminar</button></td>`;
   const editBtn = tr.querySelector(".edit-btn");
@@ -2065,6 +2084,7 @@ function buildProductRow(product) {
   }
   return tr;
 }
+
 
 function getFilteredProducts() {
   if (!Array.isArray(productsCache) || productsCache.length === 0) {
@@ -3514,13 +3534,35 @@ duplicateProductBtn.addEventListener("click", async () => {
   }
 });
 
+function ensureAdminKeyForCsvImport() {
+  const savedKey = localStorage.getItem("nerinAdminKey");
+  if (savedKey) return savedKey;
+
+  const providedKey = window.prompt(
+    "Ingresá la clave admin (ADMIN_KEY) para importar CSV. Se guardará en este navegador como nerinAdminKey.",
+  );
+
+  if (!providedKey) {
+    alert("Falta la clave admin (nerinAdminKey) para importar CSV.");
+    return null;
+  }
+
+  const normalizedKey = providedKey.trim();
+  if (!normalizedKey) {
+    alert("La clave admin no puede estar vacía.");
+    return null;
+  }
+
+  localStorage.setItem("nerinAdminKey", normalizedKey);
+  return normalizedKey;
+}
+
 async function importCatalogCsvFromAdmin() {
   if (currentRole !== "admin") {
     alert("Solo administradores pueden importar CSV.");
     return;
   }
-  if (!localStorage.getItem("nerinAdminKey")) {
-    alert("Falta la clave admin (nerinAdminKey) para importar CSV.");
+  if (!ensureAdminKeyForCsvImport()) {
     return;
   }
   if (!catalogCsvFileInput || !catalogCsvFileInput.files?.length) {
@@ -3538,20 +3580,33 @@ async function importCatalogCsvFromAdmin() {
   if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = true;
 
   try {
-    const resp = await apiFetch("/api/import/catalog-csv", {
+    const includeOutOfStock = Boolean(catalogCsvIncludeOutOfStock?.checked);
+    const archiveMissing = catalogCsvArchiveMissing?.checked !== false;
+    const query = new URLSearchParams();
+    if (includeOutOfStock) query.set("includeOutOfStock", "1");
+    if (archiveMissing) query.set("archiveMissing", "1");
+    const importUrl = `/api/import/catalog-csv${query.toString() ? `?${query.toString()}` : ""}`;
+
+    const resp = await apiFetch(importUrl, {
       method: "POST",
       headers: getAdminHeaders(),
       body: formData,
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
+      if (resp.status === 401) {
+        localStorage.removeItem("nerinAdminKey");
+      }
       throw new Error(data.error || "No se pudo importar el CSV");
     }
     const summary = data.summary || {};
     const pricing = summary.pricing || {};
+    const safety = summary.safety || {};
     const statusMessage =
       `Importación OK · Filas: ${summary.totalRows || 0} · ` +
       `Insertados: ${summary.inserted || 0} · Actualizados: ${summary.updated || 0} · ` +
+      `Desactivados por no venir en CSV: ${safety.archivedMissing || 0} · ` +
+      `Salteados por stock/estado: ${safety.skippedUnavailable || 0} · ` +
       `Errores: ${summary.failed || 0} · Pricing OK: ${pricing.okRows || 0} · ` +
       `Revisión: ${pricing.revisionRows || 0}`;
 
