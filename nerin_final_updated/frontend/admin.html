@@ -390,6 +390,18 @@
             Agregar producto
           </button>
           <div class="bulk-actions">
+            <input
+              type="file"
+              id="catalogCsvFile"
+              accept=".csv,text/csv"
+              aria-label="Seleccionar CSV de catálogo"
+            />
+            <button id="importCatalogCsvBtn" class="button secondary">
+              Importar CSV proveedor
+            </button>
+          </div>
+          <div id="catalogCsvImportStatus" role="status" aria-live="polite"></div>
+          <div class="bulk-actions">
             <select id="bulkActionSelect">
               <option value="">Acción masiva…</option>
               <option value="delete">Eliminar</option>

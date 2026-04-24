@@ -1263,7 +1263,7 @@ function renderProduct(product) {
       <span class="shipping-banner__meta">
         ${
           fulfillment.mode === "remote"
-            ? `Stock remoto: entrega estimada en ${leadCopy} (incluye preparación del proveedor).`
+            ? `Stock remoto: entrega estimada en ${leadCopy}. Sujeto a disponibilidad del proveedor; puede demorar más.`
             : fulfillment.isConfigured
               ? "Stock físico: despacho prioritario en 24 h hábiles con seguimiento en vivo."
               : "Despachamos a diario con empaque blindado y seguimiento en vivo."
@@ -1417,13 +1417,15 @@ function renderProduct(product) {
 
   const legalNote = document.createElement("p");
   legalNote.className = "product-buy-legal";
-  legalNote.textContent = "Exhibición de precios conforme normativa vigente · Factura A/B · Garantía según términos.";
+  legalNote.textContent = "Exhibición de precios conforme normativa vigente · Factura A/B · Garantía según términos. En stock remoto, la compra queda sujeta a disponibilidad.";
 
   const assuranceList = document.createElement("ul");
   assuranceList.className = "product-buy-assurance";
   [
     "Garantía DOA 7 días (probás sin pegar).",
     "Despacho diario / Envío.",
+    "Si el proveedor no confirma stock o hay demoras extraordinarias, la operación puede cancelarse y se reembolsa el 100%.",
+    "Recomendamos consultar por WhatsApp antes de comprar productos de stock remoto.",
   ].forEach((item) => {
     const li = document.createElement("li");
     li.innerHTML = item;
