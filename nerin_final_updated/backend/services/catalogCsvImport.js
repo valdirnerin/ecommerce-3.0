@@ -232,7 +232,17 @@ function createBaseSummary() {
     skipped: 0,
     failed: 0,
     errors: [],
+    safety: {
+      skippedUnavailable: 0,
+      archivedMissing: 0,
+    },
   };
+}
+
+function isImportableByAvailability(record) {
+  const stock = Number(record?.stockQuantity || 0);
+  const maxOrder = Number(record?.maximumQuantityInOrder || 0);
+  return Boolean(record?.canBeOrdered) && Boolean(record?.isAvailable) && stock > 0 && maxOrder > 0;
 }
 
 async function buildJsonPersistenceLayer() {
@@ -278,6 +288,27 @@ async function buildJsonPersistenceLayer() {
         partNumberToId.set(item.supplierPartNumberKey, id);
       }
       return { inserted, updated };
+    },
+    async archiveMissing(importedExternalIds = new Set()) {
+      let archived = 0;
+      for (const [id, product] of byId.entries()) {
+        const importSource = normalizeCell(product?.metadata?.importSource);
+        if (importSource !== "catalog_csv") continue;
+        if (importedExternalIds.has(String(id))) continue;
+        byId.set(id, {
+          ...product,
+          stock: 0,
+          remote_stock: 0,
+          visibility: "private",
+          metadata: {
+            ...(product?.metadata || {}),
+            catalogCsvArchivedAt: new Date().toISOString(),
+            catalogCsvArchivedBecauseMissing: true,
+          },
+        });
+        archived += 1;
+      }
+      return archived;
     },
     async finalize() {
       const all = Array.from(byId.values());
@@ -345,6 +376,22 @@ async function buildPgPersistenceLayer(pool) {
 
       return { inserted, updated };
     },
+    async archiveMissing(importedExternalIds = new Set()) {
+      const ids = Array.from(importedExternalIds || []).map((id) => String(id));
+      const result = await pool.query(
+        `UPDATE products
+         SET stock = 0,
+             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+               'catalogCsvArchivedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+               'catalogCsvArchivedBecauseMissing', true
+             ),
+             updated_at = now()
+         WHERE metadata->>'importSource' = 'catalog_csv'
+           AND (CASE WHEN cardinality($1::text[]) = 0 THEN true ELSE NOT (id::text = ANY($1::text[])) END)`,
+        [ids],
+      );
+      return result.rowCount || 0;
+    },
     async finalize() {},
   };
 }
@@ -362,6 +409,8 @@ async function importCatalogCsvFile({
   pool = null,
   chunkSize = 400,
   maxReportedErrors = 500,
+  includeOutOfStock = false,
+  archiveMissing = false,
 }) {
   const summary = createBaseSummary();
   const pricingSummary = createPricingSummaryAccumulator();
@@ -466,6 +515,12 @@ async function importCatalogCsvFile({
         );
       }
 
+      if (!includeOutOfStock && !isImportableByAvailability(transformed.record)) {
+        summary.skipped += 1;
+        summary.safety.skippedUnavailable += 1;
+        continue;
+      }
+
       pendingBatch.push(transformed);
       if (pendingBatch.length >= chunkSize) {
         await flushBatch();
@@ -476,6 +531,9 @@ async function importCatalogCsvFile({
   }
 
   await flushBatch();
+  if (archiveMissing && typeof persistence.archiveMissing === "function") {
+    summary.safety.archivedMissing = await persistence.archiveMissing(seenPartIds);
+  }
   await persistence.finalize();
   summary.pricing = pricingSummary.finalize();
 

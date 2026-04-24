@@ -5268,6 +5268,16 @@ async function requestHandler(req, res) {
     const chunkSize = Number.isFinite(chunkSizeParam) && chunkSizeParam > 0
       ? Math.min(Math.floor(chunkSizeParam), 2000)
       : 400;
+    const includeOutOfStock = ["1", "true", "yes", "si"].includes(
+      String(parsedUrl.query.includeOutOfStock || parsedUrl.query.include_out_of_stock || "")
+        .trim()
+        .toLowerCase(),
+    );
+    const archiveMissing = ["1", "true", "yes", "si"].includes(
+      String(parsedUrl.query.archiveMissing || parsedUrl.query.archive_missing || "")
+        .trim()
+        .toLowerCase(),
+    );
 
     catalogCsvUpload.single("file")(req, res, async (err) => {
       if (err) {
@@ -5284,6 +5294,8 @@ async function requestHandler(req, res) {
           filePath: req.file.path,
           pool,
           chunkSize,
+          includeOutOfStock,
+          archiveMissing,
         });
         return sendJson(res, 200, {
           success: true,
