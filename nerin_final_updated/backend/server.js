@@ -60,6 +60,7 @@ const {
   validatePurchaseReview,
   validateServiceReview,
 } = require("./utils/reviewValidation");
+const { importCatalogCsvFile } = require("./services/catalogCsvImport");
 const {
   appendEvent,
   upsertSession,
@@ -4792,6 +4793,39 @@ const accountDocsUpload = multer({
   },
 });
 
+const catalogCsvUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(UPLOADS_DIR, "catalog-imports");
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").toLowerCase() || ".csv";
+      const stamp = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+      cb(null, `catalog-${stamp}${ext}`);
+    },
+  }),
+  limits: {
+    fileSize: 120 * 1024 * 1024,
+    files: 1,
+  },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const mime = String(file.mimetype || "").toLowerCase();
+    if (
+      ext === ".csv" ||
+      mime.includes("csv") ||
+      mime === "application/vnd.ms-excel" ||
+      mime === "text/plain"
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error("Formato inválido. Subí un archivo CSV."));
+    }
+  },
+});
+
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
 function hydrateHtmlSeo(buffer) {
   try {
@@ -5215,6 +5249,58 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo" });
       }
       return sendJson(res, 201, { filename: req.file.filename });
+    });
+    return;
+  }
+
+  if (pathname === "/api/import/catalog-csv" && req.method === "POST") {
+    const adminKey = req.headers["x-admin-key"];
+    if (!process.env.ADMIN_KEY) {
+      return sendJson(res, 503, {
+        error:
+          "Catalog CSV import deshabilitado: falta configurar ADMIN_KEY en el servidor.",
+      });
+    }
+    if (adminKey !== process.env.ADMIN_KEY) {
+      return sendJson(res, 401, { error: "Unauthorized" });
+    }
+    const chunkSizeParam = Number(parsedUrl.query.chunkSize || parsedUrl.query.chunk_size || 400);
+    const chunkSize = Number.isFinite(chunkSizeParam) && chunkSizeParam > 0
+      ? Math.min(Math.floor(chunkSizeParam), 2000)
+      : 400;
+
+    catalogCsvUpload.single("file")(req, res, async (err) => {
+      if (err) {
+        console.error("catalog-csv-upload", err);
+        return sendJson(res, 400, { error: err.message || "No se pudo subir el CSV" });
+      }
+      if (!req.file || !req.file.path) {
+        return sendJson(res, 400, { error: "No se recibió archivo CSV" });
+      }
+
+      const pool = db.getPool();
+      try {
+        const summary = await importCatalogCsvFile({
+          filePath: req.file.path,
+          pool,
+          chunkSize,
+        });
+        return sendJson(res, 200, {
+          success: true,
+          summary,
+        });
+      } catch (importError) {
+        console.error("catalog-csv-import", importError);
+        const statusCode = importError?.code === "MISSING_REQUIRED_COLUMNS" ? 400 : 500;
+        return sendJson(res, statusCode, {
+          success: false,
+          error: importError.message || "Error al importar catálogo CSV",
+        });
+      } finally {
+        try {
+          await fsp.unlink(req.file.path);
+        } catch {}
+      }
     });
     return;
   }

@@ -424,7 +424,7 @@ function createProductCard(product) {
   if (fulfillmentMode === "remote") {
     const fulfillmentNote = document.createElement("p");
     fulfillmentNote.className = "product-fulfillment-note";
-    fulfillmentNote.textContent = `Stock remoto • ${getRemoteLeadTimeCopy(product)}`;
+    fulfillmentNote.textContent = `Stock remoto • ${getRemoteLeadTimeCopy(product)} Sujeto a disponibilidad. Puede cancelarse con reembolso total.`;
     card.appendChild(fulfillmentNote);
   }
 

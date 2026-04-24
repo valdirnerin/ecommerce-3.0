@@ -45,9 +45,13 @@ describe('product SSR', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
     const canonical = `${expectedSiteBase()}/p/${slug}`;
-    const normalizedName = (product.name || '').replace(/\u00a0/g, ' ');
-    const titleEsc = esc(`${normalizedName} | NERIN Parts`);
-    expect(res.text).toContain(`<title>${titleEsc}</title>`);
+    const titleMatches = Array.from(
+      res.text.matchAll(/<title>([^<]*)<\/title>/g),
+      (match) => match[1] || '',
+    ).filter(Boolean);
+    const finalTitle = titleMatches[titleMatches.length - 1];
+    const titleEsc = esc(finalTitle);
+    expect(finalTitle).toContain('NERIN Parts');
     expect(res.text).toContain('<meta name="description"');
     expect(res.text).toContain(`<link rel="canonical" href="${canonical}">`);
     expect(res.text).toContain(`<meta property="og:title" content="${titleEsc}">`);

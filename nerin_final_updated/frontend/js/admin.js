@@ -1722,6 +1722,9 @@ const descriptionAssistStatus = document.getElementById("descriptionAssistStatus
 const bulkSelect = document.getElementById("bulkActionSelect");
 const bulkValueInput = document.getElementById("bulkValue");
 const applyBulkBtn = document.getElementById("applyBulkBtn");
+const importCatalogCsvBtn = document.getElementById("importCatalogCsvBtn");
+const catalogCsvFileInput = document.getElementById("catalogCsvFile");
+const catalogCsvImportStatus = document.getElementById("catalogCsvImportStatus");
 const selectAllCheckbox = document.getElementById("selectAllProducts");
 const productPreviewCard = document.getElementById("productPreview");
 const productPreviewMedia = document.getElementById("productPreviewMedia");
@@ -3510,6 +3513,85 @@ duplicateProductBtn.addEventListener("click", async () => {
     }
   }
 });
+
+async function importCatalogCsvFromAdmin() {
+  if (currentRole !== "admin") {
+    alert("Solo administradores pueden importar CSV.");
+    return;
+  }
+  if (!localStorage.getItem("nerinAdminKey")) {
+    alert("Falta la clave admin (nerinAdminKey) para importar CSV.");
+    return;
+  }
+  if (!catalogCsvFileInput || !catalogCsvFileInput.files?.length) {
+    alert("Seleccioná un archivo CSV antes de importar.");
+    return;
+  }
+  const file = catalogCsvFileInput.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+
+  if (catalogCsvImportStatus) {
+    catalogCsvImportStatus.textContent = "Importando catálogo… esto puede tardar unos minutos.";
+    catalogCsvImportStatus.style.color = "";
+  }
+  if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = true;
+
+  try {
+    const resp = await apiFetch("/api/import/catalog-csv", {
+      method: "POST",
+      headers: getAdminHeaders(),
+      body: formData,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(data.error || "No se pudo importar el CSV");
+    }
+    const summary = data.summary || {};
+    const pricing = summary.pricing || {};
+    const statusMessage =
+      `Importación OK · Filas: ${summary.totalRows || 0} · ` +
+      `Insertados: ${summary.inserted || 0} · Actualizados: ${summary.updated || 0} · ` +
+      `Errores: ${summary.failed || 0} · Pricing OK: ${pricing.okRows || 0} · ` +
+      `Revisión: ${pricing.revisionRows || 0}`;
+
+    if (catalogCsvImportStatus) {
+      catalogCsvImportStatus.textContent = statusMessage;
+      catalogCsvImportStatus.style.color = "green";
+    }
+    if (window.showToast) {
+      window.showToast("CSV importado correctamente");
+    } else {
+      alert(statusMessage);
+    }
+    catalogCsvFileInput.value = "";
+    await loadProducts();
+  } catch (error) {
+    console.error("catalog-csv-admin-import", error);
+    const message = error?.message || "No se pudo importar el CSV";
+    if (catalogCsvImportStatus) {
+      catalogCsvImportStatus.textContent = message;
+      catalogCsvImportStatus.style.color = "crimson";
+    }
+    if (window.showToast) {
+      window.showToast(message);
+    } else {
+      alert(message);
+    }
+  } finally {
+    if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = false;
+  }
+}
+
+if (importCatalogCsvBtn) {
+  importCatalogCsvBtn.addEventListener("click", importCatalogCsvFromAdmin);
+}
+
+if (currentRole !== "admin") {
+  if (importCatalogCsvBtn) importCatalogCsvBtn.style.display = "none";
+  if (catalogCsvFileInput) catalogCsvFileInput.style.display = "none";
+  if (catalogCsvImportStatus) catalogCsvImportStatus.style.display = "none";
+}
 
 // ------------ Proveedores ------------
 const suppliersTableBody = document.querySelector("#suppliersTable tbody");
