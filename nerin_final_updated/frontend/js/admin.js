@@ -1734,6 +1734,11 @@ const catalogCsvFileInput = document.getElementById("catalogCsvFile");
 const catalogCsvIncludeOutOfStock = document.getElementById("catalogCsvIncludeOutOfStock");
 const catalogCsvArchiveMissing = document.getElementById("catalogCsvArchiveMissing");
 const catalogCsvImportStatus = document.getElementById("catalogCsvImportStatus");
+const importStockXlsxBtn = document.getElementById("importStockXlsxBtn");
+const stockXlsxFileInput = document.getElementById("stockXlsxFile");
+const stockXlsxZeroMissingProducts = document.getElementById("stockXlsxZeroMissingProducts");
+const stockXlsxImportStatus = document.getElementById("stockXlsxImportStatus");
+const stockXlsxZeroMissingProductsWrap = stockXlsxZeroMissingProducts?.closest("label");
 const selectAllCheckbox = document.getElementById("selectAllProducts");
 const productPreviewCard = document.getElementById("productPreview");
 const productPreviewMedia = document.getElementById("productPreviewMedia");
@@ -3651,10 +3656,99 @@ if (importCatalogCsvBtn) {
   importCatalogCsvBtn.addEventListener("click", importCatalogCsvFromAdmin);
 }
 
+async function importStockXlsxFromAdmin() {
+  if (currentRole !== "admin") {
+    alert("Solo administradores pueden importar stock XLSX.");
+    return;
+  }
+  if (!ensureAdminKeyForCsvImport()) {
+    return;
+  }
+  if (!stockXlsxFileInput || !stockXlsxFileInput.files?.length) {
+    alert("Seleccioná un archivo XLSX antes de importar.");
+    return;
+  }
+
+  const file = stockXlsxFileInput.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+
+  if (stockXlsxImportStatus) {
+    stockXlsxImportStatus.textContent = "Importando stock real desde XLSX…";
+    stockXlsxImportStatus.style.color = "";
+  }
+  if (importStockXlsxBtn) importStockXlsxBtn.disabled = true;
+
+  try {
+    const zeroMissing = Boolean(stockXlsxZeroMissingProducts?.checked);
+    const query = new URLSearchParams();
+    if (zeroMissing) query.set("zeroMissingProducts", "1");
+    const importUrl = `/api/import/stock-xlsx${query.toString() ? `?${query.toString()}` : ""}`;
+
+    const resp = await apiFetch(importUrl, {
+      method: "POST",
+      headers: getAdminHeaders(),
+      body: formData,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      if (resp.status === 401) {
+        localStorage.removeItem("nerinAdminKey");
+      }
+      throw new Error(data.error || "No se pudo importar stock XLSX");
+    }
+
+    const summary = data.summary || {};
+    const statusMessage =
+      `Stock XLSX OK · Filas: ${summary.totalRows || 0} · ` +
+      `Matcheados: ${summary.matchedProducts || 0} · ` +
+      `Actualizados: ${summary.updatedProducts || 0} · ` +
+      `Sin match: ${summary.unmatchedRows || 0} · ` +
+      `Stock 0: ${summary.zeroStockRows || 0} · ` +
+      `Stock con +: ${summary.stockWithPlus || 0} · ` +
+      `Errores: ${summary.failedRows || 0} · ` +
+      `No listados seteados en 0: ${summary.zeroedMissingProducts || 0}`;
+
+    if (stockXlsxImportStatus) {
+      stockXlsxImportStatus.textContent = statusMessage;
+      stockXlsxImportStatus.style.color = "green";
+    }
+    if (window.showToast) {
+      window.showToast("Stock XLSX importado correctamente");
+    } else {
+      alert(statusMessage);
+    }
+    stockXlsxFileInput.value = "";
+    await loadProducts();
+  } catch (error) {
+    console.error("stock-xlsx-admin-import", error);
+    const message = error?.message || "No se pudo importar stock XLSX";
+    if (stockXlsxImportStatus) {
+      stockXlsxImportStatus.textContent = message;
+      stockXlsxImportStatus.style.color = "crimson";
+    }
+    if (window.showToast) {
+      window.showToast(message);
+    } else {
+      alert(message);
+    }
+  } finally {
+    if (importStockXlsxBtn) importStockXlsxBtn.disabled = false;
+  }
+}
+
+if (importStockXlsxBtn) {
+  importStockXlsxBtn.addEventListener("click", importStockXlsxFromAdmin);
+}
+
 if (currentRole !== "admin") {
   if (importCatalogCsvBtn) importCatalogCsvBtn.style.display = "none";
   if (catalogCsvFileInput) catalogCsvFileInput.style.display = "none";
   if (catalogCsvImportStatus) catalogCsvImportStatus.style.display = "none";
+  if (importStockXlsxBtn) importStockXlsxBtn.style.display = "none";
+  if (stockXlsxFileInput) stockXlsxFileInput.style.display = "none";
+  if (stockXlsxZeroMissingProductsWrap) stockXlsxZeroMissingProductsWrap.style.display = "none";
+  if (stockXlsxImportStatus) stockXlsxImportStatus.style.display = "none";
 }
 
 // ------------ Proveedores ------------
