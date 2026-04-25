@@ -3609,15 +3609,24 @@ async function importCatalogCsvFromAdmin() {
       `Salteados por stock/estado: ${safety.skippedUnavailable || 0} · ` +
       `Errores: ${summary.failed || 0} · Pricing OK: ${pricing.okRows || 0} · ` +
       `Revisión: ${pricing.revisionRows || 0}`;
+    const skippedUnavailable = Number(safety.skippedUnavailable || 0);
+    const showAvailabilityHint = !includeOutOfStock && skippedUnavailable > 0;
+    const availabilityBreakdown = showAvailabilityHint
+      ? ` (sin stock: ${safety.skippedNoStock || 0}, no ordenables: ${safety.skippedNotOrderable || 0}, estado no disponible: ${safety.skippedStatusNotAvailable || 0}, máximo pedido 0: ${safety.skippedMaxOrderZero || 0})`
+      : "";
+    const availabilityHint = showAvailabilityHint
+      ? ` Tip: activá “Incluir sin stock/no ordenables” para importar también esos registros.${availabilityBreakdown}`
+      : "";
+    const fullStatusMessage = `${statusMessage}${availabilityHint}`;
 
     if (catalogCsvImportStatus) {
-      catalogCsvImportStatus.textContent = statusMessage;
+      catalogCsvImportStatus.textContent = fullStatusMessage;
       catalogCsvImportStatus.style.color = "green";
     }
     if (window.showToast) {
       window.showToast("CSV importado correctamente");
     } else {
-      alert(statusMessage);
+      alert(fullStatusMessage);
     }
     catalogCsvFileInput.value = "";
     await loadProducts();
