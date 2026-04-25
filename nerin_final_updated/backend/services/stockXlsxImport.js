@@ -165,107 +165,40 @@ async function buildJsonPersistenceLayer() {
     },
     async finalize() {
       const all = Array.from(byId.values());
-      fs.writeFileSync(filePath, JSON.stringify({ products: all }, null, 2), "utf8");
+      safeWriteJsonWithBackup(filePath, { products: all });
     },
   };
 }
 
-async function buildPgPersistenceLayer(pool) {
-  const { rows } = await pool.query(
-    `SELECT id,
-            metadata->>'supplierPartNumber' AS supplier_part_number,
-            metadata->'supplierImport'->>'supplierPartNumber' AS nested_supplier_part_number
-     FROM products`,
+function safeWriteJsonWithBackup(filePath, payload) {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(
+    dir,
+    `${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
   );
-
-  const partNumberToId = new Map();
-  for (const row of rows) {
-    const candidate =
-      normalizeCell(row.nested_supplier_part_number) || normalizeCell(row.supplier_part_number);
-    if (candidate) {
-      partNumberToId.set(candidate.toLowerCase(), String(row.id));
+  const backupPath = `${filePath}.bak`;
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
+    if (fs.existsSync(filePath)) {
+      fs.copyFileSync(filePath, backupPath);
     }
+    fs.renameSync(tmpPath, filePath);
+  } finally {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
   }
-
-  return {
-    partNumberToId,
-    async updateStockBatch(batch, stockSource = "mps_xlsx_nl") {
-      if (!batch.length) return 0;
-      const values = [];
-      const placeholders = [];
-      let i = 1;
-      for (const item of batch) {
-        placeholders.push(`($${i},$${i + 1},$${i + 2},$${i + 3},$${i + 4},$${i + 5})`);
-        values.push(
-          String(item.id),
-          item.stock.stockQuantity,
-          item.stock.stockRaw,
-          item.stock.stockIsAtLeast,
-          stockSource,
-          item.articleNumber,
-        );
-        i += 6;
-      }
-
-      const sql = `
-        UPDATE products p
-        SET stock = v.stock,
-            metadata = COALESCE(p.metadata, '{}'::jsonb) || jsonb_build_object(
-              'stockQuantity', v.stock,
-              'stockRaw', v.stock_raw,
-              'stockIsAtLeast', v.stock_is_at_least,
-              'stockUpdatedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-              'stockSource', v.stock_source,
-              'stockArticleNumber', v.article_number
-            ),
-            updated_at = now()
-        FROM (VALUES ${placeholders.join(",")}) AS v(
-          id,
-          stock,
-          stock_raw,
-          stock_is_at_least,
-          stock_source,
-          article_number
-        )
-        WHERE p.id::text = v.id
-      `;
-
-      const result = await pool.query(sql, values);
-      return result.rowCount || 0;
-    },
-    async zeroMissing(seenPartNumbers = new Set()) {
-      const missingBatch = [];
-      for (const [partNumber, id] of partNumberToId.entries()) {
-        if (!seenPartNumbers.has(partNumber)) {
-          missingBatch.push({
-            id,
-            articleNumber: partNumber,
-            stock: {
-              stockQuantity: 0,
-              stockRaw: null,
-              stockIsAtLeast: false,
-            },
-          });
-        }
-      }
-      if (!missingBatch.length) return 0;
-      return this.updateStockBatch(missingBatch, "mps_xlsx_nl_zero_missing");
-    },
-    async finalize() {},
-  };
 }
 
 async function importStockXlsxFile({
   filePath,
-  pool = null,
   maxReportedErrors = 500,
   zeroMissingProducts = false,
 }) {
   const summary = createBaseSummary();
   const { rows, articleIndex, stockIndex } = readWorksheet(filePath, "Price list");
-  const persistence = pool
-    ? await buildPgPersistenceLayer(pool)
-    : await buildJsonPersistenceLayer();
+  const persistence = await buildJsonPersistenceLayer();
 
   const updates = [];
   const seenPartNumbers = new Set();
@@ -287,6 +220,8 @@ async function importStockXlsxFile({
       }
       continue;
     }
+    const key = articleNumber.toLowerCase();
+    seenPartNumbers.add(key);
 
     let stock;
     try {
@@ -306,8 +241,6 @@ async function importStockXlsxFile({
     if (stock.stockIsAtLeast) summary.stockWithPlus += 1;
     if (stock.stockQuantity === 0) summary.zeroStockRows += 1;
 
-    const key = articleNumber.toLowerCase();
-    seenPartNumbers.add(key);
     const productId = persistence.partNumberToId.get(key);
     if (!productId) {
       summary.unmatchedRows += 1;

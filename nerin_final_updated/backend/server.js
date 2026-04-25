@@ -5321,11 +5321,10 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo CSV" });
       }
 
-      const pool = db.getPool();
       try {
         const summary = await importCatalogCsvFile({
           filePath: req.file.path,
-          pool,
+          pool: null,
           chunkSize,
           includeOutOfStock,
           archiveMissing,
@@ -5376,11 +5375,9 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo XLSX" });
       }
 
-      const pool = db.getPool();
       try {
         const summary = await importStockXlsxFile({
           filePath: req.file.path,
-          pool,
           zeroMissingProducts,
         });
         return sendJson(res, 200, {

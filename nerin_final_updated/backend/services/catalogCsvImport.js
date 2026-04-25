@@ -254,6 +254,27 @@ function isImportableByAvailability(record) {
   return Boolean(record?.canBeOrdered) && Boolean(record?.isAvailable) && stock > 0 && maxOrder > 0;
 }
 
+function safeWriteJsonWithBackup(filePath, payload) {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(
+    dir,
+    `${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  );
+  const backupPath = `${filePath}.bak`;
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
+    if (fs.existsSync(filePath)) {
+      fs.copyFileSync(filePath, backupPath);
+    }
+    fs.renameSync(tmpPath, filePath);
+  } finally {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+  }
+}
+
 function classifyAvailabilitySkip(record) {
   const stock = Number(record?.stockQuantity || 0);
   const maxOrder = Number(record?.maximumQuantityInOrder || 0);
@@ -332,7 +353,7 @@ async function buildJsonPersistenceLayer() {
     },
     async finalize() {
       const all = Array.from(byId.values());
-      fs.writeFileSync(filePath, JSON.stringify({ products: all }, null, 2), "utf8");
+      safeWriteJsonWithBackup(filePath, { products: all });
     },
   };
 }
