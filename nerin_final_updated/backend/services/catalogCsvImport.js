@@ -198,13 +198,16 @@ function mapImportedRecordToStoreProduct(imported) {
   const metadata = {
     supplierImport: imported,
     supplierPartNumber: imported.supplierPartNumber,
+    csvStockQuantity: imported.stockQuantity,
     externalManufacturerId: imported.externalManufacturerId,
     manufacturerArticleCode: imported.manufacturerArticleCode,
     supplierStatus: imported.supplierStatus,
     importSource: "catalog_csv",
     importVersion: 1,
     importedAt: new Date().toISOString(),
+    needsStockSync: true,
   };
+  const isPublishableByCatalogSignals = isImportableByAvailability(imported);
 
   return {
     id: String(imported.externalId),
@@ -215,14 +218,18 @@ function mapImportedRecordToStoreProduct(imported) {
     price: safePrice,
     price_minorista: safePrice,
     price_mayorista: safePrice,
-    stock: imported.stockQuantity,
+    stock: 0,
     min_stock: 0,
     stock_mode: "remote",
     fulfillment_mode: "remote",
-    remote_stock: imported.stockQuantity,
+    remote_stock: 0,
     remote_lead_days: safeLeadDays,
     remote_lead_min_days: safeLeadDays,
     remote_lead_max_days: safeLeadDays,
+    visibility: isPublishableByCatalogSignals ? "public" : "private",
+    enabled: isPublishableByCatalogSignals,
+    available: false,
+    needsStockSync: true,
     image: imported.images[0] || null,
     images: imported.images,
     metadata,
@@ -243,7 +250,16 @@ function createBaseSummary() {
       skippedNotOrderable: 0,
       skippedStatusNotAvailable: 0,
       skippedMaxOrderZero: 0,
+      importedVisibleOrPublishable: 0,
+      importedHiddenNoStockOrNotOrderable: 0,
       archivedMissing: 0,
+    },
+    catalog: {
+      totalProductsAfterImport: 0,
+      withSupplierPartNumber: 0,
+      potentialXlsxMatches: 0,
+      visibleOrPublishable: 0,
+      hiddenNoStockOrNotOrderable: 0,
     },
   };
 }
@@ -354,6 +370,16 @@ async function buildJsonPersistenceLayer() {
     async finalize() {
       const all = Array.from(byId.values());
       safeWriteJsonWithBackup(filePath, { products: all });
+      return {
+        totalProductsAfterImport: all.length,
+        withSupplierPartNumber: all.filter((product) => {
+          const supplierPartNumber =
+            normalizeCell(product?.metadata?.supplierImport?.supplierPartNumber) ||
+            normalizeCell(product?.metadata?.supplierPartNumber) ||
+            normalizeCell(product?.sku);
+          return Boolean(supplierPartNumber);
+        }).length,
+      };
     },
   };
 }
@@ -433,7 +459,23 @@ async function buildPgPersistenceLayer(pool) {
       );
       return result.rowCount || 0;
     },
-    async finalize() {},
+    async finalize() {
+      const [{ rows: totalsRows }, { rows: supplierRows }] = await Promise.all([
+        pool.query(`SELECT COUNT(*)::int AS total FROM products`),
+        pool.query(
+          `SELECT COUNT(*)::int AS total
+             FROM products
+            WHERE COALESCE(
+              NULLIF(metadata->'supplierImport'->>'supplierPartNumber', ''),
+              NULLIF(metadata->>'supplierPartNumber', '')
+            ) IS NOT NULL`,
+        ),
+      ]);
+      return {
+        totalProductsAfterImport: Number(totalsRows?.[0]?.total || 0),
+        withSupplierPartNumber: Number(supplierRows?.[0]?.total || 0),
+      };
+    },
   };
 }
 
@@ -452,6 +494,8 @@ async function importCatalogCsvFile({
   maxReportedErrors = 500,
   includeOutOfStock = false,
   archiveMissing = false,
+  onProgress = null,
+  progressEveryRows = 250,
 }) {
   const summary = createBaseSummary();
   const pricingSummary = createPricingSummaryAccumulator();
@@ -474,6 +518,26 @@ async function importCatalogCsvFile({
 
   let headersValidated = false;
   let pendingBatch = [];
+  let processedRows = 0;
+  let estimatedTotalRows = 0;
+  try {
+    const rawCsv = fs.readFileSync(filePath, "utf8");
+    estimatedTotalRows = Math.max(0, rawCsv.split(/\r?\n/).filter(Boolean).length - 1);
+  } catch {
+    estimatedTotalRows = 0;
+  }
+
+  const notifyProgress = () => {
+    if (typeof onProgress !== "function") return;
+    onProgress({
+      totalRows: estimatedTotalRows || summary.totalRows,
+      processedRows,
+      inserted: summary.inserted,
+      updated: summary.updated,
+      skipped: summary.skipped,
+      failed: summary.failed,
+    });
+  };
 
   const pushError = (error) => {
     summary.failed += 1;
@@ -567,6 +631,12 @@ async function importCatalogCsvFile({
         continue;
       }
 
+      if (isImportableByAvailability(transformed.record)) {
+        summary.safety.importedVisibleOrPublishable += 1;
+      } else {
+        summary.safety.importedHiddenNoStockOrNotOrderable += 1;
+      }
+
       pendingBatch.push(transformed);
       if (pendingBatch.length >= chunkSize) {
         await flushBatch();
@@ -574,14 +644,31 @@ async function importCatalogCsvFile({
     } catch (error) {
       pushError(createImportError(line, error.message));
     }
+    processedRows += 1;
+    if (processedRows % progressEveryRows === 0) {
+      notifyProgress();
+    }
   }
 
   await flushBatch();
   if (archiveMissing && typeof persistence.archiveMissing === "function") {
     summary.safety.archivedMissing = await persistence.archiveMissing(seenPartIds);
   }
-  await persistence.finalize();
+  const persistenceStats = await persistence.finalize();
   summary.pricing = pricingSummary.finalize();
+  summary.catalog.totalProductsAfterImport = Number(
+    persistenceStats?.totalProductsAfterImport || 0,
+  );
+  summary.catalog.withSupplierPartNumber = Number(
+    persistenceStats?.withSupplierPartNumber || 0,
+  );
+  summary.catalog.potentialXlsxMatches = summary.catalog.withSupplierPartNumber;
+  summary.catalog.visibleOrPublishable = Number(summary.safety.importedVisibleOrPublishable || 0);
+  summary.catalog.hiddenNoStockOrNotOrderable = Number(
+    summary.safety.importedHiddenNoStockOrNotOrderable || 0,
+  );
+  processedRows = summary.totalRows;
+  notifyProgress();
 
   return summary;
 }

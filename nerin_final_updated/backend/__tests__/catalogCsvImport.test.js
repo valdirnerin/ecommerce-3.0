@@ -9,6 +9,13 @@ const {
 } = require("../services/catalogCsvImport");
 
 describe("catalogCsvImport", () => {
+  const originalDataDir = process.env.DATA_DIR;
+
+  afterEach(() => {
+    if (originalDataDir === undefined) delete process.env.DATA_DIR;
+    else process.env.DATA_DIR = originalDataDir;
+  });
+
   test("parseEuropeanDecimal soporta coma decimal", () => {
     expect(parseEuropeanDecimal("10,17")).toBe(10.17);
     expect(parseEuropeanDecimal("1.234,56")).toBe(1234.56);
@@ -159,6 +166,50 @@ describe("catalogCsvImport", () => {
     expect(result.safety.skippedNotOrderable).toBe(1);
     expect(result.safety.skippedStatusNotAvailable).toBe(1);
     expect(result.safety.skippedMaxOrderZero).toBe(1);
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("includeOutOfStock importa todo el catálogo y guarda stock CSV como metadato", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "csv-import-test-"));
+    const filePath = path.join(tempDir, "catalog.csv");
+    const productsPath = path.join(tempDir, "products.json");
+    const csv = [
+      "PartId,ManufacturerName,ManufacturerId,ManufacturerArticleCode,MainCategory,SubCategory,PartNumber,Description,Status,CanBeOrdered,UnitPrice,StockQuantity,MaximumQuantityInOrder,Quality,Remarks,ImageUrl,ImageUrl2,ImageUrl3,ImageUrl4,ImageUrl5,EanNumber,CountryOfOrigin,ProductGroup",
+      '3001,ACME,1,,Main,Sub,SKU-ALL-A,"Con stock",Available,Yes,"10,00",8,2,Original,,https://img/1.jpg,,,,,,CN,Mobile',
+      '3002,ACME,1,,Main,Sub,SKU-ALL-B,"Sin stock",Available,Yes,"10,00",0,2,Original,,https://img/2.jpg,,,,,,CN,Mobile',
+      '3003,ACME,1,,Main,Sub,SKU-ALL-C,"No ordenable",Available,No,"10,00",5,2,Original,,https://img/3.jpg,,,,,,CN,Mobile',
+      '3004,ACME,1,,Main,Sub,SKU-ALL-D,"No disponible",Unavailable,Yes,"10,00",5,0,Original,,https://img/4.jpg,,,,,,CN,Mobile',
+    ].join("\n");
+    fs.writeFileSync(filePath, csv, "utf8");
+    fs.writeFileSync(productsPath, JSON.stringify({ products: [] }, null, 2), "utf8");
+
+    jest.resetModules();
+    process.env.DATA_DIR = tempDir;
+    const { importCatalogCsvFile: importer } = require("../services/catalogCsvImport");
+
+    const result = await importer({
+      filePath,
+      includeOutOfStock: true,
+      archiveMissing: false,
+    });
+
+    expect(result.inserted).toBe(4);
+    expect(result.safety.skippedUnavailable).toBe(0);
+    expect(result.catalog.totalProductsAfterImport).toBe(4);
+    expect(result.catalog.withSupplierPartNumber).toBe(4);
+    expect(result.catalog.potentialXlsxMatches).toBe(4);
+    expect(result.catalog.visibleOrPublishable).toBe(1);
+    expect(result.catalog.hiddenNoStockOrNotOrderable).toBe(3);
+
+    const saved = JSON.parse(fs.readFileSync(productsPath, "utf8"));
+    expect(saved.products).toHaveLength(4);
+    for (const product of saved.products) {
+      expect(product.stock).toBe(0);
+      expect(product.remote_stock).toBe(0);
+      expect(product.metadata.needsStockSync).toBe(true);
+      expect(typeof product.metadata.csvStockQuantity).toBe("number");
+    }
 
     fs.rmSync(tempDir, { recursive: true, force: true });
   });

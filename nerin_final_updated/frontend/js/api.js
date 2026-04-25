@@ -43,17 +43,34 @@ export function apiFetch(path, options = {}) {
 }
 
 // Obtener la lista de productos desde el backend
-export async function fetchProducts() {
+export async function fetchProductsPage(params = {}) {
   try {
-    const res = await apiFetch("/api/products");
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value == null || value === "") return;
+      query.set(key, String(value));
+    });
+    const endpoint = `/api/products${query.toString() ? `?${query.toString()}` : ""}`;
+    const res = await apiFetch(endpoint);
     if (!res.ok) {
       throw new Error("No se pudieron obtener los productos");
     }
     const data = await res.json();
+    if (data && Array.isArray(data.items)) {
+      return data;
+    }
     if (!data || !Array.isArray(data.products)) {
       throw new Error("Respuesta de productos inválida");
     }
-    return data.products;
+    return {
+      items: data.products,
+      page: 1,
+      pageSize: data.products.length,
+      totalItems: data.products.length,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPrevPage: false,
+    };
   } catch (error) {
     console.warn("Fallo el endpoint de productos, usando datos locales", error);
     try {
@@ -65,7 +82,15 @@ export async function fetchProducts() {
       }
       const fallbackData = await fallbackResponse.json();
       if (fallbackData && Array.isArray(fallbackData.products)) {
-        return fallbackData.products;
+        return {
+          items: fallbackData.products,
+          page: 1,
+          pageSize: fallbackData.products.length,
+          totalItems: fallbackData.products.length,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPrevPage: false,
+        };
       }
       throw new Error("Fallback de productos inválido");
     } catch (fallbackError) {
@@ -73,6 +98,14 @@ export async function fetchProducts() {
       throw fallbackError;
     }
   }
+}
+
+export async function fetchProducts(params = {}) {
+  const pageData = await fetchProductsPage(params);
+  if (!params || Object.keys(params).length === 0) {
+    return pageData.items || [];
+  }
+  return pageData;
 }
 
 // Iniciar sesión. Devuelve objeto con success, token y role

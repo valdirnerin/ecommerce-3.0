@@ -1738,7 +1738,14 @@ const importStockXlsxBtn = document.getElementById("importStockXlsxBtn");
 const stockXlsxFileInput = document.getElementById("stockXlsxFile");
 const stockXlsxZeroMissingProducts = document.getElementById("stockXlsxZeroMissingProducts");
 const stockXlsxImportStatus = document.getElementById("stockXlsxImportStatus");
+const catalogCsvImportProgress = document.getElementById("catalogCsvImportProgress");
+const stockXlsxImportProgress = document.getElementById("stockXlsxImportProgress");
 const stockXlsxZeroMissingProductsWrap = stockXlsxZeroMissingProducts?.closest("label");
+const adminProductsRange = document.getElementById("adminProductsRange");
+const adminProductsPageInfo = document.getElementById("adminProductsPageInfo");
+const adminProductsPageSize = document.getElementById("adminProductsPageSize");
+const adminProductsPrevPage = document.getElementById("adminProductsPrevPage");
+const adminProductsNextPage = document.getElementById("adminProductsNextPage");
 const selectAllCheckbox = document.getElementById("selectAllProducts");
 const productPreviewCard = document.getElementById("productPreview");
 const productPreviewMedia = document.getElementById("productPreviewMedia");
@@ -1769,10 +1776,15 @@ let dragImageIndex = null;
 let productFilters = {
   query: "",
   category: "",
+  brand: "",
   visibility: "",
   stock: "",
   sort: "recent",
 };
+let productsPage = 1;
+let productsPageSize = Number(adminProductsPageSize?.value || 100);
+let productsTotalItems = 0;
+let productsTotalPages = 1;
 
 let isApplyingAutoSeo = false;
 let isApplyingAutoTags = false;
@@ -1973,7 +1985,7 @@ function updateProductSummary(filtered) {
       </div>`;
     return;
   }
-  const total = productsCache.length;
+  const total = Number(productsTotalItems || productsCache.length);
   const visible = filtered.length;
   const filteredLow = filtered.filter((p) => isLowStock(p)).length;
   const filteredOut = filtered.filter((p) => isOutOfStock(p)).length;
@@ -1987,7 +1999,7 @@ function updateProductSummary(filtered) {
   ).length;
   const title =
     visible === total
-      ? `${visible} ${visible === 1 ? "producto" : "productos"} visibles`
+      ? `${visible} ${visible === 1 ? "producto" : "productos"} en esta página`
       : `${visible} ${visible === 1 ? "producto" : "productos"} de ${total}`;
   const meta = describeActiveFilters();
   const formatIndicator = (current, totalCount) => {
@@ -2091,55 +2103,9 @@ function buildProductRow(product) {
 }
 
 
-function getFilteredProducts() {
-  if (!Array.isArray(productsCache) || productsCache.length === 0) {
-    return [];
-  }
-  let result = Array.from(productsCache);
-  if (productFilters.query) {
-    const query = normalizeSearchText(productFilters.query);
-    result = result.filter((product) => {
-      const searchable = [
-        product.sku,
-        product.name,
-        product.brand,
-        product.model,
-        product.catalog_brand,
-        product.catalog_model,
-        product.catalog_piece,
-        resolveCatalogBrand(product),
-        resolveCatalogModel(product),
-        resolveCatalogPiece(product),
-        product.category,
-        product.subcategory,
-        Array.isArray(product.tags) ? product.tags.join(" ") : product.tags,
-      ]
-        .filter(Boolean)
-        .map((value) => normalizeSearchText(value))
-        .join(" ");
-      return searchable.includes(query);
-    });
-  }
-  if (productFilters.category) {
-    result = result.filter((product) => product.category === productFilters.category);
-  }
-  if (productFilters.visibility) {
-    result = result.filter(
-      (product) => (product.visibility || "public") === productFilters.visibility,
-    );
-  }
-  if (productFilters.stock === "low") {
-    result = result.filter((product) => isLowStock(product));
-  } else if (productFilters.stock === "out") {
-    result = result.filter((product) => isOutOfStock(product));
-  }
-  const sorter = PRODUCT_SORTERS[productFilters.sort] || PRODUCT_SORTERS.recent;
-  return result.sort((a, b) => sorter(a, b));
-}
-
 function renderProductsTable() {
   if (!productsTableBody) return;
-  const rows = getFilteredProducts();
+  const rows = Array.isArray(productsCache) ? productsCache : [];
   if (!rows.length) {
     const message = productsCache.length
       ? "No hay productos que coincidan con los filtros actuales."
@@ -2202,7 +2168,8 @@ function updateProductFilters(patch) {
     ...productFilters,
     ...patch,
   };
-  renderProductsTable();
+  productsPage = 1;
+  loadProducts();
 }
 
 if (productSearchInput) {
@@ -2229,6 +2196,27 @@ if (productFilterStock) {
 if (productSortSelect) {
   productSortSelect.addEventListener("change", () => {
     updateProductFilters({ sort: productSortSelect.value || "recent" });
+  });
+}
+if (adminProductsPageSize) {
+  adminProductsPageSize.addEventListener("change", () => {
+    productsPageSize = Number(adminProductsPageSize.value || 100);
+    productsPage = 1;
+    loadProducts();
+  });
+}
+if (adminProductsPrevPage) {
+  adminProductsPrevPage.addEventListener("click", () => {
+    if (productsPage <= 1) return;
+    productsPage -= 1;
+    loadProducts();
+  });
+}
+if (adminProductsNextPage) {
+  adminProductsNextPage.addEventListener("click", () => {
+    if (productsPage >= productsTotalPages) return;
+    productsPage += 1;
+    loadProducts();
   });
 }
 
@@ -3351,20 +3339,44 @@ async function loadProducts(options = {}) {
   try {
     productsTableBody.innerHTML =
       '<tr><td colspan="15">Cargando productos…</td></tr>';
-    const res = await apiFetch("/api/products");
+    const query = new URLSearchParams({
+      page: String(productsPage),
+      pageSize: String(productsPageSize),
+      search: productFilters.query || "",
+      category: productFilters.category || "",
+      visibility: productFilters.visibility || "",
+      stockStatus: productFilters.stock || "",
+      sort: productFilters.sort || "recent",
+    });
+    const res = await apiFetch(`/api/admin/products?${query.toString()}`);
     if (!res.ok) {
-      throw new Error(`GET /api/products failed: ${res.status}`);
+      throw new Error(`GET /api/admin/products failed: ${res.status}`);
     }
     const data = await res.json();
-    productsCache = Array.isArray(data.products) ? data.products : [];
+    productsCache = Array.isArray(data.items) ? data.items : [];
+    productsTotalItems = Number(data.totalItems || productsCache.length);
+    productsTotalPages = Number(data.totalPages || 1);
+    productsPage = Number(data.page || productsPage);
     syncProductTaxonomies(productsCache);
     renderProductsTable();
+    const start = productsTotalItems ? (productsPage - 1) * productsPageSize + 1 : 0;
+    const end = Math.min(productsPage * productsPageSize, productsTotalItems);
+    if (adminProductsRange) {
+      adminProductsRange.textContent = `Mostrando ${start}-${end} de ${productsTotalItems} productos`;
+    }
+    if (adminProductsPageInfo) {
+      adminProductsPageInfo.textContent = `Página ${productsPage} / ${productsTotalPages}`;
+    }
+    if (adminProductsPrevPage) adminProductsPrevPage.disabled = productsPage <= 1;
+    if (adminProductsNextPage) adminProductsNextPage.disabled = productsPage >= productsTotalPages;
     if (highlightId) {
       highlightProductRow(highlightId);
     }
   } catch (err) {
     console.error(err);
     productsCache = [];
+    productsTotalItems = 0;
+    productsTotalPages = 1;
     productsTableBody.innerHTML =
       '<tr><td colspan="15">No se pudieron cargar los productos.</td></tr>';
     updateProductSummary([]);
@@ -3417,7 +3429,7 @@ if (productsTableBody) {
     const product = productsCache.find((item) => String(item.id) === String(id));
     if (product) {
       product[field] = value;
-      updateProductSummary(getFilteredProducts());
+      updateProductSummary(productsCache);
     }
   });
 }
@@ -3582,7 +3594,12 @@ async function importCatalogCsvFromAdmin() {
     catalogCsvImportStatus.textContent = "Importando catálogo… esto puede tardar unos minutos.";
     catalogCsvImportStatus.style.color = "";
   }
+  if (catalogCsvImportProgress) {
+    catalogCsvImportProgress.value = 0;
+    catalogCsvImportProgress.style.display = "block";
+  }
   if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = true;
+  if (importStockXlsxBtn) importStockXlsxBtn.disabled = true;
 
   try {
     const includeOutOfStock = Boolean(catalogCsvIncludeOutOfStock?.checked);
@@ -3590,7 +3607,7 @@ async function importCatalogCsvFromAdmin() {
     const query = new URLSearchParams();
     if (includeOutOfStock) query.set("includeOutOfStock", "1");
     if (archiveMissing) query.set("archiveMissing", "1");
-    const importUrl = `/api/import/catalog-csv${query.toString() ? `?${query.toString()}` : ""}`;
+    const importUrl = `/api/admin/import/catalog-csv${query.toString() ? `?${query.toString()}` : ""}`;
 
     const resp = await apiFetch(importUrl, {
       method: "POST",
@@ -3604,16 +3621,52 @@ async function importCatalogCsvFromAdmin() {
       }
       throw new Error(data.error || "No se pudo importar el CSV");
     }
-    const summary = data.summary || {};
+    const jobId = data.jobId;
+    if (!jobId) {
+      throw new Error("No se recibió jobId para monitorear la importación");
+    }
+    let summary = null;
+    while (!summary) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const progressResp = await apiFetch(`/api/admin/import/jobs/${encodeURIComponent(jobId)}`, {
+        headers: getAdminHeaders(),
+      });
+      const job = await progressResp.json().catch(() => ({}));
+      if (!progressResp.ok) {
+        throw new Error(job.error || "No se pudo consultar progreso de importación");
+      }
+      if (catalogCsvImportProgress) {
+        catalogCsvImportProgress.value = Number(job.progress || 0);
+      }
+      if (catalogCsvImportStatus) {
+        catalogCsvImportStatus.textContent =
+          `${job.message || "Importando catálogo…"} ${job.progress || 0}% · ` +
+          `${job.processedRows || 0} / ${job.totalRows || 0} filas · ` +
+          `Insertados: ${job.inserted || 0} · Actualizados: ${job.updated || 0} · ` +
+          `Salteados: ${job.skipped || 0} · Errores: ${job.errors || 0}`;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "Falló la importación CSV");
+      }
+      if (job.status === "completed") {
+        summary = job.summary || {};
+      }
+    }
     const pricing = summary.pricing || {};
     const safety = summary.safety || {};
+    const catalog = summary.catalog || {};
     const statusMessage =
       `Importación OK · Filas: ${summary.totalRows || 0} · ` +
       `Insertados: ${summary.inserted || 0} · Actualizados: ${summary.updated || 0} · ` +
       `Desactivados por no venir en CSV: ${safety.archivedMissing || 0} · ` +
       `Salteados por stock/estado: ${safety.skippedUnavailable || 0} · ` +
       `Errores: ${summary.failed || 0} · Pricing OK: ${pricing.okRows || 0} · ` +
-      `Revisión: ${pricing.revisionRows || 0}`;
+      `Revisión: ${pricing.revisionRows || 0} · ` +
+      `Catálogo final: ${catalog.totalProductsAfterImport || 0} · ` +
+      `Con supplierPartNumber: ${catalog.withSupplierPartNumber || 0} · ` +
+      `Match potencial XLSX: ${catalog.potentialXlsxMatches || 0} · ` +
+      `Publicables: ${catalog.visibleOrPublishable || 0} · ` +
+      `Ocultos por stock/ordenable: ${catalog.hiddenNoStockOrNotOrderable || 0}`;
     const skippedUnavailable = Number(safety.skippedUnavailable || 0);
     const showAvailabilityHint = !includeOutOfStock && skippedUnavailable > 0;
     const availabilityBreakdown = showAvailabilityHint
@@ -3649,6 +3702,10 @@ async function importCatalogCsvFromAdmin() {
     }
   } finally {
     if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = false;
+    if (importStockXlsxBtn) importStockXlsxBtn.disabled = false;
+    if (catalogCsvImportProgress && catalogCsvImportProgress.value >= 100) {
+      catalogCsvImportProgress.style.display = "none";
+    }
   }
 }
 
@@ -3677,13 +3734,18 @@ async function importStockXlsxFromAdmin() {
     stockXlsxImportStatus.textContent = "Importando stock real desde XLSX…";
     stockXlsxImportStatus.style.color = "";
   }
+  if (stockXlsxImportProgress) {
+    stockXlsxImportProgress.value = 0;
+    stockXlsxImportProgress.style.display = "block";
+  }
   if (importStockXlsxBtn) importStockXlsxBtn.disabled = true;
+  if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = true;
 
   try {
     const zeroMissing = Boolean(stockXlsxZeroMissingProducts?.checked);
     const query = new URLSearchParams();
     if (zeroMissing) query.set("zeroMissingProducts", "1");
-    const importUrl = `/api/import/stock-xlsx${query.toString() ? `?${query.toString()}` : ""}`;
+    const importUrl = `/api/admin/import/stock-xlsx${query.toString() ? `?${query.toString()}` : ""}`;
 
     const resp = await apiFetch(importUrl, {
       method: "POST",
@@ -3698,7 +3760,37 @@ async function importStockXlsxFromAdmin() {
       throw new Error(data.error || "No se pudo importar stock XLSX");
     }
 
-    const summary = data.summary || {};
+    const jobId = data.jobId;
+    if (!jobId) {
+      throw new Error("No se recibió jobId para monitorear la importación");
+    }
+    let summary = null;
+    while (!summary) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const progressResp = await apiFetch(`/api/admin/import/jobs/${encodeURIComponent(jobId)}`, {
+        headers: getAdminHeaders(),
+      });
+      const job = await progressResp.json().catch(() => ({}));
+      if (!progressResp.ok) {
+        throw new Error(job.error || "No se pudo consultar progreso de importación");
+      }
+      if (stockXlsxImportProgress) {
+        stockXlsxImportProgress.value = Number(job.progress || 0);
+      }
+      if (stockXlsxImportStatus) {
+        stockXlsxImportStatus.textContent =
+          `${job.message || "Importando stock real…"} ${job.progress || 0}% · ` +
+          `${job.processedRows || 0} / ${job.totalRows || 0} filas · ` +
+          `Actualizados: ${job.updated || 0} · Sin match: ${job.skipped || 0} · ` +
+          `Errores: ${job.errors || 0}`;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "Falló la importación XLSX");
+      }
+      if (job.status === "completed") {
+        summary = job.summary || {};
+      }
+    }
     const statusMessage =
       `Stock XLSX OK · Filas: ${summary.totalRows || 0} · ` +
       `Matcheados: ${summary.matchedProducts || 0} · ` +
@@ -3734,6 +3826,10 @@ async function importStockXlsxFromAdmin() {
     }
   } finally {
     if (importStockXlsxBtn) importStockXlsxBtn.disabled = false;
+    if (importCatalogCsvBtn) importCatalogCsvBtn.disabled = false;
+    if (stockXlsxImportProgress && stockXlsxImportProgress.value >= 100) {
+      stockXlsxImportProgress.style.display = "none";
+    }
   }
 }
 

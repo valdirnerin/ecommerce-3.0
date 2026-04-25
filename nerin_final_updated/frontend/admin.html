@@ -385,6 +385,20 @@
             <tbody></tbody>
           </table>
         </div>
+        <div class="bulk-actions" id="adminProductsPagination" style="justify-content:space-between;">
+          <div id="adminProductsRange" aria-live="polite">Mostrando 0-0 de 0 productos</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label for="adminProductsPageSize">Por página</label>
+            <select id="adminProductsPageSize">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+            </select>
+            <button id="adminProductsPrevPage" class="button secondary" type="button">Anterior</button>
+            <span id="adminProductsPageInfo">Página 1 / 1</span>
+            <button id="adminProductsNextPage" class="button secondary" type="button">Siguiente</button>
+          </div>
+        </div>
         <div class="product-actions">
           <button id="openProductModal" class="button primary">
             Agregar producto
@@ -409,6 +423,7 @@
             </button>
           </div>
           <div id="catalogCsvImportStatus" role="status" aria-live="polite"></div>
+          <progress id="catalogCsvImportProgress" value="0" max="100" style="width:100%;display:none;"></progress>
           <div class="bulk-actions">
             <input
               type="file"
@@ -425,6 +440,7 @@
             </button>
           </div>
           <div id="stockXlsxImportStatus" role="status" aria-live="polite"></div>
+          <progress id="stockXlsxImportProgress" value="0" max="100" style="width:100%;display:none;"></progress>
           <div class="bulk-actions">
             <select id="bulkActionSelect">
               <option value="">Acción masiva…</option>

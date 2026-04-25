@@ -88,6 +88,11 @@ function readWorksheet(filePath, sheetName = "Price list") {
 function buildStockMetadata(product, stock, stockSource, articleNumber) {
   const previous = product?.metadata || {};
   const stockUpdatedAt = new Date().toISOString();
+  const supplierImport = previous?.supplierImport || {};
+  const catalogImportable =
+    Boolean(supplierImport?.canBeOrdered) &&
+    Boolean(supplierImport?.isAvailable) &&
+    Number(supplierImport?.maximumQuantityInOrder || 0) > 0;
   return {
     ...previous,
     stockQuantity: stock.stockQuantity,
@@ -96,6 +101,8 @@ function buildStockMetadata(product, stock, stockSource, articleNumber) {
     stockUpdatedAt,
     stockSource,
     stockArticleNumber: articleNumber,
+    needsStockSync: false,
+    catalogImportableByRules: catalogImportable,
   };
 }
 
@@ -130,6 +137,12 @@ async function buildJsonPersistenceLayer() {
         const existing = byId.get(id);
         if (!existing) continue;
         const metadata = buildStockMetadata(existing, item.stock, stockSource, item.articleNumber);
+        const supplierImport = metadata?.supplierImport || {};
+        const catalogImportable =
+          Boolean(supplierImport?.canBeOrdered) &&
+          Boolean(supplierImport?.isAvailable) &&
+          Number(supplierImport?.maximumQuantityInOrder || 0) > 0;
+        const isPublicByRealStock = catalogImportable && item.stock.stockQuantity > 0;
         byId.set(id, {
           ...existing,
           stock: item.stock.stockQuantity,
@@ -139,6 +152,10 @@ async function buildJsonPersistenceLayer() {
           stockIsAtLeast: item.stock.stockIsAtLeast,
           stockUpdatedAt: metadata.stockUpdatedAt,
           stockSource,
+          visibility: isPublicByRealStock ? "public" : "private",
+          enabled: isPublicByRealStock,
+          available: item.stock.stockQuantity > 0,
+          needsStockSync: false,
           metadata,
         });
         touched.add(id);
@@ -195,6 +212,8 @@ async function importStockXlsxFile({
   filePath,
   maxReportedErrors = 500,
   zeroMissingProducts = false,
+  onProgress = null,
+  progressEveryRows = 250,
 }) {
   const summary = createBaseSummary();
   const { rows, articleIndex, stockIndex } = readWorksheet(filePath, "Price list");
@@ -202,6 +221,18 @@ async function importStockXlsxFile({
 
   const updates = [];
   const seenPartNumbers = new Set();
+  let processedRows = 0;
+  const notifyProgress = () => {
+    if (typeof onProgress !== "function") return;
+    onProgress({
+      totalRows: Math.max(0, rows.length - 1),
+      processedRows,
+      matchedProducts: summary.matchedProducts,
+      updatedProducts: summary.updatedProducts,
+      unmatchedRows: summary.unmatchedRows,
+      failedRows: summary.failedRows,
+    });
+  };
 
   for (let i = 1; i < rows.length; i += 1) {
     const row = rows[i] || [];
@@ -218,6 +249,8 @@ async function importStockXlsxFile({
           reason: "Article number vacío",
         });
       }
+      processedRows += 1;
+      if (processedRows % progressEveryRows === 0) notifyProgress();
       continue;
     }
     const key = articleNumber.toLowerCase();
@@ -235,6 +268,8 @@ async function importStockXlsxFile({
           reason: error.message || "Invalid stock value",
         });
       }
+      processedRows += 1;
+      if (processedRows % progressEveryRows === 0) notifyProgress();
       continue;
     }
 
@@ -244,11 +279,15 @@ async function importStockXlsxFile({
     const productId = persistence.partNumberToId.get(key);
     if (!productId) {
       summary.unmatchedRows += 1;
+      processedRows += 1;
+      if (processedRows % progressEveryRows === 0) notifyProgress();
       continue;
     }
 
     summary.matchedProducts += 1;
     updates.push({ id: productId, articleNumber, stock });
+    processedRows += 1;
+    if (processedRows % progressEveryRows === 0) notifyProgress();
   }
 
   summary.updatedProducts = await persistence.updateStockBatch(updates, "mps_xlsx_nl");
@@ -258,6 +297,8 @@ async function importStockXlsxFile({
   }
 
   await persistence.finalize();
+  processedRows = summary.totalRows;
+  notifyProgress();
   return summary;
 }
 
