@@ -61,6 +61,7 @@ const {
   validateServiceReview,
 } = require("./utils/reviewValidation");
 const { importCatalogCsvFile } = require("./services/catalogCsvImport");
+const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const {
   appendEvent,
   upsertSession,
@@ -4826,6 +4827,38 @@ const catalogCsvUpload = multer({
   },
 });
 
+const stockXlsxUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = path.join(UPLOADS_DIR, "stock-imports");
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").toLowerCase() || ".xlsx";
+      const stamp = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 8)}`;
+      cb(null, `stock-${stamp}${ext}`);
+    },
+  }),
+  limits: {
+    fileSize: 60 * 1024 * 1024,
+    files: 1,
+  },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const mime = String(file.mimetype || "").toLowerCase();
+    if (
+      ext === ".xlsx" ||
+      mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+      mime === "application/octet-stream"
+    ) {
+      cb(null, true);
+    } else {
+      cb(new Error("Formato inválido. Subí un archivo XLSX."));
+    }
+  },
+});
+
 // Servir archivos estáticos (HTML, CSS, JS, imágenes)
 function hydrateHtmlSeo(buffer) {
   try {
@@ -5307,6 +5340,62 @@ async function requestHandler(req, res) {
         return sendJson(res, statusCode, {
           success: false,
           error: importError.message || "Error al importar catálogo CSV",
+        });
+      } finally {
+        try {
+          await fsp.unlink(req.file.path);
+        } catch {}
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/import/stock-xlsx" && req.method === "POST") {
+    const adminKey = req.headers["x-admin-key"];
+    if (!process.env.ADMIN_KEY) {
+      return sendJson(res, 503, {
+        error:
+          "Importación de stock XLSX deshabilitada: falta configurar ADMIN_KEY en el servidor.",
+      });
+    }
+    if (adminKey !== process.env.ADMIN_KEY) {
+      return sendJson(res, 401, { error: "Unauthorized" });
+    }
+    const zeroMissingProducts = ["1", "true", "yes", "si"].includes(
+      String(parsedUrl.query.zeroMissingProducts || parsedUrl.query.zero_missing_products || "")
+        .trim()
+        .toLowerCase(),
+    );
+
+    stockXlsxUpload.single("file")(req, res, async (err) => {
+      if (err) {
+        console.error("stock-xlsx-upload", err);
+        return sendJson(res, 400, { error: err.message || "No se pudo subir el XLSX" });
+      }
+      if (!req.file || !req.file.path) {
+        return sendJson(res, 400, { error: "No se recibió archivo XLSX" });
+      }
+
+      const pool = db.getPool();
+      try {
+        const summary = await importStockXlsxFile({
+          filePath: req.file.path,
+          pool,
+          zeroMissingProducts,
+        });
+        return sendJson(res, 200, {
+          success: true,
+          summary,
+        });
+      } catch (importError) {
+        console.error("stock-xlsx-import", importError);
+        const statusCode =
+          importError?.code === "MISSING_REQUIRED_COLUMNS" || importError?.code === "MISSING_SHEET"
+            ? 400
+            : 500;
+        return sendJson(res, statusCode, {
+          success: false,
+          error: importError.message || "Error al importar stock XLSX",
         });
       } finally {
         try {

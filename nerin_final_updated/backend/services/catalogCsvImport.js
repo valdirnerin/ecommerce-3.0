@@ -98,8 +98,13 @@ function parseCanBeOrdered(value) {
 function deriveStatusFlags(status) {
   const source = String(status || "");
   const lowered = source.toLowerCase();
+  const hasAvailableWord = /\bavailable\b/i.test(source);
+  const hasUnavailableWord =
+    /\bunavailable\b/i.test(source) ||
+    /\bnot\s+available\b/i.test(source) ||
+    /\bout\s+of\s+stock\b/i.test(source);
   return {
-    isAvailable: lowered.includes("available"),
+    isAvailable: hasAvailableWord && !hasUnavailableWord,
     hasLongerDeliveryTime: lowered.includes("longer delivery time"),
     isExpiring: source.trim() === "Expiring",
   };
@@ -234,6 +239,10 @@ function createBaseSummary() {
     errors: [],
     safety: {
       skippedUnavailable: 0,
+      skippedNoStock: 0,
+      skippedNotOrderable: 0,
+      skippedStatusNotAvailable: 0,
+      skippedMaxOrderZero: 0,
       archivedMissing: 0,
     },
   };
@@ -243,6 +252,17 @@ function isImportableByAvailability(record) {
   const stock = Number(record?.stockQuantity || 0);
   const maxOrder = Number(record?.maximumQuantityInOrder || 0);
   return Boolean(record?.canBeOrdered) && Boolean(record?.isAvailable) && stock > 0 && maxOrder > 0;
+}
+
+function classifyAvailabilitySkip(record) {
+  const stock = Number(record?.stockQuantity || 0);
+  const maxOrder = Number(record?.maximumQuantityInOrder || 0);
+  return {
+    noStock: stock <= 0,
+    notOrderable: !Boolean(record?.canBeOrdered),
+    statusNotAvailable: !Boolean(record?.isAvailable),
+    maxOrderZero: maxOrder <= 0,
+  };
 }
 
 async function buildJsonPersistenceLayer() {
@@ -516,8 +536,13 @@ async function importCatalogCsvFile({
       }
 
       if (!includeOutOfStock && !isImportableByAvailability(transformed.record)) {
+        const skipReason = classifyAvailabilitySkip(transformed.record);
         summary.skipped += 1;
         summary.safety.skippedUnavailable += 1;
+        if (skipReason.noStock) summary.safety.skippedNoStock += 1;
+        if (skipReason.notOrderable) summary.safety.skippedNotOrderable += 1;
+        if (skipReason.statusNotAvailable) summary.safety.skippedStatusNotAvailable += 1;
+        if (skipReason.maxOrderZero) summary.safety.skippedMaxOrderZero += 1;
         continue;
       }
 
