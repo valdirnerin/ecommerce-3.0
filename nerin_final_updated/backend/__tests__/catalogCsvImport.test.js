@@ -54,6 +54,37 @@ describe("catalogCsvImport", () => {
     expect(transformed.remarks).toBeNull();
   });
 
+  test("toImportedRecord no marca como disponible cuando Status dice Not available", () => {
+    const row = {
+      PartId: "1010",
+      ManufacturerName: "ACME",
+      ManufacturerId: "44",
+      ManufacturerArticleCode: "",
+      MainCategory: "Display",
+      SubCategory: "OLED",
+      PartNumber: "ABC-999",
+      Description: "Pantalla sin disponibilidad",
+      Status: "Not available",
+      CanBeOrdered: "Yes",
+      UnitPrice: "10,17",
+      StockQuantity: "12",
+      MaximumQuantityInOrder: "5",
+      Quality: "Original",
+      Remarks: "",
+      ImageUrl: "",
+      ImageUrl2: "",
+      ImageUrl3: "",
+      ImageUrl4: "",
+      ImageUrl5: "",
+      EanNumber: "",
+      CountryOfOrigin: "CN",
+      ProductGroup: "Mobile",
+    };
+
+    const transformed = toImportedRecord(row, 2).record;
+    expect(transformed.isAvailable).toBe(false);
+  });
+
   test("importCatalogCsvFile devuelve errores por duplicados y parsea descripción con comas", async () => {
     const csv = [
       "PartId,ManufacturerName,ManufacturerId,ManufacturerArticleCode,MainCategory,SubCategory,PartNumber,Description,Status,CanBeOrdered,UnitPrice,StockQuantity,MaximumQuantityInOrder,Quality,Remarks,ImageUrl,ImageUrl2,ImageUrl3,ImageUrl4,ImageUrl5,EanNumber,CountryOfOrigin,ProductGroup",
@@ -93,6 +124,41 @@ describe("catalogCsvImport", () => {
     expect(upsertValues).toBeTruthy();
     const metadata = upsertValues[5];
     expect(metadata.supplierImport.pricing.tiempo_demora_dias).toBe(20);
+
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("importCatalogCsvFile reporta desglose de salteados por disponibilidad", async () => {
+    const csv = [
+      "PartId,ManufacturerName,ManufacturerId,ManufacturerArticleCode,MainCategory,SubCategory,PartNumber,Description,Status,CanBeOrdered,UnitPrice,StockQuantity,MaximumQuantityInOrder,Quality,Remarks,ImageUrl,ImageUrl2,ImageUrl3,ImageUrl4,ImageUrl5,EanNumber,CountryOfOrigin,ProductGroup",
+      '2001,ACME,1,,Main,Sub,SKU-A,"Sin stock",Available,Yes,"10,00",0,2,Original,,https://img/1.jpg,,,,,,CN,Mobile',
+      '2002,ACME,1,,Main,Sub,SKU-B,"No ordenable",Available,No,"10,00",5,2,Original,,https://img/2.jpg,,,,,,CN,Mobile',
+      '2003,ACME,1,,Main,Sub,SKU-C,"No disponible",Unavailable,Yes,"10,00",5,2,Original,,https://img/3.jpg,,,,,,CN,Mobile',
+      '2004,ACME,1,,Main,Sub,SKU-D,"Max 0",Available,Yes,"10,00",5,0,Original,,https://img/4.jpg,,,,,,CN,Mobile',
+    ].join("\n");
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "csv-import-test-"));
+    const filePath = path.join(tempDir, "catalog.csv");
+    fs.writeFileSync(filePath, csv, "utf8");
+
+    const query = jest.fn(async (sql) => {
+      if (/SELECT id, metadata/.test(sql)) return { rows: [] };
+      return { rows: [], rowCount: 0 };
+    });
+
+    const result = await importCatalogCsvFile({
+      filePath,
+      pool: { query },
+      chunkSize: 2,
+    });
+
+    expect(result.inserted).toBe(0);
+    expect(result.updated).toBe(0);
+    expect(result.safety.skippedUnavailable).toBe(4);
+    expect(result.safety.skippedNoStock).toBe(1);
+    expect(result.safety.skippedNotOrderable).toBe(1);
+    expect(result.safety.skippedStatusNotAvailable).toBe(1);
+    expect(result.safety.skippedMaxOrderZero).toBe(1);
 
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
