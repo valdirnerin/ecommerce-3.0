@@ -410,6 +410,22 @@
           </div>
           <div id="catalogCsvImportStatus" role="status" aria-live="polite"></div>
           <div class="bulk-actions">
+            <input
+              type="file"
+              id="stockXlsxFile"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              aria-label="Seleccionar XLSX de stock"
+            />
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="stockXlsxZeroMissingProducts" />
+              Poner en 0 los no incluidos
+            </label>
+            <button id="importStockXlsxBtn" class="button secondary">
+              Importar XLSX stock real
+            </button>
+          </div>
+          <div id="stockXlsxImportStatus" role="status" aria-live="polite"></div>
+          <div class="bulk-actions">
             <select id="bulkActionSelect">
               <option value="">Acción masiva…</option>
               <option value="delete">Eliminar</option>
