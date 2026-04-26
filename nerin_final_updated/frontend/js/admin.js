@@ -1785,6 +1785,7 @@ let productsPage = 1;
 let productsPageSize = Number(adminProductsPageSize?.value || 100);
 let productsTotalItems = 0;
 let productsTotalPages = 1;
+let productsLoadErrorMessage = "";
 
 let isApplyingAutoSeo = false;
 let isApplyingAutoTags = false;
@@ -1974,6 +1975,17 @@ function describeActiveFilters() {
 
 function updateProductSummary(filtered) {
   if (!productsSummaryEl) return;
+  if (productsLoadErrorMessage) {
+    productsSummaryEl.innerHTML = `
+      <div class="product-summary__badge">⚠️</div>
+      <div class="product-summary__details">
+        <p class="product-summary__title">Error al cargar el catálogo</p>
+        <div class="product-summary__indicators">
+          <span>${escapeHtml(productsLoadErrorMessage)}</span>
+        </div>
+      </div>`;
+    return;
+  }
   if (!productsCache.length) {
     productsSummaryEl.innerHTML = `
       <div class="product-summary__badge">0</div>
@@ -3358,6 +3370,7 @@ async function loadProducts(options = {}) {
       throw new Error(`GET /api/admin/products failed: ${res.status}`);
     }
     const data = await res.json();
+    productsLoadErrorMessage = "";
     productsCache = Array.isArray(data.items) ? data.items : [];
     productsTotalItems = Number(data.totalItems || productsCache.length);
     productsTotalPages = Number(data.totalPages || 1);
@@ -3379,11 +3392,32 @@ async function loadProducts(options = {}) {
     }
   } catch (err) {
     console.error(err);
-    productsCache = [];
-    productsTotalItems = 0;
-    productsTotalPages = 1;
+    let details = "";
+    try {
+      const debugQuery = new URLSearchParams({
+        page: String(productsPage),
+        pageSize: String(productsPageSize),
+        search: productFilters.query || "",
+        category: productFilters.category || "",
+        visibility: productFilters.visibility || "",
+        stockStatus: productFilters.stock || "",
+        sort: productFilters.sort || "recent",
+      });
+      const debugRes = await apiFetch(`/api/admin/products?${debugQuery.toString()}`, {
+        headers: getAdminHeaders(),
+      });
+      const debugBody = await debugRes.text();
+      details = ` (status ${debugRes.status}${debugBody ? `, body: ${debugBody.slice(0, 300)}` : ""})`;
+      console.error("admin-products-debug", {
+        status: debugRes.status,
+        body: debugBody.slice(0, 1000),
+      });
+    } catch (debugErr) {
+      console.error("admin-products-debug-failed", debugErr);
+    }
+    productsLoadErrorMessage = `${err.message || "No se pudieron cargar los productos."}${details}`;
     productsTableBody.innerHTML =
-      `<tr><td colspan="15">${escapeHtml(err.message || "No se pudieron cargar los productos.")}</td></tr>`;
+      `<tr><td colspan="15">${escapeHtml(productsLoadErrorMessage)}</td></tr>`;
     updateProductSummary([]);
   }
 }

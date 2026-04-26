@@ -115,6 +115,7 @@ const IS_DATA_DIR_PERSISTENT =
     : DATA_DIR_SOURCE.type !== "local";
 
 const DATA_DIR = resolvedDataDir;
+const RENDER_DISK_MOUNT_PATH = (process.env.RENDER_DISK_MOUNT_PATH || "").trim() || null;
 const PRODUCTS_FILE_PATH = (() => {
   const raw = (process.env.PRODUCTS_FILE_PATH || "").trim();
   if (!raw) return dataPath("products.json");
@@ -1805,7 +1806,7 @@ async function mpWebhookRelay(req, res, parsedUrl) {
     "Access-Control-Allow-Origin": ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Accept, Content-Type, Authorization, X-Requested-With",
+      "Accept, Content-Type, Authorization, X-Requested-With, X-Admin-Key, x-admin-key",
   });
   res.end();
 
@@ -3111,8 +3112,77 @@ function getProducts() {
     const data = JSON.parse(file);
     const list = Array.isArray(data?.products) ? data.products : data;
     return normalizeProductsList(list);
+  } catch (err) {
+    err.message = `[catalog-read-failed] ${err.message}`;
+    throw err;
+  }
+}
+
+function inspectProductsStorage() {
+  const report = {
+    productsFilePath: PRODUCTS_FILE_PATH,
+    dataDir: DATA_DIR,
+    exists: false,
+    sizeBytes: 0,
+    productCount: 0,
+    usingFallback: false,
+    parseError: null,
+    firstKey: null,
+    renderDiskExpected:
+      !!RENDER_DISK_MOUNT_PATH ||
+      DATA_DIR.startsWith("/var/data") ||
+      DATA_DIR.startsWith("/var/nerin-data"),
+  };
+  try {
+    if (!fs.existsSync(PRODUCTS_FILE_PATH)) return report;
+    report.exists = true;
+    report.sizeBytes = fs.statSync(PRODUCTS_FILE_PATH).size;
+    const rawText = fs.readFileSync(PRODUCTS_FILE_PATH, "utf8");
+    const parsed = JSON.parse(rawText);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      report.firstKey = Object.keys(parsed)[0] || null;
+    } else if (Array.isArray(parsed)) {
+      report.firstKey = "[0]";
+    }
+    const list = Array.isArray(parsed?.products) ? parsed.products : parsed;
+    report.productCount = Array.isArray(list) ? list.length : 0;
+    if (IS_PRODUCTION && Array.isArray(list)) {
+      const sampleText = JSON.stringify(list.slice(0, 8)).toLowerCase();
+      report.usingFallback =
+        sampleText.includes("pantalla iphone") ||
+        sampleText.includes("producto demo");
+    }
+    return report;
+  } catch (err) {
+    report.parseError = err?.message || String(err);
+    return report;
+  }
+}
+
+function loadProductsStrict() {
+  const storage = inspectProductsStorage();
+  if (!storage.exists) {
+    throw new Error(`products.json no existe en ${storage.productsFilePath}`);
+  }
+  if (storage.parseError) {
+    throw new Error(`products.json inválido en ${storage.productsFilePath}: ${storage.parseError}`);
+  }
+  if (IS_PRODUCTION && storage.usingFallback) {
+    throw new Error(
+      `Se detectó catálogo demo/fallback en producción (${storage.productsFilePath}).`,
+    );
+  }
+  return { products: getProducts(), storage };
+}
+
+function logProductsServe(event, payload = {}) {
+  if (process.env.NODE_ENV === "test") return;
+  try {
+    console.info(
+      `[catalog] ${event} endpoint=${payload.endpoint || "unknown"} productsFilePath=${payload.productsFilePath || PRODUCTS_FILE_PATH} exists=${payload.exists} productCount=${payload.productCount} page=${payload.page} pageSize=${payload.pageSize} totalItems=${payload.totalItems} usingFallback=${payload.usingFallback}`,
+    );
   } catch {
-    return [];
+    // no-op
   }
 }
 
@@ -4433,7 +4503,7 @@ function buildBaseHeaders(extra = {}) {
     "Access-Control-Allow-Origin": ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Accept, Content-Type, Authorization, X-Requested-With",
+      "Accept, Content-Type, Authorization, X-Requested-With, X-Admin-Key, x-admin-key",
     ...extra,
   };
 }
@@ -5169,7 +5239,7 @@ async function requestHandler(req, res) {
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Accept, Content-Type, Authorization, X-Requested-With",
+    "Accept, Content-Type, Authorization, X-Requested-With, X-Admin-Key, x-admin-key",
   );
 
   // Soportar solicitudes OPTIONS para CORS
@@ -5178,7 +5248,7 @@ async function requestHandler(req, res) {
       "Access-Control-Allow-Origin": ORIGIN,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers":
-        "Accept, Content-Type, Authorization, X-Requested-With",
+        "Accept, Content-Type, Authorization, X-Requested-With, X-Admin-Key, x-admin-key",
     });
     return res.end();
   }
@@ -5264,14 +5334,36 @@ async function requestHandler(req, res) {
         pageSize: 24,
         maxPageSize: 96,
       });
-      const products = getProducts().filter((product) => isProductPublic(product));
+      const { products: loadedProducts, storage } = loadProductsStrict();
+      const products = loadedProducts.filter((product) => isProductPublic(product));
       const filtered = applyCatalogFilters(products, parsedUrl.query || {});
       const withWholesale = canSeeWholesalePrices(req);
       const safe = withWholesale ? filtered : sanitizePublicProducts(filtered);
       const pageData = paginateItems(safe, page, pageSize);
+      logProductsServe("serve", {
+        endpoint: "/api/products",
+        productsFilePath: storage.productsFilePath,
+        exists: storage.exists,
+        productCount: storage.productCount,
+        page,
+        pageSize,
+        totalItems: pageData.totalItems,
+        usingFallback: storage.usingFallback,
+      });
       return sendJson(res, 200, pageData);
     } catch (err) {
-      console.error(err);
+      const storage = inspectProductsStorage();
+      logProductsServe("error", {
+        endpoint: "/api/products",
+        productsFilePath: storage.productsFilePath,
+        exists: storage.exists,
+        productCount: storage.productCount,
+        page: parsedUrl?.query?.page || 1,
+        pageSize: parsedUrl?.query?.pageSize || 24,
+        totalItems: 0,
+        usingFallback: storage.usingFallback,
+      });
+      console.error("products-public-read-error", err);
       return sendJson(res, 500, {
         error: "No se pudieron cargar los productos",
       });
@@ -5286,14 +5378,41 @@ async function requestHandler(req, res) {
         pageSize: 100,
         maxPageSize: 250,
       });
-      const products = getProducts();
+      const { products, storage } = loadProductsStrict();
       const filtered = applyAdminProductFilters(products, parsedUrl.query || {});
       const pageData = paginateItems(filtered, page, pageSize);
+      logProductsServe("serve", {
+        endpoint: "/api/admin/products",
+        productsFilePath: storage.productsFilePath,
+        exists: storage.exists,
+        productCount: storage.productCount,
+        page,
+        pageSize,
+        totalItems: pageData.totalItems,
+        usingFallback: storage.usingFallback,
+      });
       return sendJson(res, 200, pageData);
     } catch (err) {
+      const storage = inspectProductsStorage();
+      logProductsServe("error", {
+        endpoint: "/api/admin/products",
+        productsFilePath: storage.productsFilePath,
+        exists: storage.exists,
+        productCount: storage.productCount,
+        page: parsedUrl?.query?.page || 1,
+        pageSize: parsedUrl?.query?.pageSize || 100,
+        totalItems: 0,
+        usingFallback: storage.usingFallback,
+      });
       console.error("admin-products-list", err);
       return sendJson(res, 500, { error: "No se pudieron cargar los productos del admin" });
     }
+  }
+
+  if (pathname === "/api/admin/debug/storage" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    const storage = inspectProductsStorage();
+    return sendJson(res, 200, storage);
   }
 
   // API: obtener un producto por ID
@@ -8014,7 +8133,7 @@ async function requestHandler(req, res) {
         "Access-Control-Allow-Origin": ORIGIN,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers":
-          "Accept, Content-Type, Authorization, X-Requested-With",
+          "Accept, Content-Type, Authorization, X-Requested-With, X-Admin-Key, x-admin-key",
       });
       res.end();
     } catch (err) {
@@ -8480,8 +8599,10 @@ async function requestHandler(req, res) {
         saveProducts(products);
         return sendJson(res, 201, { success: true, product: newProduct });
       } catch (err) {
-        console.error(err);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
+        console.error("products-create-error", err);
+        return sendJson(res, 500, {
+          error: "No se pudo cargar el catálogo para crear el producto",
+        });
       }
     });
     return;
@@ -8545,8 +8666,10 @@ async function requestHandler(req, res) {
         saveProducts(products);
         return sendJson(res, 200, { success: true, product: products[index] });
       } catch (err) {
-        console.error(err);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
+        console.error("products-update-error", err);
+        return sendJson(res, 500, {
+          error: "No se pudo cargar el catálogo para actualizar el producto",
+        });
       }
     });
     return;
@@ -10138,7 +10261,7 @@ async function requestHandler(req, res) {
         "Access-Control-Allow-Origin": ORIGIN,
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
         "Access-Control-Allow-Headers":
-          "Accept, Content-Type, Authorization, X-Requested-With",
+          "Accept, Content-Type, Authorization, X-Requested-With, X-Admin-Key, x-admin-key",
       });
       res.end();
     };
