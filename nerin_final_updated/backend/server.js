@@ -1771,10 +1771,28 @@ function enforceRateLimit(req, res, group) {
   return null;
 }
 
-function requireAdmin(req, res) {
-  const adminKey = req.headers["x-admin-key"];
-  if (process.env.ADMIN_KEY && adminKey !== process.env.ADMIN_KEY) {
-    sendJson(res, 401, { error: "Unauthorized" });
+function hasAdminRole(user) {
+  if (!user || typeof user !== "object") return false;
+  if (user.isAdmin === true || user?.profile?.isAdmin === true) return true;
+  if (String(user.accountType || "").toLowerCase() === "admin") return true;
+  return String(user.role || "").toLowerCase() === "admin";
+}
+
+function hasAdminPanelAccess(user) {
+  if (hasAdminRole(user)) return true;
+  return String(user?.role || "").toLowerCase() === "vendedor";
+}
+
+function requireAdmin(req, res, options = {}) {
+  const { allowSeller = true } = options;
+  const user = resolveAuthUser(req);
+  if (!user) {
+    sendJson(res, 401, { error: "Debés iniciar sesión para acceder al panel admin." });
+    return false;
+  }
+  const allowed = allowSeller ? hasAdminPanelAccess(user) : hasAdminRole(user);
+  if (!allowed) {
+    sendJson(res, 403, { error: "No tenés permisos para acceder a este recurso admin." });
     return false;
   }
   return true;
@@ -5784,6 +5802,7 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/api/admin/import/jobs" && req.method === "GET") {
+    if (!requireAdmin(req, res, { allowSeller: false })) return;
     cleanupImportJobs();
     const jobs = Array.from(importJobs.values())
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -5792,6 +5811,7 @@ async function requestHandler(req, res) {
   }
 
   if (pathname.startsWith("/api/admin/import/jobs/") && req.method === "GET") {
+    if (!requireAdmin(req, res, { allowSeller: false })) return;
     cleanupImportJobs();
     const jobId = pathname.split("/").pop();
     const job = importJobs.get(jobId);
@@ -5803,16 +5823,7 @@ async function requestHandler(req, res) {
     (pathname === "/api/admin/import/catalog-csv" || pathname === "/api/import/catalog-csv") &&
     req.method === "POST"
   ) {
-    const adminKey = req.headers["x-admin-key"];
-    if (!process.env.ADMIN_KEY) {
-      return sendJson(res, 503, {
-        error:
-          "Catalog CSV import deshabilitado: falta configurar ADMIN_KEY en el servidor.",
-      });
-    }
-    if (adminKey !== process.env.ADMIN_KEY) {
-      return sendJson(res, 401, { error: "Unauthorized" });
-    }
+    if (!requireAdmin(req, res, { allowSeller: false })) return;
     if (hasRunningImportJob()) {
       return sendJson(res, 409, {
         error: "Ya hay una importación en curso. Esperá a que finalice.",
@@ -5909,16 +5920,7 @@ async function requestHandler(req, res) {
     (pathname === "/api/admin/import/stock-xlsx" || pathname === "/api/import/stock-xlsx") &&
     req.method === "POST"
   ) {
-    const adminKey = req.headers["x-admin-key"];
-    if (!process.env.ADMIN_KEY) {
-      return sendJson(res, 503, {
-        error:
-          "Importación de stock XLSX deshabilitada: falta configurar ADMIN_KEY en el servidor.",
-      });
-    }
-    if (adminKey !== process.env.ADMIN_KEY) {
-      return sendJson(res, 401, { error: "Unauthorized" });
-    }
+    if (!requireAdmin(req, res, { allowSeller: false })) return;
     if (hasRunningImportJob()) {
       return sendJson(res, 409, {
         error: "Ya hay una importación en curso. Esperá a que finalice.",
@@ -7282,10 +7284,7 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/api/footer" && req.method === "POST") {
-    const adminKey = req.headers["x-admin-key"];
-    if (process.env.ADMIN_KEY && adminKey !== process.env.ADMIN_KEY) {
-      return sendJson(res, 401, { error: "Unauthorized" });
-    }
+    if (!requireAdmin(req, res, { allowSeller: false })) return;
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {

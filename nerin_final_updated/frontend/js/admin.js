@@ -167,10 +167,7 @@ function compactText(value, maxLength = 72) {
 }
 
 function getAdminHeaders(extra = {}) {
-  const headers = { ...extra };
-  const adminKey = localStorage.getItem("nerinAdminKey");
-  if (adminKey) headers["x-admin-key"] = adminKey;
-  return headers;
+  return { ...extra };
 }
 
 function cleanLabel(value) {
@@ -3365,7 +3362,7 @@ async function loadProducts(options = {}) {
     });
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
-        throw new Error("No autorizado. Revisá la Admin Key (x-admin-key).");
+        throw new Error("No autorizado. Iniciá sesión con una cuenta con permisos de admin.");
       }
       throw new Error(`GET /api/admin/products failed: ${res.status}`);
     }
@@ -3590,35 +3587,9 @@ duplicateProductBtn.addEventListener("click", async () => {
   }
 });
 
-function ensureAdminKeyForCsvImport() {
-  const savedKey = localStorage.getItem("nerinAdminKey");
-  if (savedKey) return savedKey;
-
-  const providedKey = window.prompt(
-    "Ingresá la clave admin (ADMIN_KEY) para importar CSV. Se guardará en este navegador como nerinAdminKey.",
-  );
-
-  if (!providedKey) {
-    alert("Falta la clave admin (nerinAdminKey) para importar CSV.");
-    return null;
-  }
-
-  const normalizedKey = providedKey.trim();
-  if (!normalizedKey) {
-    alert("La clave admin no puede estar vacía.");
-    return null;
-  }
-
-  localStorage.setItem("nerinAdminKey", normalizedKey);
-  return normalizedKey;
-}
-
 async function importCatalogCsvFromAdmin() {
   if (currentRole !== "admin") {
     alert("Solo administradores pueden importar CSV.");
-    return;
-  }
-  if (!ensureAdminKeyForCsvImport()) {
     return;
   }
   if (!catalogCsvFileInput || !catalogCsvFileInput.files?.length) {
@@ -3655,9 +3626,6 @@ async function importCatalogCsvFromAdmin() {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      if (resp.status === 401) {
-        localStorage.removeItem("nerinAdminKey");
-      }
       throw new Error(data.error || "No se pudo importar el CSV");
     }
     const jobId = data.jobId;
@@ -3757,9 +3725,6 @@ async function importStockXlsxFromAdmin() {
     alert("Solo administradores pueden importar stock XLSX.");
     return;
   }
-  if (!ensureAdminKeyForCsvImport()) {
-    return;
-  }
   if (!stockXlsxFileInput || !stockXlsxFileInput.files?.length) {
     alert("Seleccioná un archivo XLSX antes de importar.");
     return;
@@ -3793,9 +3758,6 @@ async function importStockXlsxFromAdmin() {
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      if (resp.status === 401) {
-        localStorage.removeItem("nerinAdminKey");
-      }
       throw new Error(data.error || "No se pudo importar stock XLSX");
     }
 
