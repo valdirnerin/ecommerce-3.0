@@ -2041,6 +2041,10 @@ function applyCatalogFilters(products = [], query = {}) {
   const search = normalizeQueryText(query.search || query.q || "");
   const category = normalizeQueryText(query.category || "");
   const brand = normalizeQueryText(query.brand || "");
+  const model = normalizeQueryText(query.model || "");
+  const stock = normalizeQueryText(query.stock || "");
+  const priceMaxRaw = Number(query.price_max ?? query.priceMax);
+  const priceMax = Number.isFinite(priceMaxRaw) && priceMaxRaw >= 0 ? priceMaxRaw : null;
   const sort = String(query.sort || "relevance").trim().toLowerCase();
   const filtered = products.filter((product) => {
     if (!product || typeof product !== "object") return false;
@@ -2062,6 +2066,25 @@ function applyCatalogFilters(products = [], query = {}) {
     }
     if (category && normalizeQueryText(product.category) !== category) return false;
     if (brand && normalizeQueryText(product.brand) !== brand) return false;
+    if (model && normalizeQueryText(product.model || product.subcategory) !== model) return false;
+    const numericStock = Number(product.stock);
+    const stockKnown = Number.isFinite(numericStock);
+    if (stock === "in-stock" && !(stockKnown && numericStock > 0)) return false;
+    if (stock === "physical") {
+      const mode = normalizeQueryText(product.stock_mode || product.fulfillment_mode);
+      if (mode && mode !== "physical" && mode !== "fisico" && mode !== "físico") return false;
+    }
+    if (stock === "remote") {
+      const mode = normalizeQueryText(product.stock_mode || product.fulfillment_mode);
+      const remoteStock = Number(product.remote_stock);
+      if (!(mode === "remote" || mode === "remoto" || (Number.isFinite(remoteStock) && remoteStock > 0))) {
+        return false;
+      }
+    }
+    if (priceMax !== null) {
+      const price = Number(product?.price_minorista ?? product?.price ?? 0);
+      if (!Number.isFinite(price) || price > priceMax) return false;
+    }
     return true;
   });
 
@@ -5340,6 +5363,11 @@ async function requestHandler(req, res) {
       const withWholesale = canSeeWholesalePrices(req);
       const safe = withWholesale ? filtered : sanitizePublicProducts(filtered);
       const pageData = paginateItems(safe, page, pageSize);
+      const responsePayload = {
+        ...pageData,
+        usingFallback: storage.usingFallback,
+        source: path.basename(storage.productsFilePath || PRODUCTS_FILE_PATH),
+      };
       logProductsServe("serve", {
         endpoint: "/api/products",
         productsFilePath: storage.productsFilePath,
@@ -5350,7 +5378,9 @@ async function requestHandler(req, res) {
         totalItems: pageData.totalItems,
         usingFallback: storage.usingFallback,
       });
-      return sendJson(res, 200, pageData);
+      return sendJson(res, 200, responsePayload, {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      });
     } catch (err) {
       const storage = inspectProductsStorage();
       logProductsServe("error", {
@@ -5381,6 +5411,11 @@ async function requestHandler(req, res) {
       const { products, storage } = loadProductsStrict();
       const filtered = applyAdminProductFilters(products, parsedUrl.query || {});
       const pageData = paginateItems(filtered, page, pageSize);
+      const responsePayload = {
+        ...pageData,
+        usingFallback: storage.usingFallback,
+        source: path.basename(storage.productsFilePath || PRODUCTS_FILE_PATH),
+      };
       logProductsServe("serve", {
         endpoint: "/api/admin/products",
         productsFilePath: storage.productsFilePath,
@@ -5391,7 +5426,9 @@ async function requestHandler(req, res) {
         totalItems: pageData.totalItems,
         usingFallback: storage.usingFallback,
       });
-      return sendJson(res, 200, pageData);
+      return sendJson(res, 200, responsePayload, {
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      });
     } catch (err) {
       const storage = inspectProductsStorage();
       logProductsServe("error", {

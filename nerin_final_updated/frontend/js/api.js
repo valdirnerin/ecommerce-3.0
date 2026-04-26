@@ -43,14 +43,17 @@ export function apiFetch(path, options = {}) {
 }
 
 // Obtener la lista de productos desde el backend
-export async function fetchProductsPage(params = {}) {
+export async function fetchProductsPage(params = {}, options = {}) {
   const query = new URLSearchParams();
   Object.entries(params || {}).forEach(([key, value]) => {
     if (value == null || value === "") return;
     query.set(key, String(value));
   });
   const endpoint = `/api/products${query.toString() ? `?${query.toString()}` : ""}`;
-  const res = await apiFetch(endpoint);
+  const res = await apiFetch(endpoint, {
+    cache: "no-store",
+    ...(options || {}),
+  });
   if (!res.ok) {
     const errPayload = await res.json().catch(() => ({}));
     throw new Error(

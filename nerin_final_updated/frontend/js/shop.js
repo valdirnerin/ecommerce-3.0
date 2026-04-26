@@ -91,6 +91,27 @@ let currentPage = 1;
 let currentPageSize = 24;
 let totalFilteredItems = 0;
 let hasNextPage = false;
+let hasRealCatalogResponse = false;
+let latestRequestId = 0;
+let filtersInitialized = false;
+
+const SHOP_DEBUG =
+  new URLSearchParams(window.location.search).get("shopDebug") === "1" ||
+  localStorage.getItem("nerinShopDebug") === "1";
+
+function shopLog(message, payload = undefined) {
+  if (!SHOP_DEBUG) return;
+  if (payload === undefined) {
+    console.info(`[shop] ${message}`);
+    return;
+  }
+  console.info(`[shop] ${message}`, payload);
+}
+
+function isProductionStorefront() {
+  const host = String(window.location.hostname || "").toLowerCase();
+  return host !== "localhost" && host !== "127.0.0.1";
+}
 
 const PAGE_SIZE_OPTIONS = [24, 48, 96];
 const loadMoreBtn = document.createElement("button");
@@ -611,46 +632,81 @@ function getCurrentFilters() {
 async function renderProducts({ append = false } = {}) {
   if (!productGrid) return;
   const filters = getCurrentFilters();
+  const requestId = ++latestRequestId;
   if (!append) {
     currentPage = 1;
     allProducts = [];
     productGrid.innerHTML = "<p>Cargando productos…</p>";
   }
   const requestedPage = append ? currentPage + 1 : 1;
-  const response = await fetchProductsPage({
+  const requestParams = {
     page: requestedPage,
     pageSize: currentPageSize,
     search: filters.search,
     category: filters.category,
     brand: filters.brand,
+    model: filters.model,
+    stock: filters.stock,
+    price_max: filters.priceActive ? filters.price : "",
     sort: filters.sort,
+  };
+  shopLog("loadProducts:start", { append, requestId, requestParams });
+  const response = await fetchProductsPage(requestParams);
+  shopLog("response", {
+    requestId,
+    status: "ok",
+    totalItems: response?.totalItems,
+    items: Array.isArray(response?.items) ? response.items.length : 0,
+    usingFallback: Boolean(response?.usingFallback),
+    source: response?.source || "unknown",
   });
+  if (requestId !== latestRequestId) {
+    shopLog("response:ignored-stale", { requestId, latestRequestId });
+    return;
+  }
+  if (response?.usingFallback && isProductionStorefront()) {
+    hasNextPage = false;
+    loadMoreBtn.style.display = "none";
+    updateResultSummary(0);
+    productGrid.innerHTML =
+      "<p>Error: catálogo no disponible temporalmente. Intentá nuevamente en unos minutos.</p>";
+    throw new Error("Respuesta con usingFallback=true bloqueada en producción");
+  }
+  if (!response?.usingFallback) {
+    hasRealCatalogResponse = true;
+  } else if (hasRealCatalogResponse) {
+    shopLog("response:ignored-fallback-after-real", { requestId });
+    return;
+  }
   const normalizedItems = (response.items || [])
     .map(normalizeStorefrontProduct)
     .map(sanitizePublicProduct)
     .filter(Boolean);
+
+  if (!filtersInitialized && !append) {
+    populateFilters(normalizedItems);
+    updateModelOptions(brandFilter?.value || "");
+    configurePriceSlider(normalizedItems);
+    applyInitialFilters();
+    filtersInitialized = true;
+  }
+
   allProducts = append ? allProducts.concat(normalizedItems) : normalizedItems;
   currentPage = Number(response.page || requestedPage || 1);
   hasNextPage = Boolean(response.hasNextPage);
   totalFilteredItems = Number(response.totalItems || allProducts.length);
-
-  const filtered = allProducts.filter((product) => {
-    if (filters.model && normalizeKey(getCatalogModel(product)) !== normalizeKey(filters.model)) return false;
-    const status = getStockStatus(product);
-    const fulfillmentMode = getFulfillmentMode(product);
-    if (filters.stock === "in-stock" && status !== "in" && status !== "low") return false;
-    if (filters.stock === "physical" && fulfillmentMode !== "physical") return false;
-    if (filters.stock === "remote" && fulfillmentMode !== "remote") return false;
-    if (filters.priceActive && resolveDisplayPrice(product).active > filters.price) return false;
-    return true;
-  });
-  const sorted = sortProducts(filtered, filters.sort, filters.search);
   productGrid.innerHTML = "";
-  if (!sorted.length) {
+  if (!allProducts.length) {
     productGrid.innerHTML = "<p>No encontramos productos para esos filtros.</p>";
   } else {
-    sorted.forEach((product) => productGrid.appendChild(createProductCard(product)));
+    allProducts.forEach((product) => productGrid.appendChild(createProductCard(product)));
   }
+  shopLog("renderProducts", {
+    requestId,
+    count: allProducts.length,
+    totalFilteredItems,
+    source: response?.source || "api/products",
+  });
   loadMoreBtn.style.display = hasNextPage ? "inline-flex" : "none";
   if (!loadMoreBtn.parentElement && productGrid.parentElement) {
     productGrid.parentElement.appendChild(loadMoreBtn);
@@ -720,16 +776,9 @@ function setupFiltersUi() {
 
 async function initShop() {
   try {
-    const firstPage = await fetchProductsPage({ page: 1, pageSize: currentPageSize });
-    allProducts = (firstPage.items || [])
-      .map(normalizeStorefrontProduct)
-      .map(sanitizePublicProduct)
-      .filter(Boolean);
-    populateFilters(allProducts);
-    updateModelOptions("");
-    configurePriceSlider(allProducts);
-    applyInitialFilters();
+    shopLog("initShop:start");
     setupFiltersUi();
+    applyInitialFilters();
     if (sortSelect?.parentElement && !document.getElementById("shopPageSize")) {
       sortSelect.parentElement.appendChild(pageSizeSelect);
     }
@@ -758,7 +807,7 @@ async function initShop() {
       if (!mobileLayoutQuery.matches) renderProducts();
     });
 
-    renderProducts();
+    await renderProducts();
   } catch (error) {
     console.error(error);
     if (productGrid) {
