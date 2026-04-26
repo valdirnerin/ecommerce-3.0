@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
 const Decimal = require("decimal.js");
 const { parse } = require("csv-parse");
 const { DATA_DIR } = require("../utils/dataDir");
@@ -19,32 +20,6 @@ const REQUIRED_COLUMNS = [
   "UnitPrice",
   "StockQuantity",
   "MaximumQuantityInOrder",
-];
-
-const ALL_COLUMNS = [
-  "PartId",
-  "ManufacturerName",
-  "ManufacturerId",
-  "ManufacturerArticleCode",
-  "MainCategory",
-  "SubCategory",
-  "PartNumber",
-  "Description",
-  "Status",
-  "CanBeOrdered",
-  "UnitPrice",
-  "StockQuantity",
-  "MaximumQuantityInOrder",
-  "Quality",
-  "Remarks",
-  "ImageUrl",
-  "ImageUrl2",
-  "ImageUrl3",
-  "ImageUrl4",
-  "ImageUrl5",
-  "EanNumber",
-  "CountryOfOrigin",
-  "ProductGroup",
 ];
 
 const IMAGE_COLUMNS = ["ImageUrl", "ImageUrl2", "ImageUrl3", "ImageUrl4", "ImageUrl5"];
@@ -171,10 +146,6 @@ function toImportedRecord(row, line) {
     pricing: null,
     pricingWarnings: [],
     pricingTrace: null,
-    rawRow: ALL_COLUMNS.reduce((acc, key) => {
-      acc[key] = row[key] == null ? null : String(row[key]);
-      return acc;
-    }, {}),
   };
 
   if (!record.manufacturerName) {
@@ -243,7 +214,8 @@ function createBaseSummary() {
     updated: 0,
     skipped: 0,
     failed: 0,
-    errors: [],
+    errorsCount: 0,
+    errorsSample: [],
     safety: {
       skippedUnavailable: 0,
       skippedNoStock: 0,
@@ -266,6 +238,18 @@ function createBaseSummary() {
       archiveMissing: false,
     },
   };
+}
+
+async function estimateCsvRows(filePath) {
+  let lineCount = 0;
+  const rl = readline.createInterface({
+    input: fs.createReadStream(filePath, { encoding: "utf8" }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) {
+    if (String(line || "").trim()) lineCount += 1;
+  }
+  return Math.max(0, lineCount - 1);
 }
 
 function isImportableByAvailability(record) {
@@ -308,16 +292,18 @@ function classifyAvailabilitySkip(record) {
 
 async function buildJsonPersistenceLayer() {
   const filePath = path.join(DATA_DIR, "products.json");
-  let current = [];
+  let products = [];
   try {
-    current = JSON.parse(fs.readFileSync(filePath, "utf8")).products || [];
+    products = JSON.parse(fs.readFileSync(filePath, "utf8")).products || [];
   } catch {
-    current = [];
+    products = [];
   }
 
-  const byId = new Map(current.map((product) => [String(product.id), { ...product }]));
+  const indexById = new Map();
   const partNumberToId = new Map();
-  for (const product of byId.values()) {
+  for (let idx = 0; idx < products.length; idx += 1) {
+    const product = products[idx];
+    indexById.set(String(product.id), idx);
     const supplierPartNumber =
       normalizeCell(product?.metadata?.supplierImport?.supplierPartNumber) ||
       normalizeCell(product?.metadata?.supplierPartNumber) ||
@@ -335,15 +321,17 @@ async function buildJsonPersistenceLayer() {
       for (const item of batch) {
         const id = String(item.record.externalId);
         const normalized = mapImportedRecordToStoreProduct(item.record);
-        if (byId.has(id)) {
-          const previous = byId.get(id);
-          byId.set(id, {
+        if (indexById.has(id)) {
+          const existingIdx = indexById.get(id);
+          const previous = products[existingIdx];
+          products[existingIdx] = {
             ...previous,
             ...normalized,
-          });
+          };
           updated += 1;
         } else {
-          byId.set(id, normalized);
+          indexById.set(id, products.length);
+          products.push(normalized);
           inserted += 1;
         }
         partNumberToId.set(item.supplierPartNumberKey, id);
@@ -352,11 +340,13 @@ async function buildJsonPersistenceLayer() {
     },
     async archiveMissing(importedExternalIds = new Set()) {
       let archived = 0;
-      for (const [id, product] of byId.entries()) {
+      for (let idx = 0; idx < products.length; idx += 1) {
+        const product = products[idx];
+        const id = String(product?.id);
         const importSource = normalizeCell(product?.metadata?.importSource);
         if (importSource !== "catalog_csv") continue;
         if (importedExternalIds.has(String(id))) continue;
-        byId.set(id, {
+        products[idx] = {
           ...product,
           stock: 0,
           remote_stock: 0,
@@ -366,17 +356,16 @@ async function buildJsonPersistenceLayer() {
             catalogCsvArchivedAt: new Date().toISOString(),
             catalogCsvArchivedBecauseMissing: true,
           },
-        });
+        };
         archived += 1;
       }
       return archived;
     },
     async finalize() {
-      const all = Array.from(byId.values());
-      safeWriteJsonWithBackup(filePath, { products: all });
+      safeWriteJsonWithBackup(filePath, { products });
       return {
-        totalProductsAfterImport: all.length,
-        withSupplierPartNumber: all.filter((product) => {
+        totalProductsAfterImport: products.length,
+        withSupplierPartNumber: products.filter((product) => {
           const supplierPartNumber =
             normalizeCell(product?.metadata?.supplierImport?.supplierPartNumber) ||
             normalizeCell(product?.metadata?.supplierPartNumber) ||
@@ -495,7 +484,7 @@ async function importCatalogCsvFile({
   filePath,
   pool = null,
   chunkSize = 400,
-  maxReportedErrors = 500,
+  maxReportedErrors = 100,
   includeOutOfStock = false,
   archiveMissing = false,
   onProgress = null,
@@ -527,8 +516,7 @@ async function importCatalogCsvFile({
   let processedRows = 0;
   let estimatedTotalRows = 0;
   try {
-    const rawCsv = fs.readFileSync(filePath, "utf8");
-    estimatedTotalRows = Math.max(0, rawCsv.split(/\r?\n/).filter(Boolean).length - 1);
+    estimatedTotalRows = await estimateCsvRows(filePath);
   } catch {
     estimatedTotalRows = 0;
   }
@@ -547,8 +535,40 @@ async function importCatalogCsvFile({
 
   const pushError = (error) => {
     summary.failed += 1;
-    if (summary.errors.length < maxReportedErrors) {
-      summary.errors.push(error);
+    summary.errorsCount += 1;
+    if (summary.errorsSample.length < maxReportedErrors) {
+      summary.errorsSample.push(error);
+    }
+  };
+
+  let lastProgressAt = 0;
+  let lastProgressPercent = -1;
+  let lastMemoryLogAt = 0;
+  const maybeLogMemory = () => {
+    const now = Date.now();
+    if (now - lastMemoryLogAt < 5000) return;
+    lastMemoryLogAt = now;
+    const usage = process.memoryUsage();
+    console.info("[csv-import-memory]", {
+      processedRows,
+      rssMB: Number((usage.rss / (1024 * 1024)).toFixed(1)),
+      heapUsedMB: Number((usage.heapUsed / (1024 * 1024)).toFixed(1)),
+      heapTotalMB: Number((usage.heapTotal / (1024 * 1024)).toFixed(1)),
+    });
+  };
+
+  const maybeNotifyProgress = () => {
+    const now = Date.now();
+    const totalRowsForProgress = estimatedTotalRows || summary.totalRows;
+    const percent = totalRowsForProgress > 0
+      ? Math.floor((processedRows / totalRowsForProgress) * 100)
+      : 0;
+    const percentChanged = percent > lastProgressPercent;
+    const enoughTimeElapsed = now - lastProgressAt >= 1000;
+    if (percentChanged || enoughTimeElapsed) {
+      lastProgressAt = now;
+      lastProgressPercent = percent;
+      notifyProgress();
     }
   };
 
@@ -652,7 +672,10 @@ async function importCatalogCsvFile({
     }
     processedRows += 1;
     if (processedRows % progressEveryRows === 0) {
-      notifyProgress();
+      maybeNotifyProgress();
+    }
+    if (processedRows % 500 === 0) {
+      maybeLogMemory();
     }
   }
 
@@ -673,6 +696,7 @@ async function importCatalogCsvFile({
   summary.catalog.hiddenNoStockOrNotOrderable = Number(
     summary.safety.importedHiddenNoStockOrNotOrderable || 0,
   );
+  summary.errors = summary.errorsSample;
   processedRows = summary.totalRows;
   notifyProgress();
 
