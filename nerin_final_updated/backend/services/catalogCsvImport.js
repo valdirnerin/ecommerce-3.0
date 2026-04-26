@@ -5,6 +5,7 @@ const { once } = require("events");
 const Decimal = require("decimal.js");
 const { parse } = require("csv-parse");
 const { DATA_DIR } = require("../utils/dataDir");
+const { readJsonFile } = require("../utils/jsonFile");
 const {
   computePricingForRow,
   createPricingSummaryAccumulator,
@@ -460,7 +461,7 @@ async function importCatalogCsvFile({
 
   let existingProducts = [];
   try {
-    existingProducts = JSON.parse(fs.readFileSync(productsFilePath, "utf8")).products || [];
+    existingProducts = readJsonFile(productsFilePath).products || [];
   } catch {
     existingProducts = [];
   }

@@ -8,7 +8,9 @@
     "test": "jest",
     "validate:meta-feed": "node scripts/validate-meta-feed.js",
     "catalog:enrich-csv": "node scripts/enrichCatalogCsv.js",
-    "inspect:products": "node scripts/inspect-products-file.js"
+    "inspect:products": "node scripts/inspect-products-file.js",
+    "rebuild:products-manifest": "node scripts/rebuildProductsManifest.js",
+    "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
   },
   "dependencies": {
     "@react-email/components": "^0.5.4",

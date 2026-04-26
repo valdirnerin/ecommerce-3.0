@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const XLSX = require("xlsx");
 const { DATA_DIR } = require("../utils/dataDir");
+const { readJsonFile } = require("../utils/jsonFile");
 
 const REQUIRED_COLUMNS = ["Article number", "Quantity in stock (NL)"];
 
@@ -110,7 +111,7 @@ async function buildJsonPersistenceLayer() {
   const filePath = path.join(DATA_DIR, "products.json");
   let current = [];
   try {
-    current = JSON.parse(fs.readFileSync(filePath, "utf8")).products || [];
+    current = readJsonFile(filePath).products || [];
   } catch {
     current = [];
   }
