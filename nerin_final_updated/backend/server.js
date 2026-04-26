@@ -138,6 +138,10 @@ function isPathInside(targetPath, basePath) {
   const rel = path.relative(base, target);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
+
+function isProductsPathInsideRenderDisk(productsFilePath = PRODUCTS_FILE_PATH) {
+  return isPathInside(productsFilePath, RENDER_DISK_MOUNT_PATH);
+}
 const DATA_SOURCE_LABEL = (() => {
   switch (DATA_DIR_SOURCE.type) {
     case "env":
@@ -168,7 +172,7 @@ if (process.env.NODE_ENV !== "test") {
       const list = Array.isArray(raw?.products) ? raw.products : raw;
       count = Array.isArray(list) ? list.length : 0;
     }
-    const isInsideRenderDisk = isPathInside(PRODUCTS_FILE_PATH, RENDER_DISK_MOUNT_PATH);
+    const isInsideRenderDisk = isProductsPathInsideRenderDisk(PRODUCTS_FILE_PATH);
     console.log(`[NERIN] Using products file: ${PRODUCTS_FILE_PATH}`);
     console.log(`[NERIN] DATA_DIR: ${DATA_DIR}`);
     console.log(`[NERIN] RENDER_DISK_MOUNT_PATH: ${RENDER_DISK_MOUNT_PATH || "(unset)"}`);
@@ -3167,7 +3171,7 @@ function inspectProductsStorage() {
   const resolvedRenderDisk = resolveSafePath(RENDER_DISK_MOUNT_PATH);
   const renderDiskExists = resolvedRenderDisk ? fs.existsSync(resolvedRenderDisk) : false;
   const isInsideRepo = isPathInside(resolvedProductsPath, repoRoot);
-  const isInsideRenderDisk = isPathInside(resolvedProductsPath, resolvedRenderDisk);
+  const isInsideRenderDisk = isProductsPathInsideRenderDisk(PRODUCTS_FILE_PATH);
   const isInsideDataDir = isPathInside(resolvedProductsPath, resolvedDataDir);
 
   const report = {
@@ -5278,7 +5282,9 @@ function hydrateHtmlSeo(buffer) {
       return buffer;
     }
     const normalized = baseUrl.replace(/\/+$/, "");
-    const hydrated = html.replace(/__BASE_URL__/g, normalized);
+    const hydrated = html
+      .replace(/__BASE_URL__/g, normalized)
+      .replace(/__BUILD_ID__/g, BUILD_ID);
     if (hydrated === html) {
       return buffer;
     }
@@ -5312,7 +5318,13 @@ function serveStatic(filePath, res, headers = {}) {
     if (ext === ".html") {
       payload = hydrateHtmlSeo(data);
     }
-    res.writeHead(200, { "Content-Type": contentType, ...headers });
+    const staticHeaders = { "Content-Type": contentType, ...headers };
+    if (ext === ".js" && /(?:^|\/)(shop|api)\.js$/i.test(filePath)) {
+      staticHeaders["Cache-Control"] = "no-store, no-cache, must-revalidate";
+      staticHeaders.Pragma = "no-cache";
+      staticHeaders.Expires = "0";
+    }
+    res.writeHead(200, staticHeaders);
     res.end(payload);
   });
 }
@@ -5446,7 +5458,9 @@ async function requestHandler(req, res) {
         usingFallback: storage.usingFallback,
       });
       return sendJson(res, 200, responsePayload, {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+        Pragma: "no-cache",
+        Expires: "0",
       });
     } catch (err) {
       const storage = inspectProductsStorage();
@@ -5494,7 +5508,9 @@ async function requestHandler(req, res) {
         usingFallback: storage.usingFallback,
       });
       return sendJson(res, 200, responsePayload, {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Cache-Control": "no-store, no-cache, must-revalidate, private, max-age=0",
+        Pragma: "no-cache",
+        Expires: "0",
       });
     } catch (err) {
       const storage = inspectProductsStorage();
@@ -10905,8 +10921,14 @@ async function requestHandler(req, res) {
     const { cards, count, summary } = renderShopListing(products, siteBase);
     const listing = cards ||
       '<p class="description">El catálogo estará disponible en breve. Volvé a intentarlo en unos minutos.</p>';
-    const hydratedHead = replaceBasePlaceholders(templateHead, siteBase);
-    let hydratedBody = replaceBasePlaceholders(templateBody, siteBase);
+    const hydratedHead = replaceBasePlaceholders(templateHead, siteBase).replace(
+      /__BUILD_ID__/g,
+      BUILD_ID,
+    );
+    let hydratedBody = replaceBasePlaceholders(templateBody, siteBase).replace(
+      /__BUILD_ID__/g,
+      BUILD_ID,
+    );
     hydratedBody = hydratedBody.replace(
       /<div\s+id=\"productGrid\"[^>]*>\s*<\/div>/i,
       `<div id="productGrid" class="product-grid premium-grid" role="list">${listing}</div>`,

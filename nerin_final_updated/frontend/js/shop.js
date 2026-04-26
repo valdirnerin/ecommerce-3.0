@@ -1,6 +1,22 @@
-import { fetchProductsPage, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
+
+let fetchProductsPageFn = null;
+let getUserRoleFn = () => localStorage.getItem("nerinUserRole");
+let isWholesaleFn = () => {
+  const role = getUserRoleFn();
+  return role === "mayorista" || role === "admin" || role === "vip";
+};
+
+async function ensureApiModule() {
+  if (fetchProductsPageFn) return;
+  const rawVersion = (window && window.NERIN_ASSET_VERSION) || "dev";
+  const version = encodeURIComponent(String(rawVersion));
+  const apiModule = await import(`./api.js?v=${version}`);
+  fetchProductsPageFn = apiModule.fetchProductsPage;
+  getUserRoleFn = apiModule.getUserRole;
+  isWholesaleFn = apiModule.isWholesale;
+}
 
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
@@ -673,7 +689,8 @@ async function renderProducts({ append = false } = {}) {
     sort: filters.sort,
   };
   shopLog("loadProducts:start", { append, requestId, requestParams });
-  const response = await fetchProductsPage(requestParams);
+  await ensureApiModule();
+  const response = await fetchProductsPageFn(requestParams);
   shopLog("response", {
     requestId,
     status: "ok",
@@ -681,6 +698,11 @@ async function renderProducts({ append = false } = {}) {
     items: Array.isArray(response?.items) ? response.items.length : 0,
     usingFallback: Boolean(response?.usingFallback),
     source: response?.source || "unknown",
+  });
+  console.info("[shop] api response", {
+    totalItems: Number(response?.totalItems || 0),
+    itemsLength: Array.isArray(response?.items) ? response.items.length : 0,
+    usingFallback: Boolean(response?.usingFallback),
   });
   if (requestId !== latestRequestId) {
     shopLog("response:ignored-stale", { requestId, latestRequestId });
@@ -692,18 +714,28 @@ async function renderProducts({ append = false } = {}) {
     updateResultSummary(0);
     productGrid.innerHTML =
       "<p>Error: catálogo no disponible temporalmente. Intentá nuevamente en unos minutos.</p>";
+    console.info("[shop] fallback used", { reason: "usingFallback=true in production response" });
     throw new Error("Respuesta con usingFallback=true bloqueada en producción");
   }
   if (!response?.usingFallback) {
     hasRealCatalogResponse = true;
   } else if (hasRealCatalogResponse) {
     shopLog("response:ignored-fallback-after-real", { requestId });
+    console.info("[shop] fallback used", { reason: "fallback response ignored after real catalog response" });
     return;
   }
   const normalizedItems = (response.items || [])
     .map(normalizeStorefrontProduct)
     .map(sanitizePublicProduct)
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((product) => {
+      const title = cleanLabel(product?.name || product?.title || "");
+      if (isProductionStorefront() && title.toLowerCase() === "pantalla iphone 12") {
+        console.info("[shop] fallback used", { reason: "blocked demo product in production", product: title });
+        return false;
+      }
+      return true;
+    });
 
   if (!filtersInitialized && !append) {
     populateFilters(normalizedItems);
@@ -727,6 +759,10 @@ async function renderProducts({ append = false } = {}) {
     requestId,
     count: allProducts.length,
     totalFilteredItems,
+    source: response?.source || "api/products",
+  });
+  console.info("[shop] renderProducts", {
+    count: allProducts.length,
     source: response?.source || "api/products",
   });
   loadMoreBtn.style.display = hasNextPage ? "inline-flex" : "none";
@@ -844,6 +880,6 @@ document.addEventListener("DOMContentLoaded", initShop);
 // preserve role access in case other scripts depend on it
 window.addEventListener("storage", (event) => {
   if (event.key === "nerinUserRole") {
-    getUserRole();
+    getUserRoleFn();
   }
 });

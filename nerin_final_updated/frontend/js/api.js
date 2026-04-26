@@ -43,6 +43,7 @@ export function apiFetch(path, options = {}) {
   return fetch(buildApiUrl(path), {
     ...options,
     headers,
+    cache: options.cache || "no-store",
   });
 }
 
