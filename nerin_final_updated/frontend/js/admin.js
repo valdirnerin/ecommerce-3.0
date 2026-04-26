@@ -3587,6 +3587,100 @@ duplicateProductBtn.addEventListener("click", async () => {
   }
 });
 
+function formatImportProgressError({ endpoint, jobId, status, statusText, errorBody }) {
+  const statusLabel = Number.isFinite(Number(status))
+    ? `status ${status}${statusText ? ` ${statusText}` : ""}`
+    : "sin status HTTP";
+  const bodyLabel = errorBody ? ` · body: ${errorBody}` : "";
+  return `No se pudo consultar progreso: ${statusLabel}${bodyLabel} · jobId=${jobId} · endpoint=${endpoint}`;
+}
+
+async function pollImportJob({
+  jobId,
+  statusElement,
+  progressElement,
+  runningMessage,
+  renderCounters,
+}) {
+  const endpoint = `/api/admin/import/jobs/${encodeURIComponent(jobId)}`;
+  let consecutiveFailures = 0;
+  let warningShown = false;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const progressResp = await apiFetch(endpoint, {
+        headers: getAdminHeaders(),
+      });
+      const rawBody = await progressResp.text();
+      let job = {};
+      try {
+        job = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        job = { error: rawBody || "Respuesta no JSON" };
+      }
+      if (!progressResp.ok) {
+        const details = job?.error || job?.message || rawBody || "sin detalle";
+        throw new Error(
+          formatImportProgressError({
+            endpoint,
+            jobId,
+            status: progressResp.status,
+            statusText: progressResp.statusText,
+            errorBody: String(details),
+          }),
+        );
+      }
+      if (consecutiveFailures > 0 && statusElement) {
+        statusElement.textContent = "Reconexión de progreso OK. Continuando importación…";
+        statusElement.style.color = "";
+      }
+      consecutiveFailures = 0;
+      warningShown = false;
+
+      if (progressElement) {
+        progressElement.value = Number(job.progress || 0);
+        progressElement.style.display = "block";
+      }
+      if (statusElement) {
+        statusElement.textContent =
+          `${job.message || runningMessage} ${job.progress || 0}% · ` +
+          `${job.processedRows || 0} / ${job.totalRows || 0} filas · ${renderCounters(job)}`;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "Falló la importación");
+      }
+      if (job.status === "completed") {
+        return job.summary || {};
+      }
+    } catch (error) {
+      consecutiveFailures += 1;
+      if (statusElement) {
+        if (consecutiveFailures <= 2) {
+          statusElement.textContent = `Reconectando con progreso… intento ${consecutiveFailures}/5`;
+          statusElement.style.color = "";
+        } else if (consecutiveFailures < 5) {
+          warningShown = true;
+          statusElement.textContent =
+            `Reconectando con progreso… (${consecutiveFailures}/5). Último error: ${error?.message || "sin detalle"}`;
+          statusElement.style.color = "darkorange";
+        }
+      }
+      if (consecutiveFailures >= 5) {
+        throw error;
+      }
+      if (warningShown) {
+        console.warn("import-progress-poll-warning", {
+          jobId,
+          endpoint,
+          consecutiveFailures,
+          message: error?.message || error,
+        });
+      }
+    }
+  }
+}
+
 async function importCatalogCsvFromAdmin() {
   if (currentRole !== "admin") {
     alert("Solo administradores pueden importar CSV.");
@@ -3632,33 +3726,15 @@ async function importCatalogCsvFromAdmin() {
     if (!jobId) {
       throw new Error("No se recibió jobId para monitorear la importación");
     }
-    let summary = null;
-    while (!summary) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const progressResp = await apiFetch(`/api/admin/import/jobs/${encodeURIComponent(jobId)}`, {
-        headers: getAdminHeaders(),
-      });
-      const job = await progressResp.json().catch(() => ({}));
-      if (!progressResp.ok) {
-        throw new Error(job.error || "No se pudo consultar progreso de importación");
-      }
-      if (catalogCsvImportProgress) {
-        catalogCsvImportProgress.value = Number(job.progress || 0);
-      }
-      if (catalogCsvImportStatus) {
-        catalogCsvImportStatus.textContent =
-          `${job.message || "Importando catálogo…"} ${job.progress || 0}% · ` +
-          `${job.processedRows || 0} / ${job.totalRows || 0} filas · ` +
-          `Insertados: ${job.inserted || 0} · Actualizados: ${job.updated || 0} · ` +
-          `Salteados: ${job.skipped || 0} · Errores: ${job.errors || 0}`;
-      }
-      if (job.status === "failed") {
-        throw new Error(job.error || job.message || "Falló la importación CSV");
-      }
-      if (job.status === "completed") {
-        summary = job.summary || {};
-      }
-    }
+    const summary = await pollImportJob({
+      jobId,
+      statusElement: catalogCsvImportStatus,
+      progressElement: catalogCsvImportProgress,
+      runningMessage: "Importando catálogo…",
+      renderCounters: (job) =>
+        `Insertados: ${job.inserted || 0} · Actualizados: ${job.updated || 0} · ` +
+        `Salteados: ${job.skipped || 0} · Errores: ${job.errors || 0}`,
+    });
     const pricing = summary.pricing || {};
     const safety = summary.safety || {};
     const catalog = summary.catalog || {};
@@ -3774,33 +3850,15 @@ async function importStockXlsxFromAdmin() {
     if (!jobId) {
       throw new Error("No se recibió jobId para monitorear la importación");
     }
-    let summary = null;
-    while (!summary) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      const progressResp = await apiFetch(`/api/admin/import/jobs/${encodeURIComponent(jobId)}`, {
-        headers: getAdminHeaders(),
-      });
-      const job = await progressResp.json().catch(() => ({}));
-      if (!progressResp.ok) {
-        throw new Error(job.error || "No se pudo consultar progreso de importación");
-      }
-      if (stockXlsxImportProgress) {
-        stockXlsxImportProgress.value = Number(job.progress || 0);
-      }
-      if (stockXlsxImportStatus) {
-        stockXlsxImportStatus.textContent =
-          `${job.message || "Importando stock real…"} ${job.progress || 0}% · ` +
-          `${job.processedRows || 0} / ${job.totalRows || 0} filas · ` +
-          `Actualizados: ${job.updated || 0} · Sin match: ${job.skipped || 0} · ` +
-          `Errores: ${job.errors || 0}`;
-      }
-      if (job.status === "failed") {
-        throw new Error(job.error || job.message || "Falló la importación XLSX");
-      }
-      if (job.status === "completed") {
-        summary = job.summary || {};
-      }
-    }
+    const summary = await pollImportJob({
+      jobId,
+      statusElement: stockXlsxImportStatus,
+      progressElement: stockXlsxImportProgress,
+      runningMessage: "Importando stock real…",
+      renderCounters: (job) =>
+        `Actualizados: ${job.updated || 0} · Sin match: ${job.skipped || 0} · ` +
+        `Errores: ${job.errors || 0}`,
+    });
     const statusMessage =
       `Stock XLSX OK · Filas: ${summary.totalRows || 0} · ` +
       `Matcheados: ${summary.matchedProducts || 0} · ` +

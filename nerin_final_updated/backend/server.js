@@ -200,7 +200,14 @@ const REVIEW_STATUSES = ["PENDING", "PUBLISHED", "FLAGGED", "REMOVED"];
 let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
 const importJobs = new Map();
+const importJobLogBuckets = new Map();
 const IMPORT_JOB_TTL_MS = 60 * 60 * 1000;
+const IMPORT_JOBS_DIR = dataPath("import-jobs");
+const IMPORT_JOB_LOG_STEP = 10;
+
+fsp.mkdir(IMPORT_JOBS_DIR, { recursive: true }).catch((error) => {
+  console.warn("[import-job] no se pudo inicializar carpeta persistente", error?.message || error);
+});
 
 function normalizeBaseUrl(value) {
   if (!value || typeof value !== "string") return null;
@@ -245,6 +252,15 @@ function createImportJob(type = "catalog_csv") {
     updatedAt: new Date().toISOString(),
   };
   importJobs.set(jobId, job);
+  importJobLogBuckets.set(jobId, -1);
+  persistImportJob(job).catch((error) => {
+    console.error("[import-job] persist create failed", jobId, error?.message || error);
+  });
+  console.log("[import-job] created", {
+    jobId,
+    type,
+    status: job.status,
+  });
   return job;
 }
 
@@ -257,7 +273,90 @@ function updateImportJob(jobId, patch = {}) {
     updatedAt: new Date().toISOString(),
   };
   importJobs.set(jobId, next);
+  persistImportJob(next).catch((error) => {
+    console.error("[import-job] persist update failed", jobId, error?.message || error);
+  });
+  const progress = Number(next.progress || 0);
+  const bucket = Number.isFinite(progress) ? Math.floor(progress / IMPORT_JOB_LOG_STEP) : -1;
+  const previousBucket = importJobLogBuckets.get(jobId);
+  const statusChanged = patch.status && patch.status !== current.status;
+  if (statusChanged || (bucket >= 0 && bucket > previousBucket)) {
+    importJobLogBuckets.set(jobId, bucket);
+    console.log("[import-job] updated", {
+      jobId,
+      status: next.status,
+      progress: Number(next.progress || 0),
+      processedRows: Number(next.processedRows || 0),
+      totalRows: Number(next.totalRows || 0),
+      inserted: Number(next.inserted || 0),
+      updated: Number(next.updated || 0),
+      skipped: Number(next.skipped || 0),
+      errors: Number(next.errors || 0),
+      message: next.message || null,
+    });
+  }
+  if (next.status === "completed") {
+    console.log("[import-job] completed", { jobId, type: next.type, progress: next.progress });
+  } else if (next.status === "failed") {
+    console.error("[import-job] failed", {
+      jobId,
+      type: next.type,
+      message: next.error || next.message || "unknown",
+    });
+  }
   return next;
+}
+
+function toImportJobFileName(jobId) {
+  return `${String(jobId || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, "_")}.json`;
+}
+
+function getImportJobFilePath(jobId) {
+  return path.join(IMPORT_JOBS_DIR, toImportJobFileName(jobId));
+}
+
+async function ensureImportJobsDir() {
+  await fsp.mkdir(IMPORT_JOBS_DIR, { recursive: true });
+}
+
+async function persistImportJob(job) {
+  if (!job || !job.jobId) return;
+  await ensureImportJobsDir();
+  const filePath = getImportJobFilePath(job.jobId);
+  const tmpPath = `${filePath}.tmp`;
+  await fsp.writeFile(tmpPath, JSON.stringify(job, null, 2), "utf8");
+  await fsp.rename(tmpPath, filePath);
+}
+
+async function listKnownImportJobIds() {
+  const known = new Set(Array.from(importJobs.keys()));
+  try {
+    const entries = await fsp.readdir(IMPORT_JOBS_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry?.isFile?.() || !entry.name.endsWith(".json")) continue;
+      known.add(entry.name.replace(/\.json$/i, ""));
+    }
+  } catch {}
+  return Array.from(known).sort();
+}
+
+async function getImportJobById(jobId) {
+  const normalizedJobId = String(jobId || "").trim();
+  if (!normalizedJobId) return { job: null, source: "none" };
+  const inMemory = importJobs.get(normalizedJobId);
+  if (inMemory) return { job: inMemory, source: "memory" };
+  try {
+    const filePath = getImportJobFilePath(normalizedJobId);
+    const raw = await fsp.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.jobId === normalizedJobId) {
+      importJobs.set(normalizedJobId, parsed);
+      return { job: parsed, source: "disk" };
+    }
+  } catch {}
+  return { job: null, source: "none" };
 }
 
 function cleanupImportJobs() {
@@ -267,6 +366,8 @@ function cleanupImportJobs() {
     if (!Number.isFinite(updatedAt)) continue;
     if (now - updatedAt > IMPORT_JOB_TTL_MS) {
       importJobs.delete(jobId);
+      importJobLogBuckets.delete(jobId);
+      fsp.unlink(getImportJobFilePath(jobId)).catch(() => {});
     }
   }
 }
@@ -5807,6 +5908,10 @@ async function requestHandler(req, res) {
     const jobs = Array.from(importJobs.values())
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 20);
+    console.log("[import-job] list queried", {
+      requestedBy: resolveAuthUser(req)?.email || resolveAuthUser(req)?.id || "unknown",
+      count: jobs.length,
+    });
     return sendJson(res, 200, { jobs });
   }
 
@@ -5814,8 +5919,16 @@ async function requestHandler(req, res) {
     if (!requireAdmin(req, res, { allowSeller: false })) return;
     cleanupImportJobs();
     const jobId = pathname.split("/").pop();
-    const job = importJobs.get(jobId);
-    if (!job) return sendJson(res, 404, { error: "Job no encontrado" });
+    const { job, source } = await getImportJobById(jobId);
+    console.log("[import-job] get queried", {
+      jobId,
+      source,
+      requestedBy: resolveAuthUser(req)?.email || resolveAuthUser(req)?.id || "unknown",
+    });
+    if (!job) {
+      const knownJobs = await listKnownImportJobIds();
+      return sendJson(res, 404, { error: "Job no encontrado", jobId, knownJobs });
+    }
     return sendJson(res, 200, job);
   }
 
@@ -5865,6 +5978,12 @@ async function requestHandler(req, res) {
       updateImportJob(job.jobId, {
         status: "running",
         message: "Importando catálogo…",
+      });
+      console.log("[catalog-csv-import] started", {
+        jobId: job.jobId,
+        includeOutOfStock,
+        archiveMissing,
+        chunkSize,
       });
       sendJson(res, 202, {
         success: true,
@@ -5953,6 +6072,10 @@ async function requestHandler(req, res) {
       updateImportJob(job.jobId, {
         status: "running",
         message: "Importando stock real…",
+      });
+      console.log("[stock-xlsx-import] started", {
+        jobId: job.jobId,
+        zeroMissingProducts,
       });
       sendJson(res, 202, {
         success: true,
