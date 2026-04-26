@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preview Home | NERIN Parts</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f1f5f9;
+        color: #0f172a;
+      }
+      .preview-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        gap: 0.6rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.8rem 1rem;
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      .preview-toolbar__controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+      button,
+      a {
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        color: #0f172a;
+        border-radius: 10px;
+        padding: 0.5rem 0.7rem;
+        font-size: 0.85rem;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      button.active {
+        border-color: #1d4ed8;
+        color: #1d4ed8;
+      }
+      .preview-stage {
+        padding: 1rem;
+        display: grid;
+        place-items: center;
+      }
+      .preview-frame {
+        width: min(100%, 1440px);
+        height: calc(100vh - 96px);
+        border: 1px solid #dbeafe;
+        border-radius: 14px;
+        background: #fff;
+      }
+      .preview-frame.is-mobile {
+        width: min(100%, 390px);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="preview-toolbar">
+      <strong>NERIN Parts · Home Preview</strong>
+      <div class="preview-toolbar__controls">
+        <button id="desktopBtn" class="active" type="button">Desktop 1440</button>
+        <button id="mobileBtn" type="button">Mobile 390</button>
+        <a href="/index.html" target="_blank" rel="noopener">Abrir home real</a>
+      </div>
+    </div>
+    <div class="preview-stage">
+      <iframe
+        id="previewFrame"
+        class="preview-frame"
+        src="/index.html"
+        title="Preview de home NERIN"
+        loading="eager"
+      ></iframe>
+    </div>
+
+    <script>
+      const frame = document.getElementById('previewFrame');
+      const desktopBtn = document.getElementById('desktopBtn');
+      const mobileBtn = document.getElementById('mobileBtn');
+
+      desktopBtn.addEventListener('click', () => {
+        frame.classList.remove('is-mobile');
+        desktopBtn.classList.add('active');
+        mobileBtn.classList.remove('active');
+      });
+
+      mobileBtn.addEventListener('click', () => {
+        frame.classList.add('is-mobile');
+        mobileBtn.classList.add('active');
+        desktopBtn.classList.remove('active');
+      });
+    </script>
+  </body>
+</html>

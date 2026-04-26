@@ -4,3 +4,6 @@ nerin_final_updated/node_modules/
 nerin_final_updated/package-lock.json
 nerin_final_updated/.env
 frontend/config.js
+nerin_final_updated/preview/*.png
+nerin_final_updated/preview/*.jpg
+nerin_final_updated/preview/*.webp
