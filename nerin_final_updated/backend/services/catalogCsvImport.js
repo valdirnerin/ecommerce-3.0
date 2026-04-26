@@ -335,6 +335,32 @@ async function writeJsonArrayItem(writeStream, state, item) {
   state.count += 1;
 }
 
+
+function writeProductsManifest({
+  productsFilePath,
+  productCount,
+  supplierProductCount,
+  withSupplierPartNumber,
+  publicableCount,
+  hiddenCount,
+  source,
+}) {
+  const manifestPath = path.join(DATA_DIR, "products.manifest.json");
+  const sizeBytes = fs.existsSync(productsFilePath)
+    ? Number(fs.statSync(productsFilePath).size || 0)
+    : 0;
+  const payload = {
+    productCount: Number(productCount || 0),
+    supplierProductCount: Number(supplierProductCount || 0),
+    withSupplierPartNumber: Number(withSupplierPartNumber || 0),
+    publicableCount: Number(publicableCount || 0),
+    hiddenCount: Number(hiddenCount || 0),
+    updatedAt: new Date().toISOString(),
+    source: String(source || "catalogCsvImport"),
+    productsFileSizeBytes: sizeBytes,
+  };
+  fs.writeFileSync(manifestPath, JSON.stringify(payload, null, 2), "utf8");
+}
 async function importCatalogCsvFile({
   filePath,
   pool = null,
@@ -416,6 +442,19 @@ async function importCatalogCsvFile({
     summary.catalog.totalProductsAfterImport = summary.inserted + summary.updated;
     summary.catalog.withSupplierPartNumber = summary.inserted + summary.updated;
     summary.catalog.potentialXlsxMatches = summary.inserted + summary.updated;
+    try {
+      writeProductsManifest({
+        productsFilePath,
+        productCount: summary.catalog.totalProductsAfterImport,
+        supplierProductCount: summary.catalog.totalProductsAfterImport,
+        withSupplierPartNumber: summary.catalog.withSupplierPartNumber,
+        publicableCount: summary.catalog.visibleOrPublishable || summary.catalog.totalProductsAfterImport,
+        hiddenCount: summary.catalog.hiddenNoStockOrNotOrderable || 0,
+        source: "catalogCsvImport.pg",
+      });
+    } catch (manifestError) {
+      console.warn("[catalog-import] no se pudo escribir manifest", manifestError?.message || manifestError);
+    }
     return summary;
   }
 
@@ -632,6 +671,20 @@ async function importCatalogCsvFile({
   summary.errors = summary.errorsSample;
   processedRows = summary.totalRows;
   notifyProgress();
+
+  try {
+    writeProductsManifest({
+      productsFilePath,
+      productCount: summary.catalog.totalProductsAfterImport,
+      supplierProductCount: summary.catalog.totalProductsAfterImport,
+      withSupplierPartNumber: summary.catalog.withSupplierPartNumber,
+      publicableCount: summary.catalog.visibleOrPublishable,
+      hiddenCount: summary.catalog.hiddenNoStockOrNotOrderable,
+      source: "catalogCsvImport.file",
+    });
+  } catch (manifestError) {
+    console.warn("[catalog-import] no se pudo escribir manifest", manifestError?.message || manifestError);
+  }
 
   return {
     ...summary,
