@@ -115,12 +115,29 @@ const IS_DATA_DIR_PERSISTENT =
     : DATA_DIR_SOURCE.type !== "local";
 
 const DATA_DIR = resolvedDataDir;
+const EXPLICIT_DATA_DIR = (process.env.DATA_DIR || "").trim() || null;
 const RENDER_DISK_MOUNT_PATH = (process.env.RENDER_DISK_MOUNT_PATH || "").trim() || null;
 const PRODUCTS_FILE_PATH = (() => {
   const raw = (process.env.PRODUCTS_FILE_PATH || "").trim();
   if (!raw) return dataPath("products.json");
   return path.isAbsolute(raw) ? raw : path.join(DATA_DIR, raw);
 })();
+
+function resolveSafePath(inputPath) {
+  if (!inputPath || typeof inputPath !== "string") return null;
+  const trimmed = inputPath.trim();
+  if (!trimmed) return null;
+  return path.resolve(trimmed);
+}
+
+function isPathInside(targetPath, basePath) {
+  const target = resolveSafePath(targetPath);
+  const base = resolveSafePath(basePath);
+  if (!target || !base) return false;
+  if (target === base) return true;
+  const rel = path.relative(base, target);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
 const DATA_SOURCE_LABEL = (() => {
   switch (DATA_DIR_SOURCE.type) {
     case "env":
@@ -151,13 +168,15 @@ if (process.env.NODE_ENV !== "test") {
       const list = Array.isArray(raw?.products) ? raw.products : raw;
       count = Array.isArray(list) ? list.length : 0;
     }
-    const size = exists ? fs.statSync(PRODUCTS_FILE_PATH).size : 0;
-    console.log(
-      `[NERIN] PRODUCTS_FILE_PATH=${PRODUCTS_FILE_PATH} exists=${exists} size=${size} products=${count} fallbackDemo=false`,
-    );
+    const isInsideRenderDisk = isPathInside(PRODUCTS_FILE_PATH, RENDER_DISK_MOUNT_PATH);
+    console.log(`[NERIN] Using products file: ${PRODUCTS_FILE_PATH}`);
+    console.log(`[NERIN] DATA_DIR: ${DATA_DIR}`);
+    console.log(`[NERIN] RENDER_DISK_MOUNT_PATH: ${RENDER_DISK_MOUNT_PATH || "(unset)"}`);
+    console.log(`[NERIN] productCount: ${count}`);
+    console.log(`[NERIN] isInsideRenderDisk: ${isInsideRenderDisk}`);
   } catch (err) {
     console.error(
-      `[NERIN] PRODUCTS_FILE_PATH=${PRODUCTS_FILE_PATH} exists=unknown products=unknown fallbackDemo=false`,
+      `[NERIN] Using products file: ${PRODUCTS_FILE_PATH}`,
       err,
     );
   }
@@ -3142,20 +3161,64 @@ function getProducts() {
 }
 
 function inspectProductsStorage() {
+  const repoRoot = path.resolve(__dirname, "..");
+  const resolvedProductsPath = resolveSafePath(PRODUCTS_FILE_PATH);
+  const resolvedDataDir = resolveSafePath(DATA_DIR);
+  const resolvedRenderDisk = resolveSafePath(RENDER_DISK_MOUNT_PATH);
+  const renderDiskExists = resolvedRenderDisk ? fs.existsSync(resolvedRenderDisk) : false;
+  const isInsideRepo = isPathInside(resolvedProductsPath, repoRoot);
+  const isInsideRenderDisk = isPathInside(resolvedProductsPath, resolvedRenderDisk);
+  const isInsideDataDir = isPathInside(resolvedProductsPath, resolvedDataDir);
+
   const report = {
+    DATA_DIR,
+    RENDER_DISK_MOUNT_PATH,
+    PRODUCTS_FILE_PATH,
+    "process.cwd()": process.cwd(),
     productsFilePath: PRODUCTS_FILE_PATH,
     dataDir: DATA_DIR,
     exists: false,
     sizeBytes: 0,
     productCount: 0,
     usingFallback: false,
+    isDemoCatalog: false,
     parseError: null,
     firstKey: null,
+    isInsideRepo,
+    isInsideRenderDisk,
     renderDiskExpected:
-      !!RENDER_DISK_MOUNT_PATH ||
+      !!resolvedRenderDisk ||
       DATA_DIR.startsWith("/var/data") ||
       DATA_DIR.startsWith("/var/nerin-data"),
+    warnings: [],
+    errors: [],
   };
+
+  if (resolvedRenderDisk && !renderDiskExists) {
+    report.errors.push(`RENDER_DISK_MOUNT_PATH no existe: ${resolvedRenderDisk}`);
+  }
+
+  if (resolvedProductsPath && resolvedProductsPath.startsWith("/opt/render/project/src") && !isInsideRenderDisk) {
+    report.warnings.push(
+      `productsFilePath está dentro del repo de deploy (/opt/render/project/src) pero fuera del Render Disk mount real (${resolvedRenderDisk || "unset"}).`,
+    );
+  }
+
+  if (IS_PRODUCTION) {
+    const hasExplicitDataDir = Boolean(EXPLICIT_DATA_DIR);
+    const allowedByExplicitDataDir = hasExplicitDataDir && isInsideDataDir;
+    if (!isInsideRenderDisk && !allowedByExplicitDataDir) {
+      report.errors.push(
+        "En producción, productsFilePath debe estar dentro de RENDER_DISK_MOUNT_PATH o de DATA_DIR explícito.",
+      );
+    }
+    if (isInsideRepo && !isInsideRenderDisk && !allowedByExplicitDataDir) {
+      report.errors.push(
+        "En producción no se permite usar carpeta local del repo para products.json sin mount path confirmado.",
+      );
+    }
+  }
+
   try {
     if (!fs.existsSync(PRODUCTS_FILE_PATH)) return report;
     report.exists = true;
@@ -3171,9 +3234,10 @@ function inspectProductsStorage() {
     report.productCount = Array.isArray(list) ? list.length : 0;
     if (IS_PRODUCTION && Array.isArray(list)) {
       const sampleText = JSON.stringify(list.slice(0, 8)).toLowerCase();
-      report.usingFallback =
+      report.isDemoCatalog =
         sampleText.includes("pantalla iphone") ||
         sampleText.includes("producto demo");
+      report.usingFallback = report.isDemoCatalog;
     }
     return report;
   } catch (err) {
@@ -3189,6 +3253,9 @@ function loadProductsStrict() {
   }
   if (storage.parseError) {
     throw new Error(`products.json inválido en ${storage.productsFilePath}: ${storage.parseError}`);
+  }
+  if (IS_PRODUCTION && Array.isArray(storage.errors) && storage.errors.length > 0) {
+    throw new Error(`Storage inválido en producción: ${storage.errors.join(" | ")}`);
   }
   if (IS_PRODUCTION && storage.usingFallback) {
     throw new Error(
