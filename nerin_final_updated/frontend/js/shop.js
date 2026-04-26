@@ -113,6 +113,28 @@ function isProductionStorefront() {
   return host !== "localhost" && host !== "127.0.0.1";
 }
 
+async function disableCatalogClientCaches() {
+  try {
+    if ("serviceWorker" in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((reg) => reg.unregister()));
+      if (regs.length) shopLog("serviceWorker:unregistered", { count: regs.length });
+    }
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys
+          .filter((key) => /products|catalog|shop|api/i.test(key))
+          .map((key) => caches.delete(key)),
+      );
+    }
+    localStorage.removeItem("nerinProductsCache");
+    sessionStorage.removeItem("nerinProductsCache");
+  } catch (err) {
+    shopLog("disableCatalogClientCaches:error", { message: err?.message || String(err) });
+  }
+}
+
 const PAGE_SIZE_OPTIONS = [24, 48, 96];
 const loadMoreBtn = document.createElement("button");
 loadMoreBtn.type = "button";
@@ -777,6 +799,7 @@ function setupFiltersUi() {
 async function initShop() {
   try {
     shopLog("initShop:start");
+    await disableCatalogClientCaches();
     setupFiltersUi();
     applyInitialFilters();
     if (sortSelect?.parentElement && !document.getElementById("shopPageSize")) {
