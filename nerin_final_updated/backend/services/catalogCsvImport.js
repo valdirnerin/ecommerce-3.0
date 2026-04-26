@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const { once } = require("events");
 const Decimal = require("decimal.js");
 const { parse } = require("csv-parse");
 const { DATA_DIR } = require("../utils/dataDir");
@@ -144,8 +145,6 @@ function toImportedRecord(row, line) {
     productGroup: normalizeCell(row.ProductGroup),
     images,
     pricing: null,
-    pricingWarnings: [],
-    pricingTrace: null,
   };
 
   if (!record.manufacturerName) {
@@ -160,50 +159,20 @@ function toImportedRecord(row, line) {
   };
 }
 
-function mapImportedRecordToStoreProduct(imported) {
-  const finalPrice = Number(imported?.pricing?.precio_final_ars);
-  const safePrice =
-    Number.isFinite(finalPrice) && finalPrice > 0 ? finalPrice : imported.unitPrice;
-  const leadDays = Number(imported?.pricing?.tiempo_demora_dias || 20);
-  const safeLeadDays = Number.isFinite(leadDays) && leadDays > 0 ? Math.floor(leadDays) : 20;
-  const metadata = {
-    supplierImport: imported,
-    supplierPartNumber: imported.supplierPartNumber,
-    csvStockQuantity: imported.stockQuantity,
-    externalManufacturerId: imported.externalManufacturerId,
-    manufacturerArticleCode: imported.manufacturerArticleCode,
-    supplierStatus: imported.supplierStatus,
-    importSource: "catalog_csv",
-    importVersion: 1,
-    importedAt: new Date().toISOString(),
-    needsStockSync: true,
-  };
-  const isPublishableByCatalogSignals = isImportableByAvailability(imported);
+function isImportableByAvailability(record) {
+  const stock = Number(record?.stockQuantity || 0);
+  const maxOrder = Number(record?.maximumQuantityInOrder || 0);
+  return Boolean(record?.canBeOrdered) && Boolean(record?.isAvailable) && stock > 0 && maxOrder > 0;
+}
 
+function classifyAvailabilitySkip(record) {
+  const stock = Number(record?.stockQuantity || 0);
+  const maxOrder = Number(record?.maximumQuantityInOrder || 0);
   return {
-    id: String(imported.externalId),
-    sku: imported.supplierPartNumber,
-    name: imported.description,
-    description: imported.description,
-    brand: imported.manufacturerName,
-    price: safePrice,
-    price_minorista: safePrice,
-    price_mayorista: safePrice,
-    stock: 0,
-    min_stock: 0,
-    stock_mode: "remote",
-    fulfillment_mode: "remote",
-    remote_stock: 0,
-    remote_lead_days: safeLeadDays,
-    remote_lead_min_days: safeLeadDays,
-    remote_lead_max_days: safeLeadDays,
-    visibility: isPublishableByCatalogSignals ? "public" : "private",
-    enabled: isPublishableByCatalogSignals,
-    available: false,
-    needsStockSync: true,
-    image: imported.images[0] || null,
-    images: imported.images,
-    metadata,
+    noStock: stock <= 0,
+    notOrderable: !Boolean(record?.canBeOrdered),
+    statusNotAvailable: !Boolean(record?.isAvailable),
+    maxOrderZero: maxOrder <= 0,
   };
 }
 
@@ -252,128 +221,70 @@ async function estimateCsvRows(filePath) {
   return Math.max(0, lineCount - 1);
 }
 
-function isImportableByAvailability(record) {
-  const stock = Number(record?.stockQuantity || 0);
-  const maxOrder = Number(record?.maximumQuantityInOrder || 0);
-  return Boolean(record?.canBeOrdered) && Boolean(record?.isAvailable) && stock > 0 && maxOrder > 0;
-}
-
-function safeWriteJsonWithBackup(filePath, payload) {
-  const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = path.join(
-    dir,
-    `${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-  );
-  const backupPath = `${filePath}.bak`;
-  try {
-    fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), "utf8");
-    if (fs.existsSync(filePath)) {
-      fs.copyFileSync(filePath, backupPath);
-    }
-    fs.renameSync(tmpPath, filePath);
-  } finally {
-    try {
-      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-    } catch {}
-  }
-}
-
-function classifyAvailabilitySkip(record) {
-  const stock = Number(record?.stockQuantity || 0);
-  const maxOrder = Number(record?.maximumQuantityInOrder || 0);
+function createImportError(line, message, context = null) {
   return {
-    noStock: stock <= 0,
-    notOrderable: !Boolean(record?.canBeOrdered),
-    statusNotAvailable: !Boolean(record?.isAvailable),
-    maxOrderZero: maxOrder <= 0,
+    line,
+    message,
+    ...(context ? { context } : {}),
   };
 }
 
-async function buildJsonPersistenceLayer() {
-  const filePath = path.join(DATA_DIR, "products.json");
-  let products = [];
-  try {
-    products = JSON.parse(fs.readFileSync(filePath, "utf8")).products || [];
-  } catch {
-    products = [];
-  }
+function isCatalogImportedProduct(product) {
+  const source = normalizeCell(product?.metadata?.importSource);
+  return source === "catalog_csv" || Boolean(product?.metadata?.supplierImport?.externalId);
+}
 
-  const indexById = new Map();
-  const partNumberToId = new Map();
-  for (let idx = 0; idx < products.length; idx += 1) {
-    const product = products[idx];
-    indexById.set(String(product.id), idx);
-    const supplierPartNumber =
-      normalizeCell(product?.metadata?.supplierImport?.supplierPartNumber) ||
-      normalizeCell(product?.metadata?.supplierPartNumber) ||
-      normalizeCell(product?.sku);
-    if (supplierPartNumber) {
-      partNumberToId.set(supplierPartNumber.toLowerCase(), String(product.id));
-    }
-  }
+function mapImportedRecordToStoreProduct(imported, importedAtIso) {
+  const finalPrice = Number(imported?.pricing?.precio_final_ars);
+  const safePrice =
+    Number.isFinite(finalPrice) && finalPrice > 0 ? finalPrice : imported.unitPrice;
+  const leadDays = Number(imported?.pricing?.tiempo_demora_dias || 20);
+  const safeLeadDays = Number.isFinite(leadDays) && leadDays > 0 ? Math.floor(leadDays) : 20;
+  const metadata = {
+    supplierImport: {
+      source: "parts_csv",
+      externalId: imported.externalId,
+      supplierPartNumber: imported.supplierPartNumber,
+      csvImportedAt: importedAtIso,
+      csvStatus: imported.supplierStatus,
+      csvCanBeOrdered: imported.canBeOrdered,
+      csvStockQuantity: imported.stockQuantity,
+      csvMaximumQuantityInOrder: imported.maximumQuantityInOrder,
+      pricing: imported.pricing || null,
+    },
+    supplierPartNumber: imported.supplierPartNumber,
+    csvStockQuantity: imported.stockQuantity,
+    importSource: "catalog_csv",
+    importVersion: 2,
+    importedAt: importedAtIso,
+    needsStockSync: true,
+  };
+  const isPublishableByCatalogSignals = isImportableByAvailability(imported);
 
   return {
-    partNumberToId,
-    async upsertBatch(batch) {
-      let inserted = 0;
-      let updated = 0;
-      for (const item of batch) {
-        const id = String(item.record.externalId);
-        const normalized = mapImportedRecordToStoreProduct(item.record);
-        if (indexById.has(id)) {
-          const existingIdx = indexById.get(id);
-          const previous = products[existingIdx];
-          products[existingIdx] = {
-            ...previous,
-            ...normalized,
-          };
-          updated += 1;
-        } else {
-          indexById.set(id, products.length);
-          products.push(normalized);
-          inserted += 1;
-        }
-        partNumberToId.set(item.supplierPartNumberKey, id);
-      }
-      return { inserted, updated };
-    },
-    async archiveMissing(importedExternalIds = new Set()) {
-      let archived = 0;
-      for (let idx = 0; idx < products.length; idx += 1) {
-        const product = products[idx];
-        const id = String(product?.id);
-        const importSource = normalizeCell(product?.metadata?.importSource);
-        if (importSource !== "catalog_csv") continue;
-        if (importedExternalIds.has(String(id))) continue;
-        products[idx] = {
-          ...product,
-          stock: 0,
-          remote_stock: 0,
-          visibility: "private",
-          metadata: {
-            ...(product?.metadata || {}),
-            catalogCsvArchivedAt: new Date().toISOString(),
-            catalogCsvArchivedBecauseMissing: true,
-          },
-        };
-        archived += 1;
-      }
-      return archived;
-    },
-    async finalize() {
-      safeWriteJsonWithBackup(filePath, { products });
-      return {
-        totalProductsAfterImport: products.length,
-        withSupplierPartNumber: products.filter((product) => {
-          const supplierPartNumber =
-            normalizeCell(product?.metadata?.supplierImport?.supplierPartNumber) ||
-            normalizeCell(product?.metadata?.supplierPartNumber) ||
-            normalizeCell(product?.sku);
-          return Boolean(supplierPartNumber);
-        }).length,
-      };
-    },
+    id: String(imported.externalId),
+    sku: imported.supplierPartNumber,
+    name: imported.description,
+    description: imported.description,
+    brand: imported.manufacturerName,
+    price: safePrice,
+    price_minorista: safePrice,
+    price_mayorista: safePrice,
+    stock: 0,
+    min_stock: 0,
+    stock_mode: "remote",
+    fulfillment_mode: "remote",
+    remote_stock: 0,
+    remote_lead_days: safeLeadDays,
+    remote_lead_min_days: safeLeadDays,
+    remote_lead_max_days: safeLeadDays,
+    visibility: isPublishableByCatalogSignals ? "public" : "private",
+    enabled: isPublishableByCatalogSignals,
+    available: false,
+    needsStockSync: true,
+    image: imported.images[0] || null,
+    images: imported.images,
+    metadata,
   };
 }
 
@@ -387,97 +298,41 @@ async function buildPgPersistenceLayer(pool) {
   for (const row of rows) {
     const candidate =
       normalizeCell(row.nested_supplier_part_number) || normalizeCell(row.supplier_part_number);
-    if (candidate) {
-      partNumberToId.set(candidate.toLowerCase(), String(row.id));
-    }
+    if (candidate) partNumberToId.set(candidate.toLowerCase(), String(row.id));
   }
-
   return {
     partNumberToId,
-    async upsertBatch(batch) {
+    async upsertBatch(batch, importedAtIso) {
       if (!batch.length) return { inserted: 0, updated: 0 };
       const values = [];
       const placeholders = [];
       let i = 1;
       for (const item of batch) {
-        const mapped = mapImportedRecordToStoreProduct(item.record);
+        const mapped = mapImportedRecordToStoreProduct(item.record, importedAtIso);
         placeholders.push(`($${i},$${i + 1},$${i + 2},$${i + 3},$${i + 4},$${i + 5})`);
-        values.push(
-          mapped.id,
-          mapped.name,
-          mapped.price,
-          mapped.stock,
-          mapped.image,
-          mapped.metadata,
-        );
+        values.push(mapped.id, mapped.name, mapped.price, mapped.stock, mapped.image, mapped.metadata);
         i += 6;
       }
-
-      const sql = `
-        INSERT INTO products (id, name, price, stock, image_url, metadata)
+      const sql = `INSERT INTO products (id, name, price, stock, image_url, metadata)
         VALUES ${placeholders.join(",")}
         ON CONFLICT (id) DO UPDATE SET
-          name = EXCLUDED.name,
-          price = EXCLUDED.price,
-          stock = EXCLUDED.stock,
-          image_url = EXCLUDED.image_url,
-          metadata = EXCLUDED.metadata,
-          updated_at = now()
-        RETURNING (xmax = 0) AS inserted
-      `;
-
+          name = EXCLUDED.name, price = EXCLUDED.price, stock = EXCLUDED.stock,
+          image_url = EXCLUDED.image_url, metadata = EXCLUDED.metadata, updated_at = now()
+        RETURNING (xmax = 0) AS inserted`;
       const result = await pool.query(sql, values);
       const inserted = result.rows.filter((row) => row.inserted).length;
-      const updated = result.rowCount - inserted;
-
-      for (const item of batch) {
-        partNumberToId.set(item.supplierPartNumberKey, String(item.record.externalId));
-      }
-
-      return { inserted, updated };
-    },
-    async archiveMissing(importedExternalIds = new Set()) {
-      const ids = Array.from(importedExternalIds || []).map((id) => String(id));
-      const result = await pool.query(
-        `UPDATE products
-         SET stock = 0,
-             metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-               'catalogCsvArchivedAt', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
-               'catalogCsvArchivedBecauseMissing', true
-             ),
-             updated_at = now()
-         WHERE metadata->>'importSource' = 'catalog_csv'
-           AND (CASE WHEN cardinality($1::text[]) = 0 THEN true ELSE NOT (id::text = ANY($1::text[])) END)`,
-        [ids],
-      );
-      return result.rowCount || 0;
-    },
-    async finalize() {
-      const [{ rows: totalsRows }, { rows: supplierRows }] = await Promise.all([
-        pool.query(`SELECT COUNT(*)::int AS total FROM products`),
-        pool.query(
-          `SELECT COUNT(*)::int AS total
-             FROM products
-            WHERE COALESCE(
-              NULLIF(metadata->'supplierImport'->>'supplierPartNumber', ''),
-              NULLIF(metadata->>'supplierPartNumber', '')
-            ) IS NOT NULL`,
-        ),
-      ]);
-      return {
-        totalProductsAfterImport: Number(totalsRows?.[0]?.total || 0),
-        withSupplierPartNumber: Number(supplierRows?.[0]?.total || 0),
-      };
+      return { inserted, updated: result.rowCount - inserted };
     },
   };
 }
 
-function createImportError(line, message, context = null) {
-  return {
-    line,
-    message,
-    ...(context ? { context } : {}),
-  };
+async function writeJsonArrayItem(writeStream, state, item) {
+  const prefix = state.count > 0 ? "," : "";
+  const serialized = `${prefix}${JSON.stringify(item)}`;
+  if (!writeStream.write(serialized)) {
+    await once(writeStream, "drain");
+  }
+  state.count += 1;
 }
 
 async function importCatalogCsvFile({
@@ -489,6 +344,7 @@ async function importCatalogCsvFile({
   archiveMissing = false,
   onProgress = null,
   progressEveryRows = 250,
+  jobId = `manual_${Date.now()}`,
 }) {
   const summary = createBaseSummary();
   summary.options.includeOutOfStock = Boolean(includeOutOfStock);
@@ -497,9 +353,104 @@ async function importCatalogCsvFile({
   const seenPartIds = new Set();
   const seenPartNumbers = new Set();
 
-  const persistence = pool
-    ? await buildPgPersistenceLayer(pool)
-    : await buildJsonPersistenceLayer();
+  const productsFilePath = path.join(DATA_DIR, "products.json");
+  const stagingPath = path.join(DATA_DIR, `products.importing.${jobId}.json`);
+  const importedAtIso = new Date().toISOString();
+
+  if (pool) {
+    const persistence = await buildPgPersistenceLayer(pool);
+    let pendingBatch = [];
+    let processedRows = 0;
+    const seenPartIds = new Set();
+    const seenPartNumbers = new Set();
+    const importedAtIsoPg = new Date().toISOString();
+    const parseStream = fs.createReadStream(filePath, { encoding: "utf8" }).pipe(parse({
+      columns: true, bom: true, skip_empty_lines: true, relax_column_count: true, info: true,
+    }));
+    const flushBatch = async () => {
+      if (!pendingBatch.length) return;
+      const { inserted, updated } = await persistence.upsertBatch(pendingBatch, importedAtIsoPg);
+      summary.inserted += inserted;
+      summary.updated += updated;
+      pendingBatch = [];
+    };
+    for await (const data of parseStream) {
+      const row = data.record || {};
+      const line = data.info?.lines || null;
+      if (isRowFullyEmpty(row)) continue;
+      summary.totalRows += 1;
+      try {
+        const transformed = toImportedRecord(row, line);
+        transformed.record.pricing = computePricingForRow(row, undefined, {
+          costColumn: "UnitPrice",
+          currencyHeuristics: { assumeEuropeanSupplier: true },
+        }).pricing;
+        pricingSummary.add(row, transformed.record.pricing);
+        if (seenPartIds.has(transformed.rowKey)) throw new Error(`PartId duplicado dentro del CSV (${transformed.rowKey})`);
+        seenPartIds.add(transformed.rowKey);
+        if (seenPartNumbers.has(transformed.supplierPartNumberKey)) throw new Error(`PartNumber duplicado dentro del CSV (${transformed.record.supplierPartNumber})`);
+        seenPartNumbers.add(transformed.supplierPartNumberKey);
+        if (!includeOutOfStock && !isImportableByAvailability(transformed.record)) {
+          const skipReason = classifyAvailabilitySkip(transformed.record);
+          summary.skipped += 1;
+          summary.safety.skippedUnavailable += 1;
+          if (skipReason.noStock) summary.safety.skippedNoStock += 1;
+          if (skipReason.notOrderable) summary.safety.skippedNotOrderable += 1;
+          if (skipReason.statusNotAvailable) summary.safety.skippedStatusNotAvailable += 1;
+          if (skipReason.maxOrderZero) summary.safety.skippedMaxOrderZero += 1;
+          continue;
+        }
+        pendingBatch.push(transformed);
+        if (pendingBatch.length >= chunkSize) await flushBatch();
+      } catch (error) {
+        summary.failed += 1;
+        summary.errorsCount += 1;
+        if (summary.errorsSample.length < maxReportedErrors) summary.errorsSample.push(createImportError(line, error.message));
+      }
+      processedRows += 1;
+      if (onProgress && processedRows % progressEveryRows === 0) onProgress({ processedRows, totalRows: summary.totalRows, inserted: summary.inserted, updated: summary.updated, skipped: summary.skipped, failed: summary.failed });
+    }
+    await flushBatch();
+    summary.pricing = pricingSummary.finalize();
+    summary.errors = summary.errorsSample;
+    summary.catalog.totalProductsAfterImport = summary.inserted + summary.updated;
+    summary.catalog.withSupplierPartNumber = summary.inserted + summary.updated;
+    summary.catalog.potentialXlsxMatches = summary.inserted + summary.updated;
+    return summary;
+  }
+
+  let existingProducts = [];
+  try {
+    existingProducts = JSON.parse(fs.readFileSync(productsFilePath, "utf8")).products || [];
+  } catch {
+    existingProducts = [];
+  }
+
+  const preservedProducts = [];
+  const existingSupplierIds = new Set();
+  const partNumberToId = new Map();
+  for (const product of existingProducts) {
+    const id = String(product?.id || "");
+    if (isCatalogImportedProduct(product)) {
+      if (id) existingSupplierIds.add(id);
+      continue;
+    }
+    preservedProducts.push(product);
+    const supplierPartNumber =
+      normalizeCell(product?.metadata?.supplierPartNumber) || normalizeCell(product?.sku);
+    if (supplierPartNumber && id) {
+      partNumberToId.set(supplierPartNumber.toLowerCase(), id);
+    }
+  }
+
+  fs.mkdirSync(path.dirname(stagingPath), { recursive: true });
+  const writeStream = fs.createWriteStream(stagingPath, { encoding: "utf8" });
+  writeStream.write("{\"products\":[");
+  const writeState = { count: 0 };
+
+  for (const preserved of preservedProducts) {
+    await writeJsonArrayItem(writeStream, writeState, preserved);
+  }
 
   const parseStream = fs.createReadStream(filePath, { encoding: "utf8" }).pipe(
     parse({
@@ -512,7 +463,6 @@ async function importCatalogCsvFile({
   );
 
   let headersValidated = false;
-  let pendingBatch = [];
   let processedRows = 0;
   let estimatedTotalRows = 0;
   try {
@@ -543,19 +493,6 @@ async function importCatalogCsvFile({
 
   let lastProgressAt = 0;
   let lastProgressPercent = -1;
-  let lastMemoryLogAt = 0;
-  const maybeLogMemory = () => {
-    const now = Date.now();
-    if (now - lastMemoryLogAt < 5000) return;
-    lastMemoryLogAt = now;
-    const usage = process.memoryUsage();
-    console.info("[csv-import-memory]", {
-      processedRows,
-      rssMB: Number((usage.rss / (1024 * 1024)).toFixed(1)),
-      heapUsedMB: Number((usage.heapUsed / (1024 * 1024)).toFixed(1)),
-      heapTotalMB: Number((usage.heapTotal / (1024 * 1024)).toFixed(1)),
-    });
-  };
 
   const maybeNotifyProgress = () => {
     const now = Date.now();
@@ -572,126 +509,122 @@ async function importCatalogCsvFile({
     }
   };
 
-  const flushBatch = async () => {
-    if (!pendingBatch.length) return;
-    try {
-      const { inserted, updated } = await persistence.upsertBatch(pendingBatch);
-      summary.inserted += inserted;
-      summary.updated += updated;
-    } catch (error) {
-      for (const item of pendingBatch) {
-        pushError(
-          createImportError(
-            item.line,
-            `Error al persistir producto externalId=${item.record.externalId}: ${error.message}`,
-          ),
-        );
-      }
-    } finally {
-      pendingBatch = [];
-    }
-  };
+  try {
+    for await (const data of parseStream) {
+      const row = data.record || {};
+      const line = data.info?.lines || null;
 
-  for await (const data of parseStream) {
-    const row = data.record || {};
-    const line = data.info?.lines || null;
-
-    if (!headersValidated) {
-      const headers = Object.keys(row);
-      const requiredCheck = validateRequiredColumns(headers);
-      if (!requiredCheck.ok) {
-        const error = new Error(
-          `Faltan columnas obligatorias: ${requiredCheck.missing.join(", ")}`,
-        );
-        error.code = "MISSING_REQUIRED_COLUMNS";
-        throw error;
-      }
-      headersValidated = true;
-    }
-
-    if (isRowFullyEmpty(row)) {
-      summary.skipped += 1;
-      continue;
-    }
-
-    summary.totalRows += 1;
-
-    try {
-      const transformed = toImportedRecord(row, line);
-      const pricingResult = computePricingForRow(row, undefined, {
-        costColumn: "UnitPrice",
-        currencyHeuristics: { assumeEuropeanSupplier: true },
-      });
-      transformed.record.pricing = pricingResult.pricing;
-      transformed.record.pricingWarnings = pricingResult.warnings;
-      transformed.record.pricingTrace = pricingResult.mapping;
-      pricingSummary.add(row, pricingResult.pricing);
-
-      if (seenPartIds.has(transformed.rowKey)) {
-        throw new Error(`PartId duplicado dentro del CSV (${transformed.rowKey})`);
-      }
-      seenPartIds.add(transformed.rowKey);
-
-      if (seenPartNumbers.has(transformed.supplierPartNumberKey)) {
-        throw new Error(
-          `PartNumber duplicado dentro del CSV (${transformed.record.supplierPartNumber})`,
-        );
-      }
-      seenPartNumbers.add(transformed.supplierPartNumberKey);
-
-      const existingOwner = persistence.partNumberToId.get(transformed.supplierPartNumberKey);
-      if (existingOwner && existingOwner !== transformed.rowKey) {
-        throw new Error(
-          `PartNumber ya existe en otro producto (PartId actual: ${existingOwner})`,
-        );
+      if (!headersValidated) {
+        const headers = Object.keys(row);
+        const requiredCheck = validateRequiredColumns(headers);
+        if (!requiredCheck.ok) {
+          const error = new Error(
+            `Faltan columnas obligatorias: ${requiredCheck.missing.join(", ")}`,
+          );
+          error.code = "MISSING_REQUIRED_COLUMNS";
+          throw error;
+        }
+        headersValidated = true;
       }
 
-      if (!includeOutOfStock && !isImportableByAvailability(transformed.record)) {
-        const skipReason = classifyAvailabilitySkip(transformed.record);
+      if (isRowFullyEmpty(row)) {
         summary.skipped += 1;
-        summary.safety.skippedUnavailable += 1;
-        if (skipReason.noStock) summary.safety.skippedNoStock += 1;
-        if (skipReason.notOrderable) summary.safety.skippedNotOrderable += 1;
-        if (skipReason.statusNotAvailable) summary.safety.skippedStatusNotAvailable += 1;
-        if (skipReason.maxOrderZero) summary.safety.skippedMaxOrderZero += 1;
         continue;
       }
 
-      if (isImportableByAvailability(transformed.record)) {
-        summary.safety.importedVisibleOrPublishable += 1;
-      } else {
-        summary.safety.importedHiddenNoStockOrNotOrderable += 1;
+      summary.totalRows += 1;
+
+      try {
+        const transformed = toImportedRecord(row, line);
+        const pricingResult = computePricingForRow(row, undefined, {
+          costColumn: "UnitPrice",
+          currencyHeuristics: { assumeEuropeanSupplier: true },
+        });
+        transformed.record.pricing = pricingResult.pricing;
+        pricingSummary.add(row, pricingResult.pricing);
+
+        if (seenPartIds.has(transformed.rowKey)) {
+          throw new Error(`PartId duplicado dentro del CSV (${transformed.rowKey})`);
+        }
+        seenPartIds.add(transformed.rowKey);
+
+        if (seenPartNumbers.has(transformed.supplierPartNumberKey)) {
+          throw new Error(
+            `PartNumber duplicado dentro del CSV (${transformed.record.supplierPartNumber})`,
+          );
+        }
+        seenPartNumbers.add(transformed.supplierPartNumberKey);
+
+        const existingOwner = partNumberToId.get(transformed.supplierPartNumberKey);
+        if (existingOwner && existingOwner !== transformed.rowKey) {
+          throw new Error(
+            `PartNumber ya existe en otro producto (PartId actual: ${existingOwner})`,
+          );
+        }
+
+        if (!includeOutOfStock && !isImportableByAvailability(transformed.record)) {
+          const skipReason = classifyAvailabilitySkip(transformed.record);
+          summary.skipped += 1;
+          summary.safety.skippedUnavailable += 1;
+          if (skipReason.noStock) summary.safety.skippedNoStock += 1;
+          if (skipReason.notOrderable) summary.safety.skippedNotOrderable += 1;
+          if (skipReason.statusNotAvailable) summary.safety.skippedStatusNotAvailable += 1;
+          if (skipReason.maxOrderZero) summary.safety.skippedMaxOrderZero += 1;
+          continue;
+        }
+
+        if (isImportableByAvailability(transformed.record)) {
+          summary.safety.importedVisibleOrPublishable += 1;
+        } else {
+          summary.safety.importedHiddenNoStockOrNotOrderable += 1;
+        }
+
+        const mapped = mapImportedRecordToStoreProduct(transformed.record, importedAtIso);
+        await writeJsonArrayItem(writeStream, writeState, mapped);
+
+        if (existingSupplierIds.has(transformed.rowKey)) summary.updated += 1;
+        else summary.inserted += 1;
+        partNumberToId.set(transformed.supplierPartNumberKey, transformed.rowKey);
+      } catch (error) {
+        pushError(createImportError(line, error.message));
       }
 
-      pendingBatch.push(transformed);
-      if (pendingBatch.length >= chunkSize) {
-        await flushBatch();
+      processedRows += 1;
+      if (processedRows % progressEveryRows === 0) maybeNotifyProgress();
+      if (processedRows % Math.max(500, chunkSize) === 0) {
+        const usage = process.memoryUsage();
+        console.info("[csv-import-memory]", {
+          processedRows,
+          rssMB: Number((usage.rss / (1024 * 1024)).toFixed(1)),
+          heapUsedMB: Number((usage.heapUsed / (1024 * 1024)).toFixed(1)),
+          heapTotalMB: Number((usage.heapTotal / (1024 * 1024)).toFixed(1)),
+        });
       }
-    } catch (error) {
-      pushError(createImportError(line, error.message));
     }
-    processedRows += 1;
-    if (processedRows % progressEveryRows === 0) {
-      maybeNotifyProgress();
+
+    await new Promise((resolve, reject) => {
+      writeStream.end("]}", "utf8", resolve);
+      writeStream.on("error", reject);
+    });
+
+    const stats = fs.statSync(stagingPath);
+    if (!Number.isFinite(stats.size) || stats.size < 2) {
+      throw new Error("Staging inválido: archivo vacío o corrupto");
     }
-    if (processedRows % 500 === 0) {
-      maybeLogMemory();
-    }
+
+    fs.renameSync(stagingPath, productsFilePath);
+  } catch (error) {
+    try {
+      writeStream.destroy();
+    } catch {}
+    throw Object.assign(error, { stagingPath, productsFilePath, processedRows });
   }
 
-  await flushBatch();
-  if (archiveMissing && typeof persistence.archiveMissing === "function") {
-    summary.safety.archivedMissing = await persistence.archiveMissing(seenPartIds);
-  }
-  const persistenceStats = await persistence.finalize();
+  summary.safety.archivedMissing = archiveMissing ? Math.max(existingSupplierIds.size - seenPartIds.size, 0) : 0;
   summary.pricing = pricingSummary.finalize();
-  summary.catalog.totalProductsAfterImport = Number(
-    persistenceStats?.totalProductsAfterImport || 0,
-  );
-  summary.catalog.withSupplierPartNumber = Number(
-    persistenceStats?.withSupplierPartNumber || 0,
-  );
-  summary.catalog.potentialXlsxMatches = summary.catalog.withSupplierPartNumber;
+  summary.catalog.totalProductsAfterImport = writeState.count;
+  summary.catalog.withSupplierPartNumber = writeState.count;
+  summary.catalog.potentialXlsxMatches = writeState.count;
   summary.catalog.visibleOrPublishable = Number(summary.safety.importedVisibleOrPublishable || 0);
   summary.catalog.hiddenNoStockOrNotOrderable = Number(
     summary.safety.importedHiddenNoStockOrNotOrderable || 0,
@@ -700,7 +633,11 @@ async function importCatalogCsvFile({
   processedRows = summary.totalRows;
   notifyProgress();
 
-  return summary;
+  return {
+    ...summary,
+    stagingPath,
+    productsFilePath,
+  };
 }
 
 module.exports = {
