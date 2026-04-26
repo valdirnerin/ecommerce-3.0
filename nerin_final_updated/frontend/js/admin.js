@@ -3615,8 +3615,8 @@ async function importCatalogCsvFromAdmin() {
     const includeOutOfStock = Boolean(catalogCsvIncludeOutOfStock?.checked);
     const archiveMissing = catalogCsvArchiveMissing?.checked !== false;
     const query = new URLSearchParams();
-    if (includeOutOfStock) query.set("includeOutOfStock", "1");
-    if (archiveMissing) query.set("archiveMissing", "1");
+    query.set("includeOutOfStock", includeOutOfStock ? "1" : "0");
+    query.set("archiveMissing", archiveMissing ? "1" : "0");
     const importUrl = `/api/admin/import/catalog-csv${query.toString() ? `?${query.toString()}` : ""}`;
 
     const resp = await apiFetch(importUrl, {
@@ -3662,9 +3662,18 @@ async function importCatalogCsvFromAdmin() {
     const pricing = summary.pricing || {};
     const safety = summary.safety || {};
     const catalog = summary.catalog || {};
+    const options = summary.options || {};
+    const includeCatalogAll =
+      typeof options.includeOutOfStock === "boolean"
+        ? options.includeOutOfStock
+        : includeOutOfStock;
+    const archiveMissingApplied =
+      typeof options.archiveMissing === "boolean" ? options.archiveMissing : archiveMissing;
     const statusMessage =
       `Importación OK · Filas: ${summary.totalRows || 0} · ` +
       `Insertados: ${summary.inserted || 0} · Actualizados: ${summary.updated || 0} · ` +
+      `Modo catálogo completo: ${includeCatalogAll ? "Sí" : "No"} · ` +
+      `Desactivar faltantes CSV: ${archiveMissingApplied ? "Sí" : "No"} · ` +
       `Desactivados por no venir en CSV: ${safety.archivedMissing || 0} · ` +
       `Salteados por stock/estado: ${safety.skippedUnavailable || 0} · ` +
       `Errores: ${summary.failed || 0} · Pricing OK: ${pricing.okRows || 0} · ` +
