@@ -1,4 +1,4 @@
-import { fetchProducts, getUserRole, isWholesale } from "./api.js";
+import { fetchProductsPage, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
@@ -87,6 +87,25 @@ const mobileLayoutQuery = window.matchMedia("(max-width: 900px)");
 
 let allProducts = [];
 let priceFilterTouched = false;
+let currentPage = 1;
+let currentPageSize = 24;
+let totalFilteredItems = 0;
+let hasNextPage = false;
+
+const PAGE_SIZE_OPTIONS = [24, 48, 96];
+const loadMoreBtn = document.createElement("button");
+loadMoreBtn.type = "button";
+loadMoreBtn.className = "button secondary";
+loadMoreBtn.id = "shopLoadMoreBtn";
+loadMoreBtn.textContent = "Cargar más";
+const pageSizeSelect = document.createElement("select");
+pageSizeSelect.id = "shopPageSize";
+PAGE_SIZE_OPTIONS.forEach((size) => {
+  const option = document.createElement("option");
+  option.value = String(size);
+  option.textContent = `${size} por página`;
+  pageSizeSelect.appendChild(option);
+});
 
 function formatCurrency(value) {
   const amount = Number(value);
@@ -576,8 +595,7 @@ function updateActiveFilters(filters) {
   });
 }
 
-function renderProducts() {
-  if (!productGrid) return;
+function getCurrentFilters() {
   const search = searchInput?.value?.trim() || "";
   const brand = brandFilter?.value || "";
   const model = modelFilter?.value || "";
@@ -587,42 +605,57 @@ function renderProducts() {
   const price = Number(priceRange?.value) || 0;
   const priceMax = Number(priceRange?.max) || 0;
   const priceActive = priceFilterTouched && priceMax > 0 && price < priceMax;
+  return { search, brand, model, category, stock, sort, price, priceActive };
+}
+
+async function renderProducts({ append = false } = {}) {
+  if (!productGrid) return;
+  const filters = getCurrentFilters();
+  if (!append) {
+    currentPage = 1;
+    allProducts = [];
+    productGrid.innerHTML = "<p>Cargando productos…</p>";
+  }
+  const requestedPage = append ? currentPage + 1 : 1;
+  const response = await fetchProductsPage({
+    page: requestedPage,
+    pageSize: currentPageSize,
+    search: filters.search,
+    category: filters.category,
+    brand: filters.brand,
+    sort: filters.sort,
+  });
+  const normalizedItems = (response.items || [])
+    .map(normalizeStorefrontProduct)
+    .map(sanitizePublicProduct)
+    .filter(Boolean);
+  allProducts = append ? allProducts.concat(normalizedItems) : normalizedItems;
+  currentPage = Number(response.page || requestedPage || 1);
+  hasNextPage = Boolean(response.hasNextPage);
+  totalFilteredItems = Number(response.totalItems || allProducts.length);
 
   const filtered = allProducts.filter((product) => {
-    const haystack = [
-      product.name,
-      product.sku,
-      getCatalogBrand(product),
-      getCatalogModel(product),
-      cleanLabel(product.category),
-      getPartLabel(product),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    if (search && !haystack.includes(search.toLowerCase())) return false;
-    if (brand && normalizeKey(getCatalogBrand(product)) !== normalizeKey(brand)) return false;
-    if (model && normalizeKey(getCatalogModel(product)) !== normalizeKey(model)) return false;
-    if (category && normalizeKey(product.category) !== normalizeKey(category)) return false;
+    if (filters.model && normalizeKey(getCatalogModel(product)) !== normalizeKey(filters.model)) return false;
     const status = getStockStatus(product);
     const fulfillmentMode = getFulfillmentMode(product);
-    if (stock === "in-stock" && status !== "in" && status !== "low") return false;
-    if (stock === "physical" && fulfillmentMode !== "physical") return false;
-    if (stock === "remote" && fulfillmentMode !== "remote") return false;
-    if (priceActive && resolveDisplayPrice(product).active > price) return false;
+    if (filters.stock === "in-stock" && status !== "in" && status !== "low") return false;
+    if (filters.stock === "physical" && fulfillmentMode !== "physical") return false;
+    if (filters.stock === "remote" && fulfillmentMode !== "remote") return false;
+    if (filters.priceActive && resolveDisplayPrice(product).active > filters.price) return false;
     return true;
   });
-
-  const sorted = sortProducts(filtered, sort, search);
+  const sorted = sortProducts(filtered, filters.sort, filters.search);
   productGrid.innerHTML = "";
   if (!sorted.length) {
     productGrid.innerHTML = "<p>No encontramos productos para esos filtros.</p>";
   } else {
     sorted.forEach((product) => productGrid.appendChild(createProductCard(product)));
   }
-
-  const filters = { search, brand, model, category, stock, sort, price, priceActive };
-  updateResultSummary(sorted.length);
+  loadMoreBtn.style.display = hasNextPage ? "inline-flex" : "none";
+  if (!loadMoreBtn.parentElement && productGrid.parentElement) {
+    productGrid.parentElement.appendChild(loadMoreBtn);
+  }
+  updateResultSummary(totalFilteredItems);
   updateActiveFilters(filters);
   syncQueryParams(filters);
 }
@@ -687,8 +720,8 @@ function setupFiltersUi() {
 
 async function initShop() {
   try {
-    const rawProducts = await fetchProducts();
-    allProducts = rawProducts
+    const firstPage = await fetchProductsPage({ page: 1, pageSize: currentPageSize });
+    allProducts = (firstPage.items || [])
       .map(normalizeStorefrontProduct)
       .map(sanitizePublicProduct)
       .filter(Boolean);
@@ -697,8 +730,11 @@ async function initShop() {
     configurePriceSlider(allProducts);
     applyInitialFilters();
     setupFiltersUi();
+    if (sortSelect?.parentElement && !document.getElementById("shopPageSize")) {
+      sortSelect.parentElement.appendChild(pageSizeSelect);
+    }
 
-    searchInput?.addEventListener("input", renderProducts);
+    searchInput?.addEventListener("input", () => renderProducts());
     searchClear?.addEventListener("click", () => {
       searchInput.value = "";
       renderProducts();
@@ -707,10 +743,15 @@ async function initShop() {
       updateModelOptions(brandFilter.value);
       renderProducts();
     });
-    modelFilter?.addEventListener("change", renderProducts);
-    categoryFilter?.addEventListener("change", renderProducts);
-    stockFilter?.addEventListener("change", renderProducts);
-    sortSelect?.addEventListener("change", renderProducts);
+    modelFilter?.addEventListener("change", () => renderProducts());
+    categoryFilter?.addEventListener("change", () => renderProducts());
+    stockFilter?.addEventListener("change", () => renderProducts());
+    sortSelect?.addEventListener("change", () => renderProducts());
+    pageSizeSelect?.addEventListener("change", () => {
+      currentPageSize = Number(pageSizeSelect.value) || 24;
+      renderProducts();
+    });
+    loadMoreBtn.addEventListener("click", () => renderProducts({ append: true }));
     priceRange?.addEventListener("input", () => {
       priceFilterTouched = true;
       updatePriceRangeDisplay();

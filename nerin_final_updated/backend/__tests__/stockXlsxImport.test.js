@@ -48,7 +48,14 @@ describe("stockXlsxImport", () => {
               id: "1",
               sku: "GH82-33638A",
               stock: 1,
-              metadata: { supplierPartNumber: "GH82-33638A" },
+              metadata: {
+                supplierPartNumber: "GH82-33638A",
+                supplierImport: {
+                  canBeOrdered: true,
+                  isAvailable: true,
+                  maximumQuantityInOrder: 5,
+                },
+              },
             },
           ],
         },
@@ -84,7 +91,11 @@ describe("stockXlsxImport", () => {
     expect(saved.products[0].stock).toBe(25);
     expect(saved.products[0].stockRaw).toBe("25+");
     expect(saved.products[0].stockIsAtLeast).toBe(true);
+    expect(saved.products[0].visibility).toBe("public");
+    expect(saved.products[0].enabled).toBe(true);
+    expect(saved.products[0].needsStockSync).toBe(false);
     expect(saved.products[0].metadata.stockSource).toBe("mps_xlsx_nl");
+    expect(saved.products[0].metadata.needsStockSync).toBe(false);
     expect(fs.existsSync(`${productsPath}.bak`)).toBe(true);
 
     fs.rmSync(tempDir, { recursive: true, force: true });

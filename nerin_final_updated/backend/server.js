@@ -156,6 +156,8 @@ const REVIEW_STATUSES = ["PENDING", "PUBLISHED", "FLAGGED", "REMOVED"];
 
 let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
+const importJobs = new Map();
+const IMPORT_JOB_TTL_MS = 60 * 60 * 1000;
 
 function normalizeBaseUrl(value) {
   if (!value || typeof value !== "string") return null;
@@ -178,6 +180,59 @@ function getPublicBaseUrl(cfg) {
   const fromEnv = normalizeBaseUrl(process.env.PUBLIC_URL);
   if (fromEnv) return fromEnv;
   return FALLBACK_BASE_URL;
+}
+
+function createImportJob(type = "catalog_csv") {
+  const jobId = `import_${type}_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+  const job = {
+    jobId,
+    type,
+    status: "queued",
+    progress: 0,
+    processedRows: 0,
+    totalRows: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    errors: 0,
+    message: "En cola…",
+    summary: null,
+    error: null,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  importJobs.set(jobId, job);
+  return job;
+}
+
+function updateImportJob(jobId, patch = {}) {
+  const current = importJobs.get(jobId);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  importJobs.set(jobId, next);
+  return next;
+}
+
+function cleanupImportJobs() {
+  const now = Date.now();
+  for (const [jobId, job] of importJobs.entries()) {
+    const updatedAt = new Date(job.updatedAt || job.startedAt || Date.now()).getTime();
+    if (!Number.isFinite(updatedAt)) continue;
+    if (now - updatedAt > IMPORT_JOB_TTL_MS) {
+      importJobs.delete(jobId);
+    }
+  }
+}
+
+function hasRunningImportJob() {
+  for (const job of importJobs.values()) {
+    if (job.status === "queued" || job.status === "running") return true;
+  }
+  return false;
 }
 
 function buildReviewLink({ tokenId, tokenPlain, cfg } = {}) {
@@ -1907,6 +1962,183 @@ function sanitizePublicProducts(products) {
     delete sanitized.price_wholesale;
     return sanitized;
   });
+}
+
+function normalizeQueryText(value) {
+  const text = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!text) return "";
+  try {
+    return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  } catch {
+    return text;
+  }
+}
+
+function parsePaginationParams(query = {}, defaults = {}) {
+  const defaultPage = Number(defaults.page || 1);
+  const defaultPageSize = Number(defaults.pageSize || 24);
+  const maxPageSize = Number(defaults.maxPageSize || 250);
+  const pageRaw = Number(query.page);
+  const sizeRaw = Number(query.pageSize || query.limit);
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : defaultPage;
+  const pageSize =
+    Number.isFinite(sizeRaw) && sizeRaw > 0
+      ? Math.min(Math.floor(sizeRaw), maxPageSize)
+      : defaultPageSize;
+  return { page, pageSize };
+}
+
+function paginateItems(items = [], page = 1, pageSize = 24) {
+  const totalItems = Array.isArray(items) ? items.length : 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const start = (safePage - 1) * pageSize;
+  const end = start + pageSize;
+  return {
+    items: items.slice(start, end),
+    page: safePage,
+    pageSize,
+    totalItems,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+    hasPrevPage: safePage > 1,
+  };
+}
+
+function getSupplierPartNumber(product = {}) {
+  return String(
+    product?.metadata?.supplierImport?.supplierPartNumber ||
+      product?.metadata?.supplierPartNumber ||
+      product?.sku ||
+      "",
+  ).trim();
+}
+
+function applyCatalogFilters(products = [], query = {}) {
+  const search = normalizeQueryText(query.search || query.q || "");
+  const category = normalizeQueryText(query.category || "");
+  const brand = normalizeQueryText(query.brand || "");
+  const sort = String(query.sort || "relevance").trim().toLowerCase();
+  const filtered = products.filter((product) => {
+    if (!product || typeof product !== "object") return false;
+    if (search) {
+      const haystack = normalizeQueryText(
+        [
+          product.name,
+          product.sku,
+          product.brand,
+          product.model,
+          product.category,
+          product.subcategory,
+          product?.metadata?.supplierImport?.supplierPartNumber,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (!haystack.includes(search)) return false;
+    }
+    if (category && normalizeQueryText(product.category) !== category) return false;
+    if (brand && normalizeQueryText(product.brand) !== brand) return false;
+    return true;
+  });
+
+  const byPrice = (product) =>
+    Number(product?.price_minorista ?? product?.price ?? 0) || 0;
+  const byStock = (product) => Number(product?.stock ?? 0) || 0;
+
+  switch (sort) {
+    case "price-asc":
+      filtered.sort((a, b) => byPrice(a) - byPrice(b));
+      break;
+    case "price-desc":
+      filtered.sort((a, b) => byPrice(b) - byPrice(a));
+      break;
+    case "stock-desc":
+      filtered.sort((a, b) => byStock(b) - byStock(a));
+      break;
+    case "name":
+      filtered.sort((a, b) =>
+        String(a?.name || "").localeCompare(String(b?.name || ""), "es", { sensitivity: "base" }),
+      );
+      break;
+    default:
+      filtered.sort((a, b) => String(a?.id || "").localeCompare(String(b?.id || ""), "es"));
+      break;
+  }
+  return filtered;
+}
+
+function applyAdminProductFilters(products = [], query = {}) {
+  const search = normalizeQueryText(query.search || query.q || "");
+  const category = normalizeQueryText(query.category || "");
+  const brand = normalizeQueryText(query.brand || "");
+  const visibility = normalizeQueryText(query.visibility || "");
+  const stockStatus = normalizeQueryText(query.stockStatus || query.stock || "");
+  const sort = String(query.sort || "recent").trim().toLowerCase();
+  const filtered = products.filter((product) => {
+    if (!product || typeof product !== "object") return false;
+    if (search) {
+      const haystack = normalizeQueryText(
+        [
+          product.name,
+          product.sku,
+          product.brand,
+          product.model,
+          product.category,
+          product.subcategory,
+          getSupplierPartNumber(product),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (!haystack.includes(search)) return false;
+    }
+    if (category && normalizeQueryText(product.category) !== category) return false;
+    if (brand && normalizeQueryText(product.brand) !== brand) return false;
+    if (visibility && normalizeQueryText(product.visibility || "public") !== visibility) return false;
+
+    const stock = Number(product.stock);
+    const minStock = Number(product.min_stock);
+    if (stockStatus === "out" && !(Number.isFinite(stock) && stock <= 0)) return false;
+    if (
+      stockStatus === "low" &&
+      !(Number.isFinite(stock) && Number.isFinite(minStock) && minStock > 0 && stock > 0 && stock < minStock)
+    ) {
+      return false;
+    }
+    if (stockStatus === "in" && !(Number.isFinite(stock) && stock > 0)) return false;
+    return true;
+  });
+
+  const byTs = (product) => {
+    const raw = product?.updated_at || product?.updatedAt || product?.created_at || product?.createdAt;
+    const ts = new Date(raw || 0).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+  const byName = (product) => String(product?.name || "");
+  const byStock = (product) => Number(product?.stock ?? 0) || 0;
+  const byPrice = (product) => Number(product?.price_minorista ?? product?.price ?? 0) || 0;
+
+  switch (sort) {
+    case "name":
+      filtered.sort((a, b) => byName(a).localeCompare(byName(b), "es", { sensitivity: "base" }));
+      break;
+    case "stock":
+      filtered.sort((a, b) => byStock(b) - byStock(a));
+      break;
+    case "price_desc":
+      filtered.sort((a, b) => byPrice(b) - byPrice(a));
+      break;
+    case "price_asc":
+      filtered.sort((a, b) => byPrice(a) - byPrice(b));
+      break;
+    default:
+      filtered.sort((a, b) => byTs(b) - byTs(a));
+      break;
+  }
+  return filtered;
 }
 function findUserByEmail(email) {
   const normalized = normalizeEmailInput(email);
@@ -5009,16 +5241,39 @@ async function requestHandler(req, res) {
   // API: obtener productos
   if (pathname === "/api/products" && req.method === "GET") {
     try {
-      const products = getProducts();
-      const withWholesale = canSeeWholesalePrices(req);
-      return sendJson(res, 200, {
-        products: withWholesale ? products : sanitizePublicProducts(products),
+      const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
+        page: 1,
+        pageSize: 24,
+        maxPageSize: 96,
       });
+      const products = getProducts().filter((product) => isProductPublic(product));
+      const filtered = applyCatalogFilters(products, parsedUrl.query || {});
+      const withWholesale = canSeeWholesalePrices(req);
+      const safe = withWholesale ? filtered : sanitizePublicProducts(filtered);
+      const pageData = paginateItems(safe, page, pageSize);
+      return sendJson(res, 200, pageData);
     } catch (err) {
       console.error(err);
       return sendJson(res, 500, {
         error: "No se pudieron cargar los productos",
       });
+    }
+  }
+
+  if (pathname === "/api/admin/products" && req.method === "GET") {
+    try {
+      const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
+        page: 1,
+        pageSize: 100,
+        maxPageSize: 250,
+      });
+      const products = getProducts();
+      const filtered = applyAdminProductFilters(products, parsedUrl.query || {});
+      const pageData = paginateItems(filtered, page, pageSize);
+      return sendJson(res, 200, pageData);
+    } catch (err) {
+      console.error("admin-products-list", err);
+      return sendJson(res, 500, { error: "No se pudieron cargar los productos del admin" });
     }
   }
 
@@ -5286,7 +5541,26 @@ async function requestHandler(req, res) {
     return;
   }
 
-  if (pathname === "/api/import/catalog-csv" && req.method === "POST") {
+  if (pathname === "/api/admin/import/jobs" && req.method === "GET") {
+    cleanupImportJobs();
+    const jobs = Array.from(importJobs.values())
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 20);
+    return sendJson(res, 200, { jobs });
+  }
+
+  if (pathname.startsWith("/api/admin/import/jobs/") && req.method === "GET") {
+    cleanupImportJobs();
+    const jobId = pathname.split("/").pop();
+    const job = importJobs.get(jobId);
+    if (!job) return sendJson(res, 404, { error: "Job no encontrado" });
+    return sendJson(res, 200, job);
+  }
+
+  if (
+    (pathname === "/api/admin/import/catalog-csv" || pathname === "/api/import/catalog-csv") &&
+    req.method === "POST"
+  ) {
     const adminKey = req.headers["x-admin-key"];
     if (!process.env.ADMIN_KEY) {
       return sendJson(res, 503, {
@@ -5296,6 +5570,11 @@ async function requestHandler(req, res) {
     }
     if (adminKey !== process.env.ADMIN_KEY) {
       return sendJson(res, 401, { error: "Unauthorized" });
+    }
+    if (hasRunningImportJob()) {
+      return sendJson(res, 409, {
+        error: "Ya hay una importación en curso. Esperá a que finalice.",
+      });
     }
     const chunkSizeParam = Number(parsedUrl.query.chunkSize || parsedUrl.query.chunk_size || 400);
     const chunkSize = Number.isFinite(chunkSizeParam) && chunkSizeParam > 0
@@ -5321,35 +5600,73 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo CSV" });
       }
 
-      try {
-        const summary = await importCatalogCsvFile({
-          filePath: req.file.path,
-          pool: null,
-          chunkSize,
-          includeOutOfStock,
-          archiveMissing,
-        });
-        return sendJson(res, 200, {
-          success: true,
-          summary,
-        });
-      } catch (importError) {
-        console.error("catalog-csv-import", importError);
-        const statusCode = importError?.code === "MISSING_REQUIRED_COLUMNS" ? 400 : 500;
-        return sendJson(res, statusCode, {
-          success: false,
-          error: importError.message || "Error al importar catálogo CSV",
-        });
-      } finally {
+      const job = createImportJob("catalog_csv");
+      updateImportJob(job.jobId, {
+        status: "running",
+        message: "Importando catálogo…",
+      });
+      sendJson(res, 202, {
+        success: true,
+        jobId: job.jobId,
+      });
+      (async () => {
         try {
-          await fsp.unlink(req.file.path);
-        } catch {}
-      }
+          const summary = await importCatalogCsvFile({
+            filePath: req.file.path,
+            pool: null,
+            chunkSize,
+            includeOutOfStock,
+            archiveMissing,
+            onProgress: (progressPayload = {}) => {
+              const totalRows = Number(progressPayload.totalRows || 0);
+              const processedRows = Number(progressPayload.processedRows || 0);
+              const progress = totalRows > 0 ? Math.min(99, Math.floor((processedRows / totalRows) * 100)) : 0;
+              updateImportJob(job.jobId, {
+                status: "running",
+                progress,
+                processedRows,
+                totalRows,
+                inserted: Number(progressPayload.inserted || 0),
+                updated: Number(progressPayload.updated || 0),
+                skipped: Number(progressPayload.skipped || 0),
+                errors: Number(progressPayload.failed || 0),
+                message: "Importando catálogo…",
+              });
+            },
+          });
+          updateImportJob(job.jobId, {
+            status: "completed",
+            progress: 100,
+            processedRows: Number(summary.totalRows || 0),
+            totalRows: Number(summary.totalRows || 0),
+            inserted: Number(summary.inserted || 0),
+            updated: Number(summary.updated || 0),
+            skipped: Number(summary.skipped || 0),
+            errors: Number(summary.failed || 0),
+            message: "Importación completada.",
+            summary,
+          });
+        } catch (importError) {
+          console.error("catalog-csv-import", importError);
+          updateImportJob(job.jobId, {
+            status: "failed",
+            message: importError.message || "Error al importar catálogo CSV",
+            error: importError.message || "Error al importar catálogo CSV",
+          });
+        } finally {
+          try {
+            await fsp.unlink(req.file.path);
+          } catch {}
+        }
+      })();
     });
     return;
   }
 
-  if (pathname === "/api/import/stock-xlsx" && req.method === "POST") {
+  if (
+    (pathname === "/api/admin/import/stock-xlsx" || pathname === "/api/import/stock-xlsx") &&
+    req.method === "POST"
+  ) {
     const adminKey = req.headers["x-admin-key"];
     if (!process.env.ADMIN_KEY) {
       return sendJson(res, 503, {
@@ -5359,6 +5676,11 @@ async function requestHandler(req, res) {
     }
     if (adminKey !== process.env.ADMIN_KEY) {
       return sendJson(res, 401, { error: "Unauthorized" });
+    }
+    if (hasRunningImportJob()) {
+      return sendJson(res, 409, {
+        error: "Ya hay una importación en curso. Esperá a que finalice.",
+      });
     }
     const zeroMissingProducts = ["1", "true", "yes", "si"].includes(
       String(parsedUrl.query.zeroMissingProducts || parsedUrl.query.zero_missing_products || "")
@@ -5375,30 +5697,62 @@ async function requestHandler(req, res) {
         return sendJson(res, 400, { error: "No se recibió archivo XLSX" });
       }
 
-      try {
-        const summary = await importStockXlsxFile({
-          filePath: req.file.path,
-          zeroMissingProducts,
-        });
-        return sendJson(res, 200, {
-          success: true,
-          summary,
-        });
-      } catch (importError) {
-        console.error("stock-xlsx-import", importError);
-        const statusCode =
-          importError?.code === "MISSING_REQUIRED_COLUMNS" || importError?.code === "MISSING_SHEET"
-            ? 400
-            : 500;
-        return sendJson(res, statusCode, {
-          success: false,
-          error: importError.message || "Error al importar stock XLSX",
-        });
-      } finally {
+      const job = createImportJob("stock_xlsx");
+      updateImportJob(job.jobId, {
+        status: "running",
+        message: "Importando stock real…",
+      });
+      sendJson(res, 202, {
+        success: true,
+        jobId: job.jobId,
+      });
+      (async () => {
         try {
-          await fsp.unlink(req.file.path);
-        } catch {}
-      }
+          const summary = await importStockXlsxFile({
+            filePath: req.file.path,
+            zeroMissingProducts,
+            onProgress: (progressPayload = {}) => {
+              const totalRows = Number(progressPayload.totalRows || 0);
+              const processedRows = Number(progressPayload.processedRows || 0);
+              const progress = totalRows > 0 ? Math.min(99, Math.floor((processedRows / totalRows) * 100)) : 0;
+              updateImportJob(job.jobId, {
+                status: "running",
+                progress,
+                processedRows,
+                totalRows,
+                inserted: 0,
+                updated: Number(progressPayload.updatedProducts || 0),
+                skipped: Number(progressPayload.unmatchedRows || 0),
+                errors: Number(progressPayload.failedRows || 0),
+                message: "Importando stock real…",
+              });
+            },
+          });
+          updateImportJob(job.jobId, {
+            status: "completed",
+            progress: 100,
+            processedRows: Number(summary.totalRows || 0),
+            totalRows: Number(summary.totalRows || 0),
+            inserted: 0,
+            updated: Number(summary.updatedProducts || 0),
+            skipped: Number(summary.unmatchedRows || 0),
+            errors: Number(summary.failedRows || 0),
+            message: "Importación completada.",
+            summary,
+          });
+        } catch (importError) {
+          console.error("stock-xlsx-import", importError);
+          updateImportJob(job.jobId, {
+            status: "failed",
+            message: importError.message || "Error al importar stock XLSX",
+            error: importError.message || "Error al importar stock XLSX",
+          });
+        } finally {
+          try {
+            await fsp.unlink(req.file.path);
+          } catch {}
+        }
+      })();
     });
     return;
   }
