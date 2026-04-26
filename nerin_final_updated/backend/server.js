@@ -201,7 +201,7 @@ let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
 const importJobs = new Map();
 const importJobLogBuckets = new Map();
-const IMPORT_JOB_TTL_MS = 60 * 60 * 1000;
+const IMPORT_JOB_TTL_MS = 24 * 60 * 60 * 1000;
 const IMPORT_JOBS_DIR = dataPath("import-jobs");
 const IMPORT_JOB_LOG_STEP = 10;
 
@@ -330,8 +330,8 @@ async function persistImportJob(job) {
   await fsp.rename(tmpPath, filePath);
 }
 
-async function listKnownImportJobIds() {
-  const known = new Set(Array.from(importJobs.keys()));
+async function listDiskImportJobIds() {
+  const known = new Set();
   try {
     const entries = await fsp.readdir(IMPORT_JOBS_DIR, { withFileTypes: true });
     for (const entry of entries) {
@@ -339,6 +339,13 @@ async function listKnownImportJobIds() {
       known.add(entry.name.replace(/\.json$/i, ""));
     }
   } catch {}
+  return Array.from(known).sort();
+}
+
+async function listKnownImportJobIds() {
+  const known = new Set(Array.from(importJobs.keys()));
+  const diskIds = await listDiskImportJobIds();
+  for (const diskId of diskIds) known.add(diskId);
   return Array.from(known).sort();
 }
 
@@ -367,9 +374,26 @@ function cleanupImportJobs() {
     if (now - updatedAt > IMPORT_JOB_TTL_MS) {
       importJobs.delete(jobId);
       importJobLogBuckets.delete(jobId);
-      fsp.unlink(getImportJobFilePath(jobId)).catch(() => {});
     }
   }
+  fsp
+    .readdir(IMPORT_JOBS_DIR, { withFileTypes: true })
+    .then((entries) =>
+      Promise.all(
+        entries.map(async (entry) => {
+          if (!entry?.isFile?.() || !entry.name.endsWith(".json")) return;
+          const filePath = path.join(IMPORT_JOBS_DIR, entry.name);
+          try {
+            const stats = await fsp.stat(filePath);
+            const updatedAt = stats.mtimeMs || 0;
+            if (Number.isFinite(updatedAt) && now - updatedAt > IMPORT_JOB_TTL_MS) {
+              await fsp.unlink(filePath);
+            }
+          } catch {}
+        }),
+      ),
+    )
+    .catch(() => {});
 }
 
 function hasRunningImportJob() {
@@ -5905,14 +5929,20 @@ async function requestHandler(req, res) {
   if (pathname === "/api/admin/import/jobs" && req.method === "GET") {
     if (!requireAdmin(req, res, { allowSeller: false })) return;
     cleanupImportJobs();
-    const jobs = Array.from(importJobs.values())
+    const allJobIds = await listKnownImportJobIds();
+    const jobs = [];
+    for (const jobId of allJobIds) {
+      const { job } = await getImportJobById(jobId);
+      if (job) jobs.push(job);
+    }
+    const sortedJobs = jobs
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       .slice(0, 20);
     console.log("[import-job] list queried", {
       requestedBy: resolveAuthUser(req)?.email || resolveAuthUser(req)?.id || "unknown",
-      count: jobs.length,
+      count: sortedJobs.length,
     });
-    return sendJson(res, 200, { jobs });
+    return sendJson(res, 200, { jobs: sortedJobs });
   }
 
   if (pathname.startsWith("/api/admin/import/jobs/") && req.method === "GET") {
@@ -5926,8 +5956,15 @@ async function requestHandler(req, res) {
       requestedBy: resolveAuthUser(req)?.email || resolveAuthUser(req)?.id || "unknown",
     });
     if (!job) {
-      const knownJobs = await listKnownImportJobIds();
-      return sendJson(res, 404, { error: "Job no encontrado", jobId, knownJobs });
+      const knownMemoryJobs = Array.from(importJobs.keys()).sort();
+      const knownDiskJobs = await listDiskImportJobIds();
+      return sendJson(res, 404, {
+        error: "Job no encontrado",
+        jobId,
+        jobsDir: IMPORT_JOBS_DIR,
+        knownMemoryJobs,
+        knownDiskJobs,
+      });
     }
     return sendJson(res, 200, job);
   }
@@ -5979,11 +6016,10 @@ async function requestHandler(req, res) {
         status: "running",
         message: "Importando catálogo…",
       });
-      console.log("[catalog-csv-import] started", {
+      console.info("[csv-import-start]", {
         jobId: job.jobId,
         includeOutOfStock,
         archiveMissing,
-        chunkSize,
       });
       sendJson(res, 202, {
         success: true,

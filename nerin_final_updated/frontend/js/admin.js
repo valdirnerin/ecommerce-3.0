@@ -3656,8 +3656,8 @@ async function pollImportJob({
     } catch (error) {
       consecutiveFailures += 1;
       if (statusElement) {
-        if (consecutiveFailures <= 2) {
-          statusElement.textContent = `Reconectando con progreso… intento ${consecutiveFailures}/5`;
+        if (consecutiveFailures === 1) {
+          statusElement.textContent = "Reconectando con progreso…";
           statusElement.style.color = "";
         } else if (consecutiveFailures < 5) {
           warningShown = true;
@@ -3712,6 +3712,7 @@ async function importCatalogCsvFromAdmin() {
     query.set("includeOutOfStock", includeOutOfStock ? "1" : "0");
     query.set("archiveMissing", archiveMissing ? "1" : "0");
     const importUrl = `/api/admin/import/catalog-csv${query.toString() ? `?${query.toString()}` : ""}`;
+    console.info("[csv-import]", { includeOutOfStock, importUrl });
 
     const resp = await apiFetch(importUrl, {
       method: "POST",
