@@ -62,6 +62,7 @@ const {
   validateServiceReview,
 } = require("./utils/reviewValidation");
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
+const productsStreamRepo = require("./data/productsStreamRepo");
 const {
   appendEvent,
   upsertSession,
@@ -172,19 +173,21 @@ if (process.env.NODE_ENV !== "test") {
   }
   try {
     const exists = fs.existsSync(PRODUCTS_FILE_PATH);
-    let count = 0;
-    if (exists) {
-      const raw = JSON.parse(fs.readFileSync(PRODUCTS_FILE_PATH, "utf8"));
-      const list = Array.isArray(raw?.products) ? raw.products : raw;
-      count = Array.isArray(list) ? list.length : 0;
-    }
+    const sizeBytes = exists ? Number(fs.statSync(PRODUCTS_FILE_PATH)?.size || 0) : 0;
+    const manifest = productsStreamRepo.safeReadManifest();
+    const productCount =
+      manifest && Number.isFinite(Number(manifest.productCount))
+        ? Number(manifest.productCount)
+        : "unknown";
     const isInsideRenderDisk = isPathInside(PRODUCTS_FILE_PATH, RENDER_DISK_MOUNT_PATH);
     const isInsideConfiguredDataDirValue = isInsideConfiguredDataDir(PRODUCTS_FILE_PATH);
     const storageValid = isInsideRenderDisk || isInsideConfiguredDataDirValue;
     console.log(`[NERIN] Using products file: ${PRODUCTS_FILE_PATH}`);
     console.log(`[NERIN] DATA_DIR: ${DATA_DIR}`);
     console.log(`[NERIN] RENDER_DISK_MOUNT_PATH: ${RENDER_DISK_MOUNT_PATH || "(unset)"}`);
-    console.log(`[NERIN] productCount: ${count}`);
+    console.log(`[NERIN] products.exists: ${exists}`);
+    console.log(`[NERIN] products.sizeBytes: ${sizeBytes}`);
+    console.log(`[NERIN] productCount: ${productCount}`);
     console.log(`[NERIN] isInsideRenderDisk: ${isInsideRenderDisk}`);
     console.log(`[NERIN] isInsideConfiguredDataDir: ${isInsideConfiguredDataDirValue}`);
     console.log(`[NERIN] dataDir: ${DATA_DIR}`);
@@ -3410,7 +3413,7 @@ function getProducts() {
   }
 }
 
-function inspectProductsStorage() {
+async function inspectProductsStorage() {
   const repoRoot = path.resolve(__dirname, "..");
   const resolvedProductsPath = resolveSafePath(PRODUCTS_FILE_PATH);
   const resolvedDataDir = resolveSafePath(DATA_DIR);
@@ -3421,6 +3424,11 @@ function inspectProductsStorage() {
   const isInsideDataDir = isPathInside(resolvedProductsPath, resolvedDataDir);
   const isInsideConfiguredDataDirValue = isInsideConfiguredDataDir(resolvedProductsPath);
 
+  const basic = await productsStreamRepo.inspectProductsStorageSafe({
+    filePath: PRODUCTS_FILE_PATH,
+    dataDir: DATA_DIR,
+  });
+
   const report = {
     DATA_DIR,
     RENDER_DISK_MOUNT_PATH,
@@ -3428,13 +3436,16 @@ function inspectProductsStorage() {
     "process.cwd()": process.cwd(),
     productsFilePath: PRODUCTS_FILE_PATH,
     dataDir: DATA_DIR,
-    exists: false,
-    sizeBytes: 0,
-    productCount: 0,
+    exists: basic.exists,
+    sizeBytes: basic.sizeBytes,
+    productCount: basic.productCount,
     usingFallback: false,
     isDemoCatalog: false,
-    parseError: null,
+    parseError: basic.error,
     firstKey: null,
+    canStreamRead: basic.canStreamRead,
+    manifest: basic.manifest || null,
+    backupCandidates: basic.backupCandidates || [],
     isInsideRepo,
     isInsideRenderDisk,
     isInsideConfiguredDataDir: isInsideConfiguredDataDirValue,
@@ -3445,6 +3456,7 @@ function inspectProductsStorage() {
       DATA_DIR.startsWith("/var/nerin-data"),
     warnings: [],
     errors: [],
+    error: basic.error || null,
   };
 
   if (resolvedRenderDisk && !renderDiskExists && !isInsideConfiguredDataDirValue) {
@@ -3478,40 +3490,27 @@ function inspectProductsStorage() {
     }
   }
 
-  try {
-    if (!fs.existsSync(PRODUCTS_FILE_PATH)) return report;
-    report.exists = true;
-    report.sizeBytes = fs.statSync(PRODUCTS_FILE_PATH).size;
-    const rawText = fs.readFileSync(PRODUCTS_FILE_PATH, "utf8");
-    const parsed = JSON.parse(rawText);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      report.firstKey = Object.keys(parsed)[0] || null;
-    } else if (Array.isArray(parsed)) {
-      report.firstKey = "[0]";
-    }
-    const list = Array.isArray(parsed?.products) ? parsed.products : parsed;
-    report.productCount = Array.isArray(list) ? list.length : 0;
-    if (IS_PRODUCTION && Array.isArray(list)) {
-      const sampleText = JSON.stringify(list.slice(0, 8)).toLowerCase();
-      report.isDemoCatalog =
-        sampleText.includes("pantalla iphone") ||
-        sampleText.includes("producto demo");
-      report.usingFallback = report.isDemoCatalog;
-    }
-    return report;
-  } catch (err) {
-    report.parseError = err?.message || String(err);
-    return report;
-  }
+  return report;
 }
 
-function loadProductsStrict() {
-  const storage = inspectProductsStorage();
+function buildCatalogStreamFilter(query = {}) {
+  return (product) => {
+    if (!isProductPublic(product)) return false;
+    return applyCatalogFilters([product], query).length > 0;
+  };
+}
+
+function buildAdminStreamFilter(query = {}) {
+  return (product) => applyAdminProductFilters([product], query).length > 0;
+}
+
+async function loadProductsStrict() {
+  const storage = await inspectProductsStorage();
   if (!storage.exists) {
     throw new Error(`products.json no existe en ${storage.productsFilePath}`);
   }
-  if (storage.parseError) {
-    throw new Error(`products.json inválido en ${storage.productsFilePath}: ${storage.parseError}`);
+  if (!storage.canStreamRead || storage.parseError) {
+    throw new Error(`products.json inválido en ${storage.productsFilePath}: ${storage.parseError || "stream read failed"}`);
   }
   if (IS_PRODUCTION && Array.isArray(storage.errors) && storage.errors.length > 0) {
     throw new Error(`Storage inválido en producción: ${storage.errors.join(" | ")}`);
@@ -3521,7 +3520,7 @@ function loadProductsStrict() {
       `Se detectó catálogo demo/fallback en producción (${storage.productsFilePath}).`,
     );
   }
-  return { products: getProducts(), storage };
+  return { storage };
 }
 
 function logProductsServe(event, payload = {}) {
@@ -5683,12 +5682,17 @@ async function requestHandler(req, res) {
         pageSize: 24,
         maxPageSize: 96,
       });
-      const { products: loadedProducts, storage } = loadProductsStrict();
-      const products = loadedProducts.filter((product) => isProductPublic(product));
-      const filtered = applyCatalogFilters(products, parsedUrl.query || {});
+      const { storage } = await loadProductsStrict();
       const withWholesale = canSeeWholesalePrices(req);
-      const safe = withWholesale ? filtered : sanitizePublicProducts(filtered);
-      const pageData = paginateItems(safe, page, pageSize);
+      const pageData = await productsStreamRepo.getProductsPage({
+        page,
+        pageSize,
+        filters: buildCatalogStreamFilter(parsedUrl.query || {}),
+        transformItem: (product) => {
+          if (withWholesale) return normalizeProductImages(product);
+          return normalizeProductImages(sanitizePublicProducts([product])[0]);
+        },
+      });
       const responsePayload = {
         ...pageData,
         usingFallback: storage.usingFallback,
@@ -5708,7 +5712,7 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      const storage = inspectProductsStorage();
+      const storage = await inspectProductsStorage();
       logProductsServe("error", {
         endpoint: "/api/products",
         productsFilePath: storage.productsFilePath,
@@ -5734,9 +5738,13 @@ async function requestHandler(req, res) {
         pageSize: 100,
         maxPageSize: 250,
       });
-      const { products, storage } = loadProductsStrict();
-      const filtered = applyAdminProductFilters(products, parsedUrl.query || {});
-      const pageData = paginateItems(filtered, page, pageSize);
+      const { storage } = await loadProductsStrict();
+      const pageData = await productsStreamRepo.getProductsPage({
+        page,
+        pageSize,
+        filters: buildAdminStreamFilter(parsedUrl.query || {}),
+        transformItem: (product) => normalizeProductImages(product),
+      });
       const responsePayload = {
         ...pageData,
         usingFallback: storage.usingFallback,
@@ -5756,7 +5764,7 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      const storage = inspectProductsStorage();
+      const storage = await inspectProductsStorage();
       logProductsServe("error", {
         endpoint: "/api/admin/products",
         productsFilePath: storage.productsFilePath,
@@ -5774,17 +5782,18 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/admin/debug/storage" && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
-    const storage = inspectProductsStorage();
+    const storage = await inspectProductsStorage();
     return sendJson(res, 200, storage);
   }
 
-  // API: obtener un producto por ID
-  if (pathname.startsWith("/api/products/") && req.method === "GET") {
-    const id = pathname.split("/").pop();
+  if (pathname.startsWith("/api/products/by-code/") && req.method === "GET") {
+    const code = decodeURIComponent(pathname.split("/").pop() || "");
     try {
-      const products = getProducts();
-      const product = products.find((p) => p.id === id);
+      const product = await productsStreamRepo.getProductByCode(code);
       if (!product) {
+        return sendJson(res, 404, { error: "Producto no encontrado" });
+      }
+      if (!isProductPublic(product)) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
       }
       const withWholesale = canSeeWholesalePrices(req);
@@ -5793,7 +5802,26 @@ async function requestHandler(req, res) {
         : sanitizePublicProducts([product])[0];
       return sendJson(res, 200, normalizeProductImages(responseProduct));
     } catch (err) {
-      console.error(err);
+      console.error("product-by-code-read-error", err);
+      return sendJson(res, 500, { error: "No se pudo cargar el producto" });
+    }
+  }
+
+  // API: obtener un producto por ID
+  if (pathname.startsWith("/api/products/") && req.method === "GET") {
+    const id = decodeURIComponent(pathname.split("/").pop() || "");
+    try {
+      const product = await productsStreamRepo.getProductById(id);
+      if (!product || !isProductPublic(product)) {
+        return sendJson(res, 404, { error: "Producto no encontrado" });
+      }
+      const withWholesale = canSeeWholesalePrices(req);
+      const responseProduct = withWholesale
+        ? product
+        : sanitizePublicProducts([product])[0];
+      return sendJson(res, 200, normalizeProductImages(responseProduct));
+    } catch (err) {
+      console.error("product-by-id-read-error", err);
       return sendJson(res, 500, { error: "No se pudo cargar el producto" });
     }
   }
