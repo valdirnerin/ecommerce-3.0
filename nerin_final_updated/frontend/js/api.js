@@ -44,60 +44,24 @@ export function apiFetch(path, options = {}) {
 
 // Obtener la lista de productos desde el backend
 export async function fetchProductsPage(params = {}) {
-  try {
-    const query = new URLSearchParams();
-    Object.entries(params || {}).forEach(([key, value]) => {
-      if (value == null || value === "") return;
-      query.set(key, String(value));
-    });
-    const endpoint = `/api/products${query.toString() ? `?${query.toString()}` : ""}`;
-    const res = await apiFetch(endpoint);
-    if (!res.ok) {
-      throw new Error("No se pudieron obtener los productos");
-    }
-    const data = await res.json();
-    if (data && Array.isArray(data.items)) {
-      return data;
-    }
-    if (!data || !Array.isArray(data.products)) {
-      throw new Error("Respuesta de productos inválida");
-    }
-    return {
-      items: data.products,
-      page: 1,
-      pageSize: data.products.length,
-      totalItems: data.products.length,
-      totalPages: 1,
-      hasNextPage: false,
-      hasPrevPage: false,
-    };
-  } catch (error) {
-    console.warn("Fallo el endpoint de productos, usando datos locales", error);
-    try {
-      const fallbackResponse = await fetch("/mock-data/products.json", {
-        cache: "no-store",
-      });
-      if (!fallbackResponse.ok) {
-        throw new Error("No se pudo cargar el fallback de productos");
-      }
-      const fallbackData = await fallbackResponse.json();
-      if (fallbackData && Array.isArray(fallbackData.products)) {
-        return {
-          items: fallbackData.products,
-          page: 1,
-          pageSize: fallbackData.products.length,
-          totalItems: fallbackData.products.length,
-          totalPages: 1,
-          hasNextPage: false,
-          hasPrevPage: false,
-        };
-      }
-      throw new Error("Fallback de productos inválido");
-    } catch (fallbackError) {
-      console.error("Error al obtener productos", fallbackError);
-      throw fallbackError;
-    }
+  const query = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value == null || value === "") return;
+    query.set(key, String(value));
+  });
+  const endpoint = `/api/products${query.toString() ? `?${query.toString()}` : ""}`;
+  const res = await apiFetch(endpoint);
+  if (!res.ok) {
+    const errPayload = await res.json().catch(() => ({}));
+    throw new Error(
+      errPayload.error || errPayload.message || "No se pudo cargar el catálogo",
+    );
   }
+  const data = await res.json();
+  if (data && Array.isArray(data.items)) {
+    return data;
+  }
+  throw new Error("Respuesta de productos inválida");
 }
 
 export async function fetchProducts(params = {}) {

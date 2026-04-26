@@ -3348,8 +3348,13 @@ async function loadProducts(options = {}) {
       stockStatus: productFilters.stock || "",
       sort: productFilters.sort || "recent",
     });
-    const res = await apiFetch(`/api/admin/products?${query.toString()}`);
+    const res = await apiFetch(`/api/admin/products?${query.toString()}`, {
+      headers: getAdminHeaders(),
+    });
     if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        throw new Error("No autorizado. Revisá la Admin Key (x-admin-key).");
+      }
       throw new Error(`GET /api/admin/products failed: ${res.status}`);
     }
     const data = await res.json();
@@ -3378,7 +3383,7 @@ async function loadProducts(options = {}) {
     productsTotalItems = 0;
     productsTotalPages = 1;
     productsTableBody.innerHTML =
-      '<tr><td colspan="15">No se pudieron cargar los productos.</td></tr>';
+      `<tr><td colspan="15">${escapeHtml(err.message || "No se pudieron cargar los productos.")}</td></tr>`;
     updateProductSummary([]);
   }
 }

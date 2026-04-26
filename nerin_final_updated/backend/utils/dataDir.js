@@ -9,11 +9,13 @@ const RENDER_MOUNT_DIR = process.env.RENDER_DISK_MOUNT_PATH;
 // 2) Si tenés el disco montado en /var/nerin-data (lo que muestra tu log), usamos ahí.
 //    Si en tu servicio lo montaste en /var/data, también lo detectamos y preferimos /var/data/nerin.
 const CANDIDATES = [
+  // Si Render monta en /var/data, priorizamos una carpeta de app explícita
+  RENDER_MOUNT_DIR ? path.join(RENDER_MOUNT_DIR, 'nerin_final_updated') : null,
   RENDER_MOUNT_DIR,
-  '/var/nerin-data',        // como muestra tu error/log
   '/var/data/nerin_final_updated',
-  '/var/data/nerin',        // patrón recomendado
-  '/var/data'               // disco genérico
+  '/var/data/nerin',
+  '/var/nerin-data',
+  '/var/data',
 ].filter(Boolean);
 
 let RENDER_DIR = null;
@@ -35,26 +37,8 @@ const SOURCE = ENV_DIR
 // Asegurar que exista
 try { fs.mkdirSync(BASE, { recursive: true }); } catch {}
 
-// Si estamos usando un directorio distinto al local y faltan datos,
-// copiar el contenido de la carpeta de ejemplo para evitar errores.
-if (BASE !== LOCAL_DIR) {
-  try {
-    const sample = path.join(BASE, 'products.json');
-    if (!fs.existsSync(sample)) {
-      for (const f of fs.readdirSync(LOCAL_DIR)) {
-        const src = path.join(LOCAL_DIR, f);
-        const dest = path.join(BASE, f);
-        if (fs.existsSync(dest)) continue;
-        const stat = fs.statSync(src);
-        if (stat.isFile()) {
-          fs.copyFileSync(src, dest);
-        }
-      }
-    }
-  } catch (e) {
-    console.error('cannot seed data dir', e);
-  }
-}
+// No sembrar products.json automáticamente:
+// si falta, preferimos fallar de forma explícita antes que introducir catálogo demo.
 
 // API
 module.exports = {

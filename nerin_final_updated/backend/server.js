@@ -115,6 +115,11 @@ const IS_DATA_DIR_PERSISTENT =
     : DATA_DIR_SOURCE.type !== "local";
 
 const DATA_DIR = resolvedDataDir;
+const PRODUCTS_FILE_PATH = (() => {
+  const raw = (process.env.PRODUCTS_FILE_PATH || "").trim();
+  if (!raw) return dataPath("products.json");
+  return path.isAbsolute(raw) ? raw : path.join(DATA_DIR, raw);
+})();
 const DATA_SOURCE_LABEL = (() => {
   switch (DATA_DIR_SOURCE.type) {
     case "env":
@@ -135,6 +140,24 @@ if (process.env.NODE_ENV !== "test") {
   if (!IS_DATA_DIR_PERSISTENT) {
     console.warn(
       "[NERIN] ⚠️ No se detectó un Render Disk persistente. Configurá un disco y seteá DATA_DIR o montá /var/data para conservar la información tras cada deploy.",
+    );
+  }
+  try {
+    const exists = fs.existsSync(PRODUCTS_FILE_PATH);
+    let count = 0;
+    if (exists) {
+      const raw = JSON.parse(fs.readFileSync(PRODUCTS_FILE_PATH, "utf8"));
+      const list = Array.isArray(raw?.products) ? raw.products : raw;
+      count = Array.isArray(list) ? list.length : 0;
+    }
+    const size = exists ? fs.statSync(PRODUCTS_FILE_PATH).size : 0;
+    console.log(
+      `[NERIN] PRODUCTS_FILE_PATH=${PRODUCTS_FILE_PATH} exists=${exists} size=${size} products=${count} fallbackDemo=false`,
+    );
+  } catch (err) {
+    console.error(
+      `[NERIN] PRODUCTS_FILE_PATH=${PRODUCTS_FILE_PATH} exists=unknown products=unknown fallbackDemo=false`,
+      err,
     );
   }
 }
@@ -815,11 +838,8 @@ function getShopTemplateParts() {
 async function loadProducts() {
   const now = Date.now();
   if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
-  const p = typeof dataPath === 'function'
-    ? dataPath('products.json')
-    : path.join(DATA_DIR, 'products.json');
   try {
-    const json = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const json = JSON.parse(fs.readFileSync(PRODUCTS_FILE_PATH, 'utf8'));
     const arr = Array.isArray(json?.products) ? json.products : json;
     const normalized = normalizeProductsList(arr);
     _cache = { t: now, data: normalized };
@@ -3086,9 +3106,8 @@ function calculateDetailedAnalytics(options = {}) {
 
 // Leer productos desde el archivo JSON
 function getProducts() {
-  const filePath = dataPath("products.json");
   try {
-    const file = fs.readFileSync(filePath, "utf8");
+    const file = fs.readFileSync(PRODUCTS_FILE_PATH, "utf8");
     const data = JSON.parse(file);
     const list = Array.isArray(data?.products) ? data.products : data;
     return normalizeProductsList(list);
@@ -3099,10 +3118,9 @@ function getProducts() {
 
 // Guardar productos en el archivo JSON
 function saveProducts(products) {
-  const filePath = dataPath("products.json");
   const normalized = normalizeProductsList(products);
   fs.writeFileSync(
-    filePath,
+    PRODUCTS_FILE_PATH,
     JSON.stringify({ products: normalized }, null, 2),
     "utf8",
   );
@@ -5261,6 +5279,7 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/api/admin/products" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
     try {
       const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
         page: 1,
