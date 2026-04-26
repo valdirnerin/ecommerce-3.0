@@ -117,6 +117,7 @@ const IS_DATA_DIR_PERSISTENT =
 const DATA_DIR = resolvedDataDir;
 const EXPLICIT_DATA_DIR = (process.env.DATA_DIR || "").trim() || null;
 const RENDER_DISK_MOUNT_PATH = (process.env.RENDER_DISK_MOUNT_PATH || "").trim() || null;
+const RENDER_REPO_DISK_PREFIX = "/opt/render/project/src/nerin_final_updated";
 const PRODUCTS_FILE_PATH = (() => {
   const raw = (process.env.PRODUCTS_FILE_PATH || "").trim();
   if (!raw) return dataPath("products.json");
@@ -137,6 +138,15 @@ function isPathInside(targetPath, basePath) {
   if (target === base) return true;
   const rel = path.relative(base, target);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+function isInsideConfiguredDataDir(targetPath) {
+  const resolvedTarget = resolveSafePath(targetPath);
+  const resolvedDataDir = resolveSafePath(DATA_DIR);
+  if (isPathInside(resolvedTarget, resolvedDataDir)) return true;
+  return Boolean(
+    resolvedTarget &&
+      resolvedTarget.startsWith(`${RENDER_REPO_DISK_PREFIX}${path.sep}`),
+  );
 }
 const DATA_SOURCE_LABEL = (() => {
   switch (DATA_DIR_SOURCE.type) {
@@ -169,11 +179,17 @@ if (process.env.NODE_ENV !== "test") {
       count = Array.isArray(list) ? list.length : 0;
     }
     const isInsideRenderDisk = isPathInside(PRODUCTS_FILE_PATH, RENDER_DISK_MOUNT_PATH);
+    const isInsideConfiguredDataDirValue = isInsideConfiguredDataDir(PRODUCTS_FILE_PATH);
+    const storageValid = isInsideRenderDisk || isInsideConfiguredDataDirValue;
     console.log(`[NERIN] Using products file: ${PRODUCTS_FILE_PATH}`);
     console.log(`[NERIN] DATA_DIR: ${DATA_DIR}`);
     console.log(`[NERIN] RENDER_DISK_MOUNT_PATH: ${RENDER_DISK_MOUNT_PATH || "(unset)"}`);
     console.log(`[NERIN] productCount: ${count}`);
     console.log(`[NERIN] isInsideRenderDisk: ${isInsideRenderDisk}`);
+    console.log(`[NERIN] isInsideConfiguredDataDir: ${isInsideConfiguredDataDirValue}`);
+    console.log(`[NERIN] dataDir: ${DATA_DIR}`);
+    console.log(`[NERIN] productsFilePath: ${PRODUCTS_FILE_PATH}`);
+    console.log(`[NERIN] storageValid: ${storageValid}`);
   } catch (err) {
     console.error(
       `[NERIN] Using products file: ${PRODUCTS_FILE_PATH}`,
@@ -201,6 +217,7 @@ let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
 const importJobs = new Map();
 const importJobLogBuckets = new Map();
+const importJobLastPersistAt = new Map();
 const IMPORT_JOB_TTL_MS = 24 * 60 * 60 * 1000;
 const IMPORT_JOBS_DIR = dataPath("import-jobs");
 const IMPORT_JOB_LOG_STEP = 10;
@@ -273,9 +290,23 @@ function updateImportJob(jobId, patch = {}) {
     updatedAt: new Date().toISOString(),
   };
   importJobs.set(jobId, next);
-  persistImportJob(next).catch((error) => {
-    console.error("[import-job] persist update failed", jobId, error?.message || error);
-  });
+  const now = Date.now();
+  const lastPersistAt = Number(importJobLastPersistAt.get(jobId) || 0);
+  const progressChangedByPercent =
+    Math.floor(Number(next.progress || 0)) !== Math.floor(Number(current.progress || 0));
+  const shouldPersist =
+    !lastPersistAt ||
+    now - lastPersistAt >= 1000 ||
+    progressChangedByPercent ||
+    patch.status === "completed" ||
+    patch.status === "failed" ||
+    patch.status === "queued";
+  if (shouldPersist) {
+    importJobLastPersistAt.set(jobId, now);
+    persistImportJob(next).catch((error) => {
+      console.error("[import-job] persist update failed", jobId, error?.message || error);
+    });
+  }
   const progress = Number(next.progress || 0);
   const bucket = Number.isFinite(progress) ? Math.floor(progress / IMPORT_JOB_LOG_STEP) : -1;
   const previousBucket = importJobLogBuckets.get(jobId);
@@ -323,9 +354,12 @@ async function ensureImportJobsDir() {
 
 async function persistImportJob(job) {
   if (!job || !job.jobId) return;
+  fs.mkdirSync(IMPORT_JOBS_DIR, { recursive: true });
   await ensureImportJobsDir();
   const filePath = getImportJobFilePath(job.jobId);
-  const tmpPath = `${filePath}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random()
+    .toString(16)
+    .slice(2)}.tmp`;
   await fsp.writeFile(tmpPath, JSON.stringify(job, null, 2), "utf8");
   await fsp.rename(tmpPath, filePath);
 }
@@ -3312,6 +3346,7 @@ function inspectProductsStorage() {
   const isInsideRepo = isPathInside(resolvedProductsPath, repoRoot);
   const isInsideRenderDisk = isPathInside(resolvedProductsPath, resolvedRenderDisk);
   const isInsideDataDir = isPathInside(resolvedProductsPath, resolvedDataDir);
+  const isInsideConfiguredDataDirValue = isInsideConfiguredDataDir(resolvedProductsPath);
 
   const report = {
     DATA_DIR,
@@ -3329,6 +3364,8 @@ function inspectProductsStorage() {
     firstKey: null,
     isInsideRepo,
     isInsideRenderDisk,
+    isInsideConfiguredDataDir: isInsideConfiguredDataDirValue,
+    storageValid: isInsideRenderDisk || isInsideConfiguredDataDirValue,
     renderDiskExpected:
       !!resolvedRenderDisk ||
       DATA_DIR.startsWith("/var/data") ||
@@ -3337,11 +3374,16 @@ function inspectProductsStorage() {
     errors: [],
   };
 
-  if (resolvedRenderDisk && !renderDiskExists) {
+  if (resolvedRenderDisk && !renderDiskExists && !isInsideConfiguredDataDirValue) {
     report.errors.push(`RENDER_DISK_MOUNT_PATH no existe: ${resolvedRenderDisk}`);
   }
 
-  if (resolvedProductsPath && resolvedProductsPath.startsWith("/opt/render/project/src") && !isInsideRenderDisk) {
+  if (
+    resolvedProductsPath &&
+    resolvedProductsPath.startsWith("/opt/render/project/src") &&
+    !isInsideRenderDisk &&
+    !isInsideConfiguredDataDirValue
+  ) {
     report.warnings.push(
       `productsFilePath está dentro del repo de deploy (/opt/render/project/src) pero fuera del Render Disk mount real (${resolvedRenderDisk || "unset"}).`,
     );
@@ -3350,12 +3392,13 @@ function inspectProductsStorage() {
   if (IS_PRODUCTION) {
     const hasExplicitDataDir = Boolean(EXPLICIT_DATA_DIR);
     const allowedByExplicitDataDir = hasExplicitDataDir && isInsideDataDir;
-    if (!isInsideRenderDisk && !allowedByExplicitDataDir) {
+    const allowedByConfiguredDataDir = allowedByExplicitDataDir || isInsideConfiguredDataDirValue;
+    if (!isInsideRenderDisk && !allowedByConfiguredDataDir) {
       report.errors.push(
         "En producción, productsFilePath debe estar dentro de RENDER_DISK_MOUNT_PATH o de DATA_DIR explícito.",
       );
     }
-    if (isInsideRepo && !isInsideRenderDisk && !allowedByExplicitDataDir) {
+    if (isInsideRepo && !isInsideRenderDisk && !allowedByConfiguredDataDir) {
       report.errors.push(
         "En producción no se permite usar carpeta local del repo para products.json sin mount path confirmado.",
       );
