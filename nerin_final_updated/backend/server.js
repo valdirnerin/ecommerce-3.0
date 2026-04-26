@@ -2787,12 +2787,84 @@ function parseAnalyticsRange(query = {}) {
   return { from: fallbackFrom, to: normalizeDayEnd(now), range: "7d" };
 }
 
-function calculateDetailedAnalytics(options = {}) {
+async function buildAnalyticsCatalogSnapshot() {
+  const manifest = productsStreamRepo.safeReadManifest() || null;
+  const snapshot = {
+    manifest,
+    totalProducts: 0,
+    publishedProducts: 0,
+    outOfStockProducts: 0,
+    lowStockProducts: 0,
+    hiddenProducts: 0,
+    withSupplierPartNumber: 0,
+    categoriesCount: 0,
+    brandsCount: 0,
+    productSummaryById: new Map(),
+  };
+  const categories = new Set();
+  const brands = new Set();
+  console.log("[analytics-stream] start");
+  try {
+    await productsStreamRepo.streamProducts({
+      onProduct: (product) => {
+        const id = String(product?.id ?? "").trim();
+        if (id) {
+          snapshot.productSummaryById.set(id, {
+            id,
+            name: product?.name || product?.title || product?.sku || id,
+            category: product?.category || "Sin categoría",
+            price:
+              Number(product?.price_minorista || product?.price || product?.precio_minorista || 0) ||
+              0,
+          });
+        }
+        snapshot.totalProducts += 1;
+        if (isProductPublic(product)) {
+          snapshot.publishedProducts += 1;
+        } else {
+          snapshot.hiddenProducts += 1;
+        }
+        const stock = Number(product?.stock || 0) || 0;
+        const threshold = Number(product?.min_stock || product?.minStock || 0) || 0;
+        if (stock <= 0) snapshot.outOfStockProducts += 1;
+        if (stock > 0 && threshold > 0 && stock < threshold) snapshot.lowStockProducts += 1;
+        const supplierPartNumber = String(
+          product?.supplierPartNumber ||
+            product?.metadata?.supplierPartNumber ||
+            product?.metadata?.supplierImport?.supplierPartNumber ||
+            "",
+        ).trim();
+        if (supplierPartNumber) snapshot.withSupplierPartNumber += 1;
+        const category = String(product?.category || "").trim();
+        if (category) categories.add(category);
+        const brand = String(product?.brand || product?.marca || "").trim();
+        if (brand) brands.add(brand);
+      },
+    });
+    snapshot.categoriesCount = categories.size;
+    snapshot.brandsCount = brands.size;
+    if (
+      snapshot.totalProducts === 0 &&
+      manifest &&
+      Number.isFinite(Number(manifest.productCount))
+    ) {
+      snapshot.totalProducts = Number(manifest.productCount);
+    }
+    console.log("[analytics-stream] completed");
+    return snapshot;
+  } catch (err) {
+    console.error("[analytics-stream] failed", err);
+    throw err;
+  }
+}
+
+async function calculateDetailedAnalytics(options = {}) {
   const { rangeStart, rangeEnd, events: providedEvents, sessions: providedSessions } =
     options || {};
   const orders = getOrders();
   const returns = getReturns();
-  const products = getProducts();
+  const catalogSnapshot = await buildAnalyticsCatalogSnapshot();
+  const productsById = catalogSnapshot.productSummaryById;
   const fallbackLog = getActivityLog();
   const sessions = Array.isArray(providedSessions) ? providedSessions : fallbackLog.sessions;
   const events = Array.isArray(providedEvents) ? providedEvents : fallbackLog.events;
@@ -2954,13 +3026,13 @@ function calculateDetailedAnalytics(options = {}) {
       monthlySales[month] = (monthlySales[month] || 0) + (order.total || 0);
     }
     (order.productos || []).forEach((item) => {
-      const prod = products.find((p) => p.id === item.id);
+      const prod = productsById.get(String(item.id));
       if (prod) {
         // Categoría
         const cat = prod.category || "Sin categoría";
         salesByCategory[cat] =
           (salesByCategory[cat] || 0) +
-          item.quantity * (item.price || prod.price_minorista);
+          item.quantity * (item.price || prod.price);
         // Producto
         salesByProduct[prod.name] =
           (salesByProduct[prod.name] || 0) + item.quantity;
@@ -2977,7 +3049,7 @@ function calculateDetailedAnalytics(options = {}) {
   // Devoluciones
   returns.forEach((ret) => {
     ret.items.forEach((item) => {
-      const prod = products.find((p) => p.id === item.id);
+      const prod = productsById.get(String(item.id));
       if (prod) {
         returnsByProduct[prod.name] =
           (returnsByProduct[prod.name] || 0) + item.quantity;
@@ -3025,7 +3097,7 @@ function calculateDetailedAnalytics(options = {}) {
   const visitsTodaySessions = new Set();
   const visitsWeekSessions = new Set();
   const productNameById = new Map(
-    products.map((p) => [String(p.id), p.name || p.title || p.sku || String(p.id)]),
+    Array.from(productsById.entries()).map(([id, product]) => [id, product.name]),
   );
   const productViewsToday = new Map();
   const productViewsWeek = new Map();
@@ -3483,6 +3555,16 @@ function calculateDetailedAnalytics(options = {}) {
       description: describeEvent(evt),
     }));
   return {
+    analyticsAvailable: true,
+    productManifest: catalogSnapshot.manifest,
+    totalProducts: catalogSnapshot.totalProducts,
+    publishedProducts: catalogSnapshot.publishedProducts,
+    outOfStockProducts: catalogSnapshot.outOfStockProducts,
+    lowStockProducts: catalogSnapshot.lowStockProducts,
+    hiddenProducts: catalogSnapshot.hiddenProducts,
+    withSupplierPartNumber: catalogSnapshot.withSupplierPartNumber,
+    categoriesCount: catalogSnapshot.categoriesCount,
+    brandsCount: catalogSnapshot.brandsCount,
     revenueToday,
     revenueThisWeek,
     ordersToday,
@@ -10307,7 +10389,7 @@ async function requestHandler(req, res) {
       const range = parseAnalyticsRange(parsedUrl.query);
       const storeSessions = getStoredSessions();
       const storeEvents = getEventsByRange({ from: range.from, to: range.to });
-      const analytics = calculateDetailedAnalytics({
+      const analytics = await calculateDetailedAnalytics({
         rangeStart: range.from,
         rangeEnd: range.to,
         events: storeEvents.length ? storeEvents : undefined,
@@ -10326,9 +10408,14 @@ async function requestHandler(req, res) {
       }
       return sendJson(res, 200, { analytics });
     } catch (err) {
-      console.error(err);
-      return sendJson(res, 500, {
-        error: "No se pudieron calcular las analíticas detalladas",
+      console.error("[analytics] detailed failed", err);
+      const manifest = productsStreamRepo.safeReadManifest() || null;
+      return sendJson(res, 200, {
+        analytics: {
+          analyticsAvailable: false,
+          error: "Analytics temporarily unavailable",
+          productManifest: manifest,
+        },
       });
     }
   }
