@@ -15,6 +15,7 @@ const fsp = fs.promises;
 const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
+const { fork } = require("child_process");
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const previewProductMock = require("./config/previewProductMock");
 const dataDirUtils = require("./utils/dataDir");
@@ -60,7 +61,6 @@ const {
   validatePurchaseReview,
   validateServiceReview,
 } = require("./utils/reviewValidation");
-const { importCatalogCsvFile } = require("./services/catalogCsvImport");
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const {
   appendEvent,
@@ -216,6 +216,7 @@ const REVIEW_STATUSES = ["PENDING", "PUBLISHED", "FLAGGED", "REMOVED"];
 let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
 const importJobs = new Map();
+const importWorkers = new Map();
 const importJobLogBuckets = new Map();
 const importJobLastPersistAt = new Map();
 const IMPORT_JOB_TTL_MS = 24 * 60 * 60 * 1000;
@@ -386,8 +387,6 @@ async function listKnownImportJobIds() {
 async function getImportJobById(jobId) {
   const normalizedJobId = String(jobId || "").trim();
   if (!normalizedJobId) return { job: null, source: "none" };
-  const inMemory = importJobs.get(normalizedJobId);
-  if (inMemory) return { job: inMemory, source: "memory" };
   try {
     const filePath = getImportJobFilePath(normalizedJobId);
     const raw = await fsp.readFile(filePath, "utf8");
@@ -397,6 +396,8 @@ async function getImportJobById(jobId) {
       return { job: parsed, source: "disk" };
     }
   } catch {}
+  const inMemory = importJobs.get(normalizedJobId);
+  if (inMemory) return { job: inMemory, source: "memory" };
   return { job: null, source: "none" };
 }
 
@@ -435,6 +436,78 @@ function hasRunningImportJob() {
     if (job.status === "queued" || job.status === "running") return true;
   }
   return false;
+}
+
+function launchCatalogCsvImportWorker({ jobId, filePath, chunkSize, includeOutOfStock, archiveMissing }) {
+  const workerPath = path.join(__dirname, "workers", "catalogCsvImportWorker.js");
+  const child = fork(workerPath, [], {
+    stdio: ["ignore", "inherit", "inherit", "ipc"],
+    env: {
+      ...process.env,
+      IMPORT_JOB_ID: String(jobId),
+      IMPORT_FILE_PATH: String(filePath),
+      IMPORT_CHUNK_SIZE: String(chunkSize || 400),
+      IMPORT_INCLUDE_OUT_OF_STOCK: includeOutOfStock ? "1" : "0",
+      IMPORT_ARCHIVE_MISSING: archiveMissing ? "1" : "0",
+    },
+  });
+  importWorkers.set(jobId, child);
+  child.on("message", (msg) => {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "progress") {
+      updateImportJob(jobId, {
+        status: "running",
+        progress: Number(msg.progress || 0),
+        processedRows: Number(msg.processedRows || 0),
+        totalRows: Number(msg.totalRows || 0),
+        inserted: Number(msg.inserted || 0),
+        updated: Number(msg.updated || 0),
+        skipped: Number(msg.skipped || 0),
+        errors: Number(msg.errors || 0),
+        message: msg.message || "Importando catálogo…",
+      });
+      return;
+    }
+    if (msg.type === "completed") {
+      updateImportJob(jobId, {
+        status: "completed",
+        progress: 100,
+        processedRows: Number(msg.processedRows || msg.summary?.totalRows || 0),
+        totalRows: Number(msg.totalRows || msg.summary?.totalRows || 0),
+        inserted: Number(msg.inserted || msg.summary?.inserted || 0),
+        updated: Number(msg.updated || msg.summary?.updated || 0),
+        skipped: Number(msg.skipped || msg.summary?.skipped || 0),
+        errors: Number(msg.errors || msg.summary?.failed || 0),
+        summary: msg.summary || null,
+        message: "Importación completada.",
+      });
+      return;
+    }
+    if (msg.type === "failed") {
+      updateImportJob(jobId, {
+        status: "failed",
+        message: msg.error || "Error al importar catálogo CSV",
+        error: msg.error || "Error al importar catálogo CSV",
+      });
+    }
+  });
+  child.on("exit", (code, signal) => {
+    importWorkers.delete(jobId);
+    const current = importJobs.get(jobId);
+    if (!current || current.status === "completed" || current.status === "failed") return;
+    if (code !== 0) {
+      updateImportJob(jobId, {
+        status: "failed",
+        message: "El worker de importación terminó inesperadamente",
+        error: "El worker de importación terminó inesperadamente",
+        summary: {
+          ...(current.summary || {}),
+          exitCode: code == null ? null : Number(code),
+          signal: signal || null,
+        },
+      });
+    }
+  });
 }
 
 function buildReviewLink({ tokenId, tokenPlain, cfg } = {}) {
@@ -5393,7 +5466,7 @@ const accountDocsUpload = multer({
 const catalogCsvUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
-      const dir = path.join(UPLOADS_DIR, "catalog-imports");
+      const dir = path.join(DATA_DIR, "import-uploads");
       fs.mkdirSync(dir, { recursive: true });
       cb(null, dir);
     },
@@ -6068,56 +6141,13 @@ async function requestHandler(req, res) {
         success: true,
         jobId: job.jobId,
       });
-      (async () => {
-        try {
-          const summary = await importCatalogCsvFile({
-            filePath: req.file.path,
-            pool: null,
-            chunkSize,
-            includeOutOfStock,
-            archiveMissing,
-            onProgress: (progressPayload = {}) => {
-              const totalRows = Number(progressPayload.totalRows || 0);
-              const processedRows = Number(progressPayload.processedRows || 0);
-              const progress = totalRows > 0 ? Math.min(99, Math.floor((processedRows / totalRows) * 100)) : 0;
-              updateImportJob(job.jobId, {
-                status: "running",
-                progress,
-                processedRows,
-                totalRows,
-                inserted: Number(progressPayload.inserted || 0),
-                updated: Number(progressPayload.updated || 0),
-                skipped: Number(progressPayload.skipped || 0),
-                errors: Number(progressPayload.failed || 0),
-                message: "Importando catálogo…",
-              });
-            },
-          });
-          updateImportJob(job.jobId, {
-            status: "completed",
-            progress: 100,
-            processedRows: Number(summary.totalRows || 0),
-            totalRows: Number(summary.totalRows || 0),
-            inserted: Number(summary.inserted || 0),
-            updated: Number(summary.updated || 0),
-            skipped: Number(summary.skipped || 0),
-            errors: Number(summary.failed || 0),
-            message: "Importación completada.",
-            summary,
-          });
-        } catch (importError) {
-          console.error("catalog-csv-import", importError);
-          updateImportJob(job.jobId, {
-            status: "failed",
-            message: importError.message || "Error al importar catálogo CSV",
-            error: importError.message || "Error al importar catálogo CSV",
-          });
-        } finally {
-          try {
-            await fsp.unlink(req.file.path);
-          } catch {}
-        }
-      })();
+      launchCatalogCsvImportWorker({
+        jobId: job.jobId,
+        filePath: req.file.path,
+        chunkSize,
+        includeOutOfStock,
+        archiveMissing,
+      });
     });
     return;
   }
