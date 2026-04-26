@@ -5834,7 +5834,15 @@ async function requestHandler(req, res) {
       ? Math.min(Math.floor(chunkSizeParam), 2000)
       : 400;
     const includeOutOfStock = ["1", "true", "yes", "si"].includes(
-      String(parsedUrl.query.includeOutOfStock || parsedUrl.query.include_out_of_stock || "")
+      String(
+        parsedUrl.query.includeOutOfStock ||
+          parsedUrl.query.include_out_of_stock ||
+          parsedUrl.query.includeWithoutStock ||
+          parsedUrl.query.include_without_stock ||
+          parsedUrl.query.includeNoStock ||
+          parsedUrl.query.include_no_stock ||
+          "",
+      )
         .trim()
         .toLowerCase(),
     );

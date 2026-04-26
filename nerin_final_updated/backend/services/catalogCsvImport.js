@@ -261,6 +261,10 @@ function createBaseSummary() {
       visibleOrPublishable: 0,
       hiddenNoStockOrNotOrderable: 0,
     },
+    options: {
+      includeOutOfStock: false,
+      archiveMissing: false,
+    },
   };
 }
 
@@ -498,6 +502,8 @@ async function importCatalogCsvFile({
   progressEveryRows = 250,
 }) {
   const summary = createBaseSummary();
+  summary.options.includeOutOfStock = Boolean(includeOutOfStock);
+  summary.options.archiveMissing = Boolean(archiveMissing);
   const pricingSummary = createPricingSummaryAccumulator();
   const seenPartIds = new Set();
   const seenPartNumbers = new Set();
