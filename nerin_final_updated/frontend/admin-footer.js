@@ -220,8 +220,6 @@ async function persistFooterConfig({ showSuccessAlert = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('nerinToken');
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const adminKey = localStorage.getItem('nerinAdminKey');
-  if (adminKey) headers['x-admin-key'] = adminKey;
   const res = await fetch('/api/footer', {
     method: 'POST',
     headers,
@@ -246,8 +244,8 @@ form.addEventListener('submit', async (e) => {
 
 resetBtn.addEventListener('click', async () => {
   const headers = { 'Content-Type': 'application/json' };
-  const adminKey = localStorage.getItem('nerinAdminKey');
-  if (adminKey) headers['x-admin-key'] = adminKey;
+  const token = localStorage.getItem('nerinToken');
+  if (token) headers.Authorization = `Bearer ${token}`;
   await fetch('/api/footer', { method: 'POST', headers, body: JSON.stringify(defaultConfig) });
   fillForm(defaultConfig);
   alert('Restaurado');
@@ -265,8 +263,6 @@ async function uploadBadgeImage(file) {
   const headers = {};
   const token = localStorage.getItem("nerinToken");
   if (token) headers.Authorization = `Bearer ${token}`;
-  const adminKey = localStorage.getItem("nerinAdminKey");
-  if (adminKey) headers["x-admin-key"] = adminKey;
   const res = await fetch("/api/upload", {
     method: "POST",
     headers,
@@ -283,8 +279,6 @@ async function persistBadgeImageOnly(key, url) {
   const headers = { 'Content-Type': 'application/json' };
   const token = localStorage.getItem('nerinToken');
   if (token) headers.Authorization = `Bearer ${token}`;
-  const adminKey = localStorage.getItem('nerinAdminKey');
-  if (adminKey) headers['x-admin-key'] = adminKey;
 
   const currentRes = await fetch('/api/footer', { headers });
   const current = await currentRes.json().catch(() => ({}));
