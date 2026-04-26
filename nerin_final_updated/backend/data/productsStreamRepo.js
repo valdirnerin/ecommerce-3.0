@@ -179,6 +179,55 @@ async function getProductsPage({
   };
 }
 
+async function getProductsSortedPage({
+  page = 1,
+  pageSize = 24,
+  matchItem = null,
+  sortItems = null,
+  mapItem = null,
+  filePath = productsFilePath,
+} = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || 24);
+  const projected = [];
+
+  await streamProducts({
+    filePath,
+    onProduct: (product, index) => {
+      const accepted = typeof matchItem === "function" ? !!matchItem(product) : true;
+      if (!accepted) return;
+      const mapped = typeof mapItem === "function" ? mapItem(product) : product;
+      projected.push({
+        index,
+        item: mapped,
+      });
+    },
+  });
+
+  if (typeof sortItems === "function") {
+    projected.sort((a, b) => sortItems(a.item, b.item));
+  } else {
+    projected.sort((a, b) => a.index - b.index);
+  }
+
+  const totalItems = projected.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
+  const normalizedPage = Math.min(safePage, totalPages);
+  const start = (normalizedPage - 1) * safePageSize;
+  const end = start + safePageSize;
+  const items = projected.slice(start, end).map((entry) => entry.item);
+
+  return {
+    items,
+    page: normalizedPage,
+    pageSize: safePageSize,
+    totalItems,
+    totalPages,
+    hasNextPage: normalizedPage < totalPages,
+    hasPrevPage: normalizedPage > 1,
+  };
+}
+
 function getBackupCandidates({ dataDir = DATA_DIR } = {}) {
   const patterns = [
     /^products\.backup-.*\.json$/i,
@@ -247,6 +296,7 @@ module.exports = {
   safeReadManifest,
   streamProducts,
   getProductsPage,
+  getProductsSortedPage,
   getProductById,
   getProductByCode,
   countProductsStreaming,

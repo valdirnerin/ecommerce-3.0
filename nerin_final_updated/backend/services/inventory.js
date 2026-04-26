@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { DATA_DIR: dataDir } = require('../utils/dataDir');
+const { readJsonFile } = require('../utils/jsonFile');
 
 const logger = {
   info: console.log,
@@ -16,7 +17,7 @@ function dataPath(file) {
 
 function readJSON(file) {
   try {
-    return JSON.parse(fs.readFileSync(dataPath(file), 'utf8'));
+    return readJsonFile(dataPath(file));
   } catch {
     return {};
   }

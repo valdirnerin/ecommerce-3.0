@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const { DATA_DIR: dataDir } = require('../utils/dataDir');
+const { readJsonFile } = require('../utils/jsonFile');
 
 const filePath = path.join(dataDir, 'products.json');
 
@@ -91,7 +92,7 @@ async function getAll() {
   // Si no hay conexión a la base, leemos desde disco
   if (!pool) {
     try {
-      const fileProducts = JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+      const fileProducts = readJsonFile(filePath).products || [];
       return normalizeList(fileProducts);
     } catch {
       return [];
@@ -111,7 +112,7 @@ async function getAll() {
     // Si la consulta falla (por ejemplo, la columna no existe), hacemos fallback a disco
     console.error('DB product query failed', e.message);
     try {
-      const fileProducts = JSON.parse(fs.readFileSync(filePath, 'utf8')).products || [];
+      const fileProducts = readJsonFile(filePath).products || [];
       return normalizeList(fileProducts);
     } catch {
       return [];

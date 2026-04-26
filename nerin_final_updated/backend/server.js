@@ -63,6 +63,7 @@ const {
 } = require("./utils/reviewValidation");
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const productsStreamRepo = require("./data/productsStreamRepo");
+const { readJsonFile } = require("./utils/jsonFile");
 const {
   appendEvent,
   upsertSession,
@@ -1094,9 +1095,14 @@ async function loadProducts() {
   const now = Date.now();
   if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
   try {
-    const json = JSON.parse(fs.readFileSync(PRODUCTS_FILE_PATH, 'utf8'));
-    const arr = Array.isArray(json?.products) ? json.products : json;
-    const normalized = normalizeProductsList(arr);
+    const pageData = await productsStreamRepo.getProductsPage({
+      page: 1,
+      pageSize: Number.MAX_SAFE_INTEGER,
+      filters: () => true,
+      transformItem: (product) => normalizeProductImages(product),
+      filePath: PRODUCTS_FILE_PATH,
+    });
+    const normalized = normalizeProductsList(pageData.items || []);
     _cache = { t: now, data: normalized };
     return normalized;
   } catch {
@@ -2309,6 +2315,142 @@ function getSupplierPartNumber(product = {}) {
   ).trim();
 }
 
+function buildCatalogMatcher(query = {}) {
+  const search = normalizeQueryText(query.search || query.q || "");
+  const category = normalizeQueryText(query.category || "");
+  const brand = normalizeQueryText(query.brand || "");
+  const model = normalizeQueryText(query.model || "");
+  const stock = normalizeQueryText(query.stock || "");
+  const priceMaxRaw = Number(query.price_max ?? query.priceMax);
+  const priceMax = Number.isFinite(priceMaxRaw) && priceMaxRaw >= 0 ? priceMaxRaw : null;
+  return (product) => {
+    if (!product || typeof product !== "object") return false;
+    if (!isProductPublic(product)) return false;
+    if (search) {
+      const haystack = normalizeQueryText(
+        [
+          product.name,
+          product.sku,
+          product.brand,
+          product.model,
+          product.category,
+          product.subcategory,
+          product?.metadata?.supplierImport?.supplierPartNumber,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (!haystack.includes(search)) return false;
+    }
+    if (category && normalizeQueryText(product.category) !== category) return false;
+    if (brand && normalizeQueryText(product.brand) !== brand) return false;
+    if (model && normalizeQueryText(product.model || product.subcategory) !== model) return false;
+    const numericStock = Number(product.stock);
+    const stockKnown = Number.isFinite(numericStock);
+    if (stock === "in-stock" && !(stockKnown && numericStock > 0)) return false;
+    if (stock === "physical") {
+      const mode = normalizeQueryText(product.stock_mode || product.fulfillment_mode);
+      if (mode && mode !== "physical" && mode !== "fisico" && mode !== "físico") return false;
+    }
+    if (stock === "remote") {
+      const mode = normalizeQueryText(product.stock_mode || product.fulfillment_mode);
+      const remoteStock = Number(product.remote_stock);
+      if (!(mode === "remote" || mode === "remoto" || (Number.isFinite(remoteStock) && remoteStock > 0))) {
+        return false;
+      }
+    }
+    if (priceMax !== null) {
+      const price = Number(product?.price_minorista ?? product?.price ?? 0);
+      if (!Number.isFinite(price) || price > priceMax) return false;
+    }
+    return true;
+  };
+}
+
+function getCatalogSortComparator(query = {}) {
+  const sort = String(query.sort || "relevance").trim().toLowerCase();
+  const byPrice = (product) => Number(product?.price_minorista ?? product?.price ?? 0) || 0;
+  const byStock = (product) => Number(product?.stock ?? 0) || 0;
+  switch (sort) {
+    case "price-asc":
+      return (a, b) => byPrice(a) - byPrice(b);
+    case "price-desc":
+      return (a, b) => byPrice(b) - byPrice(a);
+    case "stock-desc":
+      return (a, b) => byStock(b) - byStock(a);
+    case "name":
+      return (a, b) =>
+        String(a?.name || "").localeCompare(String(b?.name || ""), "es", { sensitivity: "base" });
+    default:
+      return (a, b) => String(a?.id || "").localeCompare(String(b?.id || ""), "es");
+  }
+}
+
+function buildAdminMatcher(query = {}) {
+  const search = normalizeQueryText(query.search || query.q || "");
+  const category = normalizeQueryText(query.category || "");
+  const brand = normalizeQueryText(query.brand || "");
+  const visibility = normalizeQueryText(query.visibility || "");
+  const stockStatus = normalizeQueryText(query.stockStatus || query.stock || "");
+  return (product) => {
+    if (!product || typeof product !== "object") return false;
+    if (search) {
+      const haystack = normalizeQueryText(
+        [
+          product.name,
+          product.sku,
+          product.brand,
+          product.model,
+          product.category,
+          product.subcategory,
+          getSupplierPartNumber(product),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      if (!haystack.includes(search)) return false;
+    }
+    if (category && normalizeQueryText(product.category) !== category) return false;
+    if (brand && normalizeQueryText(product.brand) !== brand) return false;
+    if (visibility && normalizeQueryText(product.visibility || "public") !== visibility) return false;
+    const stock = Number(product.stock);
+    const minStock = Number(product.min_stock);
+    if (stockStatus === "out" && !(Number.isFinite(stock) && stock <= 0)) return false;
+    if (
+      stockStatus === "low" &&
+      !(Number.isFinite(stock) && Number.isFinite(minStock) && minStock > 0 && stock > 0 && stock < minStock)
+    ) {
+      return false;
+    }
+    if (stockStatus === "in" && !(Number.isFinite(stock) && stock > 0)) return false;
+    return true;
+  };
+}
+
+function getAdminSortComparator(query = {}) {
+  const sort = String(query.sort || "recent").trim().toLowerCase();
+  const byTs = (product) => {
+    const raw = product?.updated_at || product?.updatedAt || product?.created_at || product?.createdAt;
+    const ts = new Date(raw || 0).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  };
+  const byName = (product) => String(product?.name || "");
+  const byStock = (product) => Number(product?.stock ?? 0) || 0;
+  const byPrice = (product) => Number(product?.price_minorista ?? product?.price ?? 0) || 0;
+  switch (sort) {
+    case "name":
+      return (a, b) => byName(a).localeCompare(byName(b), "es", { sensitivity: "base" });
+    case "stock":
+      return (a, b) => byStock(b) - byStock(a);
+    case "price_desc":
+      return (a, b) => byPrice(b) - byPrice(a);
+    case "price_asc":
+      return (a, b) => byPrice(a) - byPrice(b);
+    default:
+      return (a, b) => byTs(b) - byTs(a);
+  }
+}
+
 function applyCatalogFilters(products = [], query = {}) {
   const search = normalizeQueryText(query.search || query.q || "");
   const category = normalizeQueryText(query.category || "");
@@ -3403,8 +3545,7 @@ function calculateDetailedAnalytics(options = {}) {
 // Leer productos desde el archivo JSON
 function getProducts() {
   try {
-    const file = fs.readFileSync(PRODUCTS_FILE_PATH, "utf8");
-    const data = JSON.parse(file);
+    const data = readJsonFile(PRODUCTS_FILE_PATH);
     const list = Array.isArray(data?.products) ? data.products : data;
     return normalizeProductsList(list);
   } catch (err) {
@@ -3494,14 +3635,11 @@ async function inspectProductsStorage() {
 }
 
 function buildCatalogStreamFilter(query = {}) {
-  return (product) => {
-    if (!isProductPublic(product)) return false;
-    return applyCatalogFilters([product], query).length > 0;
-  };
+  return buildCatalogMatcher(query);
 }
 
 function buildAdminStreamFilter(query = {}) {
-  return (product) => applyAdminProductFilters([product], query).length > 0;
+  return buildAdminMatcher(query);
 }
 
 async function loadProductsStrict() {
@@ -3528,6 +3666,9 @@ function logProductsServe(event, payload = {}) {
   try {
     console.info(
       `[catalog] ${event} endpoint=${payload.endpoint || "unknown"} productsFilePath=${payload.productsFilePath || PRODUCTS_FILE_PATH} exists=${payload.exists} productCount=${payload.productCount} page=${payload.page} pageSize=${payload.pageSize} totalItems=${payload.totalItems} usingFallback=${payload.usingFallback}`,
+    );
+    console.info(
+      `[catalog-stream] endpoint=${payload.endpoint || "unknown"} page=${payload.page ?? "n/a"} pageSize=${payload.pageSize ?? "n/a"} totalItems=${payload.totalItems ?? "n/a"}`,
     );
   } catch {
     // no-op
@@ -5684,11 +5825,12 @@ async function requestHandler(req, res) {
       });
       const { storage } = await loadProductsStrict();
       const withWholesale = canSeeWholesalePrices(req);
-      const pageData = await productsStreamRepo.getProductsPage({
+      const pageData = await productsStreamRepo.getProductsSortedPage({
         page,
         pageSize,
-        filters: buildCatalogStreamFilter(parsedUrl.query || {}),
-        transformItem: (product) => {
+        matchItem: buildCatalogStreamFilter(parsedUrl.query || {}),
+        sortItems: getCatalogSortComparator(parsedUrl.query || {}),
+        mapItem: (product) => {
           if (withWholesale) return normalizeProductImages(product);
           return normalizeProductImages(sanitizePublicProducts([product])[0]);
         },
@@ -5739,11 +5881,12 @@ async function requestHandler(req, res) {
         maxPageSize: 250,
       });
       const { storage } = await loadProductsStrict();
-      const pageData = await productsStreamRepo.getProductsPage({
+      const pageData = await productsStreamRepo.getProductsSortedPage({
         page,
         pageSize,
-        filters: buildAdminStreamFilter(parsedUrl.query || {}),
-        transformItem: (product) => normalizeProductImages(product),
+        matchItem: buildAdminStreamFilter(parsedUrl.query || {}),
+        sortItems: getAdminSortComparator(parsedUrl.query || {}),
+        mapItem: (product) => normalizeProductImages(product),
       });
       const responsePayload = {
         ...pageData,
@@ -5783,6 +5926,12 @@ async function requestHandler(req, res) {
   if (pathname === "/api/admin/debug/storage" && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
     const storage = await inspectProductsStorage();
+    logProductsServe("serve", {
+      endpoint: "/api/admin/debug/storage",
+      productsFilePath: storage.productsFilePath,
+      exists: storage.exists,
+      productCount: storage.productCount,
+    });
     return sendJson(res, 200, storage);
   }
 
@@ -5800,6 +5949,10 @@ async function requestHandler(req, res) {
       const responseProduct = withWholesale
         ? product
         : sanitizePublicProducts([product])[0];
+      logProductsServe("serve", {
+        endpoint: "/api/products/by-code/:code",
+        totalItems: 1,
+      });
       return sendJson(res, 200, normalizeProductImages(responseProduct));
     } catch (err) {
       console.error("product-by-code-read-error", err);
@@ -5819,6 +5972,10 @@ async function requestHandler(req, res) {
       const responseProduct = withWholesale
         ? product
         : sanitizePublicProducts([product])[0];
+      logProductsServe("serve", {
+        endpoint: "/api/products/:id",
+        totalItems: 1,
+      });
       return sendJson(res, 200, normalizeProductImages(responseProduct));
     } catch (err) {
       console.error("product-by-id-read-error", err);
@@ -11165,13 +11322,12 @@ async function requestHandler(req, res) {
     (pathname === "/shop.html" || pathname === "/shop" || pathname === "/shop/") &&
     req.method === "GET"
   ) {
-    const products = await loadProducts();
     const seoConfig = getConfig();
     const siteBase = getPublicBaseUrl(seoConfig);
     const { head: templateHead, body: templateBody } = getShopTemplateParts();
-    const { cards, count, summary } = renderShopListing(products, siteBase);
-    const listing = cards ||
-      '<p class="description">El catálogo estará disponible en breve. Volvé a intentarlo en unos minutos.</p>';
+    const listing =
+      '<p class="description">Cargando catálogo…</p>';
+    const summary = "Mostrando productos";
     const hydratedHead = replaceBasePlaceholders(templateHead, siteBase);
     let hydratedBody = replaceBasePlaceholders(templateBody, siteBase);
     hydratedBody = hydratedBody.replace(
@@ -11180,11 +11336,11 @@ async function requestHandler(req, res) {
     );
     hydratedBody = hydratedBody.replace(
       /<span\s+id=\"resultCount\">[^<]*<\/span>/i,
-      `<span id="resultCount">${count}</span>`,
+      `<span id="resultCount">0</span>`,
     );
     hydratedBody = hydratedBody.replace(
       /<p>\s*<span\s+id=\"resultCount\">[^<]*<\/span>[^<]*<\/p>/i,
-      `<p><span id="resultCount">${count}</span> ${esc(summary)}</p>`,
+      `<p><span id="resultCount">0</span> ${esc(summary)}</p>`,
     );
     const html = `<!doctype html><html lang="es"><head>${hydratedHead}</head>${hydratedBody}</html>`;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
