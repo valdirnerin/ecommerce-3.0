@@ -59,9 +59,18 @@ export async function fetchProductsPage(params = {}, options = {}) {
     ...(options || {}),
   });
   if (!res.ok) {
-    const errPayload = await res.json().catch(() => ({}));
+    const errText = await res.text().catch(() => "");
+    let errPayload = {};
+    if (errText) {
+      try {
+        errPayload = JSON.parse(errText);
+      } catch {
+        errPayload = {};
+      }
+    }
+    const details = errText ? ` (status ${res.status}, body: ${errText.slice(0, 400)})` : ` (status ${res.status})`;
     throw new Error(
-      errPayload.error || errPayload.message || "No se pudo cargar el catálogo",
+      `${errPayload.error || errPayload.message || "No se pudo cargar el catálogo"}${details}`,
     );
   }
   const data = await res.json();
