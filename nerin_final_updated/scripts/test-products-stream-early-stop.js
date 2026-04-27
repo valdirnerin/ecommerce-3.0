@@ -36,14 +36,14 @@ async function main() {
   const page1Duration = Date.now() - page1Start;
   assert(Array.isArray(page1.items) && page1.items.length === 24, "page=1 debe devolver 24 items");
   assert(page1.hasNextPage === true, "page=1 debe informar hasNextPage=true");
-  assert(page1.matchedCountScanned < productCount, "page=1 no debe escanear los 10.000 productos");
+  assert(page1.matchedCount < productCount, "page=1 no debe escanear los 10.000 productos");
 
   const page2Start = Date.now();
   const page2 = await getProductsEmergencyPage({ page: 2, pageSize: 24, filePath });
   const page2Duration = Date.now() - page2Start;
   assert(Array.isArray(page2.items) && page2.items.length === 24, "page=2 debe devolver 24 items");
   assert(page2.hasNextPage === true, "page=2 debe informar hasNextPage=true");
-  assert(page2.matchedCountScanned < productCount, "page=2 no debe escanear los 10.000 productos");
+  assert(page2.matchedCount < productCount, "page=2 no debe escanear los 10.000 productos");
 
   const slugNearStart = "producto-5";
   const slugNearStartStart = Date.now();
@@ -61,12 +61,12 @@ async function main() {
     productCount,
     page1: {
       durationMs: page1Duration,
-      matchedCountScanned: page1.matchedCountScanned,
+      matchedCount: page1.matchedCount,
       hasNextPage: page1.hasNextPage,
     },
     page2: {
       durationMs: page2Duration,
-      matchedCountScanned: page2.matchedCountScanned,
+      matchedCount: page2.matchedCount,
       hasNextPage: page2.hasNextPage,
     },
     slugNearStart: {

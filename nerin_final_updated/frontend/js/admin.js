@@ -1780,8 +1780,10 @@ let productFilters = {
 };
 let productsPage = 1;
 let productsPageSize = Number(adminProductsPageSize?.value || 100);
-let productsTotalItems = 0;
-let productsTotalPages = 1;
+let productsHasNextPage = false;
+let productsHasPrevPage = false;
+let productsTotalItems = null;
+let productsTotalPages = null;
 let productsLoadErrorMessage = "";
 
 let isApplyingAutoSeo = false;
@@ -2217,21 +2219,28 @@ if (adminProductsPageSize) {
 }
 if (adminProductsPrevPage) {
   adminProductsPrevPage.addEventListener("click", () => {
-    if (productsPage <= 1) return;
+    console.info("[admin-products] prev clicked", {
+      currentPage: productsPage,
+      hasPrevPage: productsHasPrevPage,
+    });
+    if (!productsHasPrevPage || productsPage <= 1) return;
     productsPage -= 1;
-    loadProducts();
+    loadProducts().catch((error) => {
+      console.error("[admin-products] prev page failed", error);
+    });
   });
 }
 if (adminProductsNextPage) {
   adminProductsNextPage.addEventListener("click", () => {
-    if (
-      Number.isFinite(Number(productsTotalPages)) &&
-      productsPage >= Number(productsTotalPages)
-    ) {
-      return;
-    }
+    console.info("[admin-products] next clicked", {
+      currentPage: productsPage,
+      hasNextPage: productsHasNextPage,
+    });
+    if (!productsHasNextPage) return;
     productsPage += 1;
-    loadProducts();
+    loadProducts().catch((error) => {
+      console.error("[admin-products] next page failed", error);
+    });
   });
 }
 
@@ -3348,10 +3357,34 @@ if (suggestFulfillmentBtn) {
   suggestFulfillmentBtn.addEventListener("click", applySuggestedFulfillment);
 }
 
+function updateProductsPaginationControls() {
+  if (adminProductsNextPage) {
+    adminProductsNextPage.disabled = !productsHasNextPage;
+    adminProductsNextPage.hidden = false;
+  }
+
+  if (adminProductsPrevPage) {
+    adminProductsPrevPage.disabled = !productsHasPrevPage;
+    adminProductsPrevPage.hidden = false;
+  }
+
+  if (adminProductsPageInfo) {
+    const totalText = productsTotalPages
+      ? `Página ${productsPage} de ${productsTotalPages}`
+      : `Página ${productsPage} · total no calculado`;
+    adminProductsPageInfo.textContent =
+      `${totalText} · ${productsCache.length} productos en esta página`;
+  }
+}
+
 async function loadProducts(options = {}) {
   if (!productsTableBody) return;
   const { highlightId } = options;
   try {
+    console.info("[admin-products] load", {
+      page: productsPage,
+      pageSize: productsPageSize,
+    });
     productsTableBody.innerHTML =
       '<tr><td colspan="15">Cargando productos…</td></tr>';
     const query = new URLSearchParams({
@@ -3375,22 +3408,36 @@ async function loadProducts(options = {}) {
     const data = await res.json();
     productsLoadErrorMessage = "";
     productsCache = Array.isArray(data.items) ? data.items : [];
-    const rawTotal = data.totalItems;
-    const hasKnownTotal =
-      rawTotal !== null &&
-      rawTotal !== undefined &&
-      rawTotal !== "" &&
-      Number.isFinite(Number(rawTotal));
-    productsTotalItems = hasKnownTotal ? Number(rawTotal) : null;
+    productsPage = Number(data.page || productsPage);
+    productsPageSize = Number(data.pageSize || productsPageSize);
+    productsHasNextPage = data.hasNextPage === true;
+    productsHasPrevPage = data.hasPrevPage === true || productsPage > 1;
+    productsTotalItems =
+      data.totalItems !== null &&
+      data.totalItems !== undefined &&
+      data.totalItems !== "" &&
+      Number.isFinite(Number(data.totalItems))
+        ? Number(data.totalItems)
+        : null;
     productsTotalPages =
       data.totalPages !== null &&
       data.totalPages !== undefined &&
+      data.totalPages !== "" &&
       Number.isFinite(Number(data.totalPages))
         ? Number(data.totalPages)
         : null;
-    productsPage = Number(data.page || productsPage);
     syncProductTaxonomies(productsCache);
     renderProductsTable();
+    updateProductsPaginationControls();
+    console.info("[admin-products] loaded", {
+      page: productsPage,
+      pageSize: productsPageSize,
+      items: productsCache.length,
+      hasNextPage: productsHasNextPage,
+      hasPrevPage: productsHasPrevPage,
+      totalItems: productsTotalItems,
+      totalPages: productsTotalPages,
+    });
     const start = productsCache.length ? (productsPage - 1) * productsPageSize + 1 : 0;
     const end = productsCache.length ? start + productsCache.length - 1 : 0;
     if (adminProductsRange) {
@@ -3403,20 +3450,6 @@ async function loadProducts(options = {}) {
       } else {
         adminProductsRange.textContent = `Mostrando ${start}-${end} de ${productsTotalItems} productos`;
       }
-    }
-    if (adminProductsPageInfo) {
-      adminProductsPageInfo.textContent =
-        productsTotalPages == null
-          ? `Página ${productsPage}`
-          : `Página ${productsPage} / ${productsTotalPages}`;
-    }
-    if (adminProductsPrevPage) adminProductsPrevPage.disabled = productsPage <= 1;
-    if (adminProductsNextPage) {
-      const hasExplicitHasNextPage = typeof data.hasNextPage === "boolean";
-      const hasNextPage = hasExplicitHasNextPage
-        ? data.hasNextPage
-        : productsCache.length >= productsPageSize;
-      adminProductsNextPage.disabled = !hasNextPage;
     }
     if (highlightId) {
       highlightProductRow(highlightId);
