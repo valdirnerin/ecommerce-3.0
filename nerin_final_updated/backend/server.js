@@ -1679,28 +1679,32 @@ function toIsoString(value) {
 }
 
 function isProductPublic(product) {
-  if (!product) return false;
+  if (!product || typeof product !== "object") return false;
   const visibility =
     typeof product.visibility === "string"
       ? product.visibility.trim().toLowerCase()
       : "";
-  const blockedVisibility = new Set(["private", "hidden", "draft", "archived", "disabled"]);
+  const blockedVisibility = new Set(["private", "hidden", "draft", "archived", "deleted", "disabled"]);
   if (blockedVisibility.has(visibility)) return false;
   if (product.vip_only === true) return false;
   if (product.wholesaleOnly === true) return false;
   if (product.enabled === false) return false;
+  if (product.deleted === true) return false;
+  if (product.archived === true) return false;
   const status =
     typeof product.status === "string"
       ? product.status.trim().toLowerCase()
       : "";
-  const blockedStatus = new Set(["private", "hidden", "draft", "archived", "disabled"]);
+  const blockedStatus = new Set(["private", "hidden", "draft", "archived", "deleted", "disabled"]);
   if (blockedStatus.has(status)) return false;
+  const hasTitle =
+    (typeof product.title === "string" && product.title.trim()) ||
+    (typeof product.name === "string" && product.name.trim());
+  if (!hasTitle) return false;
   return Boolean(
     (typeof product.slug === "string" && product.slug.trim()) ||
       (typeof product.sku === "string" && product.sku.trim()) ||
       (typeof product.code === "string" && product.code.trim()) ||
-      (typeof product.title === "string" && product.title.trim()) ||
-      (typeof product.name === "string" && product.name.trim()) ||
       (typeof product.id === "string" && product.id.trim()) ||
       typeof product.id === "number",
   );
@@ -2314,6 +2318,7 @@ function sanitizePublicProducts(products) {
 
 function normalizeQueryText(value) {
   const text = String(value || "")
+    .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
   if (!text) return "";
@@ -2440,28 +2445,44 @@ function buildAdminMatcher(query = {}) {
   const category = normalizeQueryText(query.category || "");
   const brand = normalizeQueryText(query.brand || "");
   const visibility = normalizeQueryText(query.visibility || "");
+  const status = normalizeQueryText(query.status || "");
   const stockStatus = normalizeQueryText(query.stockStatus || query.stock || "");
+  const searchFields = [
+    "name",
+    "title",
+    "description",
+    "brand",
+    "category",
+    "model",
+    "sku",
+    "code",
+    "id",
+    "slug",
+    "partNumber",
+    "supplierCode",
+    "ean",
+    "gtin",
+    "mpn",
+    "filename",
+    "originalFileName",
+  ];
   return (product) => {
     if (!product || typeof product !== "object") return false;
+    if (product.deleted === true) return false;
     if (search) {
-      const haystack = normalizeQueryText(
-        [
-          product.name,
-          product.sku,
-          product.brand,
-          product.model,
-          product.category,
-          product.subcategory,
-          getSupplierPartNumber(product),
-        ]
-          .filter(Boolean)
-          .join(" "),
-      );
+      const haystack = normalizeQueryText([
+        ...searchFields.map((field) => product?.[field]),
+        getSupplierPartNumber(product),
+      ]
+        .filter(Boolean)
+        .map((item) => String(item))
+        .join(" "));
       if (!haystack.includes(search)) return false;
     }
     if (category && normalizeQueryText(product.category) !== category) return false;
     if (brand && normalizeQueryText(product.brand) !== brand) return false;
-    if (visibility && normalizeQueryText(product.visibility || "public") !== visibility) return false;
+    if (visibility && normalizeQueryText(product.visibility || "") !== visibility) return false;
+    if (status && normalizeQueryText(product.status || "") !== status) return false;
     const stock = Number(product.stock);
     const minStock = Number(product.min_stock);
     if (stockStatus === "out" && !(Number.isFinite(stock) && stock <= 0)) return false;
@@ -3794,6 +3815,24 @@ function buildAdminStreamFilter(query = {}) {
   return buildAdminMatcher(query);
 }
 
+function getAdminFilterMeta(query = {}) {
+  const search = normalizeQueryText(query.search || query.q || "");
+  const brand = normalizeQueryText(query.brand || "");
+  const category = normalizeQueryText(query.category || "");
+  const stock = normalizeQueryText(query.stockStatus || query.stock || "");
+  const status = normalizeQueryText(query.status || "");
+  const visibility = normalizeQueryText(query.visibility || "");
+  return {
+    search,
+    brand,
+    category,
+    stock,
+    status,
+    visibility,
+    hasActiveFilters: Boolean(search || brand || category || stock || status || visibility),
+  };
+}
+
 function resolveStreamingSortPolicy({ endpoint = "", query = {}, storage = {} } = {}) {
   const requestedSort = String(query?.sort || "").trim().toLowerCase();
   const isLargeCatalog = Number(storage?.sizeBytes || 0) > LARGE_CATALOG_THRESHOLD_BYTES;
@@ -3922,6 +3961,8 @@ async function getProductsEmergencyResponse({
       hasPrevPage: Boolean(emergencyPage.hasPrevPage || page > 1),
       totalItemsUnknown: estimatedTotalItems == null,
       mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
+      scannedCount: emergencyPage.scannedCount,
+      matchedCount: emergencyPage.matchedCount,
     };
     if (warning) responsePayload.warning = warning;
     if (ignoredSort) responsePayload.ignoredSort = ignoredSort;
@@ -6115,10 +6156,7 @@ async function requestHandler(req, res) {
         page,
         pageSize,
         shouldStop,
-        maxScanItems:
-          parsedUrl?.query?.search || parsedUrl?.query?.q || parsedUrl?.query?.brand
-            ? null
-            : 5000,
+        maxScanItems: null,
         matchItem: buildCatalogStreamFilter(effectiveQuery || {}),
         mapItem: (product) => {
           if (withWholesale) return normalizeProductImages(product);
@@ -6180,6 +6218,8 @@ async function requestHandler(req, res) {
         query: parsedUrl.query || {},
         storage,
       });
+      const adminFilterMeta = getAdminFilterMeta(effectiveQuery || {});
+      console.info("[admin-products-filter]", adminFilterMeta);
       const shouldStop = () =>
         req.aborted || req.destroyed || res.destroyed || res.writableEnded;
       const pageData = await getProductsEmergencyResponse({
@@ -6193,6 +6233,13 @@ async function requestHandler(req, res) {
         ignoredSort,
       });
       if (pageData === null) return;
+      if (!adminFilterMeta.hasActiveFilters && Number(pageData.scannedCount || 0) > pageSize + 5) {
+        console.warn("[admin-products-filter-bug] no filters but scanned too many", {
+          scannedCount: pageData.scannedCount,
+          pageSize,
+          page,
+        });
+      }
       const responsePayload = {
         ...pageData,
         usingFallback: storage.usingFallback,
@@ -6698,10 +6745,31 @@ async function requestHandler(req, res) {
     stockXlsxUpload.single("file")(req, res, async (err) => {
       if (err) {
         console.error("stock-xlsx-upload", err);
-        return sendJson(res, 400, { error: err.message || "No se pudo subir el XLSX" });
+        return sendJson(res, 400, {
+          ok: false,
+          error: err.message || "No se pudo subir el XLSX",
+          code: "IMPORT_FAILED",
+        });
       }
       if (!req.file || !req.file.path) {
-        return sendJson(res, 400, { error: "No se recibió archivo XLSX" });
+        return sendJson(res, 400, {
+          ok: false,
+          error: "No se recibió archivo XLSX",
+          code: "IMPORT_FAILED",
+        });
+      }
+      const productsStorage = await inspectProductsStorage().catch(() => null);
+      if (Number(productsStorage?.sizeBytes || 0) > LARGE_CATALOG_THRESHOLD_BYTES) {
+        try {
+          await fsp.unlink(req.file.path);
+        } catch {}
+        console.warn("[products-import:failed] error=streaming_mode_required_for_large_catalog");
+        return sendJson(res, 503, {
+          ok: false,
+          error:
+            "La importación masiva requiere modo streaming/offline para catálogos grandes",
+          code: "IMPORT_FAILED",
+        });
       }
 
       const job = createImportJob("stock_xlsx");
