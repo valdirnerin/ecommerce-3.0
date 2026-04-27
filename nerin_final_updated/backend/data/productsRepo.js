@@ -3,8 +3,20 @@ const path = require('path');
 const db = require('../db');
 const { DATA_DIR: dataDir } = require('../utils/dataDir');
 const { readJsonFile } = require('../utils/jsonFile');
+const LARGE_CATALOG_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 const filePath = path.join(dataDir, 'products.json');
+
+function ensureCatalogFitsInMemory() {
+  if (!fs.existsSync(filePath)) return;
+  const sizeBytes = Number(fs.statSync(filePath)?.size || 0);
+  if (sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES) {
+    const err = new Error("productsRepo disabled for large catalog; migrate to streaming operations");
+    err.code = "MEMORY_GUARD_BLOCKED";
+    err.statusCode = 503;
+    throw err;
+  }
+}
 
 function parseMetadata(raw) {
   if (!raw) return {};
@@ -91,6 +103,7 @@ async function getAll() {
   const pool = db.getPool();
   // Si no hay conexión a la base, leemos desde disco
   if (!pool) {
+    ensureCatalogFitsInMemory();
     try {
       const fileProducts = readJsonFile(filePath).products || [];
       return normalizeList(fileProducts);
@@ -123,6 +136,7 @@ async function getAll() {
 async function getById(id) {
   const pool = db.getPool();
   if (!pool) {
+    ensureCatalogFitsInMemory();
     const prods = await getAll();
     return prods.find((p) => String(p.id) === String(id)) || null;
   }
@@ -144,6 +158,7 @@ async function getById(id) {
 async function saveAll(products) {
   const pool = db.getPool();
   if (!pool) {
+    ensureCatalogFitsInMemory();
     const normalized = normalizeList(products);
     fs.writeFileSync(filePath, JSON.stringify({ products: normalized }, null, 2), 'utf8');
     return;

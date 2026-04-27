@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const FORBIDDEN_PRODUCTS_JSON_PARSE_MAX_BYTES = 5 * 1024 * 1024;
+const FORBIDDEN_PRODUCTS_JSON_PARSE_MAX_BYTES = 20 * 1024 * 1024;
 
 function isProductsJson(filePath = "") {
   return path.basename(String(filePath || "")).toLowerCase() === "products.json";
@@ -14,7 +14,7 @@ function readJsonFile(filePath, { encoding = "utf8" } = {}) {
 
   if (isProductsJson(resolvedPath) && sizeBytes > FORBIDDEN_PRODUCTS_JSON_PARSE_MAX_BYTES) {
     const stack = new Error().stack;
-    console.error("[FORBIDDEN_PRODUCTS_JSON_PARSE]", {
+    console.error("[MEMORY-GUARD] full catalog load blocked", {
       filePath: resolvedPath,
       sizeBytes,
       stack,

@@ -1994,7 +1994,8 @@ function updateProductSummary(filtered) {
       </div>`;
     return;
   }
-  const total = Number(productsTotalItems || productsCache.length);
+  const hasKnownTotal = Number.isFinite(Number(productsTotalItems));
+  const total = hasKnownTotal ? Number(productsTotalItems) : productsCache.length;
   const visible = filtered.length;
   const filteredLow = filtered.filter((p) => isLowStock(p)).length;
   const filteredOut = filtered.filter((p) => isOutOfStock(p)).length;
@@ -2007,12 +2008,12 @@ function updateProductSummary(filtered) {
     (p) => (p.visibility || "public") === "public",
   ).length;
   const title =
-    visible === total
+    !hasKnownTotal || visible === total
       ? `${visible} ${visible === 1 ? "producto" : "productos"} en esta página`
       : `${visible} ${visible === 1 ? "producto" : "productos"} de ${total}`;
   const meta = describeActiveFilters();
   const formatIndicator = (current, totalCount) => {
-    if (visible === total || !totalCount) {
+    if (!hasKnownTotal || visible === total || !totalCount) {
       return String(current);
     }
     return `${current} / ${totalCount}`;
@@ -2223,7 +2224,12 @@ if (adminProductsPrevPage) {
 }
 if (adminProductsNextPage) {
   adminProductsNextPage.addEventListener("click", () => {
-    if (productsPage >= productsTotalPages) return;
+    if (
+      Number.isFinite(Number(productsTotalPages)) &&
+      productsPage >= Number(productsTotalPages)
+    ) {
+      return;
+    }
     productsPage += 1;
     loadProducts();
   });
@@ -3369,21 +3375,40 @@ async function loadProducts(options = {}) {
     const data = await res.json();
     productsLoadErrorMessage = "";
     productsCache = Array.isArray(data.items) ? data.items : [];
-    productsTotalItems = Number(data.totalItems || productsCache.length);
-    productsTotalPages = Number(data.totalPages || 1);
+    const hasKnownTotal =
+      data.totalItems !== null &&
+      data.totalItems !== undefined &&
+      Number.isFinite(Number(data.totalItems));
+    productsTotalItems = hasKnownTotal ? Number(data.totalItems) : null;
+    productsTotalPages =
+      data.totalPages !== null &&
+      data.totalPages !== undefined &&
+      Number.isFinite(Number(data.totalPages))
+        ? Number(data.totalPages)
+        : null;
     productsPage = Number(data.page || productsPage);
     syncProductTaxonomies(productsCache);
     renderProductsTable();
-    const start = productsTotalItems ? (productsPage - 1) * productsPageSize + 1 : 0;
-    const end = Math.min(productsPage * productsPageSize, productsTotalItems);
+    const start = productsCache.length ? (productsPage - 1) * productsPageSize + 1 : 0;
+    const end = productsCache.length ? start + productsCache.length - 1 : 0;
     if (adminProductsRange) {
-      adminProductsRange.textContent = `Mostrando ${start}-${end} de ${productsTotalItems} productos`;
+      if (productsTotalItems == null) {
+        adminProductsRange.textContent = `Mostrando ${start}-${end} (total estimado no disponible)`;
+      } else {
+        adminProductsRange.textContent = `Mostrando ${start}-${end} de ${productsTotalItems} productos`;
+      }
     }
     if (adminProductsPageInfo) {
-      adminProductsPageInfo.textContent = `Página ${productsPage} / ${productsTotalPages}`;
+      adminProductsPageInfo.textContent =
+        productsTotalPages == null
+          ? `Página ${productsPage}`
+          : `Página ${productsPage} / ${productsTotalPages}`;
     }
     if (adminProductsPrevPage) adminProductsPrevPage.disabled = productsPage <= 1;
-    if (adminProductsNextPage) adminProductsNextPage.disabled = productsPage >= productsTotalPages;
+    if (adminProductsNextPage) {
+      const hasNextPage = Boolean(data.hasNextPage) || productsCache.length >= productsPageSize;
+      adminProductsNextPage.disabled = !hasNextPage;
+    }
     if (highlightId) {
       highlightProductRow(highlightId);
     }
@@ -3412,7 +3437,7 @@ async function loadProducts(options = {}) {
     } catch (debugErr) {
       console.error("admin-products-debug-failed", debugErr);
     }
-    productsLoadErrorMessage = `${err.message || "No se pudieron cargar los productos."}${details}`;
+    productsLoadErrorMessage = `Error cargando productos: ${err.message || "No se pudieron cargar los productos."}${details}`;
     productsTableBody.innerHTML =
       `<tr><td colspan="15">${escapeHtml(productsLoadErrorMessage)}</td></tr>`;
     updateProductSummary([]);

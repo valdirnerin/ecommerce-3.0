@@ -10,6 +10,7 @@ const logger = {
 };
 const db = require('../db');
 const inventoryRepo = require('../data/inventoryRepo');
+const LARGE_CATALOG_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 function dataPath(file) {
   return path.join(dataDir, file);
@@ -18,7 +19,10 @@ function dataPath(file) {
 function readJSON(file) {
   try {
     return readJsonFile(dataPath(file));
-  } catch {
+  } catch (err) {
+    if (err?.code === "FORBIDDEN_PRODUCTS_JSON_PARSE") {
+      throw err;
+    }
     return {};
   }
 }
@@ -36,6 +40,16 @@ function saveOrders(orders) {
 }
 
 function getProducts() {
+  const productsPath = dataPath('products.json');
+  if (fs.existsSync(productsPath)) {
+    const sizeBytes = Number(fs.statSync(productsPath)?.size || 0);
+    if (sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES) {
+      const err = new Error("inventory disabled for large catalog; streaming write migration required");
+      err.code = "MEMORY_GUARD_BLOCKED";
+      err.statusCode = 503;
+      throw err;
+    }
+  }
   const data = readJSON('products.json');
   return normalizeProducts(data.products || []);
 }

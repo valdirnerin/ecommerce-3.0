@@ -204,6 +204,7 @@ if (process.env.NODE_ENV !== "test") {
 const DEFAULT_PUBLIC_URL = "https://nerinparts.com.ar";
 const BASE_URL = process.env.PUBLIC_URL || DEFAULT_PUBLIC_URL;
 const PRODUCTS_TTL = parseInt(process.env.PRODUCTS_TTL_MS, 10) || 60000;
+const LARGE_CATALOG_THRESHOLD_BYTES = 20 * 1024 * 1024;
 const META_FEED_CACHE_MS = 10 * 60 * 1000;
 const MAX_ACTIVITY_EVENTS = 600;
 const MAX_ACTIVITY_SESSIONS = 300;
@@ -256,6 +257,43 @@ function getPublicBaseUrl(cfg) {
   const fromEnv = normalizeBaseUrl(process.env.PUBLIC_URL);
   if (fromEnv) return fromEnv;
   return FALLBACK_BASE_URL;
+}
+
+function createMemoryGuardError(message, extra = {}) {
+  const err = new Error(message || "Operación bloqueada por memoria");
+  err.code = "MEMORY_GUARD_BLOCKED";
+  Object.assign(err, extra || {});
+  return err;
+}
+
+function getProductsFileSizeBytesSafe(filePath = PRODUCTS_FILE_PATH) {
+  try {
+    if (!fs.existsSync(filePath)) return 0;
+    return Number(fs.statSync(filePath)?.size || 0);
+  } catch {
+    return 0;
+  }
+}
+
+function isLargeCatalogFile(filePath = PRODUCTS_FILE_PATH) {
+  const sizeBytes = getProductsFileSizeBytesSafe(filePath);
+  return {
+    sizeBytes,
+    isLarge: sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES,
+  };
+}
+
+function loadSmallCatalogProducts({ filePath = PRODUCTS_FILE_PATH } = {}) {
+  const { sizeBytes, isLarge } = isLargeCatalogFile(filePath);
+  if (isLarge) {
+    throw createMemoryGuardError(
+      "Catálogo demasiado grande para carga completa en memoria.",
+      { sizeBytes, filePath },
+    );
+  }
+  const data = readJsonFile(filePath);
+  const list = Array.isArray(data?.products) ? data.products : data;
+  return normalizeProductsList(list);
 }
 
 function createImportJob(type = "catalog_csv") {
@@ -1099,17 +1137,17 @@ async function loadProducts() {
   const now = Date.now();
   if (_cache.data && now - _cache.t < PRODUCTS_TTL) return _cache.data;
   try {
-    const pageData = await productsStreamRepo.getProductsPage({
-      page: 1,
-      pageSize: Number.MAX_SAFE_INTEGER,
-      filters: () => true,
-      transformItem: (product) => normalizeProductImages(product),
-      filePath: PRODUCTS_FILE_PATH,
-    });
-    const normalized = normalizeProductsList(pageData.items || []);
+    const normalized = loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
     _cache = { t: now, data: normalized };
     return normalized;
-  } catch {
+  } catch (err) {
+    if (err?.code === "MEMORY_GUARD_BLOCKED") {
+      console.error("[MEMORY-GUARD] full catalog load blocked", {
+        filePath: PRODUCTS_FILE_PATH,
+        sizeBytes: err?.sizeBytes,
+        caller: "loadProducts",
+      });
+    }
     _cache = { t: now, data: [] };
     return _cache.data;
   }
@@ -3640,6 +3678,18 @@ function buildDisabledAnalyticsPayload({ reason = ANALYTICS_DISABLED_REASON } = 
 // Leer productos desde el archivo JSON
 function getProducts() {
   try {
+    const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
+    if (isLarge) {
+      console.error("[MEMORY-GUARD] full catalog load blocked", {
+        filePath: PRODUCTS_FILE_PATH,
+        sizeBytes,
+        caller: "getProducts",
+      });
+      throw createMemoryGuardError(
+        "Catálogo grande: operación no disponible sin streaming.",
+        { sizeBytes },
+      );
+    }
     const data = readJsonFile(PRODUCTS_FILE_PATH);
     const list = Array.isArray(data?.products) ? data.products : data;
     return normalizeProductsList(list);
@@ -9311,6 +9361,11 @@ async function requestHandler(req, res) {
         return sendJson(res, 201, { success: true, product: newProduct });
       } catch (err) {
         console.error("products-create-error", err);
+        if (err?.code === "MEMORY_GUARD_BLOCKED") {
+          return sendJson(res, 503, {
+            error: "Catálogo grande: alta de productos deshabilitada temporalmente hasta migración streaming",
+          });
+        }
         return sendJson(res, 500, {
           error: "No se pudo cargar el catálogo para crear el producto",
         });
@@ -9347,6 +9402,11 @@ async function requestHandler(req, res) {
       return sendJson(res, 201, { success: true, product: duplicate });
     } catch (err) {
       console.error(err);
+      if (err?.code === "MEMORY_GUARD_BLOCKED") {
+        return sendJson(res, 503, {
+          error: "Catálogo grande: duplicación de productos deshabilitada temporalmente hasta migración streaming",
+        });
+      }
       return sendJson(res, 500, { error: "Error al duplicar producto" });
     }
   }
@@ -9378,6 +9438,11 @@ async function requestHandler(req, res) {
         return sendJson(res, 200, { success: true, product: products[index] });
       } catch (err) {
         console.error("products-update-error", err);
+        if (err?.code === "MEMORY_GUARD_BLOCKED") {
+          return sendJson(res, 503, {
+            error: "Catálogo grande: edición de productos deshabilitada temporalmente hasta migración streaming",
+          });
+        }
         return sendJson(res, 500, {
           error: "No se pudo cargar el catálogo para actualizar el producto",
         });
@@ -9400,6 +9465,11 @@ async function requestHandler(req, res) {
       return sendJson(res, 200, { success: true, product: removed });
     } catch (err) {
       console.error(err);
+      if (err?.code === "MEMORY_GUARD_BLOCKED") {
+        return sendJson(res, 503, {
+          error: "Catálogo grande: baja de productos deshabilitada temporalmente hasta migración streaming",
+        });
+      }
       return sendJson(res, 500, { error: "Error al eliminar producto" });
     }
   }
@@ -11116,6 +11186,14 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/meta-feed.csv" && req.method === "GET") {
+    const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
+    if (isLarge) {
+      return sendJson(res, 503, {
+        error: "Meta feed disabled for large catalog; generate offline job required",
+        sizeBytes,
+        largeCatalog: true,
+      });
+    }
     const cfg = getConfig();
     const baseUrl = getMetaFeedBaseUrl(req, cfg);
     const now = Date.now();
@@ -11131,7 +11209,7 @@ async function requestHandler(req, res) {
       res.end(metaFeedCache.csv);
       return;
     }
-    const products = await loadProducts();
+    const products = loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
     const { csv, count, inStockCount } = buildMetaFeedCsv(products, baseUrl);
     metaFeedCache = {
       t: now,
@@ -11149,9 +11227,17 @@ async function requestHandler(req, res) {
   }
 
   if (!IS_PRODUCTION && pathname === "/meta-feed-debug.json" && req.method === "GET") {
+    const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
+    if (isLarge) {
+      return sendJson(res, 503, {
+        error: "Meta feed disabled for large catalog; generate offline job required",
+        sizeBytes,
+        largeCatalog: true,
+      });
+    }
     const cfg = getConfig();
     const baseUrl = getMetaFeedBaseUrl(req, cfg);
-    const products = await loadProducts();
+    const products = loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
     const { csv, count, inStockCount } = buildMetaFeedCsv(products, baseUrl);
     const preview = csv.split("\n").slice(0, 6);
     return sendJson(res, 200, {
@@ -11164,29 +11250,17 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/meta-feed/health" && req.method === "GET") {
-    const cfg = getConfig();
-    const baseUrl = getMetaFeedBaseUrl(req, cfg);
-    const now = Date.now();
-    if (
-      !metaFeedCache.csv ||
-      metaFeedCache.baseUrl !== baseUrl ||
-      now - metaFeedCache.t >= META_FEED_CACHE_MS
-    ) {
-      const products = await loadProducts();
-      const { csv, count, inStockCount } = buildMetaFeedCsv(products, baseUrl);
-      metaFeedCache = {
-        t: now,
-        baseUrl,
-        csv,
-        count,
-        inStockCount,
-      };
-    }
+    const exists = fs.existsSync(PRODUCTS_FILE_PATH);
+    const sizeBytes = getProductsFileSizeBytesSafe(PRODUCTS_FILE_PATH);
+    const manifest = productsStreamRepo.safeReadManifest();
+    const largeCatalog = sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES;
     sendJson(res, 200, {
-      ok: metaFeedCache.inStockCount > 0,
-      total: metaFeedCache.count,
-      inStock: metaFeedCache.inStockCount,
-      refreshedAt: new Date(metaFeedCache.t).toISOString(),
+      ok: exists,
+      exists,
+      sizeBytes,
+      largeCatalog,
+      manifest: manifest || null,
+      refreshedAt: new Date().toISOString(),
     });
     return;
   }
@@ -11194,7 +11268,8 @@ async function requestHandler(req, res) {
   if (pathname === "/sitemap.xml" && req.method === "GET") {
     const cfg = getConfig();
     const siteBase = getPublicBaseUrl(cfg);
-    const products = await loadProducts();
+    const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
+    const products = isLarge ? [] : loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
     const xml = buildSitemapXml(siteBase, products);
     res.writeHead(200, {
       "Content-Type": "application/xml; charset=utf-8",
@@ -11313,10 +11388,9 @@ async function requestHandler(req, res) {
       res.end(html);
       return;
     }
-    const products = await loadProducts();
-    const product = Array.isArray(products)
-      ? products.find((p) => p.slug === slug)
-      : null;
+    const product = await productsStreamRepo.getProductBySlug(slug, {
+      filePath: PRODUCTS_FILE_PATH,
+    });
     if (!product) {
       const html =
         "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\"><title>Producto no encontrado</title></head><body><h1>Producto no encontrado</h1></body></html>";

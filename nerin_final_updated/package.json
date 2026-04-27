@@ -4,7 +4,7 @@
   "description": "Sistema ERP + E‑commerce para NERIN Repuestos",
   "main": "backend/index.js",
   "scripts": {
-    "start": "node backend/server.js",
+    "start": "node --max-old-space-size=512 backend/server.js",
     "test": "jest",
     "validate:meta-feed": "node scripts/validate-meta-feed.js",
     "catalog:enrich-csv": "node scripts/enrichCatalogCsv.js",
