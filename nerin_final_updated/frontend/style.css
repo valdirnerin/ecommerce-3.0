@@ -1540,6 +1540,39 @@ body.cart-indicator-visible .toastify {
   font-weight: 500;
 }
 
+
+.products-pagination {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.products-pagination__btn {
+  min-width: 42px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111827;
+  font-weight: 600;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+
+.products-pagination__btn.is-active {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.products-pagination__btn:disabled,
+.products-pagination__btn.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .filter-chip button {
   background: none;
   border: none;

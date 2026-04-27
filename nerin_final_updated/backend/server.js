@@ -1680,34 +1680,40 @@ function toIsoString(value) {
 
 function isProductPublic(product) {
   if (!product || typeof product !== "object") return false;
+  const blockedStateValues = new Set(["hidden", "private", "draft", "disabled", "archived", "deleted"]);
   const visibility =
     typeof product.visibility === "string"
       ? product.visibility.trim().toLowerCase()
       : "";
-  const blockedVisibility = new Set(["private", "hidden", "draft", "archived", "deleted", "disabled"]);
-  if (blockedVisibility.has(visibility)) return false;
-  if (product.vip_only === true) return false;
-  if (product.wholesaleOnly === true) return false;
-  if (product.enabled === false) return false;
-  if (product.deleted === true) return false;
-  if (product.archived === true) return false;
+  if (visibility && blockedStateValues.has(visibility)) return false;
+
   const status =
     typeof product.status === "string"
       ? product.status.trim().toLowerCase()
       : "";
-  const blockedStatus = new Set(["private", "hidden", "draft", "archived", "deleted", "disabled"]);
-  if (blockedStatus.has(status)) return false;
+  if (status && blockedStateValues.has(status)) return false;
+
+  if (product.enabled === false) return false;
+  if (product.deleted === true) return false;
+  if (product.archived === true) return false;
+  if (product.vip_only === true) return false;
+  if (product.wholesaleOnly === true) return false;
+
   const hasTitle =
     (typeof product.title === "string" && product.title.trim()) ||
     (typeof product.name === "string" && product.name.trim());
   if (!hasTitle) return false;
-  return Boolean(
+
+  const hasIdentifier = Boolean(
     (typeof product.slug === "string" && product.slug.trim()) ||
       (typeof product.sku === "string" && product.sku.trim()) ||
       (typeof product.code === "string" && product.code.trim()) ||
+      (typeof product.partNumber === "string" && product.partNumber.trim()) ||
       (typeof product.id === "string" && product.id.trim()) ||
       typeof product.id === "number",
   );
+
+  return hasIdentifier;
 }
 
 function getProductLastModifiedDate(product) {
@@ -2384,9 +2390,17 @@ function buildCatalogMatcher(query = {}) {
       const haystack = normalizeQueryText(
         [
           product.name,
-          product.sku,
+          product.title,
           product.brand,
           product.model,
+          product.sku,
+          product.code,
+          product.id,
+          product.slug,
+          product.partNumber,
+          product.ean,
+          product.gtin,
+          product.mpn,
           product.category,
           product.subcategory,
           product?.metadata?.supplierImport?.supplierPartNumber,
@@ -3924,6 +3938,8 @@ async function getProductsEmergencyResponse({
   ignoredSort = null,
   shouldStop = null,
   maxScanItems = null,
+  totalItems = null,
+  totalPages = null,
 } = {}) {
   const startedAt = Date.now();
   console.log(`[products-endpoint:start] ${endpoint} page=${page} pageSize=${pageSize}`);
@@ -3944,27 +3960,22 @@ async function getProductsEmergencyResponse({
         return mapped;
       },
     });
-    const manifest = productsStreamRepo.safeReadManifest() || null;
-    const manifestCount = Number(manifest?.productCount);
-    const estimatedTotalItems = Number.isFinite(manifestCount) ? manifestCount : null;
-    const totalPages =
-      Number.isFinite(estimatedTotalItems) && estimatedTotalItems > 0
-        ? Math.ceil(estimatedTotalItems / pageSize)
-        : null;
+    const safeTotalItems = Number.isFinite(Number(totalItems)) ? Number(totalItems) : null;
+    const safeTotalPages = Number.isFinite(Number(totalPages)) ? Number(totalPages) : null;
     const responsePayload = {
       items: emergencyPage.items,
       page,
       pageSize,
-      totalItems: estimatedTotalItems,
-      totalPages,
+      totalItems: safeTotalItems,
+      totalPages: safeTotalPages,
       hasNextPage: Boolean(emergencyPage.hasNextPage),
       hasPrevPage: Boolean(emergencyPage.hasPrevPage || page > 1),
-      totalItemsUnknown: estimatedTotalItems == null,
+      warning: warning || null,
+      totalItemsUnknown: safeTotalItems == null,
       mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
       scannedCount: emergencyPage.scannedCount,
       matchedCount: emergencyPage.matchedCount,
     };
-    if (warning) responsePayload.warning = warning;
     if (ignoredSort) responsePayload.ignoredSort = ignoredSort;
     if (maxScanItems && emergencyPage.stoppedEarly && !emergencyPage.cancelled) {
       responsePayload.warning = responsePayload.warning || "public_filter_scan_limit_reached";
@@ -6151,19 +6162,35 @@ async function requestHandler(req, res) {
       const withWholesale = canSeeWholesalePrices(req);
       const shouldStop = () =>
         req.aborted || req.destroyed || res.destroyed || res.writableEnded;
+      const effectivePublicQuery = effectiveQuery || {};
+      const hasActivePublicFilters = Boolean(
+        normalizeQueryText(effectivePublicQuery.search || effectivePublicQuery.q || "") ||
+          normalizeQueryText(effectivePublicQuery.category || "") ||
+          normalizeQueryText(effectivePublicQuery.brand || "") ||
+          normalizeQueryText(effectivePublicQuery.model || "") ||
+          normalizeQueryText(effectivePublicQuery.stock || "") ||
+          Number.isFinite(Number(effectivePublicQuery.price_max ?? effectivePublicQuery.priceMax)),
+      );
+      const manifest = productsStreamRepo.safeReadManifest() || null;
+      const manifestCount = Number(manifest?.productCount);
+      const canUseManifestTotals = !hasActivePublicFilters && Number.isFinite(manifestCount) && manifestCount >= 0;
+      const totalItems = canUseManifestTotals ? manifestCount : null;
+      const totalPages = canUseManifestTotals ? Math.max(1, Math.ceil(manifestCount / pageSize)) : null;
       const pageData = await getProductsEmergencyResponse({
         endpoint: "/api/products",
         page,
         pageSize,
         shouldStop,
         maxScanItems: null,
-        matchItem: buildCatalogStreamFilter(effectiveQuery || {}),
+        matchItem: buildCatalogStreamFilter(effectivePublicQuery),
         mapItem: (product) => {
           if (withWholesale) return normalizeProductImages(product);
           return normalizeProductImages(sanitizePublicProducts([product])[0]);
         },
         warning,
         ignoredSort,
+        totalItems,
+        totalPages,
       });
       if (pageData === null) return;
       const responsePayload = {
