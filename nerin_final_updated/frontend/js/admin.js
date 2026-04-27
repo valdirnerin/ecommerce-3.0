@@ -3378,8 +3378,10 @@ function updateProductsPaginationControls() {
     const totalText = productsTotalPages
       ? `Página ${productsPage} de ${productsTotalPages}`
       : `Página ${productsPage} · total no calculado`;
+    const totalItemsText =
+      productsTotalItems == null ? "total desconocido" : `total ${productsTotalItems} productos`;
     adminProductsPageInfo.textContent =
-      `${totalText} · ${productsCache.length} productos en esta página`;
+      `${totalText} · ${productsCache.length} productos en esta página · ${totalItemsText}`;
   }
 }
 
