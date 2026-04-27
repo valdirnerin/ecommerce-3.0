@@ -36,12 +36,11 @@ export function apiFetch(path, options = {}) {
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  if (path === "/api/products" || String(path).startsWith("/api/products?")) {
-    headers.set("Cache-Control", "no-store, no-cache, max-age=0");
-    headers.set("Pragma", "no-cache");
-  }
+  const isProductsEndpoint =
+    path === "/api/products" || String(path).startsWith("/api/products?");
   return fetch(buildApiUrl(path), {
     ...options,
+    cache: options.cache || (isProductsEndpoint ? "no-store" : options.cache),
     headers,
   });
 }
