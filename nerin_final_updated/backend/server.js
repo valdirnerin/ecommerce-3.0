@@ -63,6 +63,7 @@ const {
 } = require("./utils/reviewValidation");
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const productsStreamRepo = require("./data/productsStreamRepo");
+const productsSqliteRepo = require("./data/productsSqliteRepo");
 const { readJsonFile } = require("./utils/jsonFile");
 const {
   appendEvent,
@@ -6104,6 +6105,32 @@ async function requestHandler(req, res) {
     return sendJson(res, 200, { ok: true, ts: Date.now() });
   }
 
+  if (pathname === "/api/catalog/health" && req.method === "GET") {
+    try {
+      await productsSqliteRepo.ensureProductsDb();
+      const manifest = await productsSqliteRepo.getManifestFromDb();
+      const productsJsonExists = fs.existsSync(PRODUCTS_FILE_PATH);
+      const sqlitePath = manifest?.sqlitePath || productsSqliteRepo.SQLITE_PATH;
+      const sqliteExists = Boolean(sqlitePath && fs.existsSync(sqlitePath));
+      return sendJson(res, 200, {
+        ok: true,
+        source: "sqlite",
+        productsJsonExists,
+        sqliteExists,
+        productCount: Number(manifest?.productCount || 0),
+        sqliteBuiltAt: manifest?.sqliteBuiltAt || null,
+        productsJsonSizeBytes: Number(manifest?.productsJsonSizeBytes || 0),
+        productsJsonMtimeMs: Number(manifest?.productsJsonMtimeMs || 0),
+      });
+    } catch (error) {
+      return sendJson(res, 503, {
+        ok: false,
+        source: "streaming_fallback",
+        error: error?.message || "SQLite unavailable",
+      });
+    }
+  }
+
   if (pathname === "/api/test-email" && req.method === "GET") {
     const requestUrl = new URL(req.url, "http://localhost");
     const to = requestUrl.searchParams.get("to") || "tuemail@ejemplo.com";
@@ -6153,81 +6180,68 @@ async function requestHandler(req, res) {
         pageSize: 24,
         maxPageSize: 96,
       });
-      const { storage } = await loadProductsStrict();
-      const { warning, ignoredSort, effectiveQuery } = resolveStreamingSortPolicy({
-        endpoint: "/api/products",
-        query: parsedUrl.query || {},
-        storage,
-      });
+      const queryParams = parsedUrl.query || {};
+      const startedAt = Date.now();
+      console.log(`[products-endpoint:start] /api/products page=${page} pageSize=${pageSize} source=sqlite`);
       const withWholesale = canSeeWholesalePrices(req);
-      const shouldStop = () =>
-        req.aborted || req.destroyed || res.destroyed || res.writableEnded;
-      const effectivePublicQuery = effectiveQuery || {};
-      const hasActivePublicFilters = Boolean(
-        normalizeQueryText(effectivePublicQuery.search || effectivePublicQuery.q || "") ||
-          normalizeQueryText(effectivePublicQuery.category || "") ||
-          normalizeQueryText(effectivePublicQuery.brand || "") ||
-          normalizeQueryText(effectivePublicQuery.model || "") ||
-          normalizeQueryText(effectivePublicQuery.stock || "") ||
-          Number.isFinite(Number(effectivePublicQuery.price_max ?? effectivePublicQuery.priceMax)),
-      );
-      const manifest = productsStreamRepo.safeReadManifest() || null;
-      const manifestCount = Number(manifest?.productCount);
-      const canUseManifestTotals = !hasActivePublicFilters && Number.isFinite(manifestCount) && manifestCount >= 0;
-      const totalItems = canUseManifestTotals ? manifestCount : null;
-      const totalPages = canUseManifestTotals ? Math.max(1, Math.ceil(manifestCount / pageSize)) : null;
-      const pageData = await getProductsEmergencyResponse({
-        endpoint: "/api/products",
+      const sqliteData = await productsSqliteRepo.queryProducts({
         page,
         pageSize,
-        shouldStop,
-        maxScanItems: null,
-        matchItem: buildCatalogStreamFilter(effectivePublicQuery),
-        mapItem: (product) => {
-          if (withWholesale) return normalizeProductImages(product);
-          return normalizeProductImages(sanitizePublicProducts([product])[0]);
-        },
-        warning,
-        ignoredSort,
-        totalItems,
-        totalPages,
+        search: queryParams.search || queryParams.q || "",
+        category: queryParams.category || "",
+        brand: queryParams.brand || "",
+        model: queryParams.model || "",
+        stock: queryParams.stock || "",
+        priceMax: queryParams.price_max ?? queryParams.priceMax,
+        sort: queryParams.sort || "",
       });
-      if (pageData === null) return;
+      const items = withWholesale
+        ? sqliteData.items.map((item) => normalizeProductImages(item))
+        : sqliteData.items.map((item) =>
+            normalizeProductImages(sanitizePublicProducts([item])[0]),
+          );
       const responsePayload = {
-        ...pageData,
-        usingFallback: storage.usingFallback,
-        source: path.basename(storage.productsFilePath || PRODUCTS_FILE_PATH),
+        ...sqliteData,
+        items,
+        source: "sqlite",
       };
-      logProductsServe("serve", {
-        endpoint: "/api/products",
-        productsFilePath: storage.productsFilePath,
-        exists: storage.exists,
-        productCount: storage.productCount,
-        page,
-        pageSize,
-        totalItems: pageData.totalItems,
-        usingFallback: storage.usingFallback,
-      });
+      const durationMs = Date.now() - startedAt;
+      console.log(
+        `[products-endpoint:respond] endpoint=/api/products source=sqlite items=${items.length} totalItems=${responsePayload.totalItems} totalPages=${responsePayload.totalPages} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
+      );
       return sendJson(res, 200, responsePayload, {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      console.error("[products-endpoint:failed]", err?.stack || err);
-      const storage = await inspectProductsStorage();
-      logProductsServe("error", {
-        endpoint: "/api/products",
-        productsFilePath: storage.productsFilePath,
-        exists: storage.exists,
-        productCount: storage.productCount,
-        page: parsedUrl?.query?.page || 1,
-        pageSize: parsedUrl?.query?.pageSize || 24,
-        totalItems: 0,
-        usingFallback: storage.usingFallback,
-      });
-      console.error("products-public-read-error", err);
-      return sendJson(res, 500, {
-        error: "No se pudieron cargar los productos",
-      });
+      console.warn(`[products-db] unavailable fallback=streaming reason=${err?.message || err}`);
+      try {
+        const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
+          page: 1,
+          pageSize: 24,
+          maxPageSize: 96,
+        });
+        const withWholesale = canSeeWholesalePrices(req);
+        const pageData = await getProductsEmergencyResponse({
+          endpoint: "/api/products",
+          page,
+          pageSize,
+          matchItem: buildCatalogStreamFilter(parsedUrl.query || {}),
+          mapItem: (product) =>
+            withWholesale
+              ? normalizeProductImages(product)
+              : normalizeProductImages(sanitizePublicProducts([product])[0]),
+        });
+        if (pageData === null) return;
+        return sendJson(res, 200, {
+          ...pageData,
+          source: "streaming_fallback",
+        });
+      } catch (fallbackError) {
+        console.error("products-public-read-error", fallbackError);
+        return sendJson(res, 500, {
+          error: "No se pudieron cargar los productos",
+        });
+      }
     }
   }
 
@@ -6239,67 +6253,58 @@ async function requestHandler(req, res) {
         pageSize: 100,
         maxPageSize: 250,
       });
-      const { storage } = await loadProductsStrict();
-      const { warning, ignoredSort, effectiveQuery } = resolveStreamingSortPolicy({
-        endpoint: "/api/admin/products",
-        query: parsedUrl.query || {},
-        storage,
-      });
-      const adminFilterMeta = getAdminFilterMeta(effectiveQuery || {});
-      console.info("[admin-products-filter]", adminFilterMeta);
-      const shouldStop = () =>
-        req.aborted || req.destroyed || res.destroyed || res.writableEnded;
-      const pageData = await getProductsEmergencyResponse({
-        endpoint: "/api/admin/products",
+      const queryParams = parsedUrl.query || {};
+      const startedAt = Date.now();
+      console.log(
+        `[products-endpoint:start] /api/admin/products page=${page} pageSize=${pageSize} source=sqlite`,
+      );
+      const sqliteData = await productsSqliteRepo.queryAdminProducts({
         page,
         pageSize,
-        shouldStop,
-        matchItem: buildAdminStreamFilter(effectiveQuery || {}),
-        mapItem: (product) => normalizeProductImages(product),
-        warning,
-        ignoredSort,
+        search: queryParams.search || queryParams.q || "",
+        category: queryParams.category || "",
+        brand: queryParams.brand || "",
+        visibility: queryParams.visibility || "",
+        status: queryParams.status || "",
+        stock: queryParams.stockStatus || queryParams.stock || "",
+        sort: queryParams.sort || "",
       });
-      if (pageData === null) return;
-      if (!adminFilterMeta.hasActiveFilters && Number(pageData.scannedCount || 0) > pageSize + 5) {
-        console.warn("[admin-products-filter-bug] no filters but scanned too many", {
-          scannedCount: pageData.scannedCount,
-          pageSize,
-          page,
-        });
-      }
       const responsePayload = {
-        ...pageData,
-        usingFallback: storage.usingFallback,
-        source: path.basename(storage.productsFilePath || PRODUCTS_FILE_PATH),
+        ...sqliteData,
+        items: sqliteData.items.map((item) => normalizeProductImages(item)),
+        source: "sqlite",
       };
-      logProductsServe("serve", {
-        endpoint: "/api/admin/products",
-        productsFilePath: storage.productsFilePath,
-        exists: storage.exists,
-        productCount: storage.productCount,
-        page,
-        pageSize,
-        totalItems: pageData.totalItems,
-        usingFallback: storage.usingFallback,
-      });
+      const durationMs = Date.now() - startedAt;
+      console.log(
+        `[products-endpoint:respond] endpoint=/api/admin/products source=sqlite items=${responsePayload.items.length} totalItems=${responsePayload.totalItems} totalPages=${responsePayload.totalPages} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
+      );
       return sendJson(res, 200, responsePayload, {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      console.error("[products-endpoint:failed]", err?.stack || err);
-      const storage = await inspectProductsStorage();
-      logProductsServe("error", {
-        endpoint: "/api/admin/products",
-        productsFilePath: storage.productsFilePath,
-        exists: storage.exists,
-        productCount: storage.productCount,
-        page: parsedUrl?.query?.page || 1,
-        pageSize: parsedUrl?.query?.pageSize || 100,
-        totalItems: 0,
-        usingFallback: storage.usingFallback,
-      });
-      console.error("admin-products-list", err);
-      return sendJson(res, 500, { error: "No se pudieron cargar los productos del admin" });
+      console.warn(`[products-db] unavailable fallback=streaming reason=${err?.message || err}`);
+      try {
+        const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
+          page: 1,
+          pageSize: 100,
+          maxPageSize: 250,
+        });
+        const pageData = await getProductsEmergencyResponse({
+          endpoint: "/api/admin/products",
+          page,
+          pageSize,
+          matchItem: buildAdminStreamFilter(parsedUrl.query || {}),
+          mapItem: (product) => normalizeProductImages(product),
+        });
+        if (pageData === null) return;
+        return sendJson(res, 200, {
+          ...pageData,
+          source: "streaming_fallback",
+        });
+      } catch (fallbackError) {
+        console.error("admin-products-list", fallbackError);
+        return sendJson(res, 500, { error: "No se pudieron cargar los productos del admin" });
+      }
     }
   }
 
@@ -6354,7 +6359,10 @@ async function requestHandler(req, res) {
   if (pathname.startsWith("/api/products/by-code/") && req.method === "GET") {
     const code = decodeURIComponent(pathname.split("/").pop() || "");
     try {
-      const product = await productsStreamRepo.getProductByCode(code);
+      let product = await productsSqliteRepo.getProductByCode(code);
+      if (!product) {
+        product = await productsStreamRepo.getProductByCode(code);
+      }
       if (!product) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
       }
@@ -6380,7 +6388,10 @@ async function requestHandler(req, res) {
   if (pathname.startsWith("/api/products/") && req.method === "GET") {
     const id = decodeURIComponent(pathname.split("/").pop() || "");
     try {
-      const product = await productsStreamRepo.getProductById(id);
+      let product = await productsSqliteRepo.getProductById(id);
+      if (!product) {
+        product = await productsStreamRepo.getProductById(id);
+      }
       if (!product || !isProductPublic(product)) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
       }
@@ -6768,6 +6779,17 @@ async function requestHandler(req, res) {
         .trim()
         .toLowerCase(),
     );
+    const incrementalRequested = ["1", "true", "yes", "si"].includes(
+      String(parsedUrl.query.incremental || "").trim().toLowerCase(),
+    );
+    if (incrementalRequested) {
+      return sendJson(res, 503, {
+        ok: false,
+        code: "INCREMENTAL_IMPORT_NOT_SUPPORTED_FOR_LARGE_CATALOG",
+        error:
+          "La importación incremental requiere merge streaming o SQLite. Usá reemplazo completo o implementá merge SQLite.",
+      });
+    }
 
     stockXlsxUpload.single("file")(req, res, async (err) => {
       if (err) {
@@ -11868,8 +11890,15 @@ function createServer() {
 module.exports = { createServer };
 
 if (require.main === module) {
-  const server = createServer();
-  server.listen(APP_PORT, () => {
-    console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
-  });
+  (async () => {
+    try {
+      await productsSqliteRepo.ensureProductsDb();
+    } catch (error) {
+      console.warn(`[products-db] unavailable fallback=streaming reason=${error?.message || error}`);
+    }
+    const server = createServer();
+    server.listen(APP_PORT, () => {
+      console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
+    });
+  })();
 }

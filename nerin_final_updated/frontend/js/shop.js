@@ -563,42 +563,6 @@ function createProductCard(product) {
   return card;
 }
 
-function computeRelevance(product, searchTerm) {
-  if (!searchTerm) return 0;
-  const term = searchTerm.toLowerCase();
-  const fields = [
-    product.name,
-    product.sku,
-    getCatalogBrand(product),
-    getCatalogModel(product),
-    getPartLabel(product),
-  ];
-  return fields.reduce((score, field) => {
-    if (typeof field !== "string") return score;
-    const normalized = field.toLowerCase();
-    if (normalized === term) return score + 8;
-    if (normalized.startsWith(term)) return score + 4;
-    if (normalized.includes(term)) return score + 2;
-    return score;
-  }, 0);
-}
-
-function sortProducts(products, sortMode, searchTerm) {
-  const copy = [...products];
-  const getPrice = (product) => resolveDisplayPrice(product).active;
-  const getStock = (product) => Number(product.stock) || 0;
-  switch (sortMode) {
-    case "price-asc":
-      return copy.sort((a, b) => getPrice(a) - getPrice(b));
-    case "price-desc":
-      return copy.sort((a, b) => getPrice(b) - getPrice(a));
-    case "stock-desc":
-      return copy.sort((a, b) => getStock(b) - getStock(a));
-    default:
-      return copy.sort((a, b) => computeRelevance(b, searchTerm) - computeRelevance(a, searchTerm));
-  }
-}
-
 function updateResultSummary({ displayedCount = 0, totalCount = 0, hasKnownTotal = false } = {}) {
   if (!resultCountEl) return;
   const parent = resultCountEl.parentElement;
@@ -607,10 +571,10 @@ function updateResultSummary({ displayedCount = 0, totalCount = 0, hasKnownTotal
     return;
   }
   if (hasKnownTotal) {
-    resultCountEl.textContent = String(totalCount);
+    resultCountEl.textContent = `${displayedCount} de ${totalCount}`;
     parent.textContent = "";
     parent.appendChild(resultCountEl);
-    parent.append(" coincidencias encontradas.");
+    parent.append(" productos.");
     return;
   }
   resultCountEl.textContent = String(displayedCount);
@@ -670,6 +634,23 @@ function getCurrentFilters() {
   const priceMax = Number(priceRange?.max) || 0;
   const priceActive = priceFilterTouched && priceMax > 0 && price < priceMax;
   return { search, brand, model, category, stock, sort, price, priceActive };
+}
+
+function mapSortForBackend(sortValue) {
+  const sortMap = {
+    price_asc: "price_asc",
+    price_desc: "price_desc",
+    name_asc: "name_asc",
+    name_desc: "name_desc",
+    stock_desc: "stock_desc",
+    stock_asc: "stock_asc",
+    "price-asc": "price_asc",
+    "price-desc": "price_desc",
+    "stock-desc": "stock_desc",
+    "stock-asc": "stock_asc",
+    name: "name_asc",
+  };
+  return sortMap[String(sortValue || "").trim()] || "";
 }
 
 function scrollToCatalogTop() {
@@ -784,8 +765,14 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     model: filters.model,
     stock: filters.stock,
     price_max: filters.priceActive ? filters.price : "",
-    sort: filters.sort,
+    sort: mapSortForBackend(filters.sort),
   };
+  console.info("[shop-products] load", {
+    page: currentProductsPage,
+    pageSize: productsPageSize,
+    search: filters.search,
+    sort: requestParams.sort || "",
+  });
   shopLog("loadProducts:start", { requestId, requestParams });
   if (productsAbortController) {
     productsAbortController.abort();
@@ -832,6 +819,9 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
   } else if (hasRealCatalogResponse) {
     shopLog("response:ignored-fallback-after-real", { requestId });
     return;
+  }
+  if (response?.source !== "sqlite") {
+    console.warn("[shop-products] backend did not use sqlite", response?.source);
   }
 
   const normalizedItems = (response.items || [])
@@ -882,6 +872,13 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     displayedCount: allProducts.length,
     totalCount: totalFilteredItems,
     hasKnownTotal: publicProductsTotalItems !== null,
+  });
+  console.info("[shop-products] loaded", {
+    page: currentProductsPage,
+    items: allProducts.length,
+    totalItems: publicProductsTotalItems,
+    totalPages: publicProductsTotalPages,
+    source: response?.source || null,
   });
   updateActiveFilters(filters);
   syncQueryParams(filters);

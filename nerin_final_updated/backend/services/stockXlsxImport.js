@@ -3,6 +3,7 @@ const path = require("path");
 const XLSX = require("xlsx");
 const { DATA_DIR } = require("../utils/dataDir");
 const { readJsonFile } = require("../utils/jsonFile");
+const productsSqliteRepo = require("../data/productsSqliteRepo");
 const LARGE_CATALOG_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 const REQUIRED_COLUMNS = ["Article number", "Quantity in stock (NL)"];
@@ -226,8 +227,10 @@ async function importStockXlsxFile({
   onProgress = null,
   progressEveryRows = 250,
 }) {
+  console.log("[products-import:start]");
   const summary = createBaseSummary();
   const { rows, articleIndex, stockIndex } = readWorksheet(filePath, "Price list");
+  console.log(`[products-import:parsed] rows=${Math.max(0, rows.length - 1)} products=${Math.max(0, rows.length - 1)}`);
   const persistence = await buildJsonPersistenceLayer();
 
   const updates = [];
@@ -308,8 +311,11 @@ async function importStockXlsxFile({
   }
 
   await persistence.finalize();
+  console.log("[products-import:json-written]");
+  await productsSqliteRepo.rebuildProductsDbFromJson();
   processedRows = summary.totalRows;
   notifyProgress();
+  console.log("[products-import:done]");
   return summary;
 }
 
