@@ -21,18 +21,20 @@ function safeReadManifest() {
   }
 }
 
-function buildProductsPipeline(filePath = productsFilePath) {
+function buildProductsPipeline(filePath = productsFilePath, sourceStream = null) {
+  const source = sourceStream || fs.createReadStream(filePath, { encoding: "utf8" });
   return chain([
-    fs.createReadStream(filePath, { encoding: "utf8" }),
+    source,
     parser(),
     pick({ filter: "products" }),
     StreamArray.streamArray(),
   ]);
 }
 
-function buildRootArrayPipeline(filePath = productsFilePath) {
+function buildRootArrayPipeline(filePath = productsFilePath, sourceStream = null) {
+  const source = sourceStream || fs.createReadStream(filePath, { encoding: "utf8" });
   return chain([
-    fs.createReadStream(filePath, { encoding: "utf8" }),
+    source,
     parser(),
     StreamArray.streamArray(),
   ]);
@@ -61,24 +63,44 @@ async function streamProducts({ onProduct, filePath = productsFilePath } = {}) {
 
   let index = 0;
 
-  const consume = async (pipeline) => {
-    for await (const token of pipeline) {
-      const product = token?.value;
-      if (typeof onProduct === "function") {
-        await onProduct(product, index);
-      }
-      index += 1;
+  const shape = detectJsonShape(filePath);
+  const sourceStream = fs.createReadStream(filePath, { encoding: "utf8" });
+  const pipeline =
+    shape === "array"
+      ? buildRootArrayPipeline(filePath, sourceStream)
+      : buildProductsPipeline(filePath, sourceStream);
+
+  let stoppedEarly = false;
+  const destroyStream = () => {
+    if (typeof pipeline?.destroy === "function" && !pipeline.destroyed) {
+      pipeline.destroy();
+    }
+    if (typeof sourceStream?.destroy === "function" && !sourceStream.destroyed) {
+      sourceStream.destroy();
     }
   };
 
-  const shape = detectJsonShape(filePath);
-  if (shape === "array") {
-    await consume(buildRootArrayPipeline(filePath));
-  } else {
-    await consume(buildProductsPipeline(filePath));
+  try {
+    for await (const token of pipeline) {
+      const product = token?.value;
+      let shouldContinue = true;
+      if (typeof onProduct === "function") {
+        shouldContinue = await onProduct(product, index);
+      }
+      index += 1;
+      if (shouldContinue === false) {
+        stoppedEarly = true;
+        destroyStream();
+        break;
+      }
+    }
+  } finally {
+    if (stoppedEarly) {
+      destroyStream();
+    }
   }
 
-  return { count: index };
+  return { count: index, stoppedEarly };
 }
 
 async function countProductsStreaming({ filePath = productsFilePath } = {}) {
@@ -96,21 +118,16 @@ async function getProductById(id, { filePath = productsFilePath } = {}) {
   let found = null;
   const target = String(id || "").trim();
   if (!target) return null;
-  const STOP_EARLY = "__PRODUCT_BY_ID_STOP__";
-
-  try {
-    await streamProducts({
-      filePath,
-      onProduct: (product) => {
-        if (String(product?.id || "") === target) {
-          found = product;
-          throw new Error(STOP_EARLY);
-        }
-      },
-    });
-  } catch (err) {
-    if (err?.message !== STOP_EARLY) throw err;
-  }
+  await streamProducts({
+    filePath,
+    onProduct: (product) => {
+      if (String(product?.id || "") === target) {
+        found = product;
+        return false;
+      }
+      return true;
+    },
+  });
 
   return found;
 }
@@ -119,30 +136,25 @@ async function getProductByCode(code, { filePath = productsFilePath } = {}) {
   let found = null;
   const target = String(code || "").trim().toLowerCase();
   if (!target) return null;
-  const STOP_EARLY = "__PRODUCT_BY_CODE_STOP__";
-
-  try {
-    await streamProducts({
-      filePath,
-      onProduct: (product) => {
-        const candidates = [
-          product?.code,
-          product?.sku,
-          product?.supplierPartNumber,
-          product?.metadata?.supplierPartNumber,
-          product?.metadata?.supplierImport?.supplierPartNumber,
-        ]
-          .map((item) => String(item || "").trim().toLowerCase())
-          .filter(Boolean);
-        if (candidates.includes(target)) {
-          found = product;
-          throw new Error(STOP_EARLY);
-        }
-      },
-    });
-  } catch (err) {
-    if (err?.message !== STOP_EARLY) throw err;
-  }
+  await streamProducts({
+    filePath,
+    onProduct: (product) => {
+      const candidates = [
+        product?.code,
+        product?.sku,
+        product?.supplierPartNumber,
+        product?.metadata?.supplierPartNumber,
+        product?.metadata?.supplierImport?.supplierPartNumber,
+      ]
+        .map((item) => String(item || "").trim().toLowerCase())
+        .filter(Boolean);
+      if (candidates.includes(target)) {
+        found = product;
+        return false;
+      }
+      return true;
+    },
+  });
 
   return found;
 }
@@ -151,22 +163,17 @@ async function getProductBySlug(slug, { filePath = productsFilePath } = {}) {
   let found = null;
   const target = String(slug || "").trim().toLowerCase();
   if (!target) return null;
-  const STOP_EARLY = "__PRODUCT_BY_SLUG_STOP__";
-
-  try {
-    await streamProducts({
-      filePath,
-      onProduct: (product) => {
-        const currentSlug = String(product?.slug || "").trim().toLowerCase();
-        if (currentSlug && currentSlug === target) {
-          found = product;
-          throw new Error(STOP_EARLY);
-        }
-      },
-    });
-  } catch (err) {
-    if (err?.message !== STOP_EARLY) throw err;
-  }
+  await streamProducts({
+    filePath,
+    onProduct: (product) => {
+      const currentSlug = String(product?.slug || "").trim().toLowerCase();
+      if (currentSlug && currentSlug === target) {
+        found = product;
+        return false;
+      }
+      return true;
+    },
+  });
 
   return found;
 }
@@ -278,30 +285,23 @@ async function getProductsEmergencyPage({
 
   const items = [];
   let matchedCount = 0;
-  const STOP_EARLY = "__PRODUCTS_STREAM_STOP_EARLY__";
-
-  try {
-    await streamProducts({
-      filePath,
-      onProduct: (product) => {
-        const accepted = typeof matchItem === "function" ? !!matchItem(product) : true;
-        if (!accepted) return;
-        const currentMatchIndex = matchedCount;
-        matchedCount += 1;
-        if (currentMatchIndex >= start && currentMatchIndex < endExclusive) {
-          const mapped = typeof mapItem === "function" ? mapItem(product) : product;
-          items.push(mapped);
-        }
-        if (matchedCount >= stopAfter) {
-          throw new Error(STOP_EARLY);
-        }
-      },
-    });
-  } catch (err) {
-    if (err?.message !== STOP_EARLY) {
-      throw err;
-    }
-  }
+  await streamProducts({
+    filePath,
+    onProduct: (product) => {
+      const accepted = typeof matchItem === "function" ? !!matchItem(product) : true;
+      if (!accepted) return true;
+      const currentMatchIndex = matchedCount;
+      matchedCount += 1;
+      if (currentMatchIndex >= start && currentMatchIndex < endExclusive) {
+        const mapped = typeof mapItem === "function" ? mapItem(product) : product;
+        items.push(mapped);
+      }
+      if (matchedCount >= stopAfter) {
+        return false;
+      }
+      return true;
+    },
+  });
 
   return {
     items,

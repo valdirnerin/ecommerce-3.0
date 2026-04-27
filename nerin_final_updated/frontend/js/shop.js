@@ -94,6 +94,10 @@ let hasNextPage = false;
 let hasRealCatalogResponse = false;
 let latestRequestId = 0;
 let filtersInitialized = false;
+let productsAbortController = null;
+let searchDebounceTimer = null;
+let priceDebounceTimer = null;
+const INPUT_DEBOUNCE_MS = 300;
 
 const SHOP_DEBUG =
   new URLSearchParams(window.location.search).get("shopDebug") === "1" ||
@@ -595,8 +599,25 @@ function sortProducts(products, sortMode, searchTerm) {
   }
 }
 
-function updateResultSummary(count) {
-  if (resultCountEl) resultCountEl.textContent = String(count);
+function updateResultSummary({ displayedCount = 0, totalCount = 0, hasKnownTotal = false } = {}) {
+  if (!resultCountEl) return;
+  const parent = resultCountEl.parentElement;
+  if (!parent) {
+    resultCountEl.textContent = String(hasKnownTotal ? totalCount : displayedCount);
+    return;
+  }
+  if (hasKnownTotal) {
+    resultCountEl.textContent = String(totalCount);
+    parent.textContent = "";
+    parent.appendChild(resultCountEl);
+    parent.append(" coincidencias encontradas.");
+    return;
+  }
+  resultCountEl.textContent = String(displayedCount);
+  parent.textContent = "";
+  parent.append("Mostrando ");
+  parent.appendChild(resultCountEl);
+  parent.append(" productos.");
 }
 
 function syncQueryParams(filters) {
@@ -673,7 +694,13 @@ async function renderProducts({ append = false } = {}) {
     sort: filters.sort,
   };
   shopLog("loadProducts:start", { append, requestId, requestParams });
-  const response = await fetchProductsPage(requestParams);
+  if (productsAbortController) {
+    productsAbortController.abort();
+  }
+  productsAbortController = new AbortController();
+  const response = await fetchProductsPage(requestParams, {
+    signal: productsAbortController.signal,
+  });
   shopLog("response", {
     requestId,
     status: "ok",
@@ -689,7 +716,7 @@ async function renderProducts({ append = false } = {}) {
   if (response?.usingFallback && isProductionStorefront()) {
     hasNextPage = false;
     loadMoreBtn.style.display = "none";
-    updateResultSummary(0);
+    updateResultSummary({ displayedCount: 0, totalCount: 0, hasKnownTotal: false });
     productGrid.innerHTML =
       "<p>Error: catálogo no disponible temporalmente. Intentá nuevamente en unos minutos.</p>";
     throw new Error("Respuesta con usingFallback=true bloqueada en producción");
@@ -716,7 +743,12 @@ async function renderProducts({ append = false } = {}) {
   allProducts = append ? allProducts.concat(normalizedItems) : normalizedItems;
   currentPage = Number(response.page || requestedPage || 1);
   hasNextPage = Boolean(response.hasNextPage);
-  totalFilteredItems = Number(response.totalItems || allProducts.length);
+  const hasKnownTotal =
+    response.totalItems !== null &&
+    response.totalItems !== undefined &&
+    response.totalItems !== "" &&
+    Number.isFinite(Number(response.totalItems));
+  totalFilteredItems = hasKnownTotal ? Number(response.totalItems) : allProducts.length;
   productGrid.innerHTML = "";
   if (!allProducts.length) {
     productGrid.innerHTML = "<p>No encontramos productos para esos filtros.</p>";
@@ -733,7 +765,11 @@ async function renderProducts({ append = false } = {}) {
   if (!loadMoreBtn.parentElement && productGrid.parentElement) {
     productGrid.parentElement.appendChild(loadMoreBtn);
   }
-  updateResultSummary(totalFilteredItems);
+  updateResultSummary({
+    displayedCount: allProducts.length,
+    totalCount: totalFilteredItems,
+    hasKnownTotal,
+  });
   updateActiveFilters(filters);
   syncQueryParams(filters);
 }
@@ -806,7 +842,12 @@ async function initShop() {
       sortSelect.parentElement.appendChild(pageSizeSelect);
     }
 
-    searchInput?.addEventListener("input", () => renderProducts());
+    searchInput?.addEventListener("input", () => {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = window.setTimeout(() => {
+        renderProducts();
+      }, INPUT_DEBOUNCE_MS);
+    });
     searchClear?.addEventListener("click", () => {
       searchInput.value = "";
       renderProducts();
@@ -827,11 +868,19 @@ async function initShop() {
     priceRange?.addEventListener("input", () => {
       priceFilterTouched = true;
       updatePriceRangeDisplay();
-      if (!mobileLayoutQuery.matches) renderProducts();
+      if (!mobileLayoutQuery.matches) {
+        clearTimeout(priceDebounceTimer);
+        priceDebounceTimer = window.setTimeout(() => {
+          renderProducts();
+        }, INPUT_DEBOUNCE_MS);
+      }
     });
 
     await renderProducts();
   } catch (error) {
+    if (error?.name === "AbortError") {
+      return;
+    }
     console.error(error);
     if (productGrid) {
       productGrid.innerHTML = `<p>Error al cargar productos: ${error.message}</p>`;

@@ -32,6 +32,7 @@ export function buildApiUrl(path = "") {
 
 export function apiFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
+  const { signal } = options || {};
   const token = localStorage.getItem("nerinToken");
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -40,6 +41,7 @@ export function apiFetch(path, options = {}) {
     path === "/api/products" || String(path).startsWith("/api/products?");
   return fetch(buildApiUrl(path), {
     ...options,
+    signal,
     cache: options.cache || (isProductsEndpoint ? "no-store" : options.cache),
     headers,
   });
