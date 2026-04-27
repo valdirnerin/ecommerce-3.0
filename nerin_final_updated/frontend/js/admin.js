@@ -1785,6 +1785,8 @@ let productsHasPrevPage = false;
 let productsTotalItems = null;
 let productsTotalPages = null;
 let productsLoadErrorMessage = "";
+let adminProductsAbortController = null;
+let adminProductsRequestSeq = 0;
 
 let isApplyingAutoSeo = false;
 let isApplyingAutoTags = false;
@@ -2181,13 +2183,15 @@ function updateProductFilters(patch) {
     ...patch,
   };
   productsPage = 1;
-  loadProducts();
+  void loadProducts().catch((error) => {
+    console.error("[admin-products] filter load failed", error);
+  });
 }
 
 if (productSearchInput) {
   const handleSearch = debounce(() => {
     updateProductFilters({ query: productSearchInput.value.trim() });
-  }, 250);
+  }, 400);
   productSearchInput.addEventListener("input", handleSearch);
 }
 if (productFilterCategory) {
@@ -2214,7 +2218,9 @@ if (adminProductsPageSize) {
   adminProductsPageSize.addEventListener("change", () => {
     productsPageSize = Number(adminProductsPageSize.value || 100);
     productsPage = 1;
-    loadProducts();
+    void loadProducts().catch((error) => {
+      console.error("[admin-products] page size load failed", error);
+    });
   });
 }
 if (adminProductsPrevPage) {
@@ -2225,7 +2231,7 @@ if (adminProductsPrevPage) {
     });
     if (!productsHasPrevPage || productsPage <= 1) return;
     productsPage -= 1;
-    loadProducts().catch((error) => {
+    void loadProducts().catch((error) => {
       console.error("[admin-products] prev page failed", error);
     });
   });
@@ -2238,7 +2244,7 @@ if (adminProductsNextPage) {
     });
     if (!productsHasNextPage) return;
     productsPage += 1;
-    loadProducts().catch((error) => {
+    void loadProducts().catch((error) => {
       console.error("[admin-products] next page failed", error);
     });
   });
@@ -3380,13 +3386,25 @@ function updateProductsPaginationControls() {
 async function loadProducts(options = {}) {
   if (!productsTableBody) return;
   const { highlightId } = options;
+  const requestSeq = ++adminProductsRequestSeq;
+  if (adminProductsAbortController) {
+    adminProductsAbortController.abort();
+  }
+  adminProductsAbortController = new AbortController();
   try {
     console.info("[admin-products] load", {
       page: productsPage,
       pageSize: productsPageSize,
+      search: productFilters.query || "",
+      filters: {
+        category: productFilters.category || "",
+        visibility: productFilters.visibility || "",
+        stock: productFilters.stock || "",
+        sort: productFilters.sort || "recent",
+      },
     });
     productsTableBody.innerHTML =
-      '<tr><td colspan="15">Cargando productos…</td></tr>';
+      `<tr><td colspan="15">${productFilters.query ? "Buscando…" : "Cargando productos…"}</td></tr>`;
     const query = new URLSearchParams({
       page: String(productsPage),
       pageSize: String(productsPageSize),
@@ -3398,14 +3416,27 @@ async function loadProducts(options = {}) {
     });
     const res = await apiFetch(`/api/admin/products?${query.toString()}`, {
       headers: getAdminHeaders(),
+      signal: adminProductsAbortController.signal,
     });
+    if (requestSeq !== adminProductsRequestSeq) return;
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
         throw new Error("No autorizado. Iniciá sesión con una cuenta con permisos de admin.");
       }
-      throw new Error(`GET /api/admin/products failed: ${res.status}`);
+      const errorBody = await res.text().catch(() => "");
+      let errorMessage = `GET /api/admin/products failed: ${res.status}`;
+      if (errorBody) {
+        try {
+          const parsed = JSON.parse(errorBody);
+          errorMessage = parsed.error || parsed.message || errorMessage;
+        } catch {
+          errorMessage = errorBody.slice(0, 300);
+        }
+      }
+      throw new Error(errorMessage);
     }
     const data = await res.json();
+    if (requestSeq !== adminProductsRequestSeq) return;
     productsLoadErrorMessage = "";
     productsCache = Array.isArray(data.items) ? data.items : [];
     productsPage = Number(data.page || productsPage);
@@ -3455,6 +3486,7 @@ async function loadProducts(options = {}) {
       highlightProductRow(highlightId);
     }
   } catch (err) {
+    if (err?.name === "AbortError") return;
     console.error(err);
     let details = "";
     try {
@@ -3469,6 +3501,7 @@ async function loadProducts(options = {}) {
       });
       const debugRes = await apiFetch(`/api/admin/products?${debugQuery.toString()}`, {
         headers: getAdminHeaders(),
+        signal: adminProductsAbortController?.signal,
       });
       const debugBody = await debugRes.text();
       details = ` (status ${debugRes.status}${debugBody ? `, body: ${debugBody.slice(0, 300)}` : ""})`;
@@ -3786,7 +3819,15 @@ async function importCatalogCsvFromAdmin() {
       headers: getAdminHeaders(),
       body: formData,
     });
-    const data = await resp.json().catch(() => ({}));
+    const rawBody = await resp.text().catch(() => "");
+    let data = {};
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        data = { error: rawBody };
+      }
+    }
     if (!resp.ok) {
       throw new Error(data.error || "No se pudo importar el CSV");
     }
@@ -3909,7 +3950,15 @@ async function importStockXlsxFromAdmin() {
       headers: getAdminHeaders(),
       body: formData,
     });
-    const data = await resp.json().catch(() => ({}));
+    const rawBody = await resp.text().catch(() => "");
+    let data = {};
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        data = { error: rawBody };
+      }
+    }
     if (!resp.ok) {
       throw new Error(data.error || "No se pudo importar stock XLSX");
     }
@@ -3950,7 +3999,7 @@ async function importStockXlsxFromAdmin() {
     await loadProducts();
   } catch (error) {
     console.error("stock-xlsx-admin-import", error);
-    const message = error?.message || "No se pudo importar stock XLSX";
+    const message = `Error al importar Excel: ${error?.message || "No se pudo importar stock XLSX"}`;
     if (stockXlsxImportStatus) {
       stockXlsxImportStatus.textContent = message;
       stockXlsxImportStatus.style.color = "crimson";
