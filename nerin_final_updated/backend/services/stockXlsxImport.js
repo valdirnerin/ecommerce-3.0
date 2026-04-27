@@ -3,6 +3,7 @@ const path = require("path");
 const XLSX = require("xlsx");
 const { DATA_DIR } = require("../utils/dataDir");
 const { readJsonFile } = require("../utils/jsonFile");
+const LARGE_CATALOG_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 const REQUIRED_COLUMNS = ["Article number", "Quantity in stock (NL)"];
 
@@ -109,6 +110,15 @@ function buildStockMetadata(product, stock, stockSource, articleNumber) {
 
 async function buildJsonPersistenceLayer() {
   const filePath = path.join(DATA_DIR, "products.json");
+  if (fs.existsSync(filePath)) {
+    const sizeBytes = Number(fs.statSync(filePath)?.size || 0);
+    if (sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES) {
+      const err = new Error("stock XLSX import disabled for large catalog; offline streaming job required");
+      err.code = "MEMORY_GUARD_BLOCKED";
+      err.statusCode = 503;
+      throw err;
+    }
+  }
   let current = [];
   try {
     current = readJsonFile(filePath).products || [];

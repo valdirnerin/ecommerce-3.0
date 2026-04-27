@@ -25,6 +25,7 @@ const REQUIRED_COLUMNS = [
 ];
 
 const IMAGE_COLUMNS = ["ImageUrl", "ImageUrl2", "ImageUrl3", "ImageUrl4", "ImageUrl5"];
+const LARGE_CATALOG_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 function normalizeCell(value) {
   if (value == null) return null;
@@ -460,6 +461,15 @@ async function importCatalogCsvFile({
   }
 
   let existingProducts = [];
+  if (fs.existsSync(productsFilePath)) {
+    const sizeBytes = Number(fs.statSync(productsFilePath)?.size || 0);
+    if (sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES) {
+      const err = new Error("catalog CSV import disabled for large catalog; use DB persistence or offline job");
+      err.code = "MEMORY_GUARD_BLOCKED";
+      err.statusCode = 503;
+      throw err;
+    }
+  }
   try {
     existingProducts = readJsonFile(productsFilePath).products || [];
   } catch {

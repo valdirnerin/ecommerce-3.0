@@ -8,6 +8,7 @@ const { DATA_DIR } = require("../utils/dataDir");
 
 const productsFilePath = path.join(DATA_DIR, "products.json");
 const productsManifestPath = path.join(DATA_DIR, "products.manifest.json");
+const LARGE_CATALOG_BYTES = 20 * 1024 * 1024;
 
 function safeReadManifest() {
   try {
@@ -95,16 +96,21 @@ async function getProductById(id, { filePath = productsFilePath } = {}) {
   let found = null;
   const target = String(id || "").trim();
   if (!target) return null;
+  const STOP_EARLY = "__PRODUCT_BY_ID_STOP__";
 
-  await streamProducts({
-    filePath,
-    onProduct: (product) => {
-      if (found) return;
-      if (String(product?.id || "") === target) {
-        found = product;
-      }
-    },
-  });
+  try {
+    await streamProducts({
+      filePath,
+      onProduct: (product) => {
+        if (String(product?.id || "") === target) {
+          found = product;
+          throw new Error(STOP_EARLY);
+        }
+      },
+    });
+  } catch (err) {
+    if (err?.message !== STOP_EARLY) throw err;
+  }
 
   return found;
 }
@@ -113,25 +119,54 @@ async function getProductByCode(code, { filePath = productsFilePath } = {}) {
   let found = null;
   const target = String(code || "").trim().toLowerCase();
   if (!target) return null;
+  const STOP_EARLY = "__PRODUCT_BY_CODE_STOP__";
 
-  await streamProducts({
-    filePath,
-    onProduct: (product) => {
-      if (found) return;
-      const candidates = [
-        product?.code,
-        product?.sku,
-        product?.supplierPartNumber,
-        product?.metadata?.supplierPartNumber,
-        product?.metadata?.supplierImport?.supplierPartNumber,
-      ]
-        .map((item) => String(item || "").trim().toLowerCase())
-        .filter(Boolean);
-      if (candidates.includes(target)) {
-        found = product;
-      }
-    },
-  });
+  try {
+    await streamProducts({
+      filePath,
+      onProduct: (product) => {
+        const candidates = [
+          product?.code,
+          product?.sku,
+          product?.supplierPartNumber,
+          product?.metadata?.supplierPartNumber,
+          product?.metadata?.supplierImport?.supplierPartNumber,
+        ]
+          .map((item) => String(item || "").trim().toLowerCase())
+          .filter(Boolean);
+        if (candidates.includes(target)) {
+          found = product;
+          throw new Error(STOP_EARLY);
+        }
+      },
+    });
+  } catch (err) {
+    if (err?.message !== STOP_EARLY) throw err;
+  }
+
+  return found;
+}
+
+async function getProductBySlug(slug, { filePath = productsFilePath } = {}) {
+  let found = null;
+  const target = String(slug || "").trim().toLowerCase();
+  if (!target) return null;
+  const STOP_EARLY = "__PRODUCT_BY_SLUG_STOP__";
+
+  try {
+    await streamProducts({
+      filePath,
+      onProduct: (product) => {
+        const currentSlug = String(product?.slug || "").trim().toLowerCase();
+        if (currentSlug && currentSlug === target) {
+          found = product;
+          throw new Error(STOP_EARLY);
+        }
+      },
+    });
+  } catch (err) {
+    if (err?.message !== STOP_EARLY) throw err;
+  }
 
   return found;
 }
@@ -318,6 +353,8 @@ async function inspectProductsStorageSafe({ filePath = productsFilePath, dataDir
     productCount: manifest?.productCount ?? "unknown",
     manifest,
     canStreamRead: false,
+    jsonStartsValid: false,
+    largeCatalog: sizeBytes > LARGE_CATALOG_BYTES,
     storageValid: exists,
     error: null,
     backupCandidates: [],
@@ -326,11 +363,16 @@ async function inspectProductsStorageSafe({ filePath = productsFilePath, dataDir
   if (!exists) return report;
 
   try {
-    await streamProducts({
-      filePath,
-      onProduct: () => {},
-    });
-    report.canStreamRead = true;
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const probeBuffer = Buffer.alloc(256);
+      const bytesRead = fs.readSync(fd, probeBuffer, 0, probeBuffer.length, 0);
+      const preview = probeBuffer.slice(0, bytesRead).toString("utf8").trimStart();
+      report.jsonStartsValid = preview.startsWith("{") || preview.startsWith("[");
+      report.canStreamRead = report.jsonStartsValid;
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch (err) {
     report.error = err?.message || String(err);
     report.backupCandidates = getBackupCandidates({ dataDir });
@@ -348,7 +390,9 @@ module.exports = {
   getProductsSortedPage,
   getProductsEmergencyPage,
   getProductById,
+  getProductBySlug,
   getProductByCode,
+  LARGE_CATALOG_BYTES,
   countProductsStreaming,
   inspectProductsStorageSafe,
   getBackupCandidates,

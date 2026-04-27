@@ -86,6 +86,31 @@ if (fs.existsSync(SERVER_PATH)) {
       RULE_VIOLATIONS.push("/api/analytics/detailed: no debe usar getProducts()");
     }
   }
+
+  const forbiddenPublicRoutes = [
+    { route: "/meta-feed.csv", marker: 'if (pathname === "/meta-feed.csv"' },
+    { route: "/meta-feed-debug.json", marker: 'if (!IS_PRODUCTION && pathname === "/meta-feed-debug.json"' },
+    { route: "/meta-feed/health", marker: 'if (pathname === "/meta-feed/health"' },
+    { route: "/sitemap.xml", marker: 'if (pathname === "/sitemap.xml"' },
+    { route: "/p/:slug", marker: 'if (pathname.startsWith("/p/")' },
+  ];
+
+  for (const entry of forbiddenPublicRoutes) {
+    const start = serverContent.indexOf(entry.marker);
+    if (start < 0) continue;
+    const tail = serverContent.slice(start);
+    const nextRouteIdx = tail.indexOf("\n  if (pathname === ");
+    const block = nextRouteIdx > 0 ? tail.slice(0, nextRouteIdx) : tail;
+    if (/\bloadProducts\s*\(/.test(block)) {
+      RULE_VIOLATIONS.push(`${entry.route}: no debe usar loadProducts()`);
+    }
+    if (/\bgetProducts\s*\(/.test(block)) {
+      RULE_VIOLATIONS.push(`${entry.route}: no debe usar getProducts()`);
+    }
+    if (/\breadJsonFile\s*\(/.test(block)) {
+      RULE_VIOLATIONS.push(`${entry.route}: no debe parsear products.json completo`);
+    }
+  }
 }
 
 if (RULE_VIOLATIONS.length) {
