@@ -698,9 +698,18 @@ async function renderProducts({ append = false } = {}) {
     productsAbortController.abort();
   }
   productsAbortController = new AbortController();
-  const response = await fetchProductsPage(requestParams, {
-    signal: productsAbortController.signal,
-  });
+  let response;
+  try {
+    response = await fetchProductsPage(requestParams, {
+      signal: productsAbortController.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      shopLog("request:aborted", { requestId });
+      return;
+    }
+    throw error;
+  }
   shopLog("response", {
     requestId,
     status: "ok",
@@ -774,6 +783,16 @@ async function renderProducts({ append = false } = {}) {
   syncQueryParams(filters);
 }
 
+function safelyRenderProducts(options) {
+  void renderProducts(options).catch((error) => {
+    if (error?.name === "AbortError") return;
+    console.error("[shop] renderProducts failed", error);
+    if (productGrid) {
+      productGrid.innerHTML = `<p>Error al cargar productos: ${error.message || "Error desconocido"}</p>`;
+    }
+  });
+}
+
 function applyInitialFilters() {
   const params = new URLSearchParams(window.location.search);
   if (searchInput && params.get("q")) searchInput.value = params.get("q");
@@ -819,14 +838,14 @@ function setupFiltersUi() {
   if (filtersBackdrop) filtersBackdrop.addEventListener("click", closeDrawer);
   if (applyFiltersBtn) {
     applyFiltersBtn.addEventListener("click", () => {
-      renderProducts();
+      safelyRenderProducts();
       closeDrawer();
     });
   }
   if (clearFiltersBtn) {
     clearFiltersBtn.addEventListener("click", () => {
       resetAllFilters();
-      renderProducts();
+      safelyRenderProducts();
       closeDrawer();
     });
   }
@@ -845,33 +864,33 @@ async function initShop() {
     searchInput?.addEventListener("input", () => {
       clearTimeout(searchDebounceTimer);
       searchDebounceTimer = window.setTimeout(() => {
-        renderProducts();
+        safelyRenderProducts();
       }, INPUT_DEBOUNCE_MS);
     });
     searchClear?.addEventListener("click", () => {
       searchInput.value = "";
-      renderProducts();
+      safelyRenderProducts();
     });
     brandFilter?.addEventListener("change", () => {
       updateModelOptions(brandFilter.value);
-      renderProducts();
+      safelyRenderProducts();
     });
-    modelFilter?.addEventListener("change", () => renderProducts());
-    categoryFilter?.addEventListener("change", () => renderProducts());
-    stockFilter?.addEventListener("change", () => renderProducts());
-    sortSelect?.addEventListener("change", () => renderProducts());
+    modelFilter?.addEventListener("change", () => safelyRenderProducts());
+    categoryFilter?.addEventListener("change", () => safelyRenderProducts());
+    stockFilter?.addEventListener("change", () => safelyRenderProducts());
+    sortSelect?.addEventListener("change", () => safelyRenderProducts());
     pageSizeSelect?.addEventListener("change", () => {
       currentPageSize = Number(pageSizeSelect.value) || 24;
-      renderProducts();
+      safelyRenderProducts();
     });
-    loadMoreBtn.addEventListener("click", () => renderProducts({ append: true }));
+    loadMoreBtn.addEventListener("click", () => safelyRenderProducts({ append: true }));
     priceRange?.addEventListener("input", () => {
       priceFilterTouched = true;
       updatePriceRangeDisplay();
       if (!mobileLayoutQuery.matches) {
         clearTimeout(priceDebounceTimer);
         priceDebounceTimer = window.setTimeout(() => {
-          renderProducts();
+          safelyRenderProducts();
         }, INPUT_DEBOUNCE_MS);
       }
     });

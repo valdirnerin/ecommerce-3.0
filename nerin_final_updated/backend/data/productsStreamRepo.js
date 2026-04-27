@@ -275,19 +275,41 @@ async function getProductsEmergencyPage({
   pageSize = 24,
   matchItem = null,
   mapItem = null,
+  maxScanItems = null,
+  shouldStop = null,
   filePath = productsFilePath,
 } = {}) {
   const safePage = Math.max(1, Number(page) || 1);
   const safePageSize = Math.max(1, Number(pageSize) || 24);
   const start = (safePage - 1) * safePageSize;
   const endExclusive = start + safePageSize;
-  const stopAfter = endExclusive + 1;
 
   const items = [];
+  let scannedCount = 0;
   let matchedCount = 0;
-  await streamProducts({
+  let cancelled = false;
+  let stoppedEarly = false;
+
+  const { stoppedEarly: streamStoppedEarly } = await streamProducts({
     filePath,
     onProduct: (product) => {
+      if (typeof shouldStop === "function" && shouldStop()) {
+        cancelled = true;
+        return false;
+      }
+
+      scannedCount += 1;
+      const hasScanLimit =
+        maxScanItems !== null &&
+        maxScanItems !== undefined &&
+        maxScanItems !== "" &&
+        Number.isFinite(Number(maxScanItems)) &&
+        Number(maxScanItems) > 0;
+      if (hasScanLimit && scannedCount >= Number(maxScanItems)) {
+        stoppedEarly = true;
+        return false;
+      }
+
       const accepted = typeof matchItem === "function" ? !!matchItem(product) : true;
       if (!accepted) return true;
       const currentMatchIndex = matchedCount;
@@ -296,19 +318,26 @@ async function getProductsEmergencyPage({
         const mapped = typeof mapItem === "function" ? mapItem(product) : product;
         items.push(mapped);
       }
-      if (matchedCount >= stopAfter) {
+      if (matchedCount > endExclusive) {
+        stoppedEarly = true;
         return false;
       }
       return true;
     },
   });
 
+  const hasNextPage = cancelled ? false : matchedCount > endExclusive || stoppedEarly || streamStoppedEarly;
+
   return {
     items,
     page: safePage,
     pageSize: safePageSize,
-    matchedCountScanned: matchedCount,
-    hasNextPage: matchedCount > endExclusive,
+    scannedCount,
+    matchedCount,
+    stoppedEarly: Boolean(stoppedEarly || streamStoppedEarly),
+    cancelled,
+    hasNextPage,
+    hasPrevPage: safePage > 1,
   };
 }
 

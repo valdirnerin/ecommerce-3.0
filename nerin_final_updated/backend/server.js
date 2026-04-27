@@ -1684,16 +1684,23 @@ function isProductPublic(product) {
     typeof product.visibility === "string"
       ? product.visibility.trim().toLowerCase()
       : "";
-  if (visibility && visibility !== "public") return false;
-  if (product.vip_only) return false;
+  const blockedVisibility = new Set(["private", "hidden", "draft", "archived", "disabled"]);
+  if (blockedVisibility.has(visibility)) return false;
+  if (product.vip_only === true) return false;
+  if (product.wholesaleOnly === true) return false;
   if (product.enabled === false) return false;
   const status =
     typeof product.status === "string"
       ? product.status.trim().toLowerCase()
       : "";
-  if (status === "draft" || status === "archived") return false;
+  const blockedStatus = new Set(["private", "hidden", "draft", "archived", "disabled"]);
+  if (blockedStatus.has(status)) return false;
   return Boolean(
     (typeof product.slug === "string" && product.slug.trim()) ||
+      (typeof product.sku === "string" && product.sku.trim()) ||
+      (typeof product.code === "string" && product.code.trim()) ||
+      (typeof product.title === "string" && product.title.trim()) ||
+      (typeof product.name === "string" && product.name.trim()) ||
       (typeof product.id === "string" && product.id.trim()) ||
       typeof product.id === "number",
   );
@@ -3790,18 +3797,44 @@ function buildAdminStreamFilter(query = {}) {
 function resolveStreamingSortPolicy({ endpoint = "", query = {}, storage = {} } = {}) {
   const requestedSort = String(query?.sort || "").trim().toLowerCase();
   const isLargeCatalog = Number(storage?.sizeBytes || 0) > LARGE_CATALOG_THRESHOLD_BYTES;
-  const hasManifestCount = Number.isFinite(Number(storage?.manifest?.productCount));
-  const canGloballySort = !isLargeCatalog || hasManifestCount;
-  const unsupportedPublicSorts = new Set(["price-asc", "price-desc", "stock-desc", "name"]);
-  const unsupportedAdminSorts = new Set(["name", "stock", "price_desc", "price_asc"]);
+  const canGloballySort = !isLargeCatalog;
+  const unsupportedPublicSorts = new Set([
+    "price-asc",
+    "price-desc",
+    "price_asc",
+    "price_desc",
+    "stock-desc",
+    "stock",
+    "name",
+    "name_asc",
+    "name_desc",
+    "newest",
+    "featured",
+  ]);
+  const unsupportedAdminSorts = new Set([
+    "name",
+    "name_asc",
+    "name_desc",
+    "stock",
+    "newest",
+    "featured",
+    "price_desc",
+    "price_asc",
+    "price-asc",
+    "price-desc",
+  ]);
   const unsupportedSet =
     endpoint === "/api/admin/products" ? unsupportedAdminSorts : unsupportedPublicSorts;
   if (!requestedSort || canGloballySort || !unsupportedSet.has(requestedSort)) {
     return { warning: null, effectiveQuery: query };
   }
+  console.warn("[products-endpoint] sort ignored in streaming mode", {
+    endpoint,
+    requestedSort,
+  });
   return {
-    warning:
-      "sort_ignored_streaming_large_catalog: orden global no disponible sin índice/manifest completo",
+    warning: "sort_not_supported_in_streaming_mode",
+    ignoredSort: requestedSort,
     effectiveQuery: {
       ...query,
       sort: endpoint === "/api/admin/products" ? "recent" : "relevance",
@@ -3849,49 +3882,75 @@ async function getProductsEmergencyResponse({
   matchItem,
   mapItem,
   warning = null,
+  ignoredSort = null,
+  shouldStop = null,
+  maxScanItems = null,
 } = {}) {
   const startedAt = Date.now();
   console.log(`[products-endpoint:start] ${endpoint} page=${page} pageSize=${pageSize}`);
   let firstItemLogged = false;
-  const emergencyPage = await productsStreamRepo.getProductsEmergencyPage({
-    page,
-    pageSize,
-    matchItem,
-    mapItem: (product) => {
-      const mapped = typeof mapItem === "function" ? mapItem(product) : product;
-      if (!firstItemLogged) {
-        firstItemLogged = true;
-        console.log("[products-endpoint:first-item]");
-      }
-      return mapped;
-    },
-  });
-  const manifest = productsStreamRepo.safeReadManifest() || null;
-  const manifestCount = Number(manifest?.productCount);
-  const estimatedTotalItems = Number.isFinite(manifestCount) ? manifestCount : null;
-  const totalPages =
-    Number.isFinite(estimatedTotalItems) && estimatedTotalItems > 0
-      ? Math.ceil(estimatedTotalItems / pageSize)
-      : null;
-  const responsePayload = {
-    items: emergencyPage.items,
-    page,
-    pageSize,
-    totalItems: estimatedTotalItems,
-    totalPages,
-    hasNextPage:
-      emergencyPage.hasNextPage ||
-      (Number.isFinite(totalPages) ? page < totalPages : emergencyPage.items.length === pageSize),
-    hasPrevPage: page > 1,
-    totalItemsUnknown: estimatedTotalItems == null,
-    mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
-  };
-  if (warning) responsePayload.warning = warning;
-  const durationMs = Date.now() - startedAt;
-  console.log(
-    `[products-endpoint:respond] items=${responsePayload.items.length} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
-  );
-  return responsePayload;
+  try {
+    const emergencyPage = await productsStreamRepo.getProductsEmergencyPage({
+      page,
+      pageSize,
+      matchItem,
+      shouldStop,
+      maxScanItems,
+      mapItem: (product) => {
+        const mapped = typeof mapItem === "function" ? mapItem(product) : product;
+        if (!firstItemLogged) {
+          firstItemLogged = true;
+          console.log("[products-endpoint:first-item]");
+        }
+        return mapped;
+      },
+    });
+    const manifest = productsStreamRepo.safeReadManifest() || null;
+    const manifestCount = Number(manifest?.productCount);
+    const estimatedTotalItems = Number.isFinite(manifestCount) ? manifestCount : null;
+    const totalPages =
+      Number.isFinite(estimatedTotalItems) && estimatedTotalItems > 0
+        ? Math.ceil(estimatedTotalItems / pageSize)
+        : null;
+    const responsePayload = {
+      items: emergencyPage.items,
+      page,
+      pageSize,
+      totalItems: estimatedTotalItems,
+      totalPages,
+      hasNextPage: Boolean(emergencyPage.hasNextPage),
+      hasPrevPage: Boolean(emergencyPage.hasPrevPage || page > 1),
+      totalItemsUnknown: estimatedTotalItems == null,
+      mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
+    };
+    if (warning) responsePayload.warning = warning;
+    if (ignoredSort) responsePayload.ignoredSort = ignoredSort;
+    if (maxScanItems && emergencyPage.stoppedEarly && !emergencyPage.cancelled) {
+      responsePayload.warning = responsePayload.warning || "public_filter_scan_limit_reached";
+    }
+    const durationMs = Date.now() - startedAt;
+    if (endpoint === "/api/products" && emergencyPage.scannedCount > 1000 && emergencyPage.matchedCount < pageSize) {
+      console.warn(
+        `[products-endpoint:slow-public-filter] scanned=${emergencyPage.scannedCount} matched=${emergencyPage.matchedCount} pageSize=${pageSize}`,
+      );
+    }
+    if (emergencyPage.cancelled || (typeof shouldStop === "function" && shouldStop())) {
+      console.info(
+        `[products-endpoint:cancelled] endpoint=${endpoint} page=${page} pageSize=${pageSize} durationMs=${durationMs}`,
+      );
+      return null;
+    }
+    console.log(
+      `[products-endpoint:respond] endpoint=${endpoint} items=${responsePayload.items.length} matched=${emergencyPage.matchedCount} scanned=${emergencyPage.scannedCount} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
+    );
+    return responsePayload;
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    console.error(
+      `[products-endpoint:failed] endpoint=${endpoint} page=${page} pageSize=${pageSize} error=${error?.message || error} durationMs=${durationMs}`,
+    );
+    throw error;
+  }
 }
 
 // Guardar productos en el archivo JSON
@@ -6043,23 +6102,32 @@ async function requestHandler(req, res) {
         maxPageSize: 96,
       });
       const { storage } = await loadProductsStrict();
-      const { warning, effectiveQuery } = resolveStreamingSortPolicy({
+      const { warning, ignoredSort, effectiveQuery } = resolveStreamingSortPolicy({
         endpoint: "/api/products",
         query: parsedUrl.query || {},
         storage,
       });
       const withWholesale = canSeeWholesalePrices(req);
+      const shouldStop = () =>
+        req.aborted || req.destroyed || res.destroyed || res.writableEnded;
       const pageData = await getProductsEmergencyResponse({
         endpoint: "/api/products",
         page,
         pageSize,
+        shouldStop,
+        maxScanItems:
+          parsedUrl?.query?.search || parsedUrl?.query?.q || parsedUrl?.query?.brand
+            ? null
+            : 5000,
         matchItem: buildCatalogStreamFilter(effectiveQuery || {}),
         mapItem: (product) => {
           if (withWholesale) return normalizeProductImages(product);
           return normalizeProductImages(sanitizePublicProducts([product])[0]);
         },
         warning,
+        ignoredSort,
       });
+      if (pageData === null) return;
       const responsePayload = {
         ...pageData,
         usingFallback: storage.usingFallback,
@@ -6107,19 +6175,24 @@ async function requestHandler(req, res) {
         maxPageSize: 250,
       });
       const { storage } = await loadProductsStrict();
-      const { warning, effectiveQuery } = resolveStreamingSortPolicy({
+      const { warning, ignoredSort, effectiveQuery } = resolveStreamingSortPolicy({
         endpoint: "/api/admin/products",
         query: parsedUrl.query || {},
         storage,
       });
+      const shouldStop = () =>
+        req.aborted || req.destroyed || res.destroyed || res.writableEnded;
       const pageData = await getProductsEmergencyResponse({
         endpoint: "/api/admin/products",
         page,
         pageSize,
+        shouldStop,
         matchItem: buildAdminStreamFilter(effectiveQuery || {}),
         mapItem: (product) => normalizeProductImages(product),
         warning,
+        ignoredSort,
       });
+      if (pageData === null) return;
       const responsePayload = {
         ...pageData,
         usingFallback: storage.usingFallback,
