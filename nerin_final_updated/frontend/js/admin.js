@@ -3375,11 +3375,13 @@ async function loadProducts(options = {}) {
     const data = await res.json();
     productsLoadErrorMessage = "";
     productsCache = Array.isArray(data.items) ? data.items : [];
+    const rawTotal = data.totalItems;
     const hasKnownTotal =
-      data.totalItems !== null &&
-      data.totalItems !== undefined &&
-      Number.isFinite(Number(data.totalItems));
-    productsTotalItems = hasKnownTotal ? Number(data.totalItems) : null;
+      rawTotal !== null &&
+      rawTotal !== undefined &&
+      rawTotal !== "" &&
+      Number.isFinite(Number(rawTotal));
+    productsTotalItems = hasKnownTotal ? Number(rawTotal) : null;
     productsTotalPages =
       data.totalPages !== null &&
       data.totalPages !== undefined &&
@@ -3393,7 +3395,11 @@ async function loadProducts(options = {}) {
     const end = productsCache.length ? start + productsCache.length - 1 : 0;
     if (adminProductsRange) {
       if (productsTotalItems == null) {
-        adminProductsRange.textContent = `Mostrando ${start}-${end} (total estimado no disponible)`;
+        if (productsCache.length > 0) {
+          adminProductsRange.textContent = `Mostrando ${productsCache.length} productos · total no calculado`;
+        } else {
+          adminProductsRange.textContent = `Mostrando página ${productsPage} · total no calculado`;
+        }
       } else {
         adminProductsRange.textContent = `Mostrando ${start}-${end} de ${productsTotalItems} productos`;
       }
@@ -3406,7 +3412,10 @@ async function loadProducts(options = {}) {
     }
     if (adminProductsPrevPage) adminProductsPrevPage.disabled = productsPage <= 1;
     if (adminProductsNextPage) {
-      const hasNextPage = Boolean(data.hasNextPage) || productsCache.length >= productsPageSize;
+      const hasExplicitHasNextPage = typeof data.hasNextPage === "boolean";
+      const hasNextPage = hasExplicitHasNextPage
+        ? data.hasNextPage
+        : productsCache.length >= productsPageSize;
       adminProductsNextPage.disabled = !hasNextPage;
     }
     if (highlightId) {

@@ -3787,6 +3787,28 @@ function buildAdminStreamFilter(query = {}) {
   return buildAdminMatcher(query);
 }
 
+function resolveStreamingSortPolicy({ endpoint = "", query = {}, storage = {} } = {}) {
+  const requestedSort = String(query?.sort || "").trim().toLowerCase();
+  const isLargeCatalog = Number(storage?.sizeBytes || 0) > LARGE_CATALOG_THRESHOLD_BYTES;
+  const hasManifestCount = Number.isFinite(Number(storage?.manifest?.productCount));
+  const canGloballySort = !isLargeCatalog || hasManifestCount;
+  const unsupportedPublicSorts = new Set(["price-asc", "price-desc", "stock-desc", "name"]);
+  const unsupportedAdminSorts = new Set(["name", "stock", "price_desc", "price_asc"]);
+  const unsupportedSet =
+    endpoint === "/api/admin/products" ? unsupportedAdminSorts : unsupportedPublicSorts;
+  if (!requestedSort || canGloballySort || !unsupportedSet.has(requestedSort)) {
+    return { warning: null, effectiveQuery: query };
+  }
+  return {
+    warning:
+      "sort_ignored_streaming_large_catalog: orden global no disponible sin índice/manifest completo",
+    effectiveQuery: {
+      ...query,
+      sort: endpoint === "/api/admin/products" ? "recent" : "relevance",
+    },
+  };
+}
+
 async function loadProductsStrict() {
   const storage = await inspectProductsStorage();
   if (!storage.exists) {
@@ -3826,6 +3848,7 @@ async function getProductsEmergencyResponse({
   pageSize,
   matchItem,
   mapItem,
+  warning = null,
 } = {}) {
   const startedAt = Date.now();
   console.log(`[products-endpoint:start] ${endpoint} page=${page} pageSize=${pageSize}`);
@@ -3863,9 +3886,10 @@ async function getProductsEmergencyResponse({
     totalItemsUnknown: estimatedTotalItems == null,
     mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
   };
+  if (warning) responsePayload.warning = warning;
   const durationMs = Date.now() - startedAt;
   console.log(
-    `[products-endpoint:respond] items=${responsePayload.items.length} count=${responsePayload.totalItems ?? "unknown"} durationMs=${durationMs}`,
+    `[products-endpoint:respond] items=${responsePayload.items.length} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
   );
   return responsePayload;
 }
@@ -6019,16 +6043,22 @@ async function requestHandler(req, res) {
         maxPageSize: 96,
       });
       const { storage } = await loadProductsStrict();
+      const { warning, effectiveQuery } = resolveStreamingSortPolicy({
+        endpoint: "/api/products",
+        query: parsedUrl.query || {},
+        storage,
+      });
       const withWholesale = canSeeWholesalePrices(req);
       const pageData = await getProductsEmergencyResponse({
         endpoint: "/api/products",
         page,
         pageSize,
-        matchItem: buildCatalogStreamFilter(parsedUrl.query || {}),
+        matchItem: buildCatalogStreamFilter(effectiveQuery || {}),
         mapItem: (product) => {
           if (withWholesale) return normalizeProductImages(product);
           return normalizeProductImages(sanitizePublicProducts([product])[0]);
         },
+        warning,
       });
       const responsePayload = {
         ...pageData,
@@ -6077,12 +6107,18 @@ async function requestHandler(req, res) {
         maxPageSize: 250,
       });
       const { storage } = await loadProductsStrict();
+      const { warning, effectiveQuery } = resolveStreamingSortPolicy({
+        endpoint: "/api/admin/products",
+        query: parsedUrl.query || {},
+        storage,
+      });
       const pageData = await getProductsEmergencyResponse({
         endpoint: "/api/admin/products",
         page,
         pageSize,
-        matchItem: buildAdminStreamFilter(parsedUrl.query || {}),
+        matchItem: buildAdminStreamFilter(effectiveQuery || {}),
         mapItem: (product) => normalizeProductImages(product),
+        warning,
       });
       const responsePayload = {
         ...pageData,
