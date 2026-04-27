@@ -210,6 +210,8 @@ const MAX_ACTIVITY_SESSIONS = 300;
 const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
+const DISABLE_HEAVY_ANALYTICS = true;
+const HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES = 5 * 1024 * 1024;
 const REVIEW_TOKEN_TTL_DAYS =
   parseInt(process.env.REVIEW_TOKEN_TTL_DAYS, 10) || 14;
 
@@ -3621,6 +3623,15 @@ async function calculateDetailedAnalytics(options = {}) {
     funnel,
     sessionStories,
     recentEvents,
+  };
+}
+
+function buildDisabledAnalyticsPayload({ reason = "disabled_for_large_catalog" } = {}) {
+  return {
+    analyticsAvailable: false,
+    reason,
+    productManifest: productsStreamRepo.safeReadManifest() || null,
+    message: "Analytics desactivado temporalmente para catálogo grande",
   };
 }
 
@@ -10387,6 +10398,39 @@ async function requestHandler(req, res) {
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
     try {
       const range = parseAnalyticsRange(parsedUrl.query);
+      let productsSizeBytes = 0;
+      try {
+        productsSizeBytes = Number(fs.statSync(PRODUCTS_FILE_PATH)?.size || 0);
+      } catch (statErr) {
+        if (process.env.NODE_ENV !== "test") {
+          console.warn("[analytics-disabled] products size lookup failed", statErr?.message || statErr);
+        }
+      }
+      if (
+        DISABLE_HEAVY_ANALYTICS ||
+        productsSizeBytes > HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES
+      ) {
+        if (process.env.NODE_ENV !== "test") {
+          console.log("[analytics-disabled] large catalog, skipping stream", {
+            productsSizeBytes,
+            limitBytes: HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES,
+            forcedDisabled: DISABLE_HEAVY_ANALYTICS,
+          });
+        }
+        const disabledPayload = buildDisabledAnalyticsPayload();
+        return sendJson(res, 200, {
+          ...disabledPayload,
+          analytics: {
+            ...disabledPayload,
+            trackingHealth: getTrackingHealth(),
+            range: {
+              from: range.from ? range.from.toISOString() : null,
+              to: range.to ? range.to.toISOString() : null,
+              label: range.range || "7d",
+            },
+          },
+        });
+      }
       const storeSessions = getStoredSessions();
       const storeEvents = getEventsByRange({ from: range.from, to: range.to });
       const analytics = await calculateDetailedAnalytics({
@@ -10409,12 +10453,13 @@ async function requestHandler(req, res) {
       return sendJson(res, 200, { analytics });
     } catch (err) {
       console.error("[analytics] detailed failed", err);
-      const manifest = productsStreamRepo.safeReadManifest() || null;
+      const disabledPayload = buildDisabledAnalyticsPayload({
+        reason: "disabled_after_error",
+      });
       return sendJson(res, 200, {
         analytics: {
-          analyticsAvailable: false,
+          ...disabledPayload,
           error: "Analytics temporarily unavailable",
-          productManifest: manifest,
         },
       });
     }

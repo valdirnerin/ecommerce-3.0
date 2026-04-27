@@ -331,8 +331,19 @@ export async function renderAnalyticsDashboard(
   const rangeParams = buildRangeParams(analyticsRangeState);
   try {
     const res = await apiFetch(`/api/analytics/detailed?${rangeParams.toString()}`);
-    const { analytics } = await res.json();
+    const payload = await res.json();
+    const analytics = payload?.analytics || payload || {};
     container.innerHTML = "";
+    if (!analytics?.analyticsAvailable) {
+      const disabled = document.createElement("div");
+      disabled.className = "analytics-empty analytics-empty--inline";
+      disabled.innerHTML = `
+        <strong>Métricas no disponibles temporalmente</strong>
+        <p>${analytics?.message || "Métricas desactivadas temporalmente para catálogo grande"}</p>
+      `;
+      container.appendChild(disabled);
+      return;
+    }
     const fetchedAt = new Date();
     const rangeLabelMap = {
       today: "Hoy",

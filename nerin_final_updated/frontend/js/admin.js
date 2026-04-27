@@ -4271,9 +4271,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-if (isAnalyticsSectionVisible()) {
-  startAnalyticsAutoRefresh();
-}
+// Hotfix: evitar cualquier carga automática de analytics al entrar al admin.
 
 // ------------ Pedidos ------------
 const OrdersUI = (() => {
