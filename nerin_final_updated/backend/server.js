@@ -212,6 +212,8 @@ const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
 const DISABLE_HEAVY_ANALYTICS = true;
 const HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES = 5 * 1024 * 1024;
+const ANALYTICS_DISABLED_REASON = "disabled_for_large_catalog";
+const EMERGENCY_PRODUCTS_MODE = true;
 const REVIEW_TOKEN_TTL_DAYS =
   parseInt(process.env.REVIEW_TOKEN_TTL_DAYS, 10) || 14;
 
@@ -2805,7 +2807,7 @@ async function buildAnalyticsCatalogSnapshot() {
   };
   const categories = new Set();
   const brands = new Set();
-  console.log("[analytics-stream] start");
+  console.log("[analytics-catalog-snapshot] start");
   try {
     await productsStreamRepo.streamProducts({
       onProduct: (product) => {
@@ -2852,10 +2854,10 @@ async function buildAnalyticsCatalogSnapshot() {
     ) {
       snapshot.totalProducts = Number(manifest.productCount);
     }
-    console.log("[analytics-stream] completed");
+    console.log("[analytics-catalog-snapshot] completed");
     return snapshot;
   } catch (err) {
-    console.error("[analytics-stream] failed", err);
+    console.error("[analytics-catalog-snapshot] failed", err);
     throw err;
   }
 }
@@ -3626,7 +3628,7 @@ async function calculateDetailedAnalytics(options = {}) {
   };
 }
 
-function buildDisabledAnalyticsPayload({ reason = "disabled_for_large_catalog" } = {}) {
+function buildDisabledAnalyticsPayload({ reason = ANALYTICS_DISABLED_REASON } = {}) {
   return {
     analyticsAvailable: false,
     reason,
@@ -3766,6 +3768,56 @@ function logProductsServe(event, payload = {}) {
   } catch {
     // no-op
   }
+}
+
+async function getProductsEmergencyResponse({
+  endpoint,
+  page,
+  pageSize,
+  matchItem,
+  mapItem,
+} = {}) {
+  const startedAt = Date.now();
+  console.log(`[products-endpoint:start] ${endpoint} page=${page} pageSize=${pageSize}`);
+  let firstItemLogged = false;
+  const emergencyPage = await productsStreamRepo.getProductsEmergencyPage({
+    page,
+    pageSize,
+    matchItem,
+    mapItem: (product) => {
+      const mapped = typeof mapItem === "function" ? mapItem(product) : product;
+      if (!firstItemLogged) {
+        firstItemLogged = true;
+        console.log("[products-endpoint:first-item]");
+      }
+      return mapped;
+    },
+  });
+  const manifest = productsStreamRepo.safeReadManifest() || null;
+  const manifestCount = Number(manifest?.productCount);
+  const estimatedTotalItems = Number.isFinite(manifestCount) ? manifestCount : null;
+  const totalPages =
+    Number.isFinite(estimatedTotalItems) && estimatedTotalItems > 0
+      ? Math.ceil(estimatedTotalItems / pageSize)
+      : null;
+  const responsePayload = {
+    items: emergencyPage.items,
+    page,
+    pageSize,
+    totalItems: estimatedTotalItems,
+    totalPages,
+    hasNextPage:
+      emergencyPage.hasNextPage ||
+      (Number.isFinite(totalPages) ? page < totalPages : emergencyPage.items.length === pageSize),
+    hasPrevPage: page > 1,
+    totalItemsUnknown: estimatedTotalItems == null,
+    mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
+  };
+  const durationMs = Date.now() - startedAt;
+  console.log(
+    `[products-endpoint:respond] items=${responsePayload.items.length} count=${responsePayload.totalItems ?? "unknown"} durationMs=${durationMs}`,
+  );
+  return responsePayload;
 }
 
 // Guardar productos en el archivo JSON
@@ -5918,11 +5970,11 @@ async function requestHandler(req, res) {
       });
       const { storage } = await loadProductsStrict();
       const withWholesale = canSeeWholesalePrices(req);
-      const pageData = await productsStreamRepo.getProductsSortedPage({
+      const pageData = await getProductsEmergencyResponse({
+        endpoint: "/api/products",
         page,
         pageSize,
         matchItem: buildCatalogStreamFilter(parsedUrl.query || {}),
-        sortItems: getCatalogSortComparator(parsedUrl.query || {}),
         mapItem: (product) => {
           if (withWholesale) return normalizeProductImages(product);
           return normalizeProductImages(sanitizePublicProducts([product])[0]);
@@ -5947,6 +5999,7 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
+      console.error("[products-endpoint:failed]", err?.stack || err);
       const storage = await inspectProductsStorage();
       logProductsServe("error", {
         endpoint: "/api/products",
@@ -5974,11 +6027,11 @@ async function requestHandler(req, res) {
         maxPageSize: 250,
       });
       const { storage } = await loadProductsStrict();
-      const pageData = await productsStreamRepo.getProductsSortedPage({
+      const pageData = await getProductsEmergencyResponse({
+        endpoint: "/api/admin/products",
         page,
         pageSize,
         matchItem: buildAdminStreamFilter(parsedUrl.query || {}),
-        sortItems: getAdminSortComparator(parsedUrl.query || {}),
         mapItem: (product) => normalizeProductImages(product),
       });
       const responsePayload = {
@@ -6000,6 +6053,7 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
+      console.error("[products-endpoint:failed]", err?.stack || err);
       const storage = await inspectProductsStorage();
       logProductsServe("error", {
         endpoint: "/api/admin/products",
@@ -6026,6 +6080,42 @@ async function requestHandler(req, res) {
       productCount: storage.productCount,
     });
     return sendJson(res, 200, storage);
+  }
+
+  if (pathname === "/api/admin/debug/products-first-page" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const productsFilePath = PRODUCTS_FILE_PATH;
+      const sizeBytes = Number(fs.statSync(productsFilePath)?.size || 0);
+      const sample = [];
+      const STOP_EARLY = "__DEBUG_PRODUCTS_FIRST_PAGE_STOP__";
+      try {
+        await productsStreamRepo.streamProducts({
+          filePath: productsFilePath,
+          onProduct: (product) => {
+            sample.push(normalizeProductImages(product));
+            if (sample.length >= 5) {
+              throw new Error(STOP_EARLY);
+            }
+          },
+        });
+      } catch (err) {
+        if (err?.message !== STOP_EARLY) throw err;
+      }
+      return sendJson(res, 200, {
+        ok: true,
+        productsFilePath,
+        sizeBytes,
+        firstProductsCount: sample.length,
+        sample,
+      });
+    } catch (err) {
+      console.error("[products-endpoint:failed]", err?.stack || err);
+      return sendJson(res, 500, {
+        ok: false,
+        error: err?.message || "No se pudo leer products.json",
+      });
+    }
   }
 
   if (pathname.startsWith("/api/products/by-code/") && req.method === "GET") {
@@ -10396,73 +10486,10 @@ async function requestHandler(req, res) {
    * análisis profundo y dashboards.
    */
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
-    try {
-      const range = parseAnalyticsRange(parsedUrl.query);
-      let productsSizeBytes = 0;
-      try {
-        productsSizeBytes = Number(fs.statSync(PRODUCTS_FILE_PATH)?.size || 0);
-      } catch (statErr) {
-        if (process.env.NODE_ENV !== "test") {
-          console.warn("[analytics-disabled] products size lookup failed", statErr?.message || statErr);
-        }
-      }
-      if (
-        DISABLE_HEAVY_ANALYTICS ||
-        productsSizeBytes > HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES
-      ) {
-        if (process.env.NODE_ENV !== "test") {
-          console.log("[analytics-disabled] large catalog, skipping stream", {
-            productsSizeBytes,
-            limitBytes: HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES,
-            forcedDisabled: DISABLE_HEAVY_ANALYTICS,
-          });
-        }
-        const disabledPayload = buildDisabledAnalyticsPayload();
-        return sendJson(res, 200, {
-          ...disabledPayload,
-          analytics: {
-            ...disabledPayload,
-            trackingHealth: getTrackingHealth(),
-            range: {
-              from: range.from ? range.from.toISOString() : null,
-              to: range.to ? range.to.toISOString() : null,
-              label: range.range || "7d",
-            },
-          },
-        });
-      }
-      const storeSessions = getStoredSessions();
-      const storeEvents = getEventsByRange({ from: range.from, to: range.to });
-      const analytics = await calculateDetailedAnalytics({
-        rangeStart: range.from,
-        rangeEnd: range.to,
-        events: storeEvents.length ? storeEvents : undefined,
-        sessions: storeSessions.length ? storeSessions : undefined,
-      });
-      analytics.trackingHealth = getTrackingHealth();
-      analytics.range = {
-        from: range.from ? range.from.toISOString() : null,
-        to: range.to ? range.to.toISOString() : null,
-        label: range.range || "7d",
-      };
-      if (!IS_DATA_DIR_PERSISTENT && process.env.NODE_ENV !== "test") {
-        console.warn(
-          "[analytics] DATA_DIR no es persistente; los datos pueden perderse tras reinicios.",
-        );
-      }
-      return sendJson(res, 200, { analytics });
-    } catch (err) {
-      console.error("[analytics] detailed failed", err);
-      const disabledPayload = buildDisabledAnalyticsPayload({
-        reason: "disabled_after_error",
-      });
-      return sendJson(res, 200, {
-        analytics: {
-          ...disabledPayload,
-          error: "Analytics temporarily unavailable",
-        },
-      });
-    }
+    return sendJson(res, 200, {
+      analyticsAvailable: false,
+      reason: ANALYTICS_DISABLED_REASON,
+    });
   }
 
   /*

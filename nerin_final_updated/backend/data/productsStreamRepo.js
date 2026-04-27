@@ -228,6 +228,55 @@ async function getProductsSortedPage({
   };
 }
 
+async function getProductsEmergencyPage({
+  page = 1,
+  pageSize = 24,
+  matchItem = null,
+  mapItem = null,
+  filePath = productsFilePath,
+} = {}) {
+  const safePage = Math.max(1, Number(page) || 1);
+  const safePageSize = Math.max(1, Number(pageSize) || 24);
+  const start = (safePage - 1) * safePageSize;
+  const endExclusive = start + safePageSize;
+  const stopAfter = endExclusive + 1;
+
+  const items = [];
+  let matchedCount = 0;
+  const STOP_EARLY = "__PRODUCTS_STREAM_STOP_EARLY__";
+
+  try {
+    await streamProducts({
+      filePath,
+      onProduct: (product) => {
+        const accepted = typeof matchItem === "function" ? !!matchItem(product) : true;
+        if (!accepted) return;
+        const currentMatchIndex = matchedCount;
+        matchedCount += 1;
+        if (currentMatchIndex >= start && currentMatchIndex < endExclusive) {
+          const mapped = typeof mapItem === "function" ? mapItem(product) : product;
+          items.push(mapped);
+        }
+        if (matchedCount >= stopAfter) {
+          throw new Error(STOP_EARLY);
+        }
+      },
+    });
+  } catch (err) {
+    if (err?.message !== STOP_EARLY) {
+      throw err;
+    }
+  }
+
+  return {
+    items,
+    page: safePage,
+    pageSize: safePageSize,
+    matchedCountScanned: matchedCount,
+    hasNextPage: matchedCount > endExclusive,
+  };
+}
+
 function getBackupCandidates({ dataDir = DATA_DIR } = {}) {
   const patterns = [
     /^products\.backup-.*\.json$/i,
@@ -297,6 +346,7 @@ module.exports = {
   streamProducts,
   getProductsPage,
   getProductsSortedPage,
+  getProductsEmergencyPage,
   getProductById,
   getProductByCode,
   countProductsStreaming,
