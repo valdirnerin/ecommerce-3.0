@@ -2041,7 +2041,7 @@ function parseBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
-    req.on("end", () => {
+    req.on("end", async () => {
       const buf = Buffer.concat(chunks);
       req.rawBody = buf;
       const type = req.headers["content-type"] || "";
@@ -6144,6 +6144,10 @@ async function requestHandler(req, res) {
         sqliteExists,
         productCount: Number(health?.productCount || 0),
         publicProductCount: Number(health?.publicProductCount || 0),
+        privateExplicitCount: Number(health?.privateExplicitCount || 0),
+        hiddenExplicitCount: Number(health?.hiddenExplicitCount || 0),
+        missingVisibilityCount: Number(health?.missingVisibilityCount || 0),
+        missingStatusCount: Number(health?.missingStatusCount || 0),
         sqlitePath: health?.sqlitePath || null,
         sqliteBuiltAt: health?.lastBuilt || null,
         manifest: health?.manifest || null,
@@ -6153,6 +6157,20 @@ async function requestHandler(req, res) {
         ok: false,
         source: "sqlite",
         error: error?.message || "SQLite unavailable",
+      });
+    }
+  }
+
+  if (pathname === "/api/catalog/publicity-audit" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const audit = await productsSqliteRepo.getCatalogPublicityAudit();
+      return sendJson(res, 200, { ok: true, source: "sqlite", ...audit });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "No se pudo auditar visibilidad",
       });
     }
   }
@@ -7180,7 +7198,7 @@ async function requestHandler(req, res) {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const payload = JSON.parse(body || "{}");
         const updates = payload.documents;
@@ -7995,7 +8013,7 @@ async function requestHandler(req, res) {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const { email, password, name, role, profile: profilePayload } = JSON.parse(body || "{}");
         if (!email || !password) {
@@ -9753,20 +9771,11 @@ async function requestHandler(req, res) {
     });
     req.on("end", () => {
       try {
-        const newProduct = JSON.parse(body || "{}");
-        const products = getProducts();
-        // Asignar un ID autoincremental sencillo
-        const newId = (
-          products.length
-            ? Math.max(...products.map((p) => parseInt(p.id, 10))) + 1
-            : 1
-        ).toString();
-        newProduct.id = newId;
-        const slug = ensureProductSlug(products, newProduct, newId) || `producto-${newId}`;
-        newProduct.slug = slug;
-        products.push(newProduct);
-        saveProducts(products);
-        return sendJson(res, 201, { success: true, product: newProduct });
+        JSON.parse(body || "{}");
+        return sendJson(res, 503, {
+          error:
+            "Alta no disponible en modo SQLite-only. Usá importación controlada para evitar carga completa de products.json.",
+        });
       } catch (err) {
         console.error("products-create-error", err);
         if (err?.code === "MEMORY_GUARD_BLOCKED") {
@@ -9830,20 +9839,27 @@ async function requestHandler(req, res) {
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const update = JSON.parse(body || "{}");
-        const products = getProducts();
-        const index = products.findIndex((p) => p.id === id);
-        if (index === -1) {
+        const hasPriceField =
+          Object.prototype.hasOwnProperty.call(update, "price_minorista") ||
+          Object.prototype.hasOwnProperty.call(update, "price_mayorista");
+        if (hasPriceField) {
+          const hasAnyValidPrice =
+            Number.isFinite(Number(update.price_minorista)) ||
+            Number.isFinite(Number(update.price_mayorista));
+          if (!hasAnyValidPrice) {
+            return sendJson(res, 400, {
+              error: "No se puede guardar porque faltan campos de precio del producto. Revisar mapeo.",
+            });
+          }
+        }
+        const updated = await productsSqliteRepo.updateProductByIdentifier(id, update);
+        if (!updated) {
           return sendJson(res, 404, { error: "Producto no encontrado" });
         }
-        const merged = { ...products[index], ...update, id };
-        const safeSlug = ensureProductSlug(products, merged, id);
-        if (safeSlug) merged.slug = safeSlug;
-        products[index] = merged;
-        saveProducts(products);
-        return sendJson(res, 200, { success: true, product: products[index] });
+        return sendJson(res, 200, { success: true, product: normalizeProductImages(updated), source: "sqlite" });
       } catch (err) {
         console.error("products-update-error", err);
         if (err?.code === "MEMORY_GUARD_BLOCKED") {
@@ -9852,7 +9868,8 @@ async function requestHandler(req, res) {
           });
         }
         return sendJson(res, 500, {
-          error: "No se pudo cargar el catálogo para actualizar el producto",
+          error:
+            err?.message || "No se pudo actualizar el producto en SQLite. Intentá nuevamente o reconstruí el índice.",
         });
       }
     });
@@ -9863,14 +9880,10 @@ async function requestHandler(req, res) {
   if (pathname.startsWith("/api/products/") && req.method === "DELETE") {
     const id = pathname.split("/").pop();
     try {
-      const products = getProducts();
-      const index = products.findIndex((p) => p.id === id);
-      if (index === -1) {
-        return sendJson(res, 404, { error: "Producto no encontrado" });
-      }
-      const removed = products.splice(index, 1)[0];
-      saveProducts(products);
-      return sendJson(res, 200, { success: true, product: removed });
+      return sendJson(res, 503, {
+        error:
+          `Baja no disponible para ${id} en modo SQLite-only. Ejecutá una sincronización controlada para mantener integridad.`,
+      });
     } catch (err) {
       console.error(err);
       if (err?.code === "MEMORY_GUARD_BLOCKED") {

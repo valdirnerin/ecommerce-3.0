@@ -58,6 +58,99 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function toFiniteNumberOrNull(value) {
+  if (value == null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstNumber(values = []) {
+  for (const value of values) {
+    const parsed = toFiniteNumberOrNull(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+function resolvePriceFields(product = {}) {
+  const priceMinorista = firstNumber([
+    product.price_minorista,
+    product.precio_minorista,
+    product.precioMinorista,
+    product.finalPrice,
+    product.salePrice,
+    product.precioFinal,
+    product.precio_final,
+    product.priceArs,
+    product.precioARS,
+    product.precio_ars,
+    product.finalPriceArs,
+    product.precioConIva,
+    product.price,
+    product.precio,
+  ]);
+  const priceMayorista = firstNumber([
+    product.price_mayorista,
+    product.precio_mayorista,
+    product.precioMayorista,
+    product.price_wholesale,
+    product.wholesale_price,
+  ]);
+  const pricePublic = firstNumber([
+    priceMinorista,
+    product.price,
+    product.precio,
+    product.finalPrice,
+    product.salePrice,
+    product.precioFinal,
+    product.precio_final,
+    product.priceArs,
+    product.precioARS,
+    product.precio_ars,
+    product.finalPriceArs,
+    product.precioConIva,
+  ]);
+  return {
+    price: pricePublic,
+    price_minorista: priceMinorista,
+    price_mayorista: priceMayorista,
+    precio_minorista: firstNumber([product.precio_minorista, priceMinorista]),
+    precio_mayorista: firstNumber([product.precio_mayorista, priceMayorista]),
+    precio_final: firstNumber([product.precio_final, product.precioFinal, product.finalPrice, pricePublic]),
+    precio_sin_impuestos: firstNumber([
+      product.precio_sin_impuestos,
+      product.precioSinImpuestos,
+      product.precio_sin_impuesto,
+    ]),
+    cost: firstNumber([product.cost, product.costo, product.costoCaja, product.costo_caja]),
+    currency: toNullableText(product.currency || product.moneda || "ARS"),
+    rawPriceFields: {
+      price_minorista: product.price_minorista,
+      price_mayorista: product.price_mayorista,
+      precio_minorista: product.precio_minorista,
+      precio_mayorista: product.precio_mayorista,
+      price: product.price,
+      precio: product.precio,
+      finalPrice: product.finalPrice,
+      salePrice: product.salePrice,
+      precioFinal: product.precioFinal,
+      precio_final: product.precio_final,
+      priceArs: product.priceArs,
+      precioARS: product.precioARS,
+      precio_ars: product.precio_ars,
+      finalPriceArs: product.finalPriceArs,
+      precioConIva: product.precioConIva,
+      precio_sin_impuestos: product.precio_sin_impuestos,
+      precioSinImpuestos: product.precioSinImpuestos,
+      costo: product.costo,
+      costoCaja: product.costoCaja,
+      costo_caja: product.costo_caja,
+      cost: product.cost,
+      currency: product.currency,
+    },
+  };
+}
+
 function logBusyIfNeeded(error) {
   const message = String(error?.message || error || "");
   if (/busy|locked/i.test(message)) {
@@ -168,6 +261,13 @@ async function createSchema(db) {
       visibility TEXT,
       stock INTEGER,
       price REAL,
+      price_minorista REAL,
+      price_mayorista REAL,
+      precio_minorista REAL,
+      precio_mayorista REAL,
+      precio_final REAL,
+      precio_sin_impuestos REAL,
+      cost REAL,
       currency TEXT,
       is_public INTEGER,
       enabled INTEGER,
@@ -190,6 +290,13 @@ async function createSchema(db) {
     "ean",
     "gtin",
     "supplier_code",
+    "price_minorista",
+    "price_mayorista",
+    "precio_minorista",
+    "precio_mayorista",
+    "precio_final",
+    "precio_sin_impuestos",
+    "cost",
   ];
   for (const col of optionalColumns) {
     if (!columnSet.has(col)) {
@@ -341,8 +448,18 @@ function mapProductRow(product = {}, options = {}) {
     slugCounts.set(publicSlug, current);
     if (current > 1) publicSlug = `${publicSlug}-${current}`;
   }
-  const price = toNumber(product.price_minorista ?? product.price, 0);
+  const priceFields = resolvePriceFields(product);
   const stock = Math.trunc(toNumber(product.stock, 0));
+  if (rowNumber != null && rowNumber <= 3) {
+    console.log("[products-price-map]", {
+      id: toNullableText(product.id),
+      sku: toNullableText(product.sku),
+      rawPriceFields: priceFields.rawPriceFields,
+      mappedPrice: priceFields.price,
+      mappedPriceMinorista: priceFields.price_minorista,
+      mappedPriceMayorista: priceFields.price_mayorista,
+    });
+  }
   return {
     id: toNullableText(product.id),
     sku: toNullableText(product.sku),
@@ -369,8 +486,15 @@ function mapProductRow(product = {}, options = {}) {
     status: normalizeQueryText(toNullableText(product.status)),
     visibility: normalizeQueryText(toNullableText(product.visibility)),
     stock,
-    price,
-    currency: toNullableText(product.currency || "ARS"),
+    price: priceFields.price,
+    price_minorista: priceFields.price_minorista,
+    price_mayorista: priceFields.price_mayorista,
+    precio_minorista: priceFields.precio_minorista,
+    precio_mayorista: priceFields.precio_mayorista,
+    precio_final: priceFields.precio_final,
+    precio_sin_impuestos: priceFields.precio_sin_impuestos,
+    cost: priceFields.cost,
+    currency: priceFields.currency,
     is_public: isProductPublic(product) ? 1 : 0,
     enabled: boolToInt(product.enabled, 1),
     deleted: boolToInt(product.deleted, 0),
@@ -403,6 +527,7 @@ function parseImageLikeField(value) {
 
 function normalizeProductForPublic(product = {}, meta = {}) {
   const safe = product && typeof product === "object" ? { ...product } : {};
+  const priceFields = resolvePriceFields(safe);
   const name = firstText([safe.name, safe.title, safe.productName, safe.nombre, safe.model]) || "Producto";
   const brand = firstText([safe.brand, safe.marca, safe.manufacturer]) || "";
   const description =
@@ -436,10 +561,6 @@ function normalizeProductForPublic(product = {}, meta = {}) {
     ),
   );
   const image = firstText([safe.image, images[0]]) || "";
-  const price = toNumber(
-    safe.price ?? safe.precio ?? safe.salePrice ?? safe.finalPrice ?? safe.price_minorista,
-    0,
-  );
   const stock = Math.trunc(
     toNumber(
       safe.stock ?? safe.quantity ?? safe.qty ?? safe.availableQuantity ?? safe.stockQty,
@@ -454,7 +575,15 @@ function normalizeProductForPublic(product = {}, meta = {}) {
     description,
     images,
     image,
-    price,
+    price: priceFields.price,
+    price_minorista: priceFields.price_minorista,
+    price_mayorista: priceFields.price_mayorista,
+    precio_minorista: priceFields.precio_minorista,
+    precio_mayorista: priceFields.precio_mayorista,
+    precio_final: priceFields.precio_final,
+    precio_sin_impuestos: priceFields.precio_sin_impuestos,
+    cost: priceFields.cost,
+    currency: priceFields.currency || safe.currency || "ARS",
     stock,
     publicSlug,
     public_slug: publicSlug,
@@ -480,6 +609,78 @@ function parseRawItems(rows = [], options = {}) {
       }
     })
     .filter(Boolean);
+}
+
+function normalizeProductForAdminList(product = {}, meta = {}) {
+  return normalizeProductForPublic(product, meta);
+}
+
+async function updateProductByIdentifier(identifier, patch = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const target = String(identifier || "").trim();
+  if (!target) throw new Error("identifier requerido");
+  const row = await get(
+    db,
+    `SELECT rowid, raw_json
+     FROM products
+     WHERE id = ? OR public_slug = ? OR slug = ? OR sku = ? OR code = ?
+     LIMIT 1`,
+    [target, target, target, target, target],
+  );
+  if (!row) return null;
+  const current = JSON.parse(row.raw_json || "{}");
+  const merged = { ...current, ...patch };
+  const mapped = mapProductRow(merged, { rowNumber: row.rowid });
+  await run(
+    db,
+    `UPDATE products SET
+      id = ?, sku = ?, code = ?, slug = ?, public_slug = ?, image = ?, name = ?, title = ?, brand = ?, model = ?, category = ?,
+      part_number = ?, mpn = ?, ean = ?, gtin = ?, supplier_code = ?, status = ?, visibility = ?,
+      stock = ?, price = ?, price_minorista = ?, price_mayorista = ?, precio_minorista = ?, precio_mayorista = ?, precio_final = ?, precio_sin_impuestos = ?, cost = ?, currency = ?, is_public = ?, enabled = ?, deleted = ?, archived = ?, vip_only = ?, wholesale_only = ?, search_text = ?, raw_json = ?
+      WHERE rowid = ?`,
+    [
+      mapped.id,
+      mapped.sku,
+      mapped.code,
+      mapped.slug,
+      mapped.public_slug,
+      mapped.image,
+      mapped.name,
+      mapped.title,
+      mapped.brand,
+      mapped.model,
+      mapped.category,
+      mapped.part_number,
+      mapped.mpn,
+      mapped.ean,
+      mapped.gtin,
+      mapped.supplier_code,
+      mapped.status,
+      mapped.visibility,
+      mapped.stock,
+      mapped.price,
+      mapped.price_minorista,
+      mapped.price_mayorista,
+      mapped.precio_minorista,
+      mapped.precio_mayorista,
+      mapped.precio_final,
+      mapped.precio_sin_impuestos,
+      mapped.cost,
+      mapped.currency,
+      mapped.is_public,
+      mapped.enabled,
+      mapped.deleted,
+      mapped.archived,
+      mapped.vip_only,
+      mapped.wholesale_only,
+      mapped.search_text,
+      mapped.raw_json,
+      row.rowid,
+    ],
+  );
+  countCache.clear();
+  return normalizeProductForAdminList(merged, { rowid: row.rowid, public_slug: mapped.public_slug });
 }
 
 function buildCatalogPathsInfo() {
@@ -529,9 +730,9 @@ async function rebuildProductsDbFromJson() {
       const insertSql = `INSERT INTO products (
         id, sku, code, slug, public_slug, image, name, title, brand, model, category,
         part_number, mpn, ean, gtin, supplier_code, status, visibility,
-        stock, price, currency, is_public, enabled, deleted, archived, vip_only, wholesale_only,
+        stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency, is_public, enabled, deleted, archived, vip_only, wholesale_only,
         search_text, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       let count = 0;
       const slugCounts = new Map();
@@ -563,6 +764,13 @@ async function rebuildProductsDbFromJson() {
               item.visibility,
               item.stock,
               item.price,
+              item.price_minorista,
+              item.price_mayorista,
+              item.precio_minorista,
+              item.precio_mayorista,
+              item.precio_final,
+              item.precio_sin_impuestos,
+              item.cost,
               item.currency,
               item.is_public,
               item.enabled,
@@ -714,15 +922,16 @@ async function ensureDbReadyForRequest() {
 }
 
 function buildSort(sort) {
+  const priceExpr = "COALESCE(price_minorista, price, precio_minorista, precio_final)";
   const allowedSorts = {
-    price_asc: "price ASC, rowid ASC",
-    price_desc: "price DESC, rowid ASC",
+    price_asc: `${priceExpr} ASC, rowid ASC`,
+    price_desc: `${priceExpr} DESC, rowid ASC`,
     name_asc: "name ASC, rowid ASC",
     name_desc: "name DESC, rowid ASC",
     stock_desc: "stock DESC, rowid ASC",
     stock_asc: "stock ASC, rowid ASC",
-    "price-asc": "price ASC, rowid ASC",
-    "price-desc": "price DESC, rowid ASC",
+    "price-asc": `${priceExpr} ASC, rowid ASC`,
+    "price-desc": `${priceExpr} DESC, rowid ASC`,
     "stock-desc": "stock DESC, rowid ASC",
     name: "name ASC, rowid ASC",
   };
@@ -770,7 +979,7 @@ function buildWhereClause({
     where.push("stock <= 0");
   }
   if (priceMax !== null && Number.isFinite(Number(priceMax))) {
-    where.push("price <= ?");
+    where.push("COALESCE(price_minorista, price, precio_minorista, precio_final) <= ?");
     params.push(Number(priceMax));
   }
 
@@ -809,7 +1018,15 @@ function buildProductSummary(row = {}) {
     brand: row.brand || "",
     model: row.model || "",
     category: row.category || "",
-    price: toNumber(row.price, 0),
+    price: toFiniteNumberOrNull(row.price),
+    price_minorista: toFiniteNumberOrNull(row.price_minorista),
+    price_mayorista: toFiniteNumberOrNull(row.price_mayorista),
+    precio_minorista: toFiniteNumberOrNull(row.precio_minorista),
+    precio_mayorista: toFiniteNumberOrNull(row.precio_mayorista),
+    precio_final: toFiniteNumberOrNull(row.precio_final),
+    precio_sin_impuestos: toFiniteNumberOrNull(row.precio_sin_impuestos),
+    cost: toFiniteNumberOrNull(row.cost),
+    currency: row.currency || "ARS",
     stock: Math.trunc(toNumber(row.stock, 0)),
     status: row.status || "",
     visibility: row.visibility || "",
@@ -877,7 +1094,7 @@ async function queryBase({
   const selectStartedAt = Date.now();
   const rows = await all(
     db,
-    `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price
+    `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency
       FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     [...whereClause.params, safePageSize, offset],
   );
@@ -1014,14 +1231,88 @@ async function getCatalogHealth() {
   const db = await openDb();
   const totalRow = await get(db, "SELECT COUNT(*) AS total FROM products");
   const publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
+  const privateExplicitRow = await get(
+    db,
+    "SELECT COUNT(*) AS total FROM products WHERE visibility = 'private' OR status = 'private'",
+  );
+  const hiddenExplicitRow = await get(
+    db,
+    "SELECT COUNT(*) AS total FROM products WHERE visibility = 'hidden' OR status = 'hidden'",
+  );
+  const missingVisibilityRow = await get(
+    db,
+    "SELECT COUNT(*) AS total FROM products WHERE visibility IS NULL OR visibility = ''",
+  );
+  const missingStatusRow = await get(
+    db,
+    "SELECT COUNT(*) AS total FROM products WHERE status IS NULL OR status = ''",
+  );
   const manifest = await getManifestFromDb();
   return {
     source: "sqlite",
     sqlitePath: SQLITE_PATH,
     productCount: Number(totalRow?.total || 0),
     publicProductCount: Number(publicRow?.total || 0),
+    privateExplicitCount: Number(privateExplicitRow?.total || 0),
+    hiddenExplicitCount: Number(hiddenExplicitRow?.total || 0),
+    missingVisibilityCount: Number(missingVisibilityRow?.total || 0),
+    missingStatusCount: Number(missingStatusRow?.total || 0),
     manifest,
     lastBuilt: manifest?.sqliteBuiltAt || null,
+  };
+}
+
+async function getCatalogPublicityAudit() {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const summaryRows = await all(
+    db,
+    `SELECT
+      COUNT(*) AS productCount,
+      SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END) AS publicProductCount,
+      SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) AS enabledFalse,
+      SUM(CASE WHEN deleted = 1 THEN 1 ELSE 0 END) AS deleted,
+      SUM(CASE WHEN archived = 1 THEN 1 ELSE 0 END) AS archived,
+      SUM(CASE WHEN vip_only = 1 THEN 1 ELSE 0 END) AS vipOnly,
+      SUM(CASE WHEN wholesale_only = 1 THEN 1 ELSE 0 END) AS wholesaleOnly,
+      SUM(CASE WHEN visibility = 'private' OR status = 'private' THEN 1 ELSE 0 END) AS privateVisibility,
+      SUM(CASE WHEN visibility = 'hidden' OR status = 'hidden' THEN 1 ELSE 0 END) AS hiddenVisibility,
+      SUM(CASE WHEN status = 'draft' OR visibility = 'draft' THEN 1 ELSE 0 END) AS draftStatus
+    FROM products`,
+  );
+  const missingNameRow = await get(
+    db,
+    "SELECT COUNT(*) AS total FROM products WHERE COALESCE(NULLIF(TRIM(name), ''), NULLIF(TRIM(title), '')) IS NULL",
+  );
+  const missingIdentifierRow = await get(
+    db,
+    "SELECT COUNT(*) AS total FROM products WHERE COALESCE(NULLIF(TRIM(id), ''), NULLIF(TRIM(sku), ''), NULLIF(TRIM(code), ''), NULLIF(TRIM(part_number), ''), NULLIF(TRIM(mpn), ''), NULLIF(TRIM(ean), ''), NULLIF(TRIM(gtin), ''), NULLIF(TRIM(supplier_code), '')) IS NULL",
+  );
+  const examplesRejected = await all(
+    db,
+    `SELECT id, sku, code, name, title, status, visibility, enabled, deleted, archived, vip_only, wholesale_only
+     FROM products
+     WHERE is_public = 0
+     ORDER BY rowid ASC
+     LIMIT 20`,
+  );
+  const summary = summaryRows[0] || {};
+  return {
+    productCount: Number(summary.productCount || 0),
+    publicProductCount: Number(summary.publicProductCount || 0),
+    rejectedCounts: {
+      enabledFalse: Number(summary.enabledFalse || 0),
+      deleted: Number(summary.deleted || 0),
+      archived: Number(summary.archived || 0),
+      vipOnly: Number(summary.vipOnly || 0),
+      wholesaleOnly: Number(summary.wholesaleOnly || 0),
+      privateVisibility: Number(summary.privateVisibility || 0),
+      hiddenVisibility: Number(summary.hiddenVisibility || 0),
+      draftStatus: Number(summary.draftStatus || 0),
+      missingName: Number(missingNameRow?.total || 0),
+      missingIdentifier: Number(missingIdentifierRow?.total || 0),
+    },
+    examplesRejected,
   };
 }
 
@@ -1037,7 +1328,10 @@ module.exports = {
   getProductByPublicSlugOrAnyIdentifier,
   getManifestFromDb,
   getCatalogHealth,
+  getCatalogPublicityAudit,
+  updateProductByIdentifier,
   normalizeProductForPublic,
+  normalizeProductForAdminList,
   normalizeQueryText,
   SQLITE_PATH,
   createInitializingError,

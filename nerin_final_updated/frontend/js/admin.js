@@ -2073,7 +2073,14 @@ function buildProductRow(product) {
   const safeModel = escapeHtml(compactText(product.model || "", 42));
   const safeCategory = escapeHtml(compactText(product.category || "", 30));
   const safeSubcategory = escapeHtml(compactText(product.subcategory || "", 42));
-  const safeVisibility = escapeHtml(product.visibility || "");
+  const visibilityLabel = cleanLabel(product.visibility || "") || "public(default)";
+  const safeVisibility = escapeHtml(visibilityLabel);
+  const minorValue = Number.isFinite(Number(product.price_minorista))
+    ? Number(product.price_minorista)
+    : "";
+  const mayorValue = Number.isFinite(Number(product.price_mayorista))
+    ? Number(product.price_mayorista)
+    : "";
   const explorerParts = [
     resolveCatalogBrand(product),
     resolveCatalogModel(product),
@@ -2101,8 +2108,8 @@ function buildProductRow(product) {
     <td class="product-cell" title="${escapeHtml(tagsArray.join(", "))}">${safeTags}</td>
     <td><input type="number" class="inline-edit inline-edit--compact" data-field="stock" min="0" value="${product.stock ?? 0}" />${stockBadge}</td>
     <td>${product.min_stock ?? ""}</td>
-    <td><input type="number" class="inline-edit inline-edit--compact" data-field="price_minorista" min="0" value="${product.price_minorista ?? 0}" /></td>
-    <td><input type="number" class="inline-edit inline-edit--compact" data-field="price_mayorista" min="0" value="${product.price_mayorista ?? 0}" /></td>
+    <td><input type="number" class="inline-edit inline-edit--compact" data-field="price_minorista" min="0" value="${minorValue}" placeholder="Consultar" /></td>
+    <td><input type="number" class="inline-edit inline-edit--compact" data-field="price_mayorista" min="0" value="${mayorValue}" placeholder="Consultar" /></td>
     <td>${safeVisibility}</td>
     <td><button class="edit-btn" data-id="${safeIdAttr}">Editar</button> <button class="delete-btn" data-id="${safeIdAttr}">Eliminar</button></td>`;
   const editBtn = tr.querySelector(".edit-btn");
@@ -3178,7 +3185,9 @@ function renderProductFormPreview() {
         ? "Visibilidad: Privado"
         : visibility === "draft"
         ? "Visibilidad: Borrador"
-        : "Visibilidad: Público";
+        : visibility
+        ? `Visibilidad: ${visibility}`
+        : "Visibilidad: Público por defecto";
     metaParts.push(visibilityLabel);
     if (slug) {
       metaParts.push(`URL: /productos/${slug}`);
@@ -3531,17 +3540,31 @@ function debounce(fn, t = 600) {
 
 async function patchField(id, field, value, input) {
   const old = input.dataset.original;
+  if ((field === "price_minorista" || field === "price_mayorista") && input.value === "") {
+    if (window.showToast) {
+      showToast("No se puede guardar porque faltan campos de precio del producto. Revisar mapeo.");
+    }
+    input.value = old;
+    return;
+  }
   try {
     const r = await apiFetch(`${API_BASE}/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value }),
     });
-    if (!r.ok) throw new Error("patch fail");
+    if (!r.ok) {
+      let message = "No se pudo actualizar";
+      try {
+        const data = await r.json();
+        if (data?.error) message = data.error;
+      } catch {}
+      throw new Error(message);
+    }
     highlightProductRow(id);
   } catch (e) {
     console.error(e);
-    if (window.showToast) showToast("No se pudo actualizar");
+    if (window.showToast) showToast(e.message || "No se pudo actualizar");
     input.value = old;
   }
 }
@@ -3562,7 +3585,12 @@ if (productsTableBody) {
     if (!row) return;
     const id = row.dataset.id;
     const field = input.dataset.field;
-    const value = input.type === "number" ? Number(input.value) : input.value;
+    const value =
+      input.type === "number"
+        ? input.value === ""
+          ? null
+          : Number(input.value)
+        : input.value;
     debouncedPatch(id, field, value, input);
     const product = productsCache.find((item) => String(item.id) === String(id));
     if (product) {

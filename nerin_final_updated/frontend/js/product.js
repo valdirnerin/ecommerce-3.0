@@ -82,9 +82,13 @@ function normalizeProductPayload(product) {
 }
 
 function resolveProductPriceContext(product) {
-  const retailRaw = Number(product?.price_minorista ?? product?.price);
-  const wholesaleRaw = Number(product?.price_mayorista ?? product?.price_wholesale);
-  const retail = Number.isFinite(retailRaw) && retailRaw >= 0 ? retailRaw : 0;
+  const retailRaw = Number(
+    product?.price_minorista ?? product?.price ?? product?.precio_minorista ?? product?.precio_final,
+  );
+  const wholesaleRaw = Number(
+    product?.price_mayorista ?? product?.price_wholesale ?? product?.precio_mayorista,
+  );
+  const retail = Number.isFinite(retailRaw) && retailRaw >= 0 ? retailRaw : null;
   const canUseWholesale =
     isWholesale() && Number.isFinite(wholesaleRaw) && wholesaleRaw >= 0;
   const wholesale = canUseWholesale ? wholesaleRaw : null;
@@ -1007,7 +1011,8 @@ function buildAttributes(product) {
 }
 
 function formatPrice(value) {
-  return `$${priceFormatter.format(Number(value || 0))}`;
+  if (!Number.isFinite(Number(value))) return "Consultar";
+  return `$${priceFormatter.format(Number(value))}`;
 }
 
 function getRetailUnitPrice(product) {
@@ -1298,11 +1303,18 @@ function renderProduct(product) {
   priceGrid.className = "product-buy-price-grid";
 
   const priceFinal = resolveProductDisplayPrice(product);
-  const legalPriceBlock = createPriceLegalBlock({
-    priceFinal,
-    priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
-  });
-  priceGrid.appendChild(legalPriceBlock);
+  if (Number.isFinite(priceFinal)) {
+    const legalPriceBlock = createPriceLegalBlock({
+      priceFinal,
+      priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
+    });
+    priceGrid.appendChild(legalPriceBlock);
+  } else {
+    const consult = document.createElement("p");
+    consult.className = "product-price-footnote";
+    consult.textContent = "Precio a consultar";
+    priceGrid.appendChild(consult);
+  }
 
   const priceComparison = document.createElement("div");
   priceComparison.className = "product-price-comparison";

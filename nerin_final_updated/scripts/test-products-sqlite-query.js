@@ -89,6 +89,71 @@ async function main() {
     assert(importedDetail.result.product != null, "imported CSV/Excel candidate should resolve detail");
   }
 
+  const productWithRealPrice = adminPage1.result.items.find((item) => {
+    const values = [
+      item.price_minorista,
+      item.price,
+      item.precio_minorista,
+      item.precio_final,
+      item.price_mayorista,
+    ];
+    return values.some((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+  });
+  assert(productWithRealPrice, "debe existir al menos un producto con precio real > 0");
+  const adminPrice = Number(
+    productWithRealPrice.price_minorista ??
+      productWithRealPrice.price ??
+      productWithRealPrice.precio_minorista ??
+      productWithRealPrice.precio_final,
+  );
+  assert(Number.isFinite(adminPrice) && adminPrice > 0, "queryAdminProducts debe devolver precio real > 0");
+
+  const publicById = await timed("public query by id for priced product", () =>
+    productsSqliteRepo.queryProducts({
+      page: 1,
+      pageSize: 1,
+      search:
+        productWithRealPrice.id ||
+        productWithRealPrice.sku ||
+        productWithRealPrice.code ||
+        productWithRealPrice.publicSlug,
+    }),
+  );
+  const publicPriced = publicById.result.items[0] || null;
+  assert(publicPriced, "queryProducts debe devolver el producto con precio");
+  const publicPrice = Number(
+    publicPriced.price_minorista ??
+      publicPriced.price ??
+      publicPriced.precio_minorista ??
+      publicPriced.precio_final,
+  );
+  assert(Number.isFinite(publicPrice) && publicPrice > 0, "queryProducts debe devolver precio público correcto");
+
+  const withMinorMayor = adminPage1.result.items.find(
+    (item) =>
+      Number.isFinite(Number(item.price_minorista)) || Number.isFinite(Number(item.price_mayorista)),
+  );
+  assert(withMinorMayor, "queryAdminProducts debe incluir price_minorista/price_mayorista cuando existan");
+
+  const visibilityDefaultPublicAudit = await timed("publicity audit", () =>
+    productsSqliteRepo.getCatalogPublicityAudit(),
+  );
+  assert(
+    visibilityDefaultPublicAudit.result.productCount >= visibilityDefaultPublicAudit.result.publicProductCount,
+    "publicity-audit debe reportar conteos coherentes",
+  );
+  assert(
+    health.result.publicProductCount > 125 || health.result.publicProductCount === health.result.productCount,
+    "publicProductCount no debe quedar artificialmente en 125",
+  );
+
+  const firstTen = publicPage1.result.items.slice(0, 10);
+  for (const item of firstTen) {
+    assert(item.url && item.publicSlug, "cada producto de grilla debe incluir url/publicSlug");
+    const found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(item.publicSlug);
+    assert(found?.product, `detalle debe resolver para ${item.publicSlug}`);
+  }
+
   console.log("[test-products-sqlite-query] ok", {
     productCount: health.result.productCount,
     publicProductCount: health.result.publicProductCount,
