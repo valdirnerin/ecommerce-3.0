@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node --max-old-space-size=512 backend/server.js",
     "test": "jest",
+    "preview:home": "node scripts/capture-home-preview.js",
     "validate:meta-feed": "node scripts/validate-meta-feed.js",
     "catalog:enrich-csv": "node scripts/enrichCatalogCsv.js",
     "inspect:products": "node scripts/inspect-products-file.js",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "jest": "^30.0.5",
+    "puppeteer": "^24.9.0",
     "prettier": "^3.6.2",
     "supertest": "^7.1.4"
   }

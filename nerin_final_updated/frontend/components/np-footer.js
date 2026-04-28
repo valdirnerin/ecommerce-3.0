@@ -141,6 +141,7 @@
           iibb: "IIBB CABA 901-117119-4",
           terms: "/pages/terminos.html",
           privacy: "/pages/terminos.html#datos",
+          repentance: "/arrepentimiento.html",
         },
         show: {
           cta: true,
@@ -461,6 +462,14 @@
           priv.textContent = "Privacidad";
           priv.rel = "noopener";
           legal.appendChild(priv);
+        }
+        if (cfg.legal.repentance) {
+          legal.appendChild(document.createTextNode(" – "));
+          const repentance = document.createElement("a");
+          repentance.href = cfg.legal.repentance;
+          repentance.textContent = "Botón de arrepentimiento";
+          repentance.rel = "noopener";
+          legal.appendChild(repentance);
         }
       }
 

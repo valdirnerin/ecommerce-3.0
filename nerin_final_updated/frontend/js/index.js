@@ -37,38 +37,38 @@ const PLACEHOLDER_IMAGE =
 
 const DEFAULT_HOME_CONTENT = {
   hero: {
-    eyebrow: "Operamos para laboratorios y cadenas",
-    title: "Pantallas y repuestos originales listos para instalar",
+    eyebrow: "NERIN Parts",
+    title: "Pantallas Samsung Service Pack originales",
     description:
-      "Nacimos atendiendo la demanda de pantallas Samsung Service Pack y hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones corporativas. Todo con control técnico propio y despacho en horas, no en días.",
+      "Stock disponible en CABA, retiro con turno y envíos a todo el país. Repuestos verificados para técnicos, talleres y revendedores.",
     bullets: [
-      "Stock auditado en CABA con envíos al país",
-      "Laboratorio interno para validar cada lote",
-      "Plan de expansión a nuevas marcas premium",
+      "Stock real",
+      "Factura A/B",
+      "Retiro con turno y envíos",
     ],
     primaryCta: { label: "Ver catálogo", href: "/shop.html" },
-    secondaryCta: { label: "Hablar con un asesor", href: "/contact.html" },
+    secondaryCta: { label: "Consultar por WhatsApp", href: "https://wa.me/541112345678" },
     media: {
-      desktop: "/assets/hero.png",
-      mobile: "/assets/hero.png",
-      alt: "Equipo técnico de NERIN validando módulos Service Pack",
+      desktop: "/assets/product3.jpg",
+      mobile: "/assets/product3.jpg",
+      alt: "Caja Service Pack Samsung original",
     },
   },
   highlights: [
     {
-      icon: "📦",
+      icon: "",
       title: "Stock auditado cada mañana",
       description:
         "Inventario real de Service Pack y módulos OEM con controles de lote y trazabilidad.",
     },
     {
-      icon: "🛠️",
+      icon: "",
       title: "Garantía laboratorio",
       description:
         "Probamos módulos y flex antes de despachar para reducir DOA en los talleres que atendemos.",
     },
     {
-      icon: "🚚",
+      icon: "",
       title: "Logística en 24/48 hs",
       description:
         "Despachos en el día para CABA y GBA y operadores nacionales para llegar a cada provincia.",
@@ -99,26 +99,27 @@ const DEFAULT_HOME_CONTENT = {
     ],
   },
   why: {
-    title: "Por qué elegir NERIN",
-    description:
-      "Diseñamos una experiencia alineada con la operación técnica: datos reales, logística predecible y soporte especializado.",
+    title: "Por qué NERIN Parts",
+    description: "",
     cards: [
       {
-        title: "Kits listos para instalar",
-        description:
-          "Pantalla y adhesivos calibrados para que sólo tengas que montar y entregar.",
+        title: "Stock controlado",
+        description: "Disponibilidad actualizada para compra rápida.",
         image: "",
       },
       {
-        title: "Control de lote en tiempo real",
-        description:
-          "Actualizamos stock y números de serie para que sepas exactamente qué estás recibiendo.",
+        title: "Repuestos verificados",
+        description: "Lotes revisados antes de despacho.",
         image: "",
       },
       {
-        title: "Equipo en formación constante",
-        description:
-          "Nos nutrimos de la experiencia de los talleres para aprender y acompañarte en cada implementación.",
+        title: "Precio final en ARS",
+        description: "Valores claros para técnico, taller o reventa.",
+        image: "",
+      },
+      {
+        title: "Atención técnica",
+        description: "Asesoramiento por modelo y compatibilidad.",
         image: "",
       },
     ],
@@ -130,16 +131,11 @@ const DEFAULT_HOME_CONTENT = {
     productIds: [],
   },
   contact: {
-    eyebrow: "Cotizá en segundos",
-    title: "Contanos qué necesitás y coordinamos la entrega",
-    description:
-      "Respondemos con precio, stock y opciones de retiro o envío en horario comercial.",
-    note: "Si lo necesitás urgente marcá la opción correspondiente y priorizamos tu caso.",
-    bulletPoints: [
-      "Asistencia personalizada por WhatsApp o llamada",
-      "Opciones mayorista y minorista",
-      "Seguimiento de cada pedido hasta la entrega",
-    ],
+    eyebrow: "",
+    title: "¿No encontrás el repuesto?",
+    description: "Mandanos modelo, código o foto del equipo y te confirmamos disponibilidad.",
+    note: "",
+    bulletPoints: [],
   },
   popup: {
     enabled: false,
@@ -670,13 +666,6 @@ function createFeaturedCard(product) {
   title.textContent = product.name || `${brand} ${model}`.trim();
   card.appendChild(title);
 
-  const desc = document.createElement("p");
-  desc.className = "description";
-  const descriptionText = getProductDescription(product);
-  desc.textContent = createDescriptionPreview(descriptionText);
-  desc.title = descriptionText;
-  card.appendChild(desc);
-
   const availability = document.createElement("div");
   availability.className = "availability-badges";
   const status = getStockStatus(product);
@@ -820,9 +809,9 @@ function setupContactForm() {
   const form = document.getElementById("contactForm");
   if (!form) return;
   const nameField = document.getElementById("contactName");
+  const whatsappField = document.getElementById("contactWhatsapp");
   const modelField = document.getElementById("contactModel");
   const quantityField = document.getElementById("contactQuantity");
-  const urgencyField = document.getElementById("contactUrgency");
   const messageField = document.getElementById("contactMessage");
   const feedback = document.getElementById("contactFeedback");
 
@@ -849,21 +838,15 @@ function setupContactForm() {
       modelField.focus();
       return;
     }
-    const roleInput = form.querySelector('input[name="contactRole"]:checked');
-    const roleLabel =
-      roleInput?.nextElementSibling?.textContent?.trim() || "Técnico";
     const quantityValue = parseInt(quantityField.value, 10) || 1;
-    const urgencyText =
-      urgencyField.options[urgencyField.selectedIndex]?.text?.trim() ||
-      urgencyField.value;
+    const whatsappValue = whatsappField?.value?.trim() || "No informado";
     const extraMessage = messageField.value.trim();
 
     const parts = [
       `Hola. Soy ${nameValue}.`,
-      `Perfil: ${roleLabel}.`,
+      `WhatsApp: ${whatsappValue}.`,
       `Modelo: ${modelValue}.`,
       `Cantidad: ${quantityValue}.`,
-      `Urgencia: ${urgencyText}.`,
     ];
     if (extraMessage) {
       parts.push(`Detalle: ${extraMessage}.`);
@@ -876,8 +859,6 @@ function setupContactForm() {
     }
     form.reset();
     quantityField.value = "1";
-    const defaultRole = form.querySelector('input[name="contactRole"][value="tecnico"]');
-    if (defaultRole) defaultRole.checked = true;
     setFeedback("Listo. Te respondemos por WhatsApp hoy mismo.", "success");
   });
 }
