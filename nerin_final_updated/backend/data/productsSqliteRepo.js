@@ -9,6 +9,7 @@ const PRODUCTS_JSON_PATH = dataPath("products.json");
 const SQLITE_PATH = dataPath("products.sqlite");
 const MANIFEST_PATH = dataPath("products.manifest.json");
 const COUNT_CACHE_TTL_MS = 60_000;
+const PRODUCTS_SQLITE_SCHEMA_VERSION = 4;
 
 const REJECTED_STATE_VALUES = new Set([
   "hidden",
@@ -60,7 +61,38 @@ function toNumber(value, fallback = 0) {
 
 function toFiniteNumberOrNull(value) {
   if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const normalized = normalizeLooseNumber(value);
+    if (normalized == null) return null;
+    return normalized;
+  }
   const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeLooseNumber(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const sanitized = raw.replace(/[^\d.,-]/g, "");
+  if (!sanitized) return null;
+  const hasDot = sanitized.includes(".");
+  const hasComma = sanitized.includes(",");
+  let normalized = sanitized;
+  if (hasDot && hasComma) {
+    const lastDot = sanitized.lastIndexOf(".");
+    const lastComma = sanitized.lastIndexOf(",");
+    if (lastComma > lastDot) {
+      normalized = sanitized.replace(/\./g, "").replace(",", ".");
+    } else {
+      normalized = sanitized.replace(/,/g, "");
+    }
+  } else if (hasComma) {
+    normalized = sanitized.replace(/\./g, "").replace(",", ".");
+  } else {
+    normalized = sanitized.replace(/,/g, "");
+  }
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -76,6 +108,7 @@ function resolvePriceFields(product = {}) {
   const priceMinorista = firstNumber([
     product.price_minorista,
     product.precio_minorista,
+    product.retailPrice,
     product.precioMinorista,
     product.finalPrice,
     product.salePrice,
@@ -86,12 +119,14 @@ function resolvePriceFields(product = {}) {
     product.precio_ars,
     product.finalPriceArs,
     product.precioConIva,
+    product.precio_con_iva,
     product.price,
     product.precio,
   ]);
   const priceMayorista = firstNumber([
     product.price_mayorista,
     product.precio_mayorista,
+    product.wholesalePrice,
     product.precioMayorista,
     product.price_wholesale,
     product.wholesale_price,
@@ -109,6 +144,7 @@ function resolvePriceFields(product = {}) {
     product.precio_ars,
     product.finalPriceArs,
     product.precioConIva,
+    product.precio_con_iva,
   ]);
   return {
     price: pricePublic,
@@ -140,6 +176,9 @@ function resolvePriceFields(product = {}) {
       precio_ars: product.precio_ars,
       finalPriceArs: product.finalPriceArs,
       precioConIva: product.precioConIva,
+      precio_con_iva: product.precio_con_iva,
+      retailPrice: product.retailPrice,
+      wholesalePrice: product.wholesalePrice,
       precio_sin_impuestos: product.precio_sin_impuestos,
       precioSinImpuestos: product.precioSinImpuestos,
       costo: product.costo,
@@ -279,30 +318,6 @@ async function createSchema(db) {
       raw_json TEXT
     )`,
   );
-
-  const columns = await all(db, "PRAGMA table_info(products)");
-  const columnSet = new Set(columns.map((col) => String(col?.name || "").toLowerCase()));
-  const optionalColumns = [
-    "public_slug",
-    "image",
-    "part_number",
-    "mpn",
-    "ean",
-    "gtin",
-    "supplier_code",
-    "price_minorista",
-    "price_mayorista",
-    "precio_minorista",
-    "precio_mayorista",
-    "precio_final",
-    "precio_sin_impuestos",
-    "cost",
-  ];
-  for (const col of optionalColumns) {
-    if (!columnSet.has(col)) {
-      await run(db, `ALTER TABLE products ADD COLUMN ${col} TEXT`);
-    }
-  }
 
   const indexSql = [
     "CREATE INDEX IF NOT EXISTS idx_products_id ON products(id)",
@@ -702,18 +717,18 @@ function createInitializingError(reason = "sqlite_not_ready") {
   return error;
 }
 
-async function rebuildProductsDbFromJson() {
+async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {}) {
   if (rebuildPromise) {
     console.log("[products-db] rebuild already in progress; waiting");
     return rebuildPromise;
   }
   rebuildPromise = (async () => {
     const startedAt = Date.now();
+    const activeReason = reason || (force ? "forced" : "unknown");
     const db = await openDb();
     const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
     const tmpDbPath = `${SQLITE_PATH}.tmp-${process.pid}-${Date.now()}`;
-
-    console.log(`[products-db] rebuild start productsFilePath=${PRODUCTS_JSON_PATH}`);
+    console.log(`[products-db] full rebuild start reason=${activeReason} productsFilePath=${PRODUCTS_JSON_PATH}`);
 
     const tmpDb = await new Promise((resolve, reject) => {
       const conn = new sqlite3.Database(tmpDbPath, (error) => {
@@ -735,6 +750,7 @@ async function rebuildProductsDbFromJson() {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       let count = 0;
+      let publicCount = 0;
       const slugCounts = new Map();
       const batch = [];
       const BATCH_SIZE = 500;
@@ -789,8 +805,10 @@ async function rebuildProductsDbFromJson() {
       await productsStreamRepo.streamProducts({
         filePath: PRODUCTS_JSON_PATH,
         onProduct: async (product) => {
-          batch.push(mapProductRow(product, { rowNumber: count + 1, slugCounts }));
+          const mapped = mapProductRow(product, { rowNumber: count + 1, slugCounts });
+          batch.push(mapped);
           count += 1;
+          if (mapped.is_public === 1) publicCount += 1;
           if (count % 5000 === 0) {
             console.log(`[products-db] rebuild progress count=${count}`);
           }
@@ -813,7 +831,9 @@ async function rebuildProductsDbFromJson() {
       }
 
       const manifest = {
+        sqliteSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
         productCount: count,
+        publicProductCount: publicCount,
         productsJsonSizeBytes: Number(productsStats.size || 0),
         productsJsonMtimeMs: Number(productsStats.mtimeMs || 0),
         sqliteBuiltAt: new Date().toISOString(),
@@ -839,7 +859,9 @@ async function rebuildProductsDbFromJson() {
       }
 
       const durationMs = Date.now() - startedAt;
-      console.log(`[products-db] rebuild done count=${count} durationMs=${durationMs}`);
+      console.log(
+        `[products-db] full rebuild done productCount=${count} publicProductCount=${publicCount} durationMs=${durationMs}`,
+      );
       countCache.clear();
       dbReady = true;
       return manifest;
@@ -861,6 +883,43 @@ async function rebuildProductsDbFromJson() {
   }
 }
 
+function isTextSqlType(columnType) {
+  const t = String(columnType || "").trim().toUpperCase();
+  return t === "TEXT";
+}
+
+async function inspectSqliteSchemaIntegrity() {
+  if (!fs.existsSync(SQLITE_PATH)) {
+    return { ok: false, reason: "sqlite_missing" };
+  }
+  const db = await openDb();
+  const columns = await all(db, "PRAGMA table_info(products)");
+  const columnByName = new Map(
+    columns.map((col) => [String(col?.name || "").toLowerCase(), String(col?.type || "").trim()]),
+  );
+  if (!columnByName.has("public_slug")) {
+    return { ok: false, reason: "public_slug_missing" };
+  }
+  const priceColumns = [
+    "price",
+    "price_minorista",
+    "price_mayorista",
+    "precio_minorista",
+    "precio_mayorista",
+    "precio_final",
+    "precio_sin_impuestos",
+    "cost",
+  ];
+  for (const col of priceColumns) {
+    const type = columnByName.get(col);
+    if (!type) continue;
+    if (isTextSqlType(type)) {
+      return { ok: false, reason: "price_column_type_mismatch", column: col, currentType: type };
+    }
+  }
+  return { ok: true };
+}
+
 async function ensureProductsDb({ allowRebuild = true } = {}) {
   console.log("[products-db] paths", buildCatalogPathsInfo());
   console.log("[products-db] ensure start");
@@ -877,6 +936,8 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
     reason = "sqlite_missing";
   } else if (!manifest) {
     reason = "manifest_missing";
+  } else if (Number(manifest.sqliteSchemaVersion || 0) !== PRODUCTS_SQLITE_SCHEMA_VERSION) {
+    reason = "schema_version_changed";
   } else if (Number(manifest.productsJsonSizeBytes || -1) !== Number(productsStats.size || 0)) {
     reason = "products_json_size_changed";
   } else if (
@@ -886,10 +947,20 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
     reason = "products_json_mtime_changed";
   }
 
+  if (!reason && fs.existsSync(SQLITE_PATH)) {
+    const integrity = await inspectSqliteSchemaIntegrity();
+    if (!integrity.ok) {
+      reason = integrity.reason;
+      if (reason === "price_column_type_mismatch") {
+        console.log("[products-db] rebuild required reason=price_column_type_mismatch");
+      }
+    }
+  }
+
   if (reason) {
     console.log(`[products-db] rebuild required reason=${reason}`);
     if (!allowRebuild) throw createInitializingError(reason);
-    await rebuildProductsDbFromJson();
+    await rebuildProductsDbFromJson({ force: true, reason });
   } else {
     console.log("[products-db] already fresh");
   }
@@ -1248,15 +1319,58 @@ async function getCatalogHealth() {
     "SELECT COUNT(*) AS total FROM products WHERE status IS NULL OR status = ''",
   );
   const manifest = await getManifestFromDb();
+  const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
+  let isFresh = true;
+  let freshnessReason = null;
+  if (!manifest) {
+    isFresh = false;
+    freshnessReason = "manifest_missing";
+  } else if (Number(manifest.sqliteSchemaVersion || 0) !== PRODUCTS_SQLITE_SCHEMA_VERSION) {
+    isFresh = false;
+    freshnessReason = "schema_version_changed";
+  } else if (Number(manifest.productsJsonSizeBytes || -1) !== Number(productsStats.size || 0)) {
+    isFresh = false;
+    freshnessReason = "products_json_size_changed";
+  } else if (
+    Math.floor(Number(manifest.productsJsonMtimeMs || -1)) !==
+    Math.floor(Number(productsStats.mtimeMs || 0))
+  ) {
+    isFresh = false;
+    freshnessReason = "products_json_mtime_changed";
+  }
+  const manifestPublicCount = Number(manifest?.publicProductCount || 0);
+  const productCount = Number(totalRow?.total || 0);
+  const publicProductCount = Number(publicRow?.total || 0);
+  if (
+    manifest &&
+    manifestPublicCount > 0 &&
+    productCount > 0 &&
+    manifestPublicCount <= 125 &&
+    productCount >= manifestPublicCount * 5
+  ) {
+    console.warn("[products-db] suspicious public count", {
+      productCount,
+      manifestPublicCount,
+      ratio: Number((productCount / manifestPublicCount).toFixed(2)),
+    });
+  }
   return {
     source: "sqlite",
     sqlitePath: SQLITE_PATH,
-    productCount: Number(totalRow?.total || 0),
-    publicProductCount: Number(publicRow?.total || 0),
+    sqliteExists: true,
+    productCount,
+    publicProductCount,
     privateExplicitCount: Number(privateExplicitRow?.total || 0),
     hiddenExplicitCount: Number(hiddenExplicitRow?.total || 0),
     missingVisibilityCount: Number(missingVisibilityRow?.total || 0),
     missingStatusCount: Number(missingStatusRow?.total || 0),
+    sqliteSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
+    manifestSchemaVersion: Number(manifest?.sqliteSchemaVersion || 0) || null,
+    sqliteBuiltAt: manifest?.sqliteBuiltAt || null,
+    productsJsonSizeBytes: Number(productsStats?.size || 0),
+    productsJsonMtimeMs: Number(productsStats?.mtimeMs || 0),
+    isFresh,
+    freshnessReason,
     manifest,
     lastBuilt: manifest?.sqliteBuiltAt || null,
   };
@@ -1297,9 +1411,26 @@ async function getCatalogPublicityAudit() {
      LIMIT 20`,
   );
   const summary = summaryRows[0] || {};
+  const productCount = Number(summary.productCount || 0);
+  const publicProductCount = Number(summary.publicProductCount || 0);
   return {
-    productCount: Number(summary.productCount || 0),
-    publicProductCount: Number(summary.publicProductCount || 0),
+    productCount,
+    publicProductCount,
+    privateExplicitCount: Number(summary.privateVisibility || 0),
+    hiddenExplicitCount: Number(summary.hiddenVisibility || 0),
+    missingVisibilityCount: Number(
+      (
+        await get(
+          db,
+          "SELECT COUNT(*) AS total FROM products WHERE visibility IS NULL OR TRIM(visibility) = ''",
+        )
+      )?.total || 0,
+    ),
+    missingStatusCount: Number(
+      (
+        await get(db, "SELECT COUNT(*) AS total FROM products WHERE status IS NULL OR TRIM(status) = ''")
+      )?.total || 0,
+    ),
     rejectedCounts: {
       enabledFalse: Number(summary.enabledFalse || 0),
       deleted: Number(summary.deleted || 0),
@@ -1316,10 +1447,100 @@ async function getCatalogPublicityAudit() {
   };
 }
 
+async function getCatalogPriceAudit({ limit = 20 } = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 20));
+  const totals = await get(
+    db,
+    `SELECT
+      COUNT(*) AS totalProducts,
+      SUM(CASE WHEN COALESCE(price_minorista, price, precio_minorista, precio_final) = 0 THEN 1 ELSE 0 END) AS zeroPriceCount,
+      SUM(CASE WHEN COALESCE(price_minorista, price, precio_minorista, precio_final) IS NULL THEN 1 ELSE 0 END) AS nullPriceCount,
+      SUM(CASE WHEN COALESCE(price_minorista, price, precio_minorista, precio_final) > 0 THEN 1 ELSE 0 END) AS pricedCount
+    FROM products`,
+  );
+  const examplesZeroPrice = await all(
+    db,
+    `SELECT id, sku, name, price, price_minorista, price_mayorista, precio_final, raw_json
+     FROM products
+     WHERE COALESCE(price_minorista, price, precio_minorista, precio_final) = 0
+     ORDER BY rowid ASC
+     LIMIT ?`,
+    [safeLimit],
+  );
+  const examplesPriced = await all(
+    db,
+    `SELECT id, sku, name, price, price_minorista, price_mayorista, precio_final, raw_json
+     FROM products
+     WHERE COALESCE(price_minorista, price, precio_minorista, precio_final) > 0
+     ORDER BY rowid ASC
+     LIMIT ?`,
+    [safeLimit],
+  );
+  const pickRawAliases = (raw) => {
+    const aliases = {};
+    const keys = [
+      "price",
+      "precio",
+      "precio_final",
+      "precioFinal",
+      "finalPrice",
+      "salePrice",
+      "priceArs",
+      "precioARS",
+      "precio_ars",
+      "precioConIva",
+      "precio_con_iva",
+      "price_minorista",
+      "precio_minorista",
+      "price_mayorista",
+      "precio_mayorista",
+      "retailPrice",
+      "wholesalePrice",
+    ];
+    for (const key of keys) {
+      if (raw && Object.prototype.hasOwnProperty.call(raw, key)) aliases[key] = raw[key];
+    }
+    return aliases;
+  };
+  const serialize = (row) => {
+    let raw = {};
+    try {
+      raw = JSON.parse(row.raw_json || "{}");
+    } catch {
+      raw = {};
+    }
+    return {
+      id: row.id || null,
+      sku: row.sku || null,
+      name: row.name || null,
+      rawPriceAliases: pickRawAliases(raw),
+      mappedPrice: toFiniteNumberOrNull(row.price),
+      price_minorista: toFiniteNumberOrNull(row.price_minorista),
+      price_mayorista: toFiniteNumberOrNull(row.price_mayorista),
+      precio_final: toFiniteNumberOrNull(row.precio_final),
+    };
+  };
+  return {
+    totalProducts: Number(totals?.totalProducts || 0),
+    zeroPriceCount: Number(totals?.zeroPriceCount || 0),
+    nullPriceCount: Number(totals?.nullPriceCount || 0),
+    pricedCount: Number(totals?.pricedCount || 0),
+    examplesZeroPrice: examplesZeroPrice.map(serialize),
+    examplesPriced: examplesPriced.map(serialize),
+  };
+}
+
+function isRebuildInProgress() {
+  return Boolean(rebuildPromise);
+}
+
 module.exports = {
   ensureProductsDb,
   ensureProductsDbOnce,
   rebuildProductsDbFromJson,
+  isRebuildInProgress,
   queryProducts,
   queryAdminProducts,
   getProductBySlug,
@@ -1328,11 +1549,13 @@ module.exports = {
   getProductByPublicSlugOrAnyIdentifier,
   getManifestFromDb,
   getCatalogHealth,
+  getCatalogPriceAudit,
   getCatalogPublicityAudit,
   updateProductByIdentifier,
   normalizeProductForPublic,
   normalizeProductForAdminList,
   normalizeQueryText,
+  PRODUCTS_SQLITE_SCHEMA_VERSION,
   SQLITE_PATH,
   createInitializingError,
 };

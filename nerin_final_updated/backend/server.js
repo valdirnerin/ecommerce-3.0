@@ -6142,14 +6142,23 @@ async function requestHandler(req, res) {
         source: "sqlite",
         productsJsonExists,
         sqliteExists,
+        dbPath: health?.sqlitePath || null,
         productCount: Number(health?.productCount || 0),
         publicProductCount: Number(health?.publicProductCount || 0),
         privateExplicitCount: Number(health?.privateExplicitCount || 0),
         hiddenExplicitCount: Number(health?.hiddenExplicitCount || 0),
         missingVisibilityCount: Number(health?.missingVisibilityCount || 0),
         missingStatusCount: Number(health?.missingStatusCount || 0),
+        sqliteSchemaVersion: Number(
+          health?.sqliteSchemaVersion || productsSqliteRepo.PRODUCTS_SQLITE_SCHEMA_VERSION || 0,
+        ),
+        manifestSchemaVersion: Number(health?.manifestSchemaVersion || 0) || null,
+        productsJsonSizeBytes: Number(health?.productsJsonSizeBytes || 0),
+        productsJsonMtimeMs: Number(health?.productsJsonMtimeMs || 0),
+        isFresh: Boolean(health?.isFresh),
+        reason: health?.freshnessReason || null,
         sqlitePath: health?.sqlitePath || null,
-        sqliteBuiltAt: health?.lastBuilt || null,
+        sqliteBuiltAt: health?.sqliteBuiltAt || health?.lastBuilt || null,
         manifest: health?.manifest || null,
       });
     } catch (error) {
@@ -6162,7 +6171,6 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/api/catalog/publicity-audit" && req.method === "GET") {
-    if (!requireAdmin(req, res)) return;
     try {
       const audit = await productsSqliteRepo.getCatalogPublicityAudit();
       return sendJson(res, 200, { ok: true, source: "sqlite", ...audit });
@@ -6171,6 +6179,50 @@ async function requestHandler(req, res) {
         ok: false,
         source: "sqlite",
         error: error?.message || "No se pudo auditar visibilidad",
+      });
+    }
+  }
+
+  if (pathname === "/api/catalog/price-audit" && req.method === "GET") {
+    try {
+      const limit = Number(parsedUrl.query?.limit || 20);
+      const audit = await productsSqliteRepo.getCatalogPriceAudit({ limit });
+      return sendJson(res, 200, { ok: true, source: "sqlite", ...audit });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "No se pudo auditar precios",
+      });
+    }
+  }
+
+  if (pathname === "/api/admin/catalog/rebuild-index" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    if (productsSqliteRepo.isRebuildInProgress()) {
+      return sendJson(res, 409, {
+        ok: false,
+        code: "REBUILD_IN_PROGRESS",
+      });
+    }
+    try {
+      const startedAt = Date.now();
+      const manifest = await productsSqliteRepo.rebuildProductsDbFromJson({
+        force: true,
+        reason: "manual_admin",
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        source: "sqlite",
+        productCount: Number(manifest?.productCount || 0),
+        publicProductCount: Number(manifest?.publicProductCount || 0),
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "No se pudo reconstruir índice",
       });
     }
   }
