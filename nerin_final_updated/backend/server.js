@@ -227,6 +227,11 @@ const REVIEW_STATUSES = ["PENDING", "PUBLISHED", "FLAGGED", "REMOVED"];
 
 let _cache = { t: 0, data: null };
 let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
+function invalidateCatalogCaches(reason = "unknown") {
+  _cache = { t: 0, data: null };
+  metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
+  console.log(`[catalog-cache] invalidated reason=${reason}`);
+}
 const importJobs = new Map();
 const importWorkers = new Map();
 const importJobLogBuckets = new Map();
@@ -4038,6 +4043,7 @@ function saveProducts(products) {
     "utf8",
   );
   _cache = { t: Date.now(), data: normalized };
+  invalidateCatalogCaches("saveProducts");
 }
 
 // Leer pedidos desde el archivo JSON
@@ -6321,8 +6327,16 @@ async function requestHandler(req, res) {
           ? {
               id: product.id || "",
               sku: product.sku || "",
+              code: product.code || "",
               slug: product.slug || "",
               publicSlug: product.publicSlug || "",
+              visibility: product.visibility || "",
+              status: product.status || "",
+              stock: Number.isFinite(Number(product.stock)) ? Number(product.stock) : null,
+              price: Number.isFinite(Number(product.price)) ? Number(product.price) : null,
+              title: product.title || product.name || "",
+              seoTitle: product.seoTitle || product.seo_title || "",
+              updatedAt: product.updatedAt || product.modifiedAt || null,
               name: product.name || "",
               is_public: isProductPublic(product),
             }
@@ -9891,6 +9905,7 @@ async function requestHandler(req, res) {
         if (!updated) {
           return sendJson(res, 404, { error: "Producto no encontrado" });
         }
+        invalidateCatalogCaches("admin_product_update");
         return sendJson(res, 200, { success: true, product: normalizeProductImages(updated), source: "sqlite" });
       } catch (err) {
         console.error("products-update-error", err);
