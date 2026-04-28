@@ -257,11 +257,13 @@ function sanitizePublicProduct(product) {
 }
 
 function resolvePriceContext(product) {
-  const retail = Number(product.price_minorista);
-  const wholesale = Number(product.price_mayorista ?? product.price_wholesale);
+  const retail = Number(
+    product.price_minorista ?? product.price ?? product.precio_minorista ?? product.precio_final,
+  );
+  const wholesale = Number(product.price_mayorista ?? product.price_wholesale ?? product.precio_mayorista);
   const canUseWholesale =
     isWholesale() && Number.isFinite(wholesale) && wholesale >= 0;
-  const safeRetail = Number.isFinite(retail) && retail >= 0 ? retail : 0;
+  const safeRetail = Number.isFinite(retail) && retail >= 0 ? retail : null;
   const safeWholesale = canUseWholesale ? wholesale : null;
   const active = canUseWholesale ? safeWholesale : safeRetail;
   const discountAmount =
@@ -313,7 +315,7 @@ function createPriceTierCard(label, value, modifier) {
   labelEl.textContent = label;
   const valueEl = document.createElement("span");
   valueEl.className = "price-tier__value";
-  valueEl.textContent = formatCurrency(value);
+  valueEl.textContent = Number.isFinite(value) ? formatCurrency(value) : "Consultar";
   tier.append(labelEl, valueEl);
   return tier;
 }
@@ -512,12 +514,19 @@ function createProductCard(product) {
     priceBlock.classList.add("price-block--wholesale");
   }
   const priceFinal = display.active;
-  const legalPrice = createPriceLegalBlock({
-    priceFinal,
-    priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
-    compact: true,
-  });
-  priceBlock.appendChild(legalPrice);
+  if (Number.isFinite(priceFinal)) {
+    const legalPrice = createPriceLegalBlock({
+      priceFinal,
+      priceNetNoNationalTaxes: calculateNetNoNationalTaxes(priceFinal),
+      compact: true,
+    });
+    priceBlock.appendChild(legalPrice);
+  } else {
+    const consult = document.createElement("p");
+    consult.className = "price-comparison-locked";
+    consult.textContent = "Precio a consultar";
+    priceBlock.appendChild(consult);
+  }
   if (display.mode === "wholesale" && Number.isFinite(display.retail)) {
     const comparison = document.createElement("div");
     comparison.className = "price-comparison-grid";
