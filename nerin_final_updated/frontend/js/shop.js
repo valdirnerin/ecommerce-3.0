@@ -2,6 +2,11 @@ import { fetchProductsPage, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
+console.info("[shop-products] shop.js loaded", {
+  version: "sqlite-public-debug-v3",
+  timestamp: new Date().toISOString(),
+});
+
 const currencyFormatter = new Intl.NumberFormat("es-AR", {
   style: "currency",
   currency: "ARS",
@@ -792,6 +797,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
   } catch (error) {
     if (error?.name === "AbortError") {
       shopLog("request:aborted", { requestId });
+      console.info("[shop-products] request aborted");
       return;
     }
     throw error;
@@ -858,11 +864,13 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
 
   totalFilteredItems = publicProductsTotalItems ?? allProducts.length;
   productGrid.innerHTML = "";
+  console.info("[shop-products] render start");
   if (!allProducts.length) {
     productGrid.innerHTML = "<p>No encontramos productos para esos filtros.</p>";
   } else {
     allProducts.forEach((product) => productGrid.appendChild(createProductCard(product)));
   }
+  console.info("[shop-products] render done");
   renderPublicProductsPagination();
   shopLog("renderProducts", {
     requestId,

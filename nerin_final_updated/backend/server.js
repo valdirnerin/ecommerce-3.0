@@ -216,6 +216,8 @@ const DISABLE_HEAVY_ANALYTICS = true;
 const HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES = 5 * 1024 * 1024;
 const ANALYTICS_DISABLED_REASON = "disabled_for_large_catalog";
 const EMERGENCY_PRODUCTS_MODE = true;
+const DISABLE_PRODUCTS_STREAMING_FALLBACK =
+  String(process.env.DISABLE_PRODUCTS_STREAMING_FALLBACK || "true").trim().toLowerCase() === "true";
 const REVIEW_TOKEN_TTL_DAYS =
   parseInt(process.env.REVIEW_TOKEN_TTL_DAYS, 10) || 14;
 
@@ -232,6 +234,11 @@ const importJobLastPersistAt = new Map();
 const IMPORT_JOB_TTL_MS = 24 * 60 * 60 * 1000;
 const IMPORT_JOBS_DIR = dataPath("import-jobs");
 const IMPORT_JOB_LOG_STEP = 10;
+const productsTraffic = {
+  publicRequests: [],
+  adminRequests: [],
+  lastLogAt: 0,
+};
 
 fsp.mkdir(IMPORT_JOBS_DIR, { recursive: true }).catch((error) => {
   console.warn("[import-job] no se pudo inicializar carpeta persistente", error?.message || error);
@@ -282,6 +289,22 @@ function isLargeCatalogFile(filePath = PRODUCTS_FILE_PATH) {
     sizeBytes,
     isLarge: sizeBytes > LARGE_CATALOG_THRESHOLD_BYTES,
   };
+}
+
+function registerProductsTraffic(kind = "public") {
+  const now = Date.now();
+  const oneMinuteAgo = now - 60_000;
+  const bucket = kind === "admin" ? productsTraffic.adminRequests : productsTraffic.publicRequests;
+  bucket.push(now);
+  productsTraffic.publicRequests = productsTraffic.publicRequests.filter((ts) => ts >= oneMinuteAgo);
+  productsTraffic.adminRequests = productsTraffic.adminRequests.filter((ts) => ts >= oneMinuteAgo);
+  if (now - productsTraffic.lastLogAt > 30_000) {
+    productsTraffic.lastLogAt = now;
+    console.info("[products-traffic]", {
+      publicRequestsLastMinute: productsTraffic.publicRequests.length,
+      adminRequestsLastMinute: productsTraffic.adminRequests.length,
+    });
+  }
 }
 
 function loadSmallCatalogProducts({ filePath = PRODUCTS_FILE_PATH } = {}) {
@@ -6128,8 +6151,53 @@ async function requestHandler(req, res) {
     } catch (error) {
       return sendJson(res, 503, {
         ok: false,
-        source: "streaming_fallback",
+        source: "sqlite",
         error: error?.message || "SQLite unavailable",
+      });
+    }
+  }
+
+  if (pathname === "/api/catalog/performance-test" && req.method === "GET") {
+    try {
+      const perfStartedAt = Date.now();
+      const publicNoSearchStart = Date.now();
+      await productsSqliteRepo.queryProducts({ page: 1, pageSize: 24 });
+      const publicNoSearchMs = Date.now() - publicNoSearchStart;
+
+      const publicSearchStart = Date.now();
+      await productsSqliteRepo.queryProducts({ page: 1, pageSize: 24, search: "filtro" });
+      const publicSearchMs = Date.now() - publicSearchStart;
+
+      const adminNoSearchStart = Date.now();
+      await productsSqliteRepo.queryAdminProducts({ page: 1, pageSize: 100 });
+      const adminNoSearchMs = Date.now() - adminNoSearchStart;
+
+      const adminSearchStart = Date.now();
+      await productsSqliteRepo.queryAdminProducts({ page: 1, pageSize: 100, search: "filtro" });
+      const adminSearchMs = Date.now() - adminSearchStart;
+
+      const healthStart = Date.now();
+      await productsSqliteRepo.getCatalogHealth();
+      const healthMs = Date.now() - healthStart;
+
+      const dbPath = productsSqliteRepo.SQLITE_PATH;
+      return sendJson(res, 200, {
+        ok: true,
+        source: "sqlite",
+        dbPath,
+        sqliteExists: Boolean(dbPath && fs.existsSync(dbPath)),
+        publicNoSearchMs,
+        publicSearchMs,
+        adminNoSearchMs,
+        adminSearchMs,
+        healthMs,
+        totalMs: Date.now() - perfStartedAt,
+      });
+    } catch (error) {
+      return sendJson(res, 503, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "performance test unavailable",
       });
     }
   }
@@ -6206,6 +6274,7 @@ async function requestHandler(req, res) {
 
   // API: obtener productos
   if (pathname === "/api/products" && req.method === "GET") {
+    registerProductsTraffic("public");
     try {
       const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
         page: 1,
@@ -6214,7 +6283,20 @@ async function requestHandler(req, res) {
       });
       const queryParams = parsedUrl.query || {};
       const startedAt = Date.now();
-      console.log(`[products-endpoint:start] /api/products page=${page} pageSize=${pageSize} source=sqlite`);
+      console.info("[public-products:start]", {
+        page,
+        pageSize,
+        search: queryParams.search || queryParams.q || "",
+        sort: queryParams.sort || "",
+        filters: {
+          category: queryParams.category || "",
+          brand: queryParams.brand || "",
+          model: queryParams.model || "",
+          stock: queryParams.stock || "",
+          priceMax: queryParams.price_max ?? queryParams.priceMax ?? "",
+        },
+      });
+      console.info("[public-products:sqlite-query:start]");
       const withWholesale = canSeeWholesalePrices(req);
       const sqliteData = await productsSqliteRepo.queryProducts({
         page,
@@ -6239,14 +6321,35 @@ async function requestHandler(req, res) {
         source: "sqlite",
       };
       const durationMs = Date.now() - startedAt;
-      console.log(
-        `[products-endpoint:respond] endpoint=/api/products source=sqlite items=${items.length} totalItems=${responsePayload.totalItems} totalPages=${responsePayload.totalPages} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
-      );
+      console.info("[public-products:respond]", {
+        source: responsePayload.source,
+        items: items.length,
+        totalItems: responsePayload.totalItems,
+        totalPages: responsePayload.totalPages,
+        durationMs,
+      });
       return sendJson(res, 200, responsePayload, {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      console.warn(`[products-db] unavailable fallback=streaming reason=${err?.message || err}`);
+      const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
+      const shouldBlockFallback = DISABLE_PRODUCTS_STREAMING_FALLBACK || isLarge;
+      const reason = err?.code === "CATALOG_INITIALIZING" ? err?.reason || "initializing" : err?.message || String(err);
+      if (shouldBlockFallback) {
+        console.warn("[products-endpoint:fallback-blocked-large-catalog]", {
+          endpoint: "/api/products",
+          sizeBytes,
+          disableStreamingFallback: DISABLE_PRODUCTS_STREAMING_FALLBACK,
+          reason,
+        });
+        return sendJson(res, 503, {
+          ok: false,
+          source: "sqlite",
+          error: "Catálogo rápido inicializando",
+          message: "Catálogo rápido inicializando",
+        });
+      }
+      console.warn("[public-products:fallback-streaming]", { reason });
       try {
         const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
           page: 1,
@@ -6282,6 +6385,7 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/admin/products" && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
+    registerProductsTraffic("admin");
     try {
       const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
         page: 1,
@@ -6290,9 +6394,19 @@ async function requestHandler(req, res) {
       });
       const queryParams = parsedUrl.query || {};
       const startedAt = Date.now();
-      console.log(
-        `[products-endpoint:start] /api/admin/products page=${page} pageSize=${pageSize} source=sqlite`,
-      );
+      console.info("[admin-products:start]", {
+        page,
+        pageSize,
+        search: queryParams.search || queryParams.q || "",
+        sort: queryParams.sort || "",
+        filters: {
+          category: queryParams.category || "",
+          brand: queryParams.brand || "",
+          visibility: queryParams.visibility || "",
+          status: queryParams.status || "",
+          stock: queryParams.stockStatus || queryParams.stock || "",
+        },
+      });
       const sqliteData = await productsSqliteRepo.queryAdminProducts({
         page,
         pageSize,
@@ -6310,14 +6424,35 @@ async function requestHandler(req, res) {
         source: "sqlite",
       };
       const durationMs = Date.now() - startedAt;
-      console.log(
-        `[products-endpoint:respond] endpoint=/api/admin/products source=sqlite items=${responsePayload.items.length} totalItems=${responsePayload.totalItems} totalPages=${responsePayload.totalPages} hasNextPage=${responsePayload.hasNextPage} durationMs=${durationMs}`,
-      );
+      console.info("[admin-products:respond]", {
+        source: responsePayload.source,
+        items: responsePayload.items.length,
+        totalItems: responsePayload.totalItems,
+        totalPages: responsePayload.totalPages,
+        durationMs,
+      });
       return sendJson(res, 200, responsePayload, {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      console.warn(`[products-db] unavailable fallback=streaming reason=${err?.message || err}`);
+      const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
+      const shouldBlockFallback = DISABLE_PRODUCTS_STREAMING_FALLBACK || isLarge;
+      const reason = err?.code === "CATALOG_INITIALIZING" ? err?.reason || "initializing" : err?.message || String(err);
+      if (shouldBlockFallback) {
+        console.warn("[products-endpoint:fallback-blocked-large-catalog]", {
+          endpoint: "/api/admin/products",
+          sizeBytes,
+          disableStreamingFallback: DISABLE_PRODUCTS_STREAMING_FALLBACK,
+          reason,
+        });
+        return sendJson(res, 503, {
+          ok: false,
+          source: "sqlite",
+          error: "Catálogo rápido inicializando",
+          message: "Catálogo rápido inicializando",
+        });
+      }
+      console.warn("[admin-products:fallback-streaming]", { reason });
       try {
         const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
           page: 1,
@@ -11959,7 +12094,7 @@ module.exports = { createServer };
 if (require.main === module) {
   (async () => {
     try {
-      await productsSqliteRepo.ensureProductsDb();
+      await productsSqliteRepo.ensureProductsDbOnce();
     } catch (error) {
       console.warn(`[products-db] unavailable fallback=streaming reason=${error?.message || error}`);
     }
