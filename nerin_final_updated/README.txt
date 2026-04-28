@@ -178,8 +178,12 @@ Despliegue en Vercel, Netlify o Render
 1. **Render**: Puedes crear una aplicación de Node en Render y subir el
    repositorio. Render instalará las dependencias automáticamente y
    levantará el servidor usando el comando `npm start` que ya está
-   configurado. Asegúrate de establecer el puerto de escucha según las
-   variables que provee Render.
+   configurado. **Recomendado**: definir explícitamente el Build Command
+   como `npm ci` (o `npm install` si necesitás flexibilidad) y mantener
+   versionado `nerin_final_updated/package-lock.json` para builds
+   reproducibles y evitar faltantes de módulos nativos como `sqlite3`.
+   Asegúrate de establecer el puerto de escucha según las variables que
+   provee Render.
 
 2. **Vercel/Netlify**: Estos servicios están orientados a sitios
    estáticos, por lo que el backend de Node debe desplegarse en otro
@@ -368,4 +372,3 @@ node scripts/importFromJson.js
 Se agregó el endpoint `GET /health/db` que devuelve `{ ok: true }` cuando la
 conexión con la base de datos es válida. Para volver al modo de archivos JSON,
 simplemente quitar `DATABASE_URL` del entorno.
-

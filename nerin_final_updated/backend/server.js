@@ -6107,20 +6107,23 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/catalog/health" && req.method === "GET") {
     try {
-      await productsSqliteRepo.ensureProductsDb();
-      const manifest = await productsSqliteRepo.getManifestFromDb();
+      const health = await productsSqliteRepo.getCatalogHealth();
       const productsJsonExists = fs.existsSync(PRODUCTS_FILE_PATH);
-      const sqlitePath = manifest?.sqlitePath || productsSqliteRepo.SQLITE_PATH;
+      const sqlitePath = health?.sqlitePath || productsSqliteRepo.SQLITE_PATH;
       const sqliteExists = Boolean(sqlitePath && fs.existsSync(sqlitePath));
+      console.log(
+        `[catalog-health] source=sqlite productCount=${Number(health?.productCount || 0)} publicProductCount=${Number(health?.publicProductCount || 0)}`,
+      );
       return sendJson(res, 200, {
         ok: true,
         source: "sqlite",
         productsJsonExists,
         sqliteExists,
-        productCount: Number(manifest?.productCount || 0),
-        sqliteBuiltAt: manifest?.sqliteBuiltAt || null,
-        productsJsonSizeBytes: Number(manifest?.productsJsonSizeBytes || 0),
-        productsJsonMtimeMs: Number(manifest?.productsJsonMtimeMs || 0),
+        productCount: Number(health?.productCount || 0),
+        publicProductCount: Number(health?.publicProductCount || 0),
+        sqlitePath: health?.sqlitePath || null,
+        sqliteBuiltAt: health?.lastBuilt || null,
+        manifest: health?.manifest || null,
       });
     } catch (error) {
       return sendJson(res, 503, {
@@ -6128,6 +6131,35 @@ async function requestHandler(req, res) {
         source: "streaming_fallback",
         error: error?.message || "SQLite unavailable",
       });
+    }
+  }
+
+  if (pathname === "/api/catalog/debug-product" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    const identifier = String(parsedUrl.query?.identifier || "").trim();
+    if (!identifier) {
+      return sendJson(res, 400, { error: "identifier es requerido" });
+    }
+    try {
+      const found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(identifier);
+      const product = found?.product || null;
+      return sendJson(res, 200, {
+        identifier,
+        foundBy: found?.foundBy || "none",
+        source: "sqlite",
+        product: product
+          ? {
+              id: product.id || "",
+              sku: product.sku || "",
+              slug: product.slug || "",
+              publicSlug: product.publicSlug || "",
+              name: product.name || "",
+              is_public: isProductPublic(product),
+            }
+          : null,
+      });
+    } catch (error) {
+      return sendJson(res, 500, { error: error?.message || "No se pudo depurar producto" });
     }
   }
 
@@ -6202,6 +6234,7 @@ async function requestHandler(req, res) {
           );
       const responsePayload = {
         ...sqliteData,
+        rows: undefined,
         items,
         source: "sqlite",
       };
@@ -6228,8 +6261,10 @@ async function requestHandler(req, res) {
           matchItem: buildCatalogStreamFilter(parsedUrl.query || {}),
           mapItem: (product) =>
             withWholesale
-              ? normalizeProductImages(product)
-              : normalizeProductImages(sanitizePublicProducts([product])[0]),
+              ? normalizeProductImages(productsSqliteRepo.normalizeProductForPublic(product))
+              : normalizeProductImages(
+                  sanitizePublicProducts([productsSqliteRepo.normalizeProductForPublic(product)])[0],
+                ),
         });
         if (pageData === null) return;
         return sendJson(res, 200, {
@@ -6359,9 +6394,14 @@ async function requestHandler(req, res) {
   if (pathname.startsWith("/api/products/by-code/") && req.method === "GET") {
     const code = decodeURIComponent(pathname.split("/").pop() || "");
     try {
-      let product = await productsSqliteRepo.getProductByCode(code);
+      let found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(code);
+      let product = found?.product || null;
       if (!product) {
         product = await productsStreamRepo.getProductByCode(code);
+        if (product) {
+          product = productsSqliteRepo.normalizeProductForPublic(product);
+          found = { source: "streaming_fallback", foundBy: "code" };
+        }
       }
       if (!product) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
@@ -6376,6 +6416,7 @@ async function requestHandler(req, res) {
       logProductsServe("serve", {
         endpoint: "/api/products/by-code/:code",
         totalItems: 1,
+        source: found?.source || "sqlite",
       });
       return sendJson(res, 200, normalizeProductImages(responseProduct));
     } catch (err) {
@@ -6388,9 +6429,14 @@ async function requestHandler(req, res) {
   if (pathname.startsWith("/api/products/") && req.method === "GET") {
     const id = decodeURIComponent(pathname.split("/").pop() || "");
     try {
-      let product = await productsSqliteRepo.getProductById(id);
+      let found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(id);
+      let product = found?.product || null;
       if (!product) {
         product = await productsStreamRepo.getProductById(id);
+        if (product) {
+          product = productsSqliteRepo.normalizeProductForPublic(product);
+          found = { source: "streaming_fallback", foundBy: "id" };
+        }
       }
       if (!product || !isProductPublic(product)) {
         return sendJson(res, 404, { error: "Producto no encontrado" });
@@ -6402,6 +6448,7 @@ async function requestHandler(req, res) {
       logProductsServe("serve", {
         endpoint: "/api/products/:id",
         totalItems: 1,
+        source: found?.source || "sqlite",
       });
       return sendJson(res, 200, normalizeProductImages(responseProduct));
     } catch (err) {
@@ -11614,23 +11661,43 @@ async function requestHandler(req, res) {
       res.end(html);
       return;
     }
-    const product = await productsStreamRepo.getProductBySlug(slug, {
-      filePath: PRODUCTS_FILE_PATH,
-    });
+    let source = "sqlite";
+    let foundBy = "none";
+    let product = null;
+    try {
+      const found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(slug);
+      product = found?.product || null;
+      foundBy = found?.foundBy || "none";
+    } catch (error) {
+      console.warn("[product-detail:sqlite-error]", error?.message || error);
+    }
     if (!product) {
+      source = "streaming_fallback";
+      product = await productsStreamRepo.getProductBySlug(slug, {
+        filePath: PRODUCTS_FILE_PATH,
+      });
+      if (product) {
+        product = productsSqliteRepo.normalizeProductForPublic(product);
+        foundBy = "slug";
+      }
+    }
+    if (!product) {
+      console.warn(`[product-detail:not-found] identifier=${slug} source=${source}`);
       const html =
         "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\"><title>Producto no encontrado</title></head><body><h1>Producto no encontrado</h1></body></html>";
       res.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
       res.end(html);
       return;
     }
+    console.log(`[product-detail:found] identifier=${slug} source=${source} foundBy=${foundBy}`);
     const name = product.name || "";
     const productSeo = generateProductSeo(product);
     const desc =
       product.meta_description || product.description || `Compra ${name}`;
     const seoConfig = getConfig();
     const siteBase = getPublicBaseUrl(seoConfig);
-    const canonical = `${siteBase}/p/${encodeURIComponent(slug)}`;
+    const canonicalSlug = product.publicSlug || product.slug || slug;
+    const canonical = `${siteBase}/p/${encodeURIComponent(canonicalSlug)}`;
     const { imageList, normalizedAlts } = buildProductImages(product, siteBase);
     const alts = Array.isArray(product.images_alt) ? product.images_alt : [];
     const defaultAlt = name || "Imagen del producto";

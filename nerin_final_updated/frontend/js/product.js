@@ -1,4 +1,4 @@
-import { fetchProducts, isWholesale } from "./api.js";
+import { apiFetch, isWholesale } from "./api.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
 import {
   normalizeContentId,
@@ -1576,6 +1576,19 @@ async function fetchPreviewProduct() {
   }
 }
 
+async function fetchProductByIdentifier(identifier) {
+  const safe = String(identifier || "").trim();
+  if (!safe) return null;
+  const res = await apiFetch(`/api/products/${encodeURIComponent(safe)}`, {
+    cache: "no-store",
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`No se pudo cargar el producto (${res.status})`);
+  }
+  return res.json();
+}
+
 async function initProduct() {
   if (!detailSection) return;
   const previewMode = window.location.pathname.startsWith("/dev/product-preview");
@@ -1602,20 +1615,12 @@ async function initProduct() {
       }
     }
 
-    const products = (await fetchProducts()).map(normalizeProductPayload);
     let product = null;
     if (targetSlug) {
-      product = products.find((p) => getProductSlug(p) === targetSlug);
+      product = await fetchProductByIdentifier(targetSlug);
     }
     if (!product && id) {
-      product = products.find((p) => String(p.id) === String(id));
-    }
-    if (!product && !products.length) {
-      const previewProduct = await fetchPreviewProduct();
-      if (previewProduct) {
-        renderProduct(normalizeProductPayload(previewProduct));
-        return;
-      }
+      product = await fetchProductByIdentifier(id);
     }
     if (!product) {
       if (infoContainer)

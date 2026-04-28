@@ -17,6 +17,8 @@ const REJECTED_STATE_VALUES = new Set([
   "archived",
   "deleted",
 ]);
+const PUBLIC_DESCRIPTION_FALLBACK =
+  "Producto disponible para cotización. Consultanos por compatibilidad, stock y condiciones.";
 
 let dbInstance = null;
 let ftsEnabled = false;
@@ -126,6 +128,7 @@ async function createSchema(db) {
       sku TEXT,
       code TEXT,
       slug TEXT,
+      public_slug TEXT,
       name TEXT,
       title TEXT,
       brand TEXT,
@@ -147,11 +150,18 @@ async function createSchema(db) {
     )`,
   );
 
+  const columns = await all(db, "PRAGMA table_info(products)");
+  const columnSet = new Set(columns.map((col) => String(col?.name || "").toLowerCase()));
+  if (!columnSet.has("public_slug")) {
+    await run(db, "ALTER TABLE products ADD COLUMN public_slug TEXT");
+  }
+
   const indexSql = [
     "CREATE INDEX IF NOT EXISTS idx_products_id ON products(id)",
     "CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)",
     "CREATE INDEX IF NOT EXISTS idx_products_code ON products(code)",
     "CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug)",
+    "CREATE INDEX IF NOT EXISTS idx_products_public_slug ON products(public_slug)",
     "CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)",
     "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
     "CREATE INDEX IF NOT EXISTS idx_products_is_public ON products(is_public)",
@@ -182,7 +192,14 @@ function isProductPublic(product) {
   if (product.vip_only === true) return false;
   if (product.wholesaleOnly === true || product.wholesale_only === true) return false;
 
-  const hasTitle = Boolean(toNullableText(product.name) || toNullableText(product.title));
+  const hasTitle = Boolean(
+    toNullableText(product.name) ||
+      toNullableText(product.title) ||
+      toNullableText(product.productName) ||
+      toNullableText(product.nombre) ||
+      toNullableText(product.shortDescription) ||
+      toNullableText(product.model),
+  );
   if (!hasTitle) return false;
 
   const hasIdentifier = Boolean(
@@ -190,7 +207,11 @@ function isProductPublic(product) {
       toNullableText(product.sku) ||
       toNullableText(product.code) ||
       toNullableText(product.slug) ||
-      toNullableText(product.partNumber),
+      toNullableText(product.partNumber) ||
+      toNullableText(product.mpn) ||
+      toNullableText(product.ean) ||
+      toNullableText(product.gtin) ||
+      toNullableText(product.supplierCode),
   );
 
   return hasIdentifier;
@@ -218,7 +239,56 @@ function buildSearchText(product = {}) {
   return normalizeQueryText(fields.filter(Boolean).join(" "));
 }
 
-function mapProductRow(product = {}) {
+function slugifyValue(value) {
+  const input = toNullableText(value);
+  if (!input) return "";
+  return input
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getProductIdentifier(product = {}, fallbackRow = null) {
+  const candidates = [
+    product.id,
+    product.sku,
+    product.code,
+    product.partNumber,
+    product.mpn,
+    product.ean,
+    product.gtin,
+    product.supplierCode,
+    fallbackRow,
+  ];
+  return toNullableText(candidates.find((value) => toNullableText(value)));
+}
+
+function buildPublicSlug(product = {}, fallbackRow = null) {
+  const existing = slugifyValue(product.public_slug || product.publicSlug || product.slug);
+  if (existing) return existing;
+  const nameBase = slugifyValue(
+    product.name || product.title || product.productName || product.nombre || product.model,
+  );
+  const identifier = slugifyValue(getProductIdentifier(product, fallbackRow));
+  if (nameBase && identifier) return `${nameBase}-${identifier.slice(-8)}`;
+  if (nameBase) return nameBase;
+  if (identifier) return `producto-${identifier}`;
+  return `producto-${String(fallbackRow || "sin-id").replace(/[^a-z0-9]/gi, "").toLowerCase()}`;
+}
+
+function mapProductRow(product = {}, options = {}) {
+  const { rowNumber = null, slugCounts = null } = options;
+  let publicSlug = buildPublicSlug(product, rowNumber);
+  if (slugCounts instanceof Map) {
+    const current = Number(slugCounts.get(publicSlug) || 0) + 1;
+    slugCounts.set(publicSlug, current);
+    if (current > 1) {
+      publicSlug = `${publicSlug}-${current}`;
+    }
+  }
   const price = toNumber(product.price_minorista ?? product.price, 0);
   const stock = Math.trunc(toNumber(product.stock, 0));
   return {
@@ -226,6 +296,7 @@ function mapProductRow(product = {}) {
     sku: toNullableText(product.sku),
     code: toNullableText(product.code),
     slug: toNullableText(product.slug),
+    public_slug: publicSlug,
     name: toNullableText(product.name),
     title: toNullableText(product.title),
     brand: normalizeQueryText(toNullableText(product.brand)),
@@ -247,11 +318,107 @@ function mapProductRow(product = {}) {
   };
 }
 
-function parseRawItems(rows = []) {
+function firstText(values = []) {
+  for (const value of values) {
+    const parsed = toNullableText(value);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function parseImageLikeField(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item : item?.url || item?.secure_url || item?.src || ""))
+      .map((item) => toNullableText(item))
+      .filter(Boolean);
+  }
+  const one = toNullableText(value);
+  if (!one) return [];
+  if (one.includes(",")) {
+    return one
+      .split(",")
+      .map((item) => toNullableText(item))
+      .filter(Boolean);
+  }
+  return [one];
+}
+
+function normalizeProductForPublic(product = {}, meta = {}) {
+  const safe = product && typeof product === "object" ? { ...product } : {};
+  const name = firstText([safe.name, safe.title, safe.productName, safe.nombre, safe.model]) || "Producto";
+  const brand = firstText([safe.brand, safe.marca, safe.manufacturer]) || "";
+  const description =
+    firstText([
+      safe.description,
+      safe.descripcion,
+      safe.details,
+      safe.detalle,
+      safe.shortDescription,
+      safe.longDescription,
+      safe.meta_description,
+    ]) || PUBLIC_DESCRIPTION_FALLBACK;
+  const identifier = getProductIdentifier(safe, meta.rowid);
+  const publicSlug =
+    firstText([safe.publicSlug, safe.public_slug, meta.public_slug]) || buildPublicSlug(safe, meta.rowid);
+  const images = Array.from(
+    new Set(
+      [
+        ...parseImageLikeField(safe.images),
+        ...parseImageLikeField(safe.fotos),
+        ...parseImageLikeField(safe.imagenes),
+        ...parseImageLikeField(safe.image),
+        ...parseImageLikeField(safe.imageUrl),
+        ...parseImageLikeField(safe.thumbnail),
+        ...parseImageLikeField(safe.thumbnailUrl),
+        ...parseImageLikeField(safe.picture),
+        ...parseImageLikeField(safe.photo),
+        ...parseImageLikeField(safe.foto),
+        ...parseImageLikeField(safe.imagen),
+      ].filter(Boolean),
+    ),
+  );
+  const image = firstText([safe.image, images[0]]) || "";
+  const price = toNumber(
+    safe.price ?? safe.precio ?? safe.salePrice ?? safe.finalPrice ?? safe.price_minorista,
+    0,
+  );
+  const stock = Math.trunc(
+    toNumber(
+      safe.stock ?? safe.quantity ?? safe.qty ?? safe.availableQuantity ?? safe.stockQty,
+      0,
+    ),
+  );
+  return {
+    ...safe,
+    id: firstText([safe.id, identifier]) || identifier,
+    name,
+    brand,
+    description,
+    images,
+    image,
+    price,
+    stock,
+    publicSlug,
+    public_slug: publicSlug,
+    url: `/p/${encodeURIComponent(publicSlug)}`,
+    sku: firstText([safe.sku, safe.code, safe.partNumber, safe.mpn, safe.ean, safe.gtin, safe.supplierCode]) || "",
+    code: firstText([safe.code, safe.sku]) || "",
+    slug: firstText([safe.slug, safe.publicSlug, safe.public_slug, publicSlug]) || publicSlug,
+  };
+}
+
+function parseRawItems(rows = [], options = {}) {
   return rows
-    .map((row) => {
+    .map((row, index) => {
       try {
-        return JSON.parse(row.raw_json);
+        const parsed = JSON.parse(row.raw_json);
+        if (!options.normalizePublic) return parsed;
+        return normalizeProductForPublic(parsed, {
+          public_slug: row?.public_slug || null,
+          rowid: row?.rowid ?? index + 1,
+        });
       } catch {
         return null;
       }
@@ -280,12 +447,13 @@ async function rebuildProductsDbFromJson() {
     await run(tmpDb, "PRAGMA temp_store = MEMORY");
     await createSchema(tmpDb);
     const insertSql = `INSERT INTO products (
-      id, sku, code, slug, name, title, brand, model, category, status, visibility,
+      id, sku, code, slug, public_slug, name, title, brand, model, category, status, visibility,
       stock, price, currency, is_public, enabled, deleted, archived, vip_only, wholesale_only,
       search_text, raw_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
     let count = 0;
+    const slugCounts = new Map();
     const batch = [];
     const BATCH_SIZE = 500;
 
@@ -298,6 +466,7 @@ async function rebuildProductsDbFromJson() {
             item.sku,
             item.code,
             item.slug,
+            item.public_slug,
             item.name,
             item.title,
             item.brand,
@@ -325,7 +494,7 @@ async function rebuildProductsDbFromJson() {
     await productsStreamRepo.streamProducts({
       filePath: PRODUCTS_JSON_PATH,
       onProduct: async (product) => {
-        batch.push(mapProductRow(product));
+        batch.push(mapProductRow(product, { rowNumber: count + 1, slugCounts }));
         count += 1;
         if (count % 5000 === 0) {
           console.log(`[products-db] rebuild progress count=${count}`);
@@ -534,7 +703,7 @@ async function queryBase({ page = 1, pageSize = 24, search = "", sort = "", isPu
   const orderBy = buildSort(sort);
   const rows = await all(
     db,
-    `SELECT raw_json FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+    `SELECT rowid, raw_json, public_slug FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     [...whereClause.params, safePageSize, offset],
   );
   const totalRow = await get(
@@ -546,7 +715,7 @@ async function queryBase({ page = 1, pageSize = 24, search = "", sort = "", isPu
   const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
 
   return {
-    items: parseRawItems(rows),
+    rows,
     page: safePage,
     pageSize: safePageSize,
     totalItems,
@@ -559,11 +728,19 @@ async function queryBase({ page = 1, pageSize = 24, search = "", sort = "", isPu
 }
 
 async function queryProducts(params = {}) {
-  return queryBase({ ...params, isPublicOnly: true });
+  const result = await queryBase({ ...params, isPublicOnly: true });
+  return {
+    ...result,
+    items: parseRawItems(result.rows, { normalizePublic: true }),
+  };
 }
 
 async function queryAdminProducts(params = {}) {
-  return queryBase({ ...params, isPublicOnly: false });
+  const result = await queryBase({ ...params, isPublicOnly: false });
+  return {
+    ...result,
+    items: parseRawItems(result.rows),
+  };
 }
 
 async function getProductBySlug(slug) {
@@ -571,17 +748,17 @@ async function getProductBySlug(slug) {
   const db = await openDb();
   const row = await get(
     db,
-    "SELECT raw_json FROM products WHERE slug = ? LIMIT 1",
+    "SELECT rowid, raw_json, public_slug FROM products WHERE slug = ? LIMIT 1",
     [String(slug || "").trim()],
   );
-  return parseRawItems(row ? [row] : [])[0] || null;
+  return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
 }
 
 async function getProductById(id) {
   await ensureProductsDb();
   const db = await openDb();
-  const row = await get(db, "SELECT raw_json FROM products WHERE id = ? LIMIT 1", [String(id || "").trim()]);
-  return parseRawItems(row ? [row] : [])[0] || null;
+  const row = await get(db, "SELECT rowid, raw_json, public_slug FROM products WHERE id = ? LIMIT 1", [String(id || "").trim()]);
+  return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
 }
 
 async function getProductByCode(code) {
@@ -590,10 +767,30 @@ async function getProductByCode(code) {
   const target = String(code || "").trim();
   const row = await get(
     db,
-    "SELECT raw_json FROM products WHERE code = ? OR sku = ? LIMIT 1",
+    "SELECT rowid, raw_json, public_slug FROM products WHERE code = ? OR sku = ? LIMIT 1",
     [target, target],
   );
-  return parseRawItems(row ? [row] : [])[0] || null;
+  return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+}
+
+async function getProductByPublicSlugOrAnyIdentifier(value) {
+  await ensureProductsDb();
+  const db = await openDb();
+  const target = String(value || "").trim();
+  if (!target) return { foundBy: "none", source: "sqlite", product: null };
+  const checks = [
+    { field: "public_slug", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE public_slug = ? LIMIT 1" },
+    { field: "slug", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE slug = ? LIMIT 1" },
+    { field: "id", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE id = ? LIMIT 1" },
+    { field: "sku", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE sku = ? LIMIT 1" },
+    { field: "code", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE code = ? LIMIT 1" },
+  ];
+  for (const check of checks) {
+    const row = await get(db, check.sql, [target]);
+    const product = parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+    if (product) return { foundBy: check.field, source: "sqlite", product };
+  }
+  return { foundBy: "none", source: "sqlite", product: null };
 }
 
 async function getManifestFromDb() {
@@ -606,6 +803,22 @@ async function getManifestFromDb() {
   }
 }
 
+async function getCatalogHealth() {
+  await ensureProductsDb();
+  const db = await openDb();
+  const totalRow = await get(db, "SELECT COUNT(*) AS total FROM products");
+  const publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
+  const manifest = await getManifestFromDb();
+  return {
+    source: "sqlite",
+    sqlitePath: SQLITE_PATH,
+    productCount: Number(totalRow?.total || 0),
+    publicProductCount: Number(publicRow?.total || 0),
+    manifest,
+    lastBuilt: manifest?.sqliteBuiltAt || null,
+  };
+}
+
 module.exports = {
   ensureProductsDb,
   rebuildProductsDbFromJson,
@@ -614,7 +827,10 @@ module.exports = {
   getProductBySlug,
   getProductById,
   getProductByCode,
+  getProductByPublicSlugOrAnyIdentifier,
   getManifestFromDb,
+  getCatalogHealth,
+  normalizeProductForPublic,
   normalizeQueryText,
   SQLITE_PATH,
 };
