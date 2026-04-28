@@ -1,4 +1,7 @@
 const productsSqliteRepo = require("../backend/data/productsSqliteRepo");
+const fs = require("fs");
+const { dataPath } = require("../backend/utils/dataDir");
+const sqlite3 = require("sqlite3");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -25,6 +28,40 @@ function hasImportedSignal(product = {}) {
 
 async function main() {
   await productsSqliteRepo.ensureProductsDb();
+  const initialManifest = await productsSqliteRepo.getManifestFromDb();
+  assert(
+    Number(initialManifest?.mappingVersion || 0) === productsSqliteRepo.CATALOG_MAPPING_VERSION,
+    "mappingVersion del manifest debe coincidir con CATALOG_MAPPING_VERSION",
+  );
+
+  const staleManifest = {
+    ...(initialManifest || {}),
+    mappingVersion: Math.max(0, Number(productsSqliteRepo.CATALOG_MAPPING_VERSION) - 1),
+  };
+  fs.writeFileSync(dataPath("products.manifest.json"), JSON.stringify(staleManifest, null, 2), "utf8");
+  await timed("ensure db with stale mappingVersion", () => productsSqliteRepo.ensureProductsDb());
+  const repairedManifest = await productsSqliteRepo.getManifestFromDb();
+  assert(
+    Number(repairedManifest?.mappingVersion || 0) === productsSqliteRepo.CATALOG_MAPPING_VERSION,
+    "mappingVersion viejo debe forzar rebuild y actualizar manifest",
+  );
+
+  const mappedUppercase = productsSqliteRepo.mapProductRow({
+    SKU: "GH82-TEST-01",
+    Code: "GH82-TEST-01",
+    Name: "Galaxy S25 Ultra Batería",
+    Price: "12345",
+  });
+  assert(mappedUppercase.sku === "GH82-TEST-01", "mapper debe leer SKU uppercase");
+  assert(mappedUppercase.code === "GH82-TEST-01", "mapper debe leer Code uppercase");
+  assert(mappedUppercase.name === "Galaxy S25 Ultra Batería", "mapper debe leer Name uppercase");
+  assert(Number(mappedUppercase.price) === 12345, "mapper debe leer Price uppercase");
+
+  const publicByDefault = productsSqliteRepo.isProductPublic({
+    SKU: "GH82-DEFAULT",
+    Name: "Producto visible por default",
+  });
+  assert(publicByDefault === true, "productos sin visibility/status deben ser públicos por defecto");
 
   const health = await timed("catalog health", () => productsSqliteRepo.getCatalogHealth());
   assert(health.result.source === "sqlite", "health source must be sqlite");
@@ -147,8 +184,42 @@ async function main() {
     "publicProductCount no debe quedar artificialmente en 125",
   );
 
-  const firstTen = publicPage1.result.items.slice(0, 10);
-  for (const item of firstTen) {
+  const fieldAudit = await timed("field audit", () => productsSqliteRepo.getCatalogFieldAudit({ sampleSize: 300 }));
+  assert(fieldAudit.result.productCount >= fieldAudit.result.publicProductCount, "field-audit: conteos coherentes");
+  assert(Array.isArray(fieldAudit.result.topKeys) && fieldAudit.result.topKeys.length > 0, "field-audit debe detectar topKeys");
+
+  const searchGh82 = await timed("debug search GH82", () => productsSqliteRepo.debugCatalogSearch({ search: "GH82" }));
+  const hasGh82InRaw = await new Promise((resolve, reject) => {
+    const db = new sqlite3.Database(dataPath("products.sqlite"), (error) => {
+      if (error) reject(error);
+    });
+    db.get(
+      "SELECT COUNT(*) AS total FROM products WHERE LOWER(COALESCE(raw_json, '')) LIKE '%gh82%'",
+      [],
+      (error, row) => {
+        db.close(() => {});
+        if (error) reject(error);
+        else resolve(Number(row?.total || 0) > 0);
+      },
+    );
+  });
+  if (hasGh82InRaw) {
+    assert(searchGh82.result.totalMatches > 0, "search GH82 debe encontrar productos si existe en raw_json");
+  }
+
+  const searchS25 = await timed("debug search S25 ultra", () =>
+    productsSqliteRepo.debugCatalogSearch({ search: "S25 ultra" }),
+  );
+  assert(searchS25.result.totalMatches >= 0, "debug search S25 ultra debe responder");
+
+  const nullPriceMap = productsSqliteRepo.mapProductRow({
+    sku: "NO-PRICE-001",
+    name: "Producto sin precio",
+  });
+  assert(nullPriceMap.price === null, "precio faltante debe mapearse a null, no 0");
+
+  const firstTwenty = publicPage1.result.items.slice(0, 20);
+  for (const item of firstTwenty) {
     assert(item.url && item.publicSlug, "cada producto de grilla debe incluir url/publicSlug");
     const found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(item.publicSlug);
     assert(found?.product, `detalle debe resolver para ${item.publicSlug}`);
@@ -157,6 +228,8 @@ async function main() {
   console.log("[test-products-sqlite-query] ok", {
     productCount: health.result.productCount,
     publicProductCount: health.result.publicProductCount,
+    debugSearchGH82: searchGh82.result.totalMatches,
+    debugSearchS25Ultra: searchS25.result.totalMatches,
     firstPublicSlug: firstPublic.publicSlug,
     firstPublicUrl: firstPublic.url,
   });
