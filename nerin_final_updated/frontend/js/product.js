@@ -247,7 +247,12 @@ async function loadReviews(productId) {
 }
 
 function getProductSlug(product) {
-  if (!product || typeof product.slug !== "string") return null;
+  if (!product) return null;
+  const fromPublicSlug = typeof product.publicSlug === "string" ? product.publicSlug.trim() : "";
+  if (fromPublicSlug) return fromPublicSlug;
+  const fromPublicSlugSnake = typeof product.public_slug === "string" ? product.public_slug.trim() : "";
+  if (fromPublicSlugSnake) return fromPublicSlugSnake;
+  if (typeof product.slug !== "string") return null;
   const slug = product.slug.trim();
   return slug || null;
 }
