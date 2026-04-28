@@ -436,6 +436,12 @@ function addToCart(product) {
 }
 
 function buildProductUrl(product) {
+  if (typeof product.url === "string" && product.url.trim()) {
+    return product.url.trim();
+  }
+  if (typeof product.publicSlug === "string" && product.publicSlug.trim()) {
+    return `/p/${encodeURIComponent(product.publicSlug.trim())}`;
+  }
   if (typeof product.slug === "string" && product.slug.trim()) {
     return `/p/${encodeURIComponent(product.slug.trim())}`;
   }
