@@ -986,10 +986,32 @@ async function ensureProductsDbOnce() {
   }
 }
 
+function ensureProductsDbInBackground(trigger = "request") {
+  if (dbReady || dbReadyPromise) return;
+  dbReadyPromise = ensureProductsDb({ allowRebuild: true });
+  dbReadyPromise
+    .then(() => {
+      console.log(`[products-db] background ensure completed trigger=${trigger}`);
+    })
+    .catch((error) => {
+      console.warn(`[products-db] background ensure failed trigger=${trigger} reason=${error?.message || error}`);
+    })
+    .finally(() => {
+      dbReadyPromise = null;
+    });
+}
+
 async function ensureDbReadyForRequest() {
   if (dbReady) return;
   if (dbReadyPromise) throw createInitializingError("sqlite_bootstrap_in_progress");
-  await ensureProductsDb({ allowRebuild: false });
+  try {
+    await ensureProductsDb({ allowRebuild: false });
+  } catch (error) {
+    if (error?.code === "CATALOG_INITIALIZING") {
+      ensureProductsDbInBackground("request-auto-bootstrap");
+    }
+    throw error;
+  }
 }
 
 function buildSort(sort) {
