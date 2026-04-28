@@ -764,6 +764,13 @@ async function updateProductByIdentifier(identifier, patch = {}) {
   const current = JSON.parse(row.raw_json || "{}");
   const merged = { ...current, ...patch };
   const mapped = mapProductRow(merged, { rowNumber: row.rowid });
+  const changedFields = Object.keys(patch || {}).filter((field) => current[field] !== patch[field]);
+  const oldVisibility = firstText([current.visibility, current.Visibility, ""]) || "";
+  const newVisibility = firstText([merged.visibility, merged.Visibility, ""]) || "";
+  const oldStatus = firstText([current.status, current.Status, ""]) || "";
+  const newStatus = firstText([merged.status, merged.Status, ""]) || "";
+  const oldIsPublic = isProductPublic(current);
+  const newIsPublic = Boolean(mapped.is_public);
   await run(
     db,
     `UPDATE products SET
@@ -812,6 +819,16 @@ async function updateProductByIdentifier(identifier, patch = {}) {
     ],
   );
   countCache.clear();
+  console.log("[products-admin-update]", {
+    identifier: target,
+    changedFields,
+    oldVisibility,
+    newVisibility,
+    oldStatus,
+    newStatus,
+    oldIsPublic,
+    newIsPublic,
+  });
   return normalizeProductForAdminList(merged, { rowid: row.rowid, public_slug: mapped.public_slug });
 }
 
