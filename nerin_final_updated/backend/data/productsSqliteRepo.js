@@ -9,7 +9,8 @@ const PRODUCTS_JSON_PATH = dataPath("products.json");
 const SQLITE_PATH = dataPath("products.sqlite");
 const MANIFEST_PATH = dataPath("products.manifest.json");
 const COUNT_CACHE_TTL_MS = 60_000;
-const PRODUCTS_SQLITE_SCHEMA_VERSION = 4;
+const PRODUCTS_SQLITE_SCHEMA_VERSION = 5;
+const CATALOG_MAPPING_VERSION = 2;
 
 const REJECTED_STATE_VALUES = new Set([
   "hidden",
@@ -142,6 +143,54 @@ function toNullableText(value) {
   return text || null;
 }
 
+function normalizeFieldKey(value) {
+  const base = toNullableText(value);
+  if (!base) return "";
+  try {
+    return base
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  } catch {
+    return String(base).toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
+}
+
+function readPath(obj, pathValue) {
+  if (!obj || typeof obj !== "object") return undefined;
+  const segments = String(pathValue || "")
+    .split(".")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!segments.length) return undefined;
+  let cursor = obj;
+  for (const segment of segments) {
+    if (cursor == null || typeof cursor !== "object") return undefined;
+    cursor = cursor[segment];
+  }
+  return cursor;
+}
+
+function getField(product = {}, aliases = []) {
+  if (!product || typeof product !== "object") return null;
+  for (const alias of aliases) {
+    const direct = readPath(product, alias);
+    if (direct !== undefined && direct !== null && String(direct).trim() !== "") return direct;
+  }
+  const entries = Object.entries(product);
+  const normalizedMap = new Map(entries.map(([key, value]) => [normalizeFieldKey(key), value]));
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeFieldKey(alias);
+    if (!normalizedAlias) continue;
+    if (normalizedMap.has(normalizedAlias)) {
+      const value = normalizedMap.get(normalizedAlias);
+      if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+    }
+  }
+  return null;
+}
+
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -194,45 +243,21 @@ function firstNumber(values = []) {
 
 function resolvePriceFields(product = {}) {
   const priceMinorista = firstNumber([
-    product.price_minorista,
-    product.precio_minorista,
-    product.retailPrice,
-    product.precioMinorista,
-    product.finalPrice,
-    product.salePrice,
-    product.precioFinal,
-    product.precio_final,
-    product.priceArs,
-    product.precioARS,
-    product.precio_ars,
-    product.finalPriceArs,
-    product.precioConIva,
-    product.precio_con_iva,
-    product.price,
-    product.precio,
+    getField(product, ["price_minorista", "price minorista", "precio_minorista", "precio minorista", "retailPrice", "Precio Minorista"]),
+    getField(product, ["precioMinorista", "precio minorista"]),
+    getField(product, ["finalPrice", "salePrice", "precioFinal", "precio_final", "Precio Final"]),
+    getField(product, ["priceArs", "precioARS", "precio_ars", "finalPriceArs", "precioConIva", "precio_con_iva"]),
+    getField(product, ["price", "precio"]),
   ]);
   const priceMayorista = firstNumber([
-    product.price_mayorista,
-    product.precio_mayorista,
-    product.wholesalePrice,
-    product.precioMayorista,
-    product.price_wholesale,
-    product.wholesale_price,
+    getField(product, ["price_mayorista", "precio_mayorista", "Precio Mayorista"]),
+    getField(product, ["wholesalePrice", "price_wholesale", "wholesale_price", "precioMayorista"]),
   ]);
   const pricePublic = firstNumber([
     priceMinorista,
-    product.price,
-    product.precio,
-    product.finalPrice,
-    product.salePrice,
-    product.precioFinal,
-    product.precio_final,
-    product.priceArs,
-    product.precioARS,
-    product.precio_ars,
-    product.finalPriceArs,
-    product.precioConIva,
-    product.precio_con_iva,
+    getField(product, ["price", "precio"]),
+    getField(product, ["finalPrice", "salePrice", "precioFinal", "precio_final", "Precio Final"]),
+    getField(product, ["priceArs", "precioARS", "precio_ars", "finalPriceArs", "precioConIva", "precio_con_iva"]),
   ]);
   return {
     price: pricePublic,
@@ -247,7 +272,7 @@ function resolvePriceFields(product = {}) {
       product.precio_sin_impuesto,
     ]),
     cost: firstNumber([product.cost, product.costo, product.costoCaja, product.costo_caja]),
-    currency: toNullableText(product.currency || product.moneda || "ARS"),
+    currency: toNullableText(getField(product, ["currency", "moneda"]) || "ARS"),
     rawPriceFields: {
       price_minorista: product.price_minorista,
       price_mayorista: product.price_mayorista,
@@ -446,61 +471,60 @@ async function createSchema(db) {
 function isProductPublic(product) {
   if (!product || typeof product !== "object") return false;
 
-  const visibility = normalizeQueryText(product.visibility || "");
+  const visibility = normalizeQueryText(getField(product, ["visibility", "visibilidad"]) || "");
   if (visibility && REJECTED_STATE_VALUES.has(visibility)) return false;
 
-  const status = normalizeQueryText(product.status || "");
+  const status = normalizeQueryText(getField(product, ["status", "estado"]) || "");
   if (status && REJECTED_STATE_VALUES.has(status)) return false;
 
-  if (product.enabled === false) return false;
-  if (product.deleted === true) return false;
-  if (product.archived === true) return false;
-  if (product.vip_only === true) return false;
-  if (product.wholesaleOnly === true || product.wholesale_only === true) return false;
+  if (getField(product, ["enabled"]) === false) return false;
+  if (getField(product, ["deleted"]) === true) return false;
+  if (getField(product, ["archived"]) === true) return false;
+  if (getField(product, ["vip_only", "vip only", "vipOnly"]) === true) return false;
+  if (getField(product, ["wholesaleOnly", "wholesale_only", "wholesale only"]) === true) return false;
 
   const hasTitle = Boolean(
-    toNullableText(product.name) ||
-      toNullableText(product.title) ||
-      toNullableText(product.productName) ||
-      toNullableText(product.nombre) ||
-      toNullableText(product.shortDescription) ||
-      toNullableText(product.model),
+    toNullableText(getField(product, ["name", "title", "productName", "nombre", "description", "descripcion", "model"])),
   );
   if (!hasTitle) return false;
 
   const hasIdentifier = Boolean(
-    toNullableText(product.id) ||
-      toNullableText(product.sku) ||
-      toNullableText(product.code) ||
-      toNullableText(product.slug) ||
-      toNullableText(product.partNumber) ||
-      toNullableText(product.mpn) ||
-      toNullableText(product.ean) ||
-      toNullableText(product.gtin) ||
-      toNullableText(product.supplierCode),
+    toNullableText(
+      getField(product, [
+        "id",
+        "sku",
+        "SKU",
+        "code",
+        "Code",
+        "codigo",
+        "Código",
+        "partNumber",
+        "Part Number",
+        "mpn",
+        "ean",
+        "gtin",
+        "supplierCode",
+        "Supplier Part Number",
+      ]),
+    ),
   );
 
   return hasIdentifier;
 }
 
 function buildSearchText(product = {}) {
+  const metadataText =
+    product?.metadata && typeof product.metadata === "object" ? JSON.stringify(product.metadata) : "";
   const fields = [
-    product.name,
-    product.title,
-    product.brand,
-    product.model,
-    product.category,
-    product.sku,
-    product.code,
-    product.id,
-    product.slug,
-    product.partNumber,
-    product.ean,
-    product.gtin,
-    product.mpn,
-    product.supplierCode,
-    product?.metadata?.supplierPartNumber,
-    product?.metadata?.supplierImport?.supplierPartNumber,
+    getField(product, ["name", "title", "productName", "nombre", "Name", "Title"]),
+    getField(product, ["description", "descripcion", "shortDescription"]),
+    getField(product, ["brand", "marca", "Brand"]),
+    getField(product, ["model", "modelo", "Model"]),
+    getField(product, ["category", "categoria", "Category"]),
+    getField(product, ["sku", "SKU", "Sku"]),
+    getField(product, ["code", "Code", "codigo", "Código"]),
+    getField(product, ["id", "slug", "partNumber", "Part Number", "Supplier Part Number", "mpn", "ean", "gtin", "supplierCode"]),
+    metadataText,
   ];
   return normalizeQueryText(fields.filter(Boolean).join(" "));
 }
@@ -574,30 +598,29 @@ function mapProductRow(product = {}, options = {}) {
     });
   }
   return {
-    id: toNullableText(product.id),
-    sku: toNullableText(product.sku),
-    code: toNullableText(product.code),
-    slug: toNullableText(product.slug),
+    id: toNullableText(getField(product, ["id"])),
+    sku: toNullableText(getField(product, ["sku", "SKU", "Sku"])),
+    code: toNullableText(getField(product, ["code", "Code", "codigo", "Código"])),
+    slug: toNullableText(getField(product, ["slug"])),
     public_slug: publicSlug,
     image: firstText([
-      product.image,
-      product.image_url,
-      product.thumbnail,
-      product.picture,
-      Array.isArray(product.images) ? product.images[0] : null,
+      getField(product, ["image", "image_url", "imagen"]),
+      getField(product, ["thumbnail", "thumbnail_url"]),
+      getField(product, ["picture", "photo", "foto"]),
+      Array.isArray(getField(product, ["images", "imagenes", "fotos"])) ? getField(product, ["images", "imagenes", "fotos"])[0] : null,
     ]),
-    name: toNullableText(product.name),
-    title: toNullableText(product.title),
-    brand: normalizeQueryText(toNullableText(product.brand)),
-    model: normalizeQueryText(toNullableText(product.model)),
-    category: normalizeQueryText(toNullableText(product.category)),
-    part_number: toNullableText(product.partNumber),
-    mpn: toNullableText(product.mpn),
-    ean: toNullableText(product.ean),
-    gtin: toNullableText(product.gtin),
-    supplier_code: toNullableText(product.supplierCode),
-    status: normalizeQueryText(toNullableText(product.status)),
-    visibility: normalizeQueryText(toNullableText(product.visibility)),
+    name: toNullableText(getField(product, ["name", "Name", "nombre"])),
+    title: toNullableText(getField(product, ["title", "Title", "productName"])),
+    brand: normalizeQueryText(toNullableText(getField(product, ["brand", "Brand", "marca"]))),
+    model: normalizeQueryText(toNullableText(getField(product, ["model", "Model", "modelo"]))),
+    category: normalizeQueryText(toNullableText(getField(product, ["category", "Category", "categoria"]))),
+    part_number: toNullableText(getField(product, ["partNumber", "Part Number"])),
+    mpn: toNullableText(getField(product, ["mpn", "MPN"])),
+    ean: toNullableText(getField(product, ["ean", "EAN"])),
+    gtin: toNullableText(getField(product, ["gtin", "GTIN"])),
+    supplier_code: toNullableText(getField(product, ["supplierCode", "supplier_code", "Supplier Part Number"])),
+    status: normalizeQueryText(toNullableText(getField(product, ["status", "estado"]))),
+    visibility: normalizeQueryText(toNullableText(getField(product, ["visibility", "visibilidad"]))),
     stock,
     price: priceFields.price,
     price_minorista: priceFields.price_minorista,
@@ -609,11 +632,11 @@ function mapProductRow(product = {}, options = {}) {
     cost: priceFields.cost,
     currency: priceFields.currency,
     is_public: isProductPublic(product) ? 1 : 0,
-    enabled: boolToInt(product.enabled, 1),
-    deleted: boolToInt(product.deleted, 0),
-    archived: boolToInt(product.archived, 0),
-    vip_only: boolToInt(product.vip_only, 0),
-    wholesale_only: boolToInt(product.wholesaleOnly === true || product.wholesale_only === true, 0),
+    enabled: boolToInt(getField(product, ["enabled"]), 1),
+    deleted: boolToInt(getField(product, ["deleted"]), 0),
+    archived: boolToInt(getField(product, ["archived"]), 0),
+    vip_only: boolToInt(getField(product, ["vip_only", "vipOnly"]), 0),
+    wholesale_only: boolToInt(getField(product, ["wholesaleOnly", "wholesale_only"]), 0),
     search_text: buildSearchText(product),
     raw_json: JSON.stringify(product),
   };
@@ -641,17 +664,13 @@ function parseImageLikeField(value) {
 function normalizeProductForPublic(product = {}, meta = {}) {
   const safe = product && typeof product === "object" ? { ...product } : {};
   const priceFields = resolvePriceFields(safe);
-  const name = firstText([safe.name, safe.title, safe.productName, safe.nombre, safe.model]) || "Producto";
-  const brand = firstText([safe.brand, safe.marca, safe.manufacturer]) || "";
+  const name = firstText([
+    getField(safe, ["name", "Name", "title", "Title", "productName", "nombre", "model", "Model"]),
+  ]) || "Producto";
+  const brand = firstText([getField(safe, ["brand", "Brand", "marca", "manufacturer"])]) || "";
   const description =
     firstText([
-      safe.description,
-      safe.descripcion,
-      safe.details,
-      safe.detalle,
-      safe.shortDescription,
-      safe.longDescription,
-      safe.meta_description,
+      getField(safe, ["description", "Description", "descripcion", "details", "detalle", "shortDescription", "longDescription", "meta_description"]),
     ]) || PUBLIC_DESCRIPTION_FALLBACK;
   const identifier = getProductIdentifier(safe, meta.rowid);
   const publicSlug =
@@ -701,8 +720,8 @@ function normalizeProductForPublic(product = {}, meta = {}) {
     publicSlug,
     public_slug: publicSlug,
     url: `/p/${encodeURIComponent(publicSlug)}`,
-    sku: firstText([safe.sku, safe.code, safe.partNumber, safe.mpn, safe.ean, safe.gtin, safe.supplierCode]) || "",
-    code: firstText([safe.code, safe.sku]) || "",
+    sku: firstText([getField(safe, ["sku", "SKU", "code", "Code", "partNumber", "Part Number", "mpn", "ean", "gtin", "supplierCode"])]) || "",
+    code: firstText([getField(safe, ["code", "Code", "codigo", "Código", "sku", "SKU"])]) || "",
     slug: firstText([safe.slug, safe.publicSlug, safe.public_slug, publicSlug]) || publicSlug,
   };
 }
@@ -965,6 +984,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
 
       const manifest = {
         sqliteSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
+        mappingVersion: CATALOG_MAPPING_VERSION,
         productCount: count,
         publicProductCount: publicCount,
         productsJsonSizeBytes: Number(productsStats.size || 0),
@@ -1107,6 +1127,8 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
     reason = "manifest_missing";
   } else if (Number(manifest.sqliteSchemaVersion || 0) !== PRODUCTS_SQLITE_SCHEMA_VERSION) {
     reason = "schema_version_changed";
+  } else if (Number(manifest.mappingVersion || 0) !== CATALOG_MAPPING_VERSION) {
+    reason = "mapping_version_changed";
   } else if (Number(manifest.productsJsonSizeBytes || -1) !== Number(productsStats.size || 0)) {
     reason = "products_json_size_changed";
   } else if (
@@ -1634,6 +1656,9 @@ async function getCatalogHealth() {
   } else if (Number(manifest.sqliteSchemaVersion || 0) !== PRODUCTS_SQLITE_SCHEMA_VERSION) {
     isFresh = false;
     freshnessReason = "schema_version_changed";
+  } else if (Number(manifest.mappingVersion || 0) !== CATALOG_MAPPING_VERSION) {
+    isFresh = false;
+    freshnessReason = "mapping_version_changed";
   } else if (Number(manifest.productsJsonSizeBytes || -1) !== Number(productsStats.size || 0)) {
     isFresh = false;
     freshnessReason = "products_json_size_changed";
@@ -1684,7 +1709,9 @@ async function getCatalogHealth() {
     missingVisibilityCount: Number(missingVisibilityRow?.total || 0),
     missingStatusCount: Number(missingStatusRow?.total || 0),
     sqliteSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
+    catalogMappingVersion: CATALOG_MAPPING_VERSION,
     manifestSchemaVersion: Number(manifest?.sqliteSchemaVersion || 0) || null,
+    manifestMappingVersion: Number(manifest?.mappingVersion || 0) || null,
     sqliteBuiltAt: manifest?.sqliteBuiltAt || null,
     productsJsonSizeBytes: Number(productsStats?.size || 0),
     productsJsonMtimeMs: Number(productsStats?.mtimeMs || 0),
@@ -1763,6 +1790,131 @@ async function getCatalogPublicityAudit() {
       missingIdentifier: Number(missingIdentifierRow?.total || 0),
     },
     examplesRejected,
+  };
+}
+
+async function getCatalogFieldAudit({ sampleSize = 300 } = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const safeSampleSize = Math.max(50, Math.min(2000, Number(sampleSize) || 300));
+  const summary = await get(
+    db,
+    "SELECT COUNT(*) AS productCount, SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END) AS publicProductCount FROM products",
+  );
+  const rows = await all(
+    db,
+    `SELECT rowid, id, sku, code, name, title, is_public, search_text, raw_json
+     FROM products
+     ORDER BY rowid ASC
+     LIMIT ?`,
+    [safeSampleSize],
+  );
+  const rejectedRows = await all(
+    db,
+    `SELECT rowid, id, sku, code, name, title, visibility, status, enabled, deleted, archived, vip_only, wholesale_only, raw_json
+     FROM products
+     WHERE is_public = 0
+     ORDER BY rowid ASC
+     LIMIT 20`,
+  );
+  const topKeysCounter = new Map();
+  const priceKeysCounter = new Map();
+  const nameKeysCounter = new Map();
+  const skuKeysCounter = new Map();
+  const inc = (map, key) => map.set(key, Number(map.get(key) || 0) + 1);
+  for (const row of rows) {
+    let raw = {};
+    try {
+      raw = JSON.parse(row.raw_json || "{}");
+    } catch {
+      raw = {};
+    }
+    for (const key of Object.keys(raw)) {
+      inc(topKeysCounter, key);
+      const nk = normalizeFieldKey(key);
+      if (
+        [
+          "price",
+          "precio",
+          "preciofinal",
+          "priceminorista",
+          "pricemayorista",
+          "preciominorista",
+          "preciomayorista",
+          "retailprice",
+          "wholesaleprice",
+        ].includes(nk)
+      ) {
+        inc(priceKeysCounter, key);
+      }
+      if (["name", "title", "nombre", "productname", "description", "model"].includes(nk)) inc(nameKeysCounter, key);
+      if (["sku", "code", "codigo", "partnumber", "mpn", "ean", "gtin", "suppliercode"].includes(nk)) inc(skuKeysCounter, key);
+    }
+  }
+  const topMap = (map, limit = 20) =>
+    Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([key, count]) => ({ key, count }));
+  return {
+    productCount: Number(summary?.productCount || 0),
+    publicProductCount: Number(summary?.publicProductCount || 0),
+    sampledRows: rows.length,
+    topKeys: topMap(topKeysCounter, 30),
+    detectedPriceFields: topMap(priceKeysCounter, 20),
+    detectedNameFields: topMap(nameKeysCounter, 20),
+    detectedSkuCodeModelFields: topMap(skuKeysCounter, 20),
+    sampleImportedProducts: rows.slice(0, 10).map((row) => ({
+      rowid: row.rowid,
+      id: row.id,
+      sku: row.sku,
+      code: row.code,
+      name: row.name || row.title || null,
+      searchTextPreview: String(row.search_text || "").slice(0, 180),
+    })),
+    sampleRejectedByPublicity: rejectedRows.map((row) => ({
+      rowid: row.rowid,
+      id: row.id,
+      sku: row.sku,
+      code: row.code,
+      name: row.name || row.title || null,
+      visibility: row.visibility || null,
+      status: row.status || null,
+      enabled: row.enabled,
+      deleted: row.deleted,
+      archived: row.archived,
+      vip_only: row.vip_only,
+      wholesale_only: row.wholesale_only,
+    })),
+  };
+}
+
+async function debugCatalogSearch({ search = "", limit = 20 } = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const whereClause = buildWhereClause({ search, isPublicOnly: true });
+  const totalRow = await get(db, `SELECT COUNT(*) AS total FROM products ${whereClause.sql}`, whereClause.params);
+  const sampleMatches = await all(
+    db,
+    `SELECT id, sku, code, name, title, model, public_slug, search_text
+     FROM products ${whereClause.sql}
+     ORDER BY rowid ASC
+     LIMIT ?`,
+    [...whereClause.params, Math.max(1, Math.min(100, Number(limit) || 20))],
+  );
+  return {
+    search,
+    totalMatches: Number(totalRow?.total || 0),
+    sampleMatches: sampleMatches.map((row) => ({
+      id: row.id || null,
+      sku: row.sku || null,
+      code: row.code || null,
+      name: row.name || null,
+      title: row.title || null,
+      model: row.model || null,
+      publicSlug: row.public_slug || null,
+      searchTextPreview: String(row.search_text || "").slice(0, 220),
+    })),
   };
 }
 
@@ -1875,11 +2027,17 @@ module.exports = {
   getCatalogHealth,
   getCatalogPriceAudit,
   getCatalogPublicityAudit,
+  getCatalogFieldAudit,
+  debugCatalogSearch,
   updateProductByIdentifier,
   normalizeProductForPublic,
   normalizeProductForAdminList,
   normalizeQueryText,
   PRODUCTS_SQLITE_SCHEMA_VERSION,
+  CATALOG_MAPPING_VERSION,
+  getField,
+  isProductPublic,
+  mapProductRow,
   SQLITE_PATH,
   createInitializingError,
   SQLITE_CORRUPT_CODE,

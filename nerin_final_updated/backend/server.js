@@ -6153,6 +6153,35 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/catalog/field-audit" && req.method === "GET") {
+    try {
+      const sampleSize = Number(parsedUrl.query?.sampleSize || 300);
+      const audit = await productsSqliteRepo.getCatalogFieldAudit({ sampleSize });
+      return sendJson(res, 200, { ok: true, source: "sqlite", ...audit });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "No se pudo auditar campos",
+      });
+    }
+  }
+
+  if (pathname === "/api/catalog/debug-search" && req.method === "GET") {
+    try {
+      const search = String(parsedUrl.query?.search || "");
+      const limit = Number(parsedUrl.query?.limit || 20);
+      const payload = await productsSqliteRepo.debugCatalogSearch({ search, limit });
+      return sendJson(res, 200, { ok: true, source: "sqlite", ...payload });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "No se pudo depurar búsqueda",
+      });
+    }
+  }
+
   if (pathname === "/api/catalog/price-audit" && req.method === "GET") {
     try {
       const limit = Number(parsedUrl.query?.limit || 20);
