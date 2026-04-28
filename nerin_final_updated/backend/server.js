@@ -6129,45 +6129,15 @@ async function requestHandler(req, res) {
   }
 
   if (pathname === "/api/catalog/health" && req.method === "GET") {
-    try {
-      const health = await productsSqliteRepo.getCatalogHealth();
-      const productsJsonExists = fs.existsSync(PRODUCTS_FILE_PATH);
-      const sqlitePath = health?.sqlitePath || productsSqliteRepo.SQLITE_PATH;
-      const sqliteExists = Boolean(sqlitePath && fs.existsSync(sqlitePath));
-      console.log(
-        `[catalog-health] source=sqlite productCount=${Number(health?.productCount || 0)} publicProductCount=${Number(health?.publicProductCount || 0)}`,
-      );
-      return sendJson(res, 200, {
-        ok: true,
-        source: "sqlite",
-        productsJsonExists,
-        sqliteExists,
-        dbPath: health?.sqlitePath || null,
-        productCount: Number(health?.productCount || 0),
-        publicProductCount: Number(health?.publicProductCount || 0),
-        privateExplicitCount: Number(health?.privateExplicitCount || 0),
-        hiddenExplicitCount: Number(health?.hiddenExplicitCount || 0),
-        missingVisibilityCount: Number(health?.missingVisibilityCount || 0),
-        missingStatusCount: Number(health?.missingStatusCount || 0),
-        sqliteSchemaVersion: Number(
-          health?.sqliteSchemaVersion || productsSqliteRepo.PRODUCTS_SQLITE_SCHEMA_VERSION || 0,
-        ),
-        manifestSchemaVersion: Number(health?.manifestSchemaVersion || 0) || null,
-        productsJsonSizeBytes: Number(health?.productsJsonSizeBytes || 0),
-        productsJsonMtimeMs: Number(health?.productsJsonMtimeMs || 0),
-        isFresh: Boolean(health?.isFresh),
-        reason: health?.freshnessReason || null,
-        sqlitePath: health?.sqlitePath || null,
-        sqliteBuiltAt: health?.sqliteBuiltAt || health?.lastBuilt || null,
-        manifest: health?.manifest || null,
-      });
-    } catch (error) {
-      return sendJson(res, 503, {
-        ok: false,
-        source: "sqlite",
-        error: error?.message || "SQLite unavailable",
-      });
-    }
+    const health = await productsSqliteRepo.getCatalogHealth();
+    console.log(
+      `[catalog-health] ready=${Boolean(health?.ready)} initializing=${Boolean(health?.initializing)} rebuilding=${Boolean(health?.rebuilding)} productCount=${Number(health?.productCount || 0)}`,
+    );
+    return sendJson(res, 200, {
+      ok: Boolean(health?.ready),
+      source: "sqlite",
+      ...health,
+    });
   }
 
   if (pathname === "/api/catalog/publicity-audit" && req.method === "GET") {
@@ -6203,6 +6173,7 @@ async function requestHandler(req, res) {
       return sendJson(res, 409, {
         ok: false,
         code: "REBUILD_IN_PROGRESS",
+        catalogState: productsSqliteRepo.catalogStateSnapshot(),
       });
     }
     try {
@@ -6217,12 +6188,44 @@ async function requestHandler(req, res) {
         productCount: Number(manifest?.productCount || 0),
         publicProductCount: Number(manifest?.publicProductCount || 0),
         durationMs: Date.now() - startedAt,
+        catalogState: productsSqliteRepo.catalogStateSnapshot(),
+      });
+    } catch (error) {
+      const code = error?.code === "CATALOG_SQLITE_FAILED" ? "CATALOG_SQLITE_FAILED" : "REBUILD_FAILED";
+      return sendJson(res, 500, {
+        ok: false,
+        code,
+        source: "sqlite",
+        error: error?.message || "No se pudo reconstruir índice",
+        catalogState: error?.catalogState || productsSqliteRepo.catalogStateSnapshot(),
+      });
+    }
+  }
+
+  if (pathname === "/api/admin/catalog/repair-sqlite" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    if (productsSqliteRepo.isRebuildInProgress()) {
+      return sendJson(res, 409, {
+        ok: false,
+        code: "REBUILD_IN_PROGRESS",
+        catalogState: productsSqliteRepo.catalogStateSnapshot(),
+      });
+    }
+    try {
+      const manifest = await productsSqliteRepo.repairCorruptSqlite({ reason: "manual_admin_repair" });
+      return sendJson(res, 200, {
+        ok: true,
+        repaired: true,
+        productCount: Number(manifest?.productCount || 0),
+        publicProductCount: Number(manifest?.publicProductCount || 0),
+        catalogState: productsSqliteRepo.catalogStateSnapshot(),
       });
     } catch (error) {
       return sendJson(res, 500, {
         ok: false,
-        source: "sqlite",
-        error: error?.message || "No se pudo reconstruir índice",
+        code: "CATALOG_SQLITE_REPAIR_FAILED",
+        error: error?.message || "No se pudo reparar SQLite",
+        catalogState: error?.catalogState || productsSqliteRepo.catalogStateSnapshot(),
       });
     }
   }
@@ -6402,54 +6405,24 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
-      const shouldBlockFallback = DISABLE_PRODUCTS_STREAMING_FALLBACK || isLarge;
-      const reason = err?.code === "CATALOG_INITIALIZING" ? err?.reason || "initializing" : err?.message || String(err);
-      if (shouldBlockFallback) {
-        console.warn("[products-endpoint:fallback-blocked-large-catalog]", {
-          endpoint: "/api/products",
-          sizeBytes,
-          disableStreamingFallback: DISABLE_PRODUCTS_STREAMING_FALLBACK,
-          reason,
-        });
+      const code = err?.code || "CATALOG_SQLITE_FAILED";
+      const catalogState = err?.catalogState || productsSqliteRepo.catalogStateSnapshot();
+      if (code === "CATALOG_INITIALIZING") {
         return sendJson(res, 503, {
           ok: false,
+          code: "CATALOG_INITIALIZING",
           source: "sqlite",
           error: "Catálogo rápido inicializando",
-          message: "Catálogo rápido inicializando",
+          catalogState,
         });
       }
-      console.warn("[public-products:fallback-streaming]", { reason });
-      try {
-        const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
-          page: 1,
-          pageSize: 24,
-          maxPageSize: 96,
-        });
-        const withWholesale = canSeeWholesalePrices(req);
-        const pageData = await getProductsEmergencyResponse({
-          endpoint: "/api/products",
-          page,
-          pageSize,
-          matchItem: buildCatalogStreamFilter(parsedUrl.query || {}),
-          mapItem: (product) =>
-            withWholesale
-              ? normalizeProductImages(productsSqliteRepo.normalizeProductForPublic(product))
-              : normalizeProductImages(
-                  sanitizePublicProducts([productsSqliteRepo.normalizeProductForPublic(product)])[0],
-                ),
-        });
-        if (pageData === null) return;
-        return sendJson(res, 200, {
-          ...pageData,
-          source: "streaming_fallback",
-        });
-      } catch (fallbackError) {
-        console.error("products-public-read-error", fallbackError);
-        return sendJson(res, 500, {
-          error: "No se pudieron cargar los productos",
-        });
-      }
+      return sendJson(res, 500, {
+        ok: false,
+        code: "CATALOG_SQLITE_FAILED",
+        source: "sqlite",
+        error: err?.message || "Catálogo SQLite no disponible",
+        catalogState,
+      });
     }
   }
 
@@ -6505,46 +6478,24 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
-      const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
-      const shouldBlockFallback = DISABLE_PRODUCTS_STREAMING_FALLBACK || isLarge;
-      const reason = err?.code === "CATALOG_INITIALIZING" ? err?.reason || "initializing" : err?.message || String(err);
-      if (shouldBlockFallback) {
-        console.warn("[products-endpoint:fallback-blocked-large-catalog]", {
-          endpoint: "/api/admin/products",
-          sizeBytes,
-          disableStreamingFallback: DISABLE_PRODUCTS_STREAMING_FALLBACK,
-          reason,
-        });
+      const code = err?.code || "CATALOG_SQLITE_FAILED";
+      const catalogState = err?.catalogState || productsSqliteRepo.catalogStateSnapshot();
+      if (code === "CATALOG_INITIALIZING") {
         return sendJson(res, 503, {
           ok: false,
+          code: "CATALOG_INITIALIZING",
           source: "sqlite",
           error: "Catálogo rápido inicializando",
-          message: "Catálogo rápido inicializando",
+          catalogState,
         });
       }
-      console.warn("[admin-products:fallback-streaming]", { reason });
-      try {
-        const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
-          page: 1,
-          pageSize: 100,
-          maxPageSize: 250,
-        });
-        const pageData = await getProductsEmergencyResponse({
-          endpoint: "/api/admin/products",
-          page,
-          pageSize,
-          matchItem: buildAdminStreamFilter(parsedUrl.query || {}),
-          mapItem: (product) => normalizeProductImages(product),
-        });
-        if (pageData === null) return;
-        return sendJson(res, 200, {
-          ...pageData,
-          source: "streaming_fallback",
-        });
-      } catch (fallbackError) {
-        console.error("admin-products-list", fallbackError);
-        return sendJson(res, 500, { error: "No se pudieron cargar los productos del admin" });
-      }
+      return sendJson(res, 500, {
+        ok: false,
+        code: "CATALOG_SQLITE_FAILED",
+        source: "sqlite",
+        error: err?.message || "Catálogo SQLite no disponible",
+        catalogState,
+      });
     }
   }
 
@@ -12158,10 +12109,26 @@ module.exports = { createServer };
 
 if (require.main === module) {
   (async () => {
+    let startupRepairAttempted = false;
     try {
+      console.log("[products-db] startup ensure start");
       await productsSqliteRepo.ensureProductsDbOnce();
+      console.log("[products-db] startup ensure done");
     } catch (error) {
-      console.warn(`[products-db] unavailable fallback=streaming reason=${error?.message || error}`);
+      if (
+        !startupRepairAttempted &&
+        productsSqliteRepo.isSqliteCorruptionError(error)
+      ) {
+        startupRepairAttempted = true;
+        console.warn("[products-db] corrupt at startup; repairing");
+        try {
+          await productsSqliteRepo.repairCorruptSqlite({ reason: "startup_corrupt_repair" });
+        } catch (repairError) {
+          console.error("[products-db] repair failed", repairError?.message || repairError);
+        }
+      } else {
+        console.error(`[products-db] startup ensure failed reason=${error?.message || error}`);
+      }
     }
     const server = createServer();
     server.listen(APP_PORT, () => {

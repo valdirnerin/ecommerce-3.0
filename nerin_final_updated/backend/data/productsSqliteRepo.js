@@ -28,6 +28,94 @@ let dbReadyPromise = null;
 let dbReady = false;
 let rebuildPromise = null;
 const countCache = new Map();
+const SQLITE_CORRUPT_CODE = "CATALOG_SQLITE_CORRUPT";
+const catalogState = {
+  ready: false,
+  initializing: false,
+  rebuilding: false,
+  corruptDetected: false,
+  lastError: null,
+  lastErrorAt: null,
+  lastReadyAt: null,
+  lastRebuildStartedAt: null,
+  lastRebuildFinishedAt: null,
+  lastRebuildDurationMs: null,
+};
+
+function catalogStateSnapshot() {
+  return { ...catalogState };
+}
+
+function setCatalogError(error, context = {}) {
+  const forcedCode = context.code || null;
+  const isCorrupt = forcedCode === SQLITE_CORRUPT_CODE || isSqliteCorruptionError(error);
+  catalogState.lastError = {
+    message: String(error?.message || error || "unknown_error"),
+    code: forcedCode || error?.code || null,
+    reason: context.reason || error?.reason || null,
+    phase: context.phase || null,
+    stack: error?.stack || null,
+  };
+  catalogState.lastErrorAt = new Date().toISOString();
+  catalogState.ready = false;
+  catalogState.corruptDetected = Boolean(isCorrupt);
+}
+
+function clearCatalogError() {
+  catalogState.lastError = null;
+  catalogState.lastErrorAt = null;
+  catalogState.corruptDetected = false;
+}
+
+function isSqliteCorruptionError(error) {
+  const msg = String(error?.message || error || "");
+  return /SQLITE_CORRUPT|database disk image is malformed|SQLITE_NOTADB|file is not a database/i.test(msg);
+}
+
+function markSqliteCorruption(error, context = {}) {
+  console.error("[products-db] sqlite corrupt detected", error?.message || error);
+  setCatalogError(error, { ...context, code: SQLITE_CORRUPT_CODE });
+}
+
+async function closeDbInstance() {
+  if (!dbInstance) return;
+  await new Promise((resolve) => dbInstance.close(() => resolve()));
+  dbInstance = null;
+}
+
+async function safeMoveOrDelete(filePath, suffix) {
+  if (!fs.existsSync(filePath)) return null;
+  const backupPath = `${filePath}.corrupt-${suffix}`;
+  try {
+    await fsp.rename(filePath, backupPath);
+    return backupPath;
+  } catch (error) {
+    try {
+      await fsp.unlink(filePath);
+      return null;
+    } catch {
+      throw error;
+    }
+  }
+}
+
+async function backupAndRemoveSqliteFiles({ suffix = Date.now() } = {}) {
+  const backups = [];
+  const files = [SQLITE_PATH, `${SQLITE_PATH}-wal`, `${SQLITE_PATH}-shm`];
+  for (const filePath of files) {
+    const movedTo = await safeMoveOrDelete(filePath, suffix);
+    if (movedTo) backups.push({ from: filePath, to: movedTo });
+  }
+  return backups;
+}
+
+async function runIntegrityCheck(db) {
+  const row = await get(db, "PRAGMA integrity_check");
+  const value = row ? Object.values(row)[0] : null;
+  if (value !== "ok") {
+    throw new Error(`SQLITE_INTEGRITY_CHECK_FAILED: ${JSON.stringify(row || null)}`);
+  }
+}
 
 function normalizeQueryText(value) {
   const text = String(value || "")
@@ -251,17 +339,27 @@ async function withTransaction(db, callback) {
 async function openDb() {
   if (dbInstance) return dbInstance;
   await fsp.mkdir(path.dirname(SQLITE_PATH), { recursive: true });
-  dbInstance = await new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(SQLITE_PATH, (error) => {
-      if (error) reject(error);
-      else resolve(db);
+  try {
+    dbInstance = await new Promise((resolve, reject) => {
+      const db = new sqlite3.Database(SQLITE_PATH, (error) => {
+        if (error) reject(error);
+        else resolve(db);
+      });
     });
-  });
-  await run(dbInstance, "PRAGMA journal_mode = WAL");
-  await run(dbInstance, "PRAGMA synchronous = NORMAL");
-  await run(dbInstance, "PRAGMA busy_timeout = 5000");
-  await run(dbInstance, "PRAGMA temp_store = MEMORY");
-  return dbInstance;
+    await run(dbInstance, "PRAGMA journal_mode = WAL");
+    await run(dbInstance, "PRAGMA synchronous = NORMAL");
+    await run(dbInstance, "PRAGMA busy_timeout = 5000");
+    await run(dbInstance, "PRAGMA temp_store = MEMORY");
+    return dbInstance;
+  } catch (error) {
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "open_db", reason: "sqlite_open_corrupt" });
+    }
+    try {
+      await closeDbInstance();
+    } catch {}
+    throw error;
+  }
 }
 
 async function detectFtsAvailability(db) {
@@ -714,6 +812,17 @@ function createInitializingError(reason = "sqlite_not_ready") {
   const error = new Error("Catálogo rápido inicializando");
   error.code = "CATALOG_INITIALIZING";
   error.reason = reason;
+  error.catalogState = catalogStateSnapshot();
+  return error;
+}
+
+function createCatalogFailedError(reason = "sqlite_failed", originalError = null) {
+  const message = originalError?.message || "Catálogo rápido no disponible";
+  const error = new Error(message);
+  error.code = "CATALOG_SQLITE_FAILED";
+  error.reason = reason;
+  error.originalError = originalError || null;
+  error.catalogState = catalogStateSnapshot();
   return error;
 }
 
@@ -725,10 +834,13 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
   rebuildPromise = (async () => {
     const startedAt = Date.now();
     const activeReason = reason || (force ? "forced" : "unknown");
-    const db = await openDb();
+    catalogState.rebuilding = true;
+    catalogState.initializing = true;
+    catalogState.ready = false;
+    catalogState.lastRebuildStartedAt = new Date(startedAt).toISOString();
     const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
     const tmpDbPath = `${SQLITE_PATH}.tmp-${process.pid}-${Date.now()}`;
-    console.log(`[products-db] full rebuild start reason=${activeReason} productsFilePath=${PRODUCTS_JSON_PATH}`);
+    console.log(`[products-db] rebuild start reason=${activeReason} productsFilePath=${PRODUCTS_JSON_PATH}`);
 
     const tmpDb = await new Promise((resolve, reject) => {
       const conn = new sqlite3.Database(tmpDbPath, (error) => {
@@ -830,6 +942,27 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
         );
       }
 
+      await new Promise((resolve, reject) => {
+        tmpDb.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      const validateTmpDb = await new Promise((resolve, reject) => {
+        const conn = new sqlite3.Database(tmpDbPath, (error) => {
+          if (error) reject(error);
+          else resolve(conn);
+        });
+      });
+      await runIntegrityCheck(validateTmpDb);
+      await new Promise((resolve, reject) => validateTmpDb.close((error) => (error ? reject(error) : resolve())));
+
+      await closeDbInstance();
+      await backupAndRemoveSqliteFiles({ suffix: Date.now() });
+      await fsp.rename(tmpDbPath, SQLITE_PATH);
+      const finalDb = await openDb();
+      await runIntegrityCheck(finalDb);
+
       const manifest = {
         sqliteSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
         productCount: count,
@@ -840,32 +973,29 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
         sqlitePath: SQLITE_PATH,
         sqliteFtsEnabled: ftsEnabled,
       };
-
       await fsp.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf8");
-
-      await new Promise((resolve, reject) => {
-        tmpDb.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      });
-
-      if (fs.existsSync(SQLITE_PATH)) await fsp.unlink(SQLITE_PATH);
-      await fsp.rename(tmpDbPath, SQLITE_PATH);
-
-      if (dbInstance) {
-        await new Promise((resolve) => dbInstance.close(() => resolve()));
-        dbInstance = null;
-      }
 
       const durationMs = Date.now() - startedAt;
       console.log(
-        `[products-db] full rebuild done productCount=${count} publicProductCount=${publicCount} durationMs=${durationMs}`,
+        `[products-db] rebuild done productCount=${count} publicProductCount=${publicCount} durationMs=${durationMs}`,
       );
       countCache.clear();
       dbReady = true;
+      catalogState.ready = true;
+      catalogState.lastReadyAt = new Date().toISOString();
+      catalogState.lastRebuildFinishedAt = new Date().toISOString();
+      catalogState.lastRebuildDurationMs = durationMs;
+      clearCatalogError();
       return manifest;
     } catch (error) {
+      console.error(`[products-db] rebuild failed reason=${activeReason}`, error);
+      if (isSqliteCorruptionError(error)) {
+        markSqliteCorruption(error, { phase: "rebuild", reason: activeReason });
+      } else {
+        setCatalogError(error, { phase: "rebuild", reason: activeReason });
+      }
+      catalogState.lastRebuildFinishedAt = new Date().toISOString();
+      catalogState.lastRebuildDurationMs = Date.now() - startedAt;
       try {
         await new Promise((resolve) => tmpDb.close(() => resolve()));
       } catch {}
@@ -879,7 +1009,37 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
   try {
     return await rebuildPromise;
   } finally {
+    catalogState.rebuilding = false;
+    catalogState.initializing = false;
     rebuildPromise = null;
+  }
+}
+
+async function repairCorruptSqlite({ reason = "sqlite_corrupt" } = {}) {
+  if (rebuildPromise) return rebuildPromise;
+  console.log("[products-db] repair start");
+  try {
+    dbReady = false;
+    catalogState.ready = false;
+    catalogState.initializing = true;
+    await closeDbInstance();
+    await backupAndRemoveSqliteFiles({ suffix: Date.now() });
+    try {
+      if (fs.existsSync(MANIFEST_PATH)) await fsp.unlink(MANIFEST_PATH);
+    } catch {}
+    const manifest = await rebuildProductsDbFromJson({ force: true, reason });
+    console.log("[products-db] repair done");
+    return manifest;
+  } catch (error) {
+    console.error("[products-db] repair failed", error);
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "repair", reason });
+    } else {
+      setCatalogError(error, { phase: "repair", reason });
+    }
+    throw error;
+  } finally {
+    catalogState.initializing = false;
   }
 }
 
@@ -892,35 +1052,44 @@ async function inspectSqliteSchemaIntegrity() {
   if (!fs.existsSync(SQLITE_PATH)) {
     return { ok: false, reason: "sqlite_missing" };
   }
-  const db = await openDb();
-  const columns = await all(db, "PRAGMA table_info(products)");
-  const columnByName = new Map(
-    columns.map((col) => [String(col?.name || "").toLowerCase(), String(col?.type || "").trim()]),
-  );
-  if (!columnByName.has("public_slug")) {
-    return { ok: false, reason: "public_slug_missing" };
-  }
-  const priceColumns = [
-    "price",
-    "price_minorista",
-    "price_mayorista",
-    "precio_minorista",
-    "precio_mayorista",
-    "precio_final",
-    "precio_sin_impuestos",
-    "cost",
-  ];
-  for (const col of priceColumns) {
-    const type = columnByName.get(col);
-    if (!type) continue;
-    if (isTextSqlType(type)) {
-      return { ok: false, reason: "price_column_type_mismatch", column: col, currentType: type };
+  try {
+    const db = await openDb();
+    const columns = await all(db, "PRAGMA table_info(products)");
+    const columnByName = new Map(
+      columns.map((col) => [String(col?.name || "").toLowerCase(), String(col?.type || "").trim()]),
+    );
+    if (!columnByName.has("public_slug")) {
+      return { ok: false, reason: "public_slug_missing" };
     }
+    const priceColumns = [
+      "price",
+      "price_minorista",
+      "price_mayorista",
+      "precio_minorista",
+      "precio_mayorista",
+      "precio_final",
+      "precio_sin_impuestos",
+      "cost",
+    ];
+    for (const col of priceColumns) {
+      const type = columnByName.get(col);
+      if (!type) continue;
+      if (isTextSqlType(type)) {
+        return { ok: false, reason: "price_column_type_mismatch", column: col, currentType: type };
+      }
+    }
+    return { ok: true };
+  } catch (error) {
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "inspect_schema", reason: "sqlite_corrupt" });
+      return { ok: false, reason: "sqlite_corrupt" };
+    }
+    throw error;
   }
-  return { ok: true };
 }
 
 async function ensureProductsDb({ allowRebuild = true } = {}) {
+  catalogState.initializing = true;
   console.log("[products-db] paths", buildCatalogPathsInfo());
   console.log("[products-db] ensure start");
   const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
@@ -960,7 +1129,11 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
   if (reason) {
     console.log(`[products-db] rebuild required reason=${reason}`);
     if (!allowRebuild) throw createInitializingError(reason);
-    await rebuildProductsDbFromJson({ force: true, reason });
+    if (reason === "sqlite_corrupt") {
+      await repairCorruptSqlite({ reason });
+    } else {
+      await rebuildProductsDbFromJson({ force: true, reason });
+    }
   } else {
     console.log("[products-db] already fresh");
   }
@@ -968,6 +1141,10 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
   const db = await openDb();
   await createSchema(db);
   dbReady = true;
+  catalogState.ready = true;
+  catalogState.lastReadyAt = new Date().toISOString();
+  catalogState.initializing = false;
+  clearCatalogError();
   return {
     dbPath: SQLITE_PATH,
     manifest: await getManifestFromDb(),
@@ -978,10 +1155,24 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
 async function ensureProductsDbOnce() {
   if (dbReady) return { dbPath: SQLITE_PATH, source: "sqlite", ready: true };
   if (dbReadyPromise) return dbReadyPromise;
+  catalogState.initializing = true;
   dbReadyPromise = ensureProductsDb({ allowRebuild: true });
   try {
     return await dbReadyPromise;
+  } catch (error) {
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "ensure_once", reason: "bootstrap_corrupt" });
+      try {
+        return await repairCorruptSqlite({ reason: "ensure_once_corrupt" });
+      } catch (repairError) {
+        setCatalogError(repairError, { phase: "ensure_once", reason: "repair_failed" });
+        throw repairError;
+      }
+    }
+    setCatalogError(error, { phase: "ensure_once", reason: "bootstrap_failed" });
+    throw error;
   } finally {
+    catalogState.initializing = false;
     dbReadyPromise = null;
   }
 }
@@ -1003,14 +1194,36 @@ function ensureProductsDbInBackground(trigger = "request") {
 
 async function ensureDbReadyForRequest() {
   if (dbReady) return;
+  if (catalogState.lastError) {
+    if (catalogState.lastError.code === SQLITE_CORRUPT_CODE) {
+      try {
+        await repairCorruptSqlite({ reason: "request_corrupt_repair" });
+        return;
+      } catch (repairError) {
+        throw createCatalogFailedError("persisted_corrupt_error", repairError);
+      }
+    }
+    throw createCatalogFailedError("persisted_error");
+  }
   if (dbReadyPromise) throw createInitializingError("sqlite_bootstrap_in_progress");
   try {
     await ensureProductsDb({ allowRebuild: false });
   } catch (error) {
     if (error?.code === "CATALOG_INITIALIZING") {
       ensureProductsDbInBackground("request-auto-bootstrap");
+      throw error;
     }
-    throw error;
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "request_readiness", reason: "ensure_corrupt" });
+      try {
+        await repairCorruptSqlite({ reason: "request_readiness_corrupt" });
+        return;
+      } catch (repairError) {
+        throw createCatalogFailedError("ensure_corrupt_repair_failed", repairError);
+      }
+    }
+    setCatalogError(error, { phase: "request_readiness", reason: "ensure_failed" });
+    throw createCatalogFailedError("ensure_failed", error);
   }
 }
 
@@ -1219,7 +1432,18 @@ async function queryBase({
 }
 
 async function queryProducts(params = {}) {
-  const result = await queryBase({ ...params, isPublicOnly: true });
+  let result;
+  try {
+    result = await queryBase({ ...params, isPublicOnly: true });
+  } catch (error) {
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "query_products", reason: "sqlite_corrupt" });
+      await repairCorruptSqlite({ reason: "query_products_corrupt" });
+      result = await queryBase({ ...params, isPublicOnly: true });
+    } else {
+      throw error;
+    }
+  }
   console.log("[products-sqlite:queryProducts]", {
     page: result.page,
     pageSize: result.pageSize,
@@ -1236,7 +1460,18 @@ async function queryProducts(params = {}) {
 }
 
 async function queryAdminProducts(params = {}) {
-  const result = await queryBase({ ...params, isPublicOnly: false });
+  let result;
+  try {
+    result = await queryBase({ ...params, isPublicOnly: false });
+  } catch (error) {
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "query_admin_products", reason: "sqlite_corrupt" });
+      await repairCorruptSqlite({ reason: "query_admin_products_corrupt" });
+      result = await queryBase({ ...params, isPublicOnly: false });
+    } else {
+      throw error;
+    }
+  }
   console.log("[products-sqlite:queryAdminProducts]", {
     page: result.page,
     pageSize: result.pageSize,
@@ -1253,41 +1488,63 @@ async function queryAdminProducts(params = {}) {
 }
 
 async function getProductBySlug(slug) {
-  await ensureDbReadyForRequest();
-  const db = await openDb();
-  const row = await get(
-    db,
-    "SELECT rowid, raw_json, public_slug FROM products WHERE slug = ? LIMIT 1",
-    [String(slug || "").trim()],
-  );
-  return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const row = await get(
+      db,
+      "SELECT rowid, raw_json, public_slug FROM products WHERE slug = ? LIMIT 1",
+      [String(slug || "").trim()],
+    );
+    return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "get_product_by_slug", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "get_product_by_slug_corrupt" });
+    return getProductBySlug(slug);
+  }
 }
 
 async function getProductById(id) {
-  await ensureDbReadyForRequest();
-  const db = await openDb();
-  const row = await get(db, "SELECT rowid, raw_json, public_slug FROM products WHERE id = ? LIMIT 1", [String(id || "").trim()]);
-  return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const row = await get(db, "SELECT rowid, raw_json, public_slug FROM products WHERE id = ? LIMIT 1", [String(id || "").trim()]);
+    return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "get_product_by_id", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "get_product_by_id_corrupt" });
+    return getProductById(id);
+  }
 }
 
 async function getProductByCode(code) {
-  await ensureDbReadyForRequest();
-  const db = await openDb();
-  const target = String(code || "").trim();
-  const row = await get(
-    db,
-    "SELECT rowid, raw_json, public_slug FROM products WHERE code = ? OR sku = ? LIMIT 1",
-    [target, target],
-  );
-  return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const target = String(code || "").trim();
+    const row = await get(
+      db,
+      "SELECT rowid, raw_json, public_slug FROM products WHERE code = ? OR sku = ? LIMIT 1",
+      [target, target],
+    );
+    return parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "get_product_by_code", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "get_product_by_code_corrupt" });
+    return getProductByCode(code);
+  }
 }
 
 async function getProductByPublicSlugOrAnyIdentifier(value) {
-  await ensureDbReadyForRequest();
-  const db = await openDb();
-  const target = String(value || "").trim();
-  if (!target) return { foundBy: "none", source: "sqlite", product: null };
-  const checks = [
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const target = String(value || "").trim();
+    if (!target) return { foundBy: "none", source: "sqlite", product: null };
+    const checks = [
     { field: "public_slug", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE public_slug = ? LIMIT 1" },
     { field: "slug", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE slug = ? LIMIT 1" },
     { field: "id", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE id = ? LIMIT 1" },
@@ -1299,12 +1556,18 @@ async function getProductByPublicSlugOrAnyIdentifier(value) {
     { field: "gtin", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE gtin = ? LIMIT 1" },
     { field: "supplierCode", sql: "SELECT rowid, raw_json, public_slug FROM products WHERE supplier_code = ? LIMIT 1" },
   ];
-  for (const check of checks) {
-    const row = await get(db, check.sql, [target]);
-    const product = parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
-    if (product) return { foundBy: check.field, source: "sqlite", product };
+    for (const check of checks) {
+      const row = await get(db, check.sql, [target]);
+      const product = parseRawItems(row ? [row] : [], { normalizePublic: true })[0] || null;
+      if (product) return { foundBy: check.field, source: "sqlite", product };
+    }
+    return { foundBy: "none", source: "sqlite", product: null };
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "get_product_by_any_identifier", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "get_product_by_any_identifier_corrupt" });
+    return getProductByPublicSlugOrAnyIdentifier(value);
   }
-  return { foundBy: "none", source: "sqlite", product: null };
 }
 
 async function getManifestFromDb() {
@@ -1318,30 +1581,51 @@ async function getManifestFromDb() {
 }
 
 async function getCatalogHealth() {
-  if (!fs.existsSync(SQLITE_PATH)) {
-    throw createInitializingError("sqlite_missing");
+  const paths = buildCatalogPathsInfo();
+  const productsJsonExists = fs.existsSync(PRODUCTS_JSON_PATH);
+  const sqliteExists = fs.existsSync(SQLITE_PATH);
+  let totalRow = { total: 0 };
+  let publicRow = { total: 0 };
+  let privateExplicitRow = { total: 0 };
+  let hiddenExplicitRow = { total: 0 };
+  let missingVisibilityRow = { total: 0 };
+  let missingStatusRow = { total: 0 };
+  if (sqliteExists) {
+    try {
+      const db = await openDb();
+      totalRow = await get(db, "SELECT COUNT(*) AS total FROM products");
+      publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
+      privateExplicitRow = await get(
+        db,
+        "SELECT COUNT(*) AS total FROM products WHERE visibility = 'private' OR status = 'private'",
+      );
+      hiddenExplicitRow = await get(
+        db,
+        "SELECT COUNT(*) AS total FROM products WHERE visibility = 'hidden' OR status = 'hidden'",
+      );
+      missingVisibilityRow = await get(
+        db,
+        "SELECT COUNT(*) AS total FROM products WHERE visibility IS NULL OR visibility = ''",
+      );
+      missingStatusRow = await get(
+        db,
+        "SELECT COUNT(*) AS total FROM products WHERE status IS NULL OR status = ''",
+      );
+    } catch (error) {
+      if (isSqliteCorruptionError(error)) {
+        markSqliteCorruption(error, { phase: "health", reason: "sqlite_query_failed" });
+      } else {
+        setCatalogError(error, { phase: "health", reason: "sqlite_query_failed" });
+      }
+    }
   }
-  const db = await openDb();
-  const totalRow = await get(db, "SELECT COUNT(*) AS total FROM products");
-  const publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
-  const privateExplicitRow = await get(
-    db,
-    "SELECT COUNT(*) AS total FROM products WHERE visibility = 'private' OR status = 'private'",
-  );
-  const hiddenExplicitRow = await get(
-    db,
-    "SELECT COUNT(*) AS total FROM products WHERE visibility = 'hidden' OR status = 'hidden'",
-  );
-  const missingVisibilityRow = await get(
-    db,
-    "SELECT COUNT(*) AS total FROM products WHERE visibility IS NULL OR visibility = ''",
-  );
-  const missingStatusRow = await get(
-    db,
-    "SELECT COUNT(*) AS total FROM products WHERE status IS NULL OR status = ''",
-  );
   const manifest = await getManifestFromDb();
-  const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
+  let productsStats = null;
+  try {
+    productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
+  } catch {
+    productsStats = null;
+  }
   let isFresh = true;
   let freshnessReason = null;
   if (!manifest) {
@@ -1378,8 +1662,21 @@ async function getCatalogHealth() {
   }
   return {
     source: "sqlite",
+    ...paths,
+    ready: Boolean(dbReady && sqliteExists && !catalogState.lastError),
+    initializing: Boolean(catalogState.initializing),
+    rebuilding: Boolean(catalogState.rebuilding),
+    lastError: catalogState.lastError,
+    lastErrorCode: catalogState.lastError?.code || null,
+    lastErrorAt: catalogState.lastErrorAt,
+    corruptDetected: Boolean(catalogState.corruptDetected),
+    lastReadyAt: catalogState.lastReadyAt,
+    lastRebuildStartedAt: catalogState.lastRebuildStartedAt,
+    lastRebuildFinishedAt: catalogState.lastRebuildFinishedAt,
+    lastRebuildDurationMs: catalogState.lastRebuildDurationMs,
+    productsJsonExists,
     sqlitePath: SQLITE_PATH,
-    sqliteExists: true,
+    sqliteExists,
     productCount,
     publicProductCount,
     privateExplicitCount: Number(privateExplicitRow?.total || 0),
@@ -1563,6 +1860,11 @@ module.exports = {
   ensureProductsDbOnce,
   rebuildProductsDbFromJson,
   isRebuildInProgress,
+  repairCorruptSqlite,
+  isSqliteCorruptionError,
+  catalogStateSnapshot,
+  setCatalogError,
+  clearCatalogError,
   queryProducts,
   queryAdminProducts,
   getProductBySlug,
@@ -1580,4 +1882,5 @@ module.exports = {
   PRODUCTS_SQLITE_SCHEMA_VERSION,
   SQLITE_PATH,
   createInitializingError,
+  SQLITE_CORRUPT_CODE,
 };
