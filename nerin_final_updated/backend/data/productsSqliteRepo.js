@@ -481,8 +481,8 @@ function computeProductPublicState(product = {}) {
   const vipOnlyValue = getField(product, ["vip_only", "vip only", "vipOnly"]);
   const wholesaleOnlyValue = getField(product, ["wholesaleOnly", "wholesale_only", "wholesale only"]);
 
-  const hasName = Boolean(toNullableText(getField(product, ["name", "title", "productName", "nombre", "model", "shortDescription", "short_description", "description", "descripcion"])));
-  const hasIdentifier = Boolean(toNullableText(getField(product, ["id", "sku", "SKU", "code", "Code", "codigo", "Código", "partNumber", "Part Number", "mpn", "ean", "gtin", "supplierCode", "Supplier Part Number"])));
+  const hasName = Boolean(toNullableText(getField(product, ["name", "title", "productName", "Product Name", "Item Name", "nombre", "Name", "Artículo", "model", "description", "descripcion", "Descripcion", "shortDescription", "short_description", "Short Description"])));
+  const hasIdentifier = Boolean(toNullableText(getField(product, ["id", "sku", "SKU", "code", "Code", "codigo", "Código", "partNumber", "Part Number", "mpn", "MPN", "ean", "EAN", "gtin", "GTIN", "supplierCode", "Supplier Code", "Supplier Part Number"])));
 
   const signals = {
     visibility,
@@ -513,18 +513,34 @@ function isProductPublic(product) {
 }
 
 function buildSearchText(product = {}) {
+  const mappedCore = {
+    publicSlug: toNullableText(getField(product, ["publicSlug", "public_slug"])),
+    slug: toNullableText(getField(product, ["slug"])),
+    id: toNullableText(getField(product, ["id"])),
+    sku: toNullableText(getField(product, ["sku", "SKU", "Sku"])),
+    code: toNullableText(getField(product, ["code", "Code", "codigo", "Código"])),
+    name: toNullableText(getField(product, ["name", "Name", "nombre"])),
+    title: toNullableText(getField(product, ["title", "Title", "productName", "Product Name", "Item Name"])),
+    model: toNullableText(getField(product, ["model", "Model", "modelo"])),
+    partNumber: toNullableText(getField(product, ["partNumber", "Part Number"])),
+    mpn: toNullableText(getField(product, ["mpn", "MPN"])),
+    ean: toNullableText(getField(product, ["ean", "EAN"])),
+    gtin: toNullableText(getField(product, ["gtin", "GTIN"])),
+    supplierCode: toNullableText(getField(product, ["supplierCode", "Supplier Code", "Supplier Part Number"])),
+    description: toNullableText(getField(product, ["description", "Description", "descripcion", "Descripcion"])),
+    shortDescription: toNullableText(getField(product, ["shortDescription", "short_description", "Short Description"])),
+  };
   const metadataText = product?.metadata ? JSON.stringify(product.metadata) : "";
+  const rawText = Object.values(product || {})
+    .filter((value) => typeof value === "string" || typeof value === "number")
+    .join(" ");
   const fields = [
-    getField(product, ["name", "title", "productName", "nombre", "Name", "Title"]),
-    getField(product, ["model", "modelo", "Model"]),
-    getField(product, ["description", "descripcion", "shortDescription", "short_description"]),
+    ...Object.values(mappedCore),
     getField(product, ["brand", "marca", "Brand"]),
     getField(product, ["category", "categoria", "Category"]),
-    getField(product, ["sku", "SKU", "Sku"]),
-    getField(product, ["code", "Code", "codigo", "Código"]),
-    getField(product, ["partNumber", "Part Number", "Supplier Part Number", "mpn", "ean", "gtin", "supplierCode"]),
-    getField(product, ["id", "slug"]),
+    getField(product, ["description", "descripcion", "shortDescription", "short_description"]),
     metadataText,
+    rawText,
   ];
   return normalizeQueryText(fields.filter(Boolean).join(" "));
 }
@@ -580,6 +596,7 @@ function buildPublicSlug(product = {}, fallbackRow = null) {
 function mapProductRow(product = {}, options = {}) {
   const { rowNumber = null, slugCounts = null } = options;
   const mappedCore = {
+    publicSlug: toNullableText(getField(product, ["publicSlug", "public_slug"])),
     id: toNullableText(getField(product, ["id"])),
     sku: toNullableText(getField(product, ["sku", "SKU", "Sku"])),
     code: toNullableText(getField(product, ["code", "Code", "codigo", "Código"])),
@@ -592,6 +609,8 @@ function mapProductRow(product = {}, options = {}) {
     gtin: toNullableText(getField(product, ["gtin", "GTIN"])),
     supplierCode: toNullableText(getField(product, ["supplierCode", "supplier_code", "Supplier Part Number"])),
     slug: toNullableText(getField(product, ["slug"])),
+    description: toNullableText(getField(product, ["description", "Description", "descripcion", "Descripcion"])),
+    shortDescription: toNullableText(getField(product, ["shortDescription", "short_description", "Short Description"])),
   };
   let publicSlug = buildPublicSlug(mappedCore, rowNumber);
   if (slugCounts instanceof Map) {
@@ -1757,9 +1776,10 @@ async function getCatalogPublicityAudit() {
   await ensureDbReadyForRequest();
   const db = await openDb();
   const rows = await all(db, `SELECT rowid, id, sku, code, name, title, status, visibility, enabled, deleted, archived, vip_only, wholesale_only, raw_json, is_public FROM products`);
-  const rejectedCounts = { explicitPrivate: 0, explicitHidden: 0, explicitDraft: 0, explicitDisabled: 0, enabledFalse: 0, deleted: 0, archived: 0, vipOnly: 0, wholesaleOnly: 0, missingName: 0, missingIdentifier: 0 };
+  const rejectedCounts = { explicitPrivate: 0, explicitHidden: 0, explicitDraft: 0, explicitDisabled: 0, enabledFalse: 0, deleted: 0, archived: 0, vipOnly: 0, wholesaleOnly: 0, missingName: 0, missingIdentifier: 0, other: 0 };
   const visibilityDistribution = {};
   const statusDistribution = {};
+  const topRawKeysCounter = new Map();
   const examplesRejected = [];
   for (const row of rows) {
     const v = normalizeQueryText(row.visibility || "") || "(empty)";
@@ -1768,24 +1788,72 @@ async function getCatalogPublicityAudit() {
     statusDistribution[st] = (statusDistribution[st] || 0) + 1;
     let raw = {};
     try { raw = JSON.parse(row.raw_json || "{}"); } catch {}
+    for (const key of Object.keys(raw || {})) topRawKeysCounter.set(key, Number(topRawKeysCounter.get(key) || 0) + 1);
     const computed = computeProductPublicState(raw);
     if (!computed.isPublic) {
+      let reasonMatched = false;
       if (v === 'private' || st === 'private') rejectedCounts.explicitPrivate += 1;
       if (v === 'hidden' || st === 'hidden') rejectedCounts.explicitHidden += 1;
       if (v === 'draft' || st === 'draft') rejectedCounts.explicitDraft += 1;
       if (v === 'disabled' || st === 'disabled') rejectedCounts.explicitDisabled += 1;
-      if (computed.signals.enabledFalse) rejectedCounts.enabledFalse += 1;
-      if (computed.signals.deleted) rejectedCounts.deleted += 1;
-      if (computed.signals.archived) rejectedCounts.archived += 1;
-      if (computed.signals.vipOnly) rejectedCounts.vipOnly += 1;
-      if (computed.signals.wholesaleOnly) rejectedCounts.wholesaleOnly += 1;
-      if (computed.signals.missingName) rejectedCounts.missingName += 1;
-      if (computed.signals.missingIdentifier) rejectedCounts.missingIdentifier += 1;
+      if (computed.signals.enabledFalse) { rejectedCounts.enabledFalse += 1; reasonMatched = true; }
+      if (computed.signals.deleted) { rejectedCounts.deleted += 1; reasonMatched = true; }
+      if (computed.signals.archived) { rejectedCounts.archived += 1; reasonMatched = true; }
+      if (computed.signals.vipOnly) { rejectedCounts.vipOnly += 1; reasonMatched = true; }
+      if (computed.signals.wholesaleOnly) { rejectedCounts.wholesaleOnly += 1; reasonMatched = true; }
+      if (computed.signals.missingName) { rejectedCounts.missingName += 1; reasonMatched = true; }
+      if (computed.signals.missingIdentifier) { rejectedCounts.missingIdentifier += 1; reasonMatched = true; }
+      if (!reasonMatched) rejectedCounts.other += 1;
       if (examplesRejected.length < 20) examplesRejected.push({ rowid: row.rowid, id: row.id, sku: row.sku, code: row.code, name: row.name || row.title || null, visibility: row.visibility || null, status: row.status || null, is_public: row.is_public, reason: computed.reason });
     }
   }
   const publicProductCount = rows.filter((r)=>Number(r.is_public||0)===1).length;
-  return { productCount: rows.length, publicProductCount, rejectedCounts, visibilityDistribution, statusDistribution, examplesRejected };
+  const topRawKeys = Array.from(topRawKeysCounter.entries()).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([key, count]) => ({ key, count }));
+  return { productCount: rows.length, publicProductCount, privateOrRejectedCount: rows.length - publicProductCount, rejectedCounts, visibilityDistribution, statusDistribution, topRawKeys, examplesRejected };
+}
+
+async function repairPublicFlags() {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const rows = await all(db, "SELECT rowid, raw_json, is_public FROM products ORDER BY rowid ASC");
+  const beforePublicCount = rows.reduce((acc, row) => acc + (Number(row.is_public || 0) === 1 ? 1 : 0), 0);
+  const rejectedCounts = { explicitPrivate: 0, explicitHidden: 0, explicitDraft: 0, explicitDisabled: 0, enabledFalse: 0, deleted: 0, archived: 0, vipOnly: 0, wholesaleOnly: 0, missingName: 0, missingIdentifier: 0, other: 0 };
+  let afterPublicCount = 0;
+  let updatedRows = 0;
+  await run(db, "BEGIN IMMEDIATE TRANSACTION");
+  try {
+    for (const row of rows) {
+      let raw = {};
+      try { raw = JSON.parse(row.raw_json || "{}"); } catch {}
+      const mapped = mapProductRow(raw, { rowNumber: row.rowid });
+      const computed = computeProductPublicState(raw);
+      if (mapped.is_public === 1) afterPublicCount += 1;
+      if (!computed.isPublic) {
+        const v = normalizeQueryText(getField(raw, ["visibility", "visibilidad"]) || "");
+        const st = normalizeQueryText(getField(raw, ["status", "estado"]) || "");
+        if (v === "private" || st === "private") rejectedCounts.explicitPrivate += 1;
+        if (v === "hidden" || st === "hidden") rejectedCounts.explicitHidden += 1;
+        if (v === "draft" || st === "draft") rejectedCounts.explicitDraft += 1;
+        if (v === "disabled" || st === "disabled") rejectedCounts.explicitDisabled += 1;
+        if (computed.signals.enabledFalse) rejectedCounts.enabledFalse += 1;
+        if (computed.signals.deleted) rejectedCounts.deleted += 1;
+        if (computed.signals.archived) rejectedCounts.archived += 1;
+        if (computed.signals.vipOnly) rejectedCounts.vipOnly += 1;
+        if (computed.signals.wholesaleOnly) rejectedCounts.wholesaleOnly += 1;
+        if (computed.signals.missingName) rejectedCounts.missingName += 1;
+        if (computed.signals.missingIdentifier) rejectedCounts.missingIdentifier += 1;
+      }
+      const changes = await run(db, `UPDATE products SET is_public = ?, search_text = ?, public_slug = ?, name = ?, title = ?, sku = ?, code = ?, model = ?, brand = ?, category = ?, stock = ?, price = ?, raw_json = ? WHERE rowid = ?`, [
+        mapped.is_public, mapped.search_text, mapped.public_slug, mapped.name, mapped.title, mapped.sku, mapped.code, mapped.model, mapped.brand, mapped.category, mapped.stock, mapped.price, mapped.raw_json, row.rowid,
+      ]);
+      updatedRows += Number(changes?.changes || 0);
+    }
+    await run(db, "COMMIT");
+  } catch (error) {
+    await run(db, "ROLLBACK");
+    throw error;
+  }
+  return { ok: true, total: rows.length, beforePublicCount, afterPublicCount, updatedRows, rejectedCounts };
 }
 
 async function getCatalogFieldAudit({ sampleSize = 300 } = {}) {
@@ -2065,6 +2133,7 @@ module.exports = {
   getCatalogFieldAudit,
   debugCatalogSearch,
   debugPublicationByIdentifier,
+  repairPublicFlags,
   computeProductPublicState,
   updateProductByIdentifier,
   normalizeProductForPublic,

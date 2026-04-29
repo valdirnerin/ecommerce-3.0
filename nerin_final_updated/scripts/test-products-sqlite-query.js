@@ -57,6 +57,30 @@ async function main() {
   assert(mappedUppercase.name === "Galaxy S25 Ultra Batería", "mapper debe leer Name uppercase");
   assert(Number(mappedUppercase.price) === 12345, "mapper debe leer Price uppercase");
 
+  const simulatedS25 = productsSqliteRepo.mapProductRow({
+    SKU: "GH82-XXXXX",
+    Name: "Display Samsung S25 Ultra",
+    Stock: "25",
+    Price: "123000",
+  }, { rowNumber: 77 });
+  assert(simulatedS25.is_public === 1, "S25 con SKU+Name debe ser público");
+  assert(String(simulatedS25.search_text).includes("s25 ultra"), "search_text S25 debe incluir s25 ultra");
+  assert(String(simulatedS25.search_text).includes("gh82"), "search_text S25 debe incluir gh82");
+  assert(simulatedS25.public_slug && !simulatedS25.public_slug.includes("producto-77"), "slug S25 no debe caer en producto-rowid");
+
+  const simulatedShortDescriptionOnly = productsSqliteRepo.mapProductRow({
+    SKU: "ABC123",
+    shortDescription: "Pantalla Samsung A25",
+  }, { rowNumber: 88 });
+  assert(simulatedShortDescriptionOnly.is_public === 1, "SKU + shortDescription debe ser público");
+
+  const simulatedPrivate = productsSqliteRepo.mapProductRow({
+    SKU: "ABC123",
+    Name: "Pantalla",
+    visibility: "private",
+  }, { rowNumber: 89 });
+  assert(simulatedPrivate.is_public === 0, "visibility private debe forzar no público");
+
   const publicByDefault = productsSqliteRepo.isProductPublic({
     SKU: "GH82-DEFAULT",
     Name: "Producto visible por default",
