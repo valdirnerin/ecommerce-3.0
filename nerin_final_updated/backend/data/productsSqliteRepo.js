@@ -468,62 +468,62 @@ async function createSchema(db) {
   await detectFtsAvailability(db);
 }
 
-function isProductPublic(product) {
-  if (!product || typeof product !== "object") return false;
+function computeProductPublicState(product = {}) {
+  if (!product || typeof product !== "object") {
+    return { isPublic: false, reason: "invalid_product", signals: { missingName: true, missingIdentifier: true } };
+  }
 
   const visibility = normalizeQueryText(getField(product, ["visibility", "visibilidad"]) || "");
-  if (visibility && REJECTED_STATE_VALUES.has(visibility)) return false;
-
   const status = normalizeQueryText(getField(product, ["status", "estado"]) || "");
-  if (status && REJECTED_STATE_VALUES.has(status)) return false;
+  const enabledValue = getField(product, ["enabled"]);
+  const deletedValue = getField(product, ["deleted"]);
+  const archivedValue = getField(product, ["archived"]);
+  const vipOnlyValue = getField(product, ["vip_only", "vip only", "vipOnly"]);
+  const wholesaleOnlyValue = getField(product, ["wholesaleOnly", "wholesale_only", "wholesale only"]);
 
-  if (getField(product, ["enabled"]) === false) return false;
-  if (getField(product, ["deleted"]) === true) return false;
-  if (getField(product, ["archived"]) === true) return false;
-  if (getField(product, ["vip_only", "vip only", "vipOnly"]) === true) return false;
-  if (getField(product, ["wholesaleOnly", "wholesale_only", "wholesale only"]) === true) return false;
+  const hasName = Boolean(toNullableText(getField(product, ["name", "title", "productName", "nombre", "model", "shortDescription", "short_description", "description", "descripcion"])));
+  const hasIdentifier = Boolean(toNullableText(getField(product, ["id", "sku", "SKU", "code", "Code", "codigo", "Código", "partNumber", "Part Number", "mpn", "ean", "gtin", "supplierCode", "Supplier Part Number"])));
 
-  const hasTitle = Boolean(
-    toNullableText(getField(product, ["name", "title", "productName", "nombre", "description", "descripcion", "model"])),
-  );
-  if (!hasTitle) return false;
+  const signals = {
+    visibility,
+    status,
+    enabledFalse: enabledValue === false,
+    deleted: deletedValue === true,
+    archived: archivedValue === true,
+    vipOnly: vipOnlyValue === true,
+    wholesaleOnly: wholesaleOnlyValue === true,
+    missingName: !hasName,
+    missingIdentifier: !hasIdentifier,
+  };
 
-  const hasIdentifier = Boolean(
-    toNullableText(
-      getField(product, [
-        "id",
-        "sku",
-        "SKU",
-        "code",
-        "Code",
-        "codigo",
-        "Código",
-        "partNumber",
-        "Part Number",
-        "mpn",
-        "ean",
-        "gtin",
-        "supplierCode",
-        "Supplier Part Number",
-      ]),
-    ),
-  );
+  if (signals.enabledFalse) return { isPublic: false, reason: "enabled_false", signals };
+  if (signals.deleted) return { isPublic: false, reason: "deleted", signals };
+  if (signals.archived) return { isPublic: false, reason: "archived", signals };
+  if (signals.vipOnly) return { isPublic: false, reason: "vip_only", signals };
+  if (signals.wholesaleOnly) return { isPublic: false, reason: "wholesale_only", signals };
+  if (visibility && REJECTED_STATE_VALUES.has(visibility)) return { isPublic: false, reason: `visibility_${visibility}`, signals };
+  if (status && REJECTED_STATE_VALUES.has(status)) return { isPublic: false, reason: `status_${status}`, signals };
+  if (!hasName) return { isPublic: false, reason: "missing_name", signals };
+  if (!hasIdentifier) return { isPublic: false, reason: "missing_identifier", signals };
+  return { isPublic: true, reason: "public", signals };
+}
 
-  return hasIdentifier;
+function isProductPublic(product) {
+  return computeProductPublicState(product).isPublic;
 }
 
 function buildSearchText(product = {}) {
-  const metadataText =
-    product?.metadata && typeof product.metadata === "object" ? JSON.stringify(product.metadata) : "";
+  const metadataText = product?.metadata ? JSON.stringify(product.metadata) : "";
   const fields = [
     getField(product, ["name", "title", "productName", "nombre", "Name", "Title"]),
-    getField(product, ["description", "descripcion", "shortDescription"]),
-    getField(product, ["brand", "marca", "Brand"]),
     getField(product, ["model", "modelo", "Model"]),
+    getField(product, ["description", "descripcion", "shortDescription", "short_description"]),
+    getField(product, ["brand", "marca", "Brand"]),
     getField(product, ["category", "categoria", "Category"]),
     getField(product, ["sku", "SKU", "Sku"]),
     getField(product, ["code", "Code", "codigo", "Código"]),
-    getField(product, ["id", "slug", "partNumber", "Part Number", "Supplier Part Number", "mpn", "ean", "gtin", "supplierCode"]),
+    getField(product, ["partNumber", "Part Number", "Supplier Part Number", "mpn", "ean", "gtin", "supplierCode"]),
+    getField(product, ["id", "slug"]),
     metadataText,
   ];
   return normalizeQueryText(fields.filter(Boolean).join(" "));
@@ -579,7 +579,21 @@ function buildPublicSlug(product = {}, fallbackRow = null) {
 
 function mapProductRow(product = {}, options = {}) {
   const { rowNumber = null, slugCounts = null } = options;
-  let publicSlug = buildPublicSlug(product, rowNumber);
+  const mappedCore = {
+    id: toNullableText(getField(product, ["id"])),
+    sku: toNullableText(getField(product, ["sku", "SKU", "Sku"])),
+    code: toNullableText(getField(product, ["code", "Code", "codigo", "Código"])),
+    name: toNullableText(getField(product, ["name", "Name", "nombre"])),
+    title: toNullableText(getField(product, ["title", "Title", "productName"])),
+    model: toNullableText(getField(product, ["model", "Model", "modelo"])),
+    partNumber: toNullableText(getField(product, ["partNumber", "Part Number"])),
+    mpn: toNullableText(getField(product, ["mpn", "MPN"])),
+    ean: toNullableText(getField(product, ["ean", "EAN"])),
+    gtin: toNullableText(getField(product, ["gtin", "GTIN"])),
+    supplierCode: toNullableText(getField(product, ["supplierCode", "supplier_code", "Supplier Part Number"])),
+    slug: toNullableText(getField(product, ["slug"])),
+  };
+  let publicSlug = buildPublicSlug(mappedCore, rowNumber);
   if (slugCounts instanceof Map) {
     const current = Number(slugCounts.get(publicSlug) || 0) + 1;
     slugCounts.set(publicSlug, current);
@@ -631,7 +645,7 @@ function mapProductRow(product = {}, options = {}) {
     precio_sin_impuestos: priceFields.precio_sin_impuestos,
     cost: priceFields.cost,
     currency: priceFields.currency,
-    is_public: isProductPublic(product) ? 1 : 0,
+    is_public: computeProductPublicState(product).isPublic ? 1 : 0,
     enabled: boolToInt(getField(product, ["enabled"]), 1),
     deleted: boolToInt(getField(product, ["deleted"]), 0),
     archived: boolToInt(getField(product, ["archived"]), 0),
@@ -1742,72 +1756,36 @@ async function getCatalogHealth() {
 async function getCatalogPublicityAudit() {
   await ensureDbReadyForRequest();
   const db = await openDb();
-  const summaryRows = await all(
-    db,
-    `SELECT
-      COUNT(*) AS productCount,
-      SUM(CASE WHEN is_public = 1 THEN 1 ELSE 0 END) AS publicProductCount,
-      SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) AS enabledFalse,
-      SUM(CASE WHEN deleted = 1 THEN 1 ELSE 0 END) AS deleted,
-      SUM(CASE WHEN archived = 1 THEN 1 ELSE 0 END) AS archived,
-      SUM(CASE WHEN vip_only = 1 THEN 1 ELSE 0 END) AS vipOnly,
-      SUM(CASE WHEN wholesale_only = 1 THEN 1 ELSE 0 END) AS wholesaleOnly,
-      SUM(CASE WHEN visibility = 'private' OR status = 'private' THEN 1 ELSE 0 END) AS privateVisibility,
-      SUM(CASE WHEN visibility = 'hidden' OR status = 'hidden' THEN 1 ELSE 0 END) AS hiddenVisibility,
-      SUM(CASE WHEN status = 'draft' OR visibility = 'draft' THEN 1 ELSE 0 END) AS draftStatus
-    FROM products`,
-  );
-  const missingNameRow = await get(
-    db,
-    "SELECT COUNT(*) AS total FROM products WHERE COALESCE(NULLIF(TRIM(name), ''), NULLIF(TRIM(title), '')) IS NULL",
-  );
-  const missingIdentifierRow = await get(
-    db,
-    "SELECT COUNT(*) AS total FROM products WHERE COALESCE(NULLIF(TRIM(id), ''), NULLIF(TRIM(sku), ''), NULLIF(TRIM(code), ''), NULLIF(TRIM(part_number), ''), NULLIF(TRIM(mpn), ''), NULLIF(TRIM(ean), ''), NULLIF(TRIM(gtin), ''), NULLIF(TRIM(supplier_code), '')) IS NULL",
-  );
-  const examplesRejected = await all(
-    db,
-    `SELECT id, sku, code, name, title, status, visibility, enabled, deleted, archived, vip_only, wholesale_only
-     FROM products
-     WHERE is_public = 0
-     ORDER BY rowid ASC
-     LIMIT 20`,
-  );
-  const summary = summaryRows[0] || {};
-  const productCount = Number(summary.productCount || 0);
-  const publicProductCount = Number(summary.publicProductCount || 0);
-  return {
-    productCount,
-    publicProductCount,
-    privateExplicitCount: Number(summary.privateVisibility || 0),
-    hiddenExplicitCount: Number(summary.hiddenVisibility || 0),
-    missingVisibilityCount: Number(
-      (
-        await get(
-          db,
-          "SELECT COUNT(*) AS total FROM products WHERE visibility IS NULL OR TRIM(visibility) = ''",
-        )
-      )?.total || 0,
-    ),
-    missingStatusCount: Number(
-      (
-        await get(db, "SELECT COUNT(*) AS total FROM products WHERE status IS NULL OR TRIM(status) = ''")
-      )?.total || 0,
-    ),
-    rejectedCounts: {
-      enabledFalse: Number(summary.enabledFalse || 0),
-      deleted: Number(summary.deleted || 0),
-      archived: Number(summary.archived || 0),
-      vipOnly: Number(summary.vipOnly || 0),
-      wholesaleOnly: Number(summary.wholesaleOnly || 0),
-      privateVisibility: Number(summary.privateVisibility || 0),
-      hiddenVisibility: Number(summary.hiddenVisibility || 0),
-      draftStatus: Number(summary.draftStatus || 0),
-      missingName: Number(missingNameRow?.total || 0),
-      missingIdentifier: Number(missingIdentifierRow?.total || 0),
-    },
-    examplesRejected,
-  };
+  const rows = await all(db, `SELECT rowid, id, sku, code, name, title, status, visibility, enabled, deleted, archived, vip_only, wholesale_only, raw_json, is_public FROM products`);
+  const rejectedCounts = { explicitPrivate: 0, explicitHidden: 0, explicitDraft: 0, explicitDisabled: 0, enabledFalse: 0, deleted: 0, archived: 0, vipOnly: 0, wholesaleOnly: 0, missingName: 0, missingIdentifier: 0 };
+  const visibilityDistribution = {};
+  const statusDistribution = {};
+  const examplesRejected = [];
+  for (const row of rows) {
+    const v = normalizeQueryText(row.visibility || "") || "(empty)";
+    const st = normalizeQueryText(row.status || "") || "(empty)";
+    visibilityDistribution[v] = (visibilityDistribution[v] || 0) + 1;
+    statusDistribution[st] = (statusDistribution[st] || 0) + 1;
+    let raw = {};
+    try { raw = JSON.parse(row.raw_json || "{}"); } catch {}
+    const computed = computeProductPublicState(raw);
+    if (!computed.isPublic) {
+      if (v === 'private' || st === 'private') rejectedCounts.explicitPrivate += 1;
+      if (v === 'hidden' || st === 'hidden') rejectedCounts.explicitHidden += 1;
+      if (v === 'draft' || st === 'draft') rejectedCounts.explicitDraft += 1;
+      if (v === 'disabled' || st === 'disabled') rejectedCounts.explicitDisabled += 1;
+      if (computed.signals.enabledFalse) rejectedCounts.enabledFalse += 1;
+      if (computed.signals.deleted) rejectedCounts.deleted += 1;
+      if (computed.signals.archived) rejectedCounts.archived += 1;
+      if (computed.signals.vipOnly) rejectedCounts.vipOnly += 1;
+      if (computed.signals.wholesaleOnly) rejectedCounts.wholesaleOnly += 1;
+      if (computed.signals.missingName) rejectedCounts.missingName += 1;
+      if (computed.signals.missingIdentifier) rejectedCounts.missingIdentifier += 1;
+      if (examplesRejected.length < 20) examplesRejected.push({ rowid: row.rowid, id: row.id, sku: row.sku, code: row.code, name: row.name || row.title || null, visibility: row.visibility || null, status: row.status || null, is_public: row.is_public, reason: computed.reason });
+    }
+  }
+  const publicProductCount = rows.filter((r)=>Number(r.is_public||0)===1).length;
+  return { productCount: rows.length, publicProductCount, rejectedCounts, visibilityDistribution, statusDistribution, examplesRejected };
 }
 
 async function getCatalogFieldAudit({ sampleSize = 300 } = {}) {
@@ -1919,9 +1897,17 @@ async function debugCatalogSearch({ search = "", limit = 20 } = {}) {
      LIMIT ?`,
     [...whereClause.params, Math.max(1, Math.min(100, Number(limit) || 20))],
   );
+  const normalizedSearch = normalizeQueryText(search || "");
+  const sqliteMatchesAny = await get(db, `SELECT COUNT(*) AS total FROM products WHERE search_text LIKE ?`, [`%${normalizedSearch}%`]);
+  const sqlitePublicMatches = await get(db, `SELECT COUNT(*) AS total FROM products WHERE is_public = 1 AND search_text LIKE ?`, [`%${normalizedSearch}%`]);
+  let diagnosis = "match_public";
+  if (Number(sqliteMatchesAny?.total || 0) === 0) diagnosis = "no_existe_en_sqlite";
+  else if (Number(sqlitePublicMatches?.total || 0) === 0) diagnosis = "matchea_pero_is_public_0";
+  else if (Number(totalRow?.total || 0) === 0) diagnosis = "no_matchea_search_text";
   return {
     search,
     totalMatches: Number(totalRow?.total || 0),
+    diagnosis,
     sampleMatches: sampleMatches.map((row) => ({
       id: row.id || null,
       sku: row.sku || null,
@@ -1935,6 +1921,38 @@ async function debugCatalogSearch({ search = "", limit = 20 } = {}) {
   };
 }
 
+
+async function debugPublicationByIdentifier(identifier = "") {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const term = String(identifier || "").trim();
+  if (!term) return { identifier: term, found: false };
+  const q = `%${normalizeQueryText(term)}%`;
+  const row = await get(db, `SELECT rowid, * FROM products WHERE
+      LOWER(COALESCE(id,'')) = LOWER(?) OR LOWER(COALESCE(sku,'')) = LOWER(?) OR LOWER(COALESCE(code,'')) = LOWER(?) OR LOWER(COALESCE(public_slug,'')) = LOWER(?) OR LOWER(COALESCE(slug,'')) = LOWER(?)
+      OR LOWER(COALESCE(name,'')) LIKE ? OR LOWER(COALESCE(title,'')) LIKE ? OR LOWER(COALESCE(model,'')) LIKE ? OR LOWER(COALESCE(part_number,'')) LIKE ?
+      OR LOWER(COALESCE(mpn,'')) LIKE ? OR LOWER(COALESCE(ean,'')) LIKE ? OR LOWER(COALESCE(gtin,'')) LIKE ? OR LOWER(COALESCE(supplier_code,'')) LIKE ? OR LOWER(COALESCE(search_text,'')) LIKE ? LIMIT 1`,
+    [term, term, term, term, term, q, q, q, q, q, q, q, q, q]);
+  if (!row) return { identifier: term, found: false };
+  let raw = {};
+  try { raw = JSON.parse(row.raw_json || "{}"); } catch {}
+  const computed = computeProductPublicState(raw);
+  const normalizedSearch = normalizeQueryText(term);
+  return {
+    identifier: term, found: true, foundBy: "sqlite",
+    raw: {
+      id: raw.id || null, sku: raw.sku || raw.SKU || null, code: raw.code || raw.Code || null, name: raw.name || raw.Name || null, title: raw.title || raw.Title || null, model: raw.model || null,
+      description: raw.description || raw.descripcion || null, shortDescription: raw.shortDescription || raw.short_description || null,
+      visibility: raw.visibility || raw.visibilidad || null, status: raw.status || raw.estado || null, enabled: raw.enabled, deleted: raw.deleted, archived: raw.archived, vip_only: raw.vip_only ?? raw.vipOnly, wholesaleOnly: raw.wholesaleOnly ?? raw.wholesale_only,
+    },
+    sqlite: {
+      rowid: row.rowid, id: row.id, sku: row.sku, code: row.code, name: row.name, title: row.title, model: row.model, public_slug: row.public_slug, visibility: row.visibility, status: row.status, enabled: row.enabled, deleted: row.deleted, archived: row.archived, vip_only: row.vip_only, wholesale_only: row.wholesale_only, is_public: row.is_public, search_text: row.search_text,
+    },
+    computed,
+    wouldAppearInPublicQuery: Number(row.is_public || 0) === 1,
+    wouldMatchSearch: String(row.search_text || "").includes(normalizedSearch),
+  };
+}
 async function getCatalogPriceAudit({ limit = 20 } = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
@@ -2046,6 +2064,8 @@ module.exports = {
   getCatalogPublicityAudit,
   getCatalogFieldAudit,
   debugCatalogSearch,
+  debugPublicationByIdentifier,
+  computeProductPublicState,
   updateProductByIdentifier,
   normalizeProductForPublic,
   normalizeProductForAdminList,

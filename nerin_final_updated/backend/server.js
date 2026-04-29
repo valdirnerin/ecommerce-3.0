@@ -6173,6 +6173,17 @@ async function requestHandler(req, res) {
     }
   }
 
+
+  if (pathname === "/api/catalog/debug-publication" && req.method === "GET") {
+    try {
+      const identifier = String(parsedUrl.query?.identifier || "");
+      const payload = await productsSqliteRepo.debugPublicationByIdentifier(identifier);
+      return sendJson(res, 200, { ok: true, source: "sqlite", ...payload });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, source: "sqlite", error: error?.message || "No se pudo depurar publicación" });
+    }
+  }
+
   if (pathname === "/api/catalog/debug-search" && req.method === "GET") {
     try {
       const search = String(parsedUrl.query?.search || "");
