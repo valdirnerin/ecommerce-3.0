@@ -233,7 +233,7 @@ function getRemoteLeadTimeCopy(product) {
     if (maxDays === minDays) return `Entrega estimada: ${minDays} día${minDays === 1 ? "" : "s"}.`;
     return `Entrega estimada: ${minDays} a ${maxDays} días.`;
   }
-  return "Entrega estimada: 4 a 10 días (incluye preparación del proveedor).";
+  return "Entrega estimada: 20 a 30 días (importación a pedido + preparación).";
 }
 
 function getStockStatus(product) {
@@ -495,7 +495,12 @@ function createProductCard(product) {
   availability.className = "description";
   const status = getStockStatus(product);
   const fulfillmentMode = getFulfillmentMode(product);
-  if (status === "out") availability.textContent = "Sin stock";
+  if (fulfillmentMode === "remote") {
+    availability.textContent =
+      status === "out"
+        ? "Stock remoto (a pedido)"
+        : `Stock remoto: ${resolveStockQuantity(product) || 0} unidades`;
+  } else if (status === "out") availability.textContent = "Sin stock";
   else if (status === "low") availability.textContent = `Pocas unidades (${product.stock})`;
   else availability.textContent = `Stock: ${resolveStockQuantity(product) || 0} unidades`;
   card.appendChild(availability);
