@@ -109,9 +109,14 @@ const resetBtn = document.getElementById('footerReset');
 const viewBtn = document.getElementById('footerView');
 const BADGE_KEYS = ["mercadoPago", "andreani", "efectivo", "transferencia"];
 let badgeUploadsInProgress = 0;
+let dataFiscalUploadInProgress = 0;
 
 function isBadgeUploadInProgress() {
   return badgeUploadsInProgress > 0;
+}
+
+function isDataFiscalUploadInProgress() {
+  return dataFiscalUploadInProgress > 0;
 }
 
 async function loadFooterConfig() {
@@ -148,7 +153,8 @@ function fillForm(cfg) {
   form.legalInvoice.value = cfg.legalDetails?.invoice || "";
   form.legalPayments.value = cfg.legalDetails?.payments || "";
   form.legalShipping.value = cfg.legalDetails?.shipping || "";
-  form.dataFiscalMode.value = cfg.dataFiscal?.mode || "placeholder";
+  const fiscalMode = cfg.dataFiscal?.mode || "image";
+  form.dataFiscalMode.value = fiscalMode === "placeholder" ? "image" : fiscalMode;
   form.dataFiscalLabel.value = cfg.dataFiscal?.label || "";
   form.dataFiscalPlaceholder.value = cfg.dataFiscal?.placeholder || "";
   form.dataFiscalHtml.value = cfg.dataFiscal?.html || "";
@@ -228,7 +234,7 @@ function collectForm() {
   };
   cfg.dataFiscal = {
     enabled: true,
-    mode: form.dataFiscalMode.value || "placeholder",
+    mode: form.dataFiscalMode.value || "image",
     label: form.dataFiscalLabel.value.trim(),
     placeholder: form.dataFiscalPlaceholder.value.trim(),
     html: form.dataFiscalHtml.value.trim(),
@@ -288,7 +294,7 @@ async function persistFooterConfig({ showSuccessAlert = true } = {}) {
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (isBadgeUploadInProgress()) {
+  if (isBadgeUploadInProgress() || isDataFiscalUploadInProgress()) {
     alert('Esperá a que termine la carga de la imagen antes de guardar.');
     return;
   }
@@ -386,6 +392,64 @@ async function handleBadgeFileChange(event) {
   }
 }
 
+
+async function persistDataFiscalImageOnly(url) {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem('nerinToken');
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const currentRes = await fetch('/api/footer', { headers });
+  const current = await currentRes.json().catch(() => ({}));
+  if (!currentRes.ok) {
+    throw new Error('No se pudo leer la configuración actual del footer');
+  }
+
+  const payload = {
+    ...defaultConfig,
+    ...current,
+    dataFiscal: {
+      ...defaultConfig.dataFiscal,
+      ...(current?.dataFiscal || {}),
+      mode: 'image',
+      image: url,
+    },
+  };
+
+  const res = await fetch('/api/footer', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || 'No se pudo guardar la imagen de data fiscal');
+  }
+
+  return data;
+}
+
+async function handleDataFiscalFileChange(event) {
+  const input = event.target;
+  if (input?.name !== 'dataFiscalImageFile' || !input.files?.length) return;
+  try {
+    dataFiscalUploadInProgress += 1;
+    input.disabled = true;
+    const file = input.files[0];
+    const url = await uploadBadgeImage(file);
+    form.dataFiscalImage.value = url;
+    form.dataFiscalMode.value = 'image';
+    await persistDataFiscalImageOnly(url);
+  } catch (err) {
+    console.error('footer-datafiscal-upload', err);
+    alert(err.message || 'Error al subir la imagen de data fiscal');
+  } finally {
+    dataFiscalUploadInProgress = Math.max(0, dataFiscalUploadInProgress - 1);
+    input.value = '';
+    input.disabled = false;
+  }
+}
 if (form) {
   form.addEventListener("change", handleBadgeFileChange);
+  form.addEventListener("change", handleDataFiscalFileChange);
 }

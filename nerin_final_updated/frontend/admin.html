@@ -1501,7 +1501,6 @@
           <label>
             Modo Data Fiscal
             <select name="dataFiscalMode">
-              <option value="placeholder">Placeholder</option>
               <option value="html">HTML embebido</option>
               <option value="image">Imagen + link</option>
             </select>
@@ -1510,6 +1509,7 @@
           <input type="text" name="dataFiscalPlaceholder" placeholder="Texto placeholder Data Fiscal" />
           <textarea name="dataFiscalHtml" placeholder="Pegar aquí HTML oficial Formulario 960/D" style="min-height:120px"></textarea>
           <input type="text" name="dataFiscalImage" placeholder="URL imagen QR/insignia oficial" />
+          <input type="file" name="dataFiscalImageFile" accept="image/*" />
           <input type="text" name="dataFiscalLink" placeholder="URL destino verificación ARCA/AFIP (opcional)" />
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <button type="submit" class="button primary">Guardar</button>
