@@ -396,33 +396,19 @@ function renderContactBullets(bullets) {
 
 function applyHomeContent(source) {
   currentHomeContent = getResolvedHomeConfig(source);
-  const { hero, highlights, about, why, contact } = currentHomeContent;
+  const { hero, highlights } = currentHomeContent;
   updateText("hero.eyebrow", hero.eyebrow);
   updateText("hero.title", hero.title);
   updateText("hero.description", hero.description);
-  updateList("hero.bullets", hero.bullets);
   updateCta("hero.primary", hero.primaryCta);
   updateCta("hero.secondary", hero.secondaryCta);
   updateHeroMedia(hero.media);
   renderHighlights(highlights);
-  updateText("about.title", about.title);
-  updateText("about.lead", about.lead);
-  updateText("about.body", about.body);
-  renderMilestones(about.milestones);
-  updateAboutImage(about.image, about.imageAlt);
-  updateText("why.title", why.title);
-  updateText("why.description", why.description);
-  renderWhyCards(why.cards);
   updateText("featured.title", currentHomeContent.featured?.title);
   updateText(
     "featured.description",
     currentHomeContent.featured?.description,
   );
-  updateText("contact.eyebrow", contact.eyebrow);
-  updateText("contact.title", contact.title);
-  updateText("contact.description", contact.description);
-  updateText("contact.note", contact.note);
-  renderContactBullets(contact.bulletPoints);
 }
 
 function cleanLabel(value) {
@@ -715,20 +701,6 @@ function createFeaturedCard(product) {
   more.className = "button secondary";
   more.textContent = "Ver detalle";
   actions.appendChild(more);
-
-  const addBtn = document.createElement("button");
-  addBtn.type = "button";
-  addBtn.className = "button primary";
-  addBtn.textContent = "Agregar";
-  addBtn.addEventListener("click", (event) => {
-    event.stopPropagation();
-    addToCart(product, 1);
-    addBtn.textContent = "Añadido";
-    setTimeout(() => {
-      addBtn.textContent = "Agregar";
-    }, 1600);
-  });
-  actions.appendChild(addBtn);
   card.appendChild(actions);
 
   card.addEventListener("click", (event) => {
@@ -979,7 +951,6 @@ document.addEventListener("nerin:config-loaded", (event) => {
 
 document.addEventListener("DOMContentLoaded", () => {
   applyHomeContent();
-  setupContactForm();
   initPopupListeners();
   loadFeatured();
   showPopupIfNeeded();
