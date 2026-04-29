@@ -9574,3 +9574,32 @@ html, body{ max-width:100%; overflow-x:hidden; }
   .home-cta__actions{width:100%;}
   .home-cta__actions .button{flex:1 1 100%;text-align:center;}
 }
+
+.home-legal-strip {
+  max-width: 1200px;
+  margin: 0.65rem auto 0;
+  padding: 0.7rem 1rem;
+  border: 1px solid #d8e0ee;
+  border-radius: 12px;
+  background: #f8fbff;
+  color: #334155;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.home-legal-strip p {
+  margin: 0.1rem 0;
+}
+.home-legal-strip a {
+  color: #1d4ed8;
+  font-weight: 600;
+  text-decoration: none;
+}
+.home-legal-strip a:hover {
+  text-decoration: underline;
+}
+@media (max-width: 760px) {
+  .home-legal-strip {
+    margin: 0.4rem 0.8rem 0;
+    font-size: 0.78rem;
+  }
+}
