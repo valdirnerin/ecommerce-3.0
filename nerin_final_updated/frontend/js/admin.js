@@ -2047,9 +2047,11 @@ function updateProductSummary(filtered) {
 function buildProductRow(product) {
   const tr = document.createElement("tr");
   const productId = product && product.id != null ? String(product.id) : "";
+  const adminIdentifier = resolveProductAdminIdentifier(product);
   const safeIdAttr = escapeHtml(productId);
   tr.dataset.id = productId;
   tr.dataset.productId = productId;
+  tr.dataset.adminIdentifier = adminIdentifier;
   let stockBadge = "";
   if (isOutOfStock(product)) {
     stockBadge = '<span class="badge">Sin stock</span>';
@@ -3221,6 +3223,28 @@ function renderProductFormPreview() {
   }
 }
 
+
+function resolveProductAdminIdentifier(product = {}) {
+  const candidates = [
+    product.adminIdentifier,
+    product.id,
+    product.publicSlug,
+    product.public_slug,
+    product.sku,
+    product.code,
+    product.partNumber,
+    product.mpn,
+    product.ean,
+    product.gtin,
+    product.supplierCode,
+  ];
+  for (const candidate of candidates) {
+    const normalized = candidate == null ? "" : String(candidate).trim();
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
 function diffObjects(original = {}, current = {}) {
   const out = {};
   const keys = new Set([...Object.keys(original), ...Object.keys(current)]);
@@ -3324,16 +3348,26 @@ async function saveProduct(e) {
     let res;
     let responseBody = {};
     let highlightId = null;
+    let nextVisibility = "";
     if (isEdit) {
       const payload = diffObjects(originalProduct, data);
-      if (String(payload.visibility || data.visibility || "").toLowerCase() === "public") {
-        payload.enabled = true;
-      }
+      const previousVisibility = String(originalProduct?.visibility || "").toLowerCase();
+      nextVisibility = String(payload.visibility || data.visibility || "").toLowerCase();
       if (Object.keys(payload).length === 0) {
         productModal.classList.add("hidden");
         return;
       }
-      res = await apiFetch(`${API_BASE}/${data.id}`, {
+      const identifier = resolveProductAdminIdentifier({ ...originalProduct, ...data });
+      if (!identifier) throw new Error("No se encontró un identificador válido para actualizar el producto.");
+      const endpoint = `${API_BASE}/${encodeURIComponent(identifier)}`;
+      console.info("[admin-visibility-update]", {
+        identifier,
+        previousVisibility,
+        nextVisibility,
+        endpoint,
+        payload,
+      });
+      res = await apiFetch(endpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -3346,6 +3380,23 @@ async function saveProduct(e) {
       });
     }
     responseBody = (await res.json().catch(() => ({}))) || {};
+    if (isEdit) {
+      console.info("[admin-visibility-update-result]", {
+        status: res.status,
+        enabled: responseBody?.product?.enabled,
+        visibility: responseBody?.product?.visibility,
+        is_public: responseBody?.product?.is_public,
+        source: responseBody?.source,
+      });
+      const computedIsPublic = responseBody?.debugPublication?.computed?.isPublic;
+      const computedReason = responseBody?.debugPublication?.computed?.reason;
+      if (nextVisibility === "public" && (res.status === 409 || computedIsPublic === false)) {
+        throw new Error(
+          responseBody.error ||
+            `No se pudo publicar el producto (reason: ${computedReason || "unknown"}).`,
+        );
+      }
+    }
     if (!res.ok) {
       throw new Error(
         responseBody.error ||
@@ -3542,6 +3593,7 @@ function debounce(fn, t = 600) {
 }
 
 async function patchField(id, field, value, input) {
+  const row = input?.closest?.("tr");
   const old = input.dataset.original;
   if ((field === "price_minorista" || field === "price_mayorista") && input.value === "") {
     if (window.showToast) {
@@ -3551,7 +3603,9 @@ async function patchField(id, field, value, input) {
     return;
   }
   try {
-    const r = await apiFetch(`${API_BASE}/${id}`, {
+    const identifier = row?.dataset?.adminIdentifier || id;
+    if (!identifier) throw new Error("No se encontró identificador para actualizar el producto.");
+    const r = await apiFetch(`${API_BASE}/${encodeURIComponent(identifier)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value }),
@@ -3638,11 +3692,35 @@ if (applyBulkBtn && bulkSelect) {
   } else if (action.startsWith("vis-")) {
     const vis = action.split("-")[1];
     for (const id of selected) {
-      await apiFetch(`/api/products/${id}`, {
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      const identifier = row?.dataset?.adminIdentifier || id;
+      const endpoint = `/api/products/${encodeURIComponent(String(identifier))}`;
+      const payload = { visibility: vis };
+      console.info("[admin-visibility-update]", {
+        identifier,
+        previousVisibility: row ? String((productsCache.find((item) => String(item.id) === String(id)) || {}).visibility || "") : "",
+        nextVisibility: vis,
+        endpoint,
+        payload,
+      });
+      const response = await apiFetch(endpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visibility: vis }),
+        body: JSON.stringify(payload),
       });
+      const data = await response.json().catch(() => ({}));
+      console.info("[admin-visibility-update-result]", {
+        status: response.status,
+        enabled: data?.product?.enabled,
+        visibility: data?.product?.visibility,
+        is_public: data?.product?.is_public,
+        source: data?.source,
+      });
+      const computedIsPublic = data?.debugPublication?.computed?.isPublic;
+      const computedReason = data?.debugPublication?.computed?.reason;
+      if (!response.ok || (vis === "public" && (response.status === 409 || computedIsPublic === false))) {
+        throw new Error(data.error || `No se pudo publicar el producto (reason: ${computedReason || "unknown"}).`);
+      }
     }
   } else if (action.startsWith("price")) {
     const pct = parseFloat(bulkValueInput.value);
