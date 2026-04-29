@@ -3326,6 +3326,9 @@ async function saveProduct(e) {
     let highlightId = null;
     if (isEdit) {
       const payload = diffObjects(originalProduct, data);
+      if (String(payload.visibility || data.visibility || "").toLowerCase() === "public") {
+        payload.enabled = true;
+      }
       if (Object.keys(payload).length === 0) {
         productModal.classList.add("hidden");
         return;
