@@ -164,55 +164,58 @@
     </script>
 </head>
   <body>
-    <header>
+    <header class="site-header">
       <div class="header-inner">
-        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN" class="site-logo" /></a></div>
+        <div class="logo"><a href="/index.html" class="brand"><img src="../assets/IMG_3086.png" alt="NERIN Parts" class="site-logo" /></a></div>
         <button class="menu-toggle" id="navToggle">&#9776;</button>
         <nav id="mainNav">
           <ul>
             <li><a href="/index.html">Inicio</a></li>
             <li><a href="/shop.html">Productos</a></li>
-            <li><a href="/contact.html">Contacto</a></li>
             <li><a href="/seguimiento.html">Seguir mi pedido</a></li>
+            <li><a href="/contact.html">Contacto</a></li>
             <li><a href="/cart.html">Carrito</a></li>
+            <li><a href="/admin.html">Admin</a></li>
             <li><a href="/login.html">Acceder</a></li>
           </ul>
         </nav>
-        <a href="/arrepentimiento.html" class="button outline header-repent-link">BOTÓN DE ARREPENTIMIENTO</a>
+        <a href="https://wa.me/541112345678" target="_blank" rel="noopener" class="button outline header-repent-link">WhatsApp</a>
       </div>
     </header>
     <main class="home">
       <section class="home-hero" data-home-section="hero">
         <div class="home-hero__content">
-          <p class="eyebrow" data-home-text="hero.eyebrow">
-            Operamos para laboratorios y cadenas
-          </p>
+          <p class="eyebrow" data-home-text="hero.eyebrow">NERIN Parts · Repuestos para celular</p>
           <h1 data-home-text="hero.title">
-            Pantallas y repuestos originales listos para instalar
+            Encontrá el repuesto exacto sin perder tiempo
           </h1>
           <p class="lead" data-home-text="hero.description">
-            Nacimos atendiendo la demanda de pantallas Samsung Service Pack y
-            hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones
-            corporativas. Todo con control técnico propio y despacho en horas,
-            no en días.
+            Buscá por modelo, código de pieza o SKU. Displays, módulos, baterías y repuestos para reparación profesional, con catálogo online, stock visible y atención real.
           </p>
+          <form class="home-hero__search" action="/shop.html" method="get">
+            <input type="search" name="search" placeholder="Buscá por modelo, SKU, GH82 o componente…" aria-label="Buscar repuesto" required />
+            <button type="submit" class="button primary">Buscar en catálogo</button>
+          </form>
           <ul class="home-hero__bullets" data-home-list="hero.bullets">
-            <li>Stock auditado en CABA con envíos al país</li>
-            <li>Laboratorio interno para validar cada lote</li>
-            <li>Plan de expansión a nuevas marcas premium</li>
+            <li>Stock visible</li>
+            <li>Factura A/B</li>
+            <li>Envíos</li>
+            <li>Atención técnica</li>
           </ul>
           <div class="buttons">
             <a
               href="/shop.html"
               class="button primary"
               data-home-cta="hero.primary"
-              >Ver catálogo</a
+              >Buscar en catálogo</a
             >
             <a
-              href="/contact.html"
+              href="https://wa.me/541112345678"
               class="button secondary"
               data-home-cta="hero.secondary"
-              >Hablar con un asesor</a
+              target="_blank"
+              rel="noopener"
+              >Consultar por WhatsApp</a
             >
           </div>
         </div>
@@ -234,6 +237,21 @@
 
       <section class="home-highlights" data-home-section="highlights">
         <div class="home-highlights__grid" id="homeHighlights"></div>
+      </section>
+
+      <section class="home-categories" data-home-section="categories">
+        <div class="home-section-head">
+          <p class="eyebrow">Accesos rápidos</p>
+          <h2>Buscá por tipo de repuesto</h2>
+        </div>
+        <div class="home-categories__grid">
+          <a href="/shop.html?search=modulo%20display" class="home-categories__card">Módulos / Displays</a>
+          <a href="/shop.html?search=bateria" class="home-categories__card">Baterías</a>
+          <a href="/shop.html?search=tapa" class="home-categories__card">Tapas</a>
+          <a href="/shop.html?search=flex%20conector" class="home-categories__card">Flex y conectores</a>
+          <a href="/shop.html?search=camara" class="home-categories__card">Cámaras</a>
+          <a href="/shop.html?search=repuesto" class="home-categories__card">Otros repuestos</a>
+        </div>
       </section>
 
       <section class="home-about" id="quienes-somos" data-home-section="about">
@@ -290,6 +308,31 @@
         <div id="featuredGrid" class="product-grid premium-grid" role="list"></div>
         <div class="home-featured__cta">
           <a href="/shop.html" class="button secondary">Ver catálogo completo</a>
+        </div>
+      </section>
+
+      <section class="home-steps">
+        <div class="home-section-head">
+          <p class="eyebrow">Proceso</p>
+          <h2>Comprar sin vueltas</h2>
+        </div>
+        <ol class="home-steps__list">
+          <li>Buscá el repuesto por modelo o código.</li>
+          <li>Revisá stock, precio y compatibilidad.</li>
+          <li>Comprá online o consultá por WhatsApp.</li>
+          <li>Coordinamos envío o retiro.</li>
+        </ol>
+      </section>
+
+      <section class="home-segments">
+        <div class="home-section-head">
+          <p class="eyebrow">Atención por perfil</p>
+          <h2>Para técnicos, revendedores y particulares</h2>
+        </div>
+        <div class="home-segments__grid">
+          <article><h3>Técnicos</h3><p>Buscá por código, modelo o SKU. Ideal para reparaciones con compatibilidad clara.</p></article>
+          <article><h3>Revendedores</h3><p>Consultá precio por cantidad y disponibilidad.</p></article>
+          <article><h3>Particulares</h3><p>Te ayudamos a confirmar el repuesto correcto antes de comprar.</p></article>
         </div>
       </section>
 
@@ -390,6 +433,7 @@
             <button type="submit" class="button primary">
               Solicitar cotización
             </button>
+            <a class="button secondary" href="https://wa.me/541112345678?text=Hola%20NERIN%20Parts%2C%20quiero%20cotizar%20un%20repuesto" target="_blank" rel="noopener">Enviar por WhatsApp</a>
             <p id="contactFeedback" class="form-feedback" aria-live="polite"></p>
           </div>
         </form>
