@@ -796,8 +796,13 @@ async function updateProductByIdentifier(identifier, patch = {}) {
   );
   if (!row) return null;
   const current = JSON.parse(row.raw_json || "{}");
+  const patchVisibility = normalizeQueryText(patch?.visibility);
+  const patchStatus = normalizeQueryText(patch?.status);
   const shouldForceEnabledTrue =
-    normalizeQueryText(patch?.visibility) === "public" ||
+    patchVisibility === "public" ||
+    patchVisibility === "visible" ||
+    patchStatus === "active" ||
+    patchStatus === "published" ||
     patch?.is_public === true ||
     patch?.published === true ||
     patch?.visible === true;

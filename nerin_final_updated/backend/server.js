@@ -9951,6 +9951,17 @@ async function requestHandler(req, res) {
         const hasPriceField =
           Object.prototype.hasOwnProperty.call(update, "price_minorista") ||
           Object.prototype.hasOwnProperty.call(update, "price_mayorista");
+        const normalizedVisibility = productsSqliteRepo.normalizeQueryText(update?.visibility || "");
+        const normalizedStatus = productsSqliteRepo.normalizeQueryText(update?.status || "");
+        const isPublishAction = Boolean(
+          normalizedVisibility === "public" ||
+          normalizedVisibility === "visible" ||
+          normalizedStatus === "active" ||
+          normalizedStatus === "published" ||
+          update?.is_public === true ||
+          update?.published === true ||
+          update?.visible === true,
+        );
         if (hasPriceField) {
           const hasAnyValidPrice =
             Number.isFinite(Number(update.price_minorista)) ||
@@ -9964,6 +9975,15 @@ async function requestHandler(req, res) {
         const updated = await productsSqliteRepo.updateProductByIdentifier(id, update);
         if (!updated) {
           return sendJson(res, 404, { error: "Producto no encontrado" });
+        }
+        if (isPublishAction) {
+          const publicationDebug = await productsSqliteRepo.debugPublicationByIdentifier(id);
+          if (publicationDebug?.found && publicationDebug?.computed?.isPublic === false && publicationDebug?.computed?.reason === "enabled_false") {
+            return sendJson(res, 409, {
+              error: "No se pudo publicar el producto porque quedó enabled=false",
+              publication: publicationDebug,
+            });
+          }
         }
         invalidateCatalogCaches("admin_product_update");
         return sendJson(res, 200, { success: true, product: normalizeProductImages(updated), source: "sqlite" });
