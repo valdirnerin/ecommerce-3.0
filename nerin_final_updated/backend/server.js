@@ -6298,6 +6298,33 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/admin/catalog/bulk-publication" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const result = await productsSqliteRepo.bulkPublication({
+          action: payload?.action || "publish",
+          scope: payload?.scope || "private_products",
+          dryRun: Boolean(payload?.dryRun),
+        });
+        return sendJson(res, 200, { source: "sqlite", ...result });
+      } catch (error) {
+        return sendJson(res, 500, {
+          ok: false,
+          source: "sqlite",
+          code: "BULK_PUBLICATION_FAILED",
+          error: error?.message || "No se pudo ejecutar publicación masiva",
+        });
+      }
+    });
+    return;
+  }
+
   if (pathname === "/api/catalog/performance-test" && req.method === "GET") {
     try {
       const perfStartedAt = Date.now();

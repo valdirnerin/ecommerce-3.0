@@ -8,6 +8,7 @@ const { dataPath } = require("../utils/dataDir");
 const PRODUCTS_JSON_PATH = dataPath("products.json");
 const SQLITE_PATH = dataPath("products.sqlite");
 const MANIFEST_PATH = dataPath("products.manifest.json");
+const OVERRIDES_PATH = dataPath("products.overrides.json");
 const COUNT_CACHE_TTL_MS = 60_000;
 const PRODUCTS_SQLITE_SCHEMA_VERSION = 5;
 const CATALOG_MAPPING_VERSION = 2;
@@ -795,15 +796,23 @@ async function updateProductByIdentifier(identifier, patch = {}) {
   );
   if (!row) return null;
   const current = JSON.parse(row.raw_json || "{}");
-  const merged = { ...current, ...patch };
+  const shouldForceEnabledTrue =
+    normalizeQueryText(patch?.visibility) === "public" ||
+    patch?.is_public === true ||
+    patch?.published === true ||
+    patch?.visible === true;
+  const mergedPatch = shouldForceEnabledTrue ? { ...patch, enabled: true } : patch;
+  const merged = { ...current, ...mergedPatch };
   const mapped = mapProductRow(merged, { rowNumber: row.rowid });
-  const changedFields = Object.keys(patch || {}).filter((field) => current[field] !== patch[field]);
+  const changedFields = Object.keys(mergedPatch || {}).filter((field) => current[field] !== mergedPatch[field]);
   const oldVisibility = firstText([current.visibility, current.Visibility, ""]) || "";
   const newVisibility = firstText([merged.visibility, merged.Visibility, ""]) || "";
   const oldStatus = firstText([current.status, current.Status, ""]) || "";
   const newStatus = firstText([merged.status, merged.Status, ""]) || "";
   const oldIsPublic = isProductPublic(current);
   const newIsPublic = Boolean(mapped.is_public);
+  const reasonBefore = computeProductPublicState(current).reason;
+  const reasonAfter = computeProductPublicState(merged).reason;
   await run(
     db,
     `UPDATE products SET
@@ -852,17 +861,45 @@ async function updateProductByIdentifier(identifier, patch = {}) {
     ],
   );
   countCache.clear();
-  console.log("[products-admin-update]", {
+  await saveProductOverride(target, merged, shouldForceEnabledTrue ? "admin_publish" : "admin_update");
+  console.log("[products-admin-publication-change]", {
     identifier: target,
-    changedFields,
+    patch: mergedPatch,
+    oldEnabled: current.enabled,
+    newEnabled: merged.enabled,
     oldVisibility,
     newVisibility,
     oldStatus,
     newStatus,
     oldIsPublic,
     newIsPublic,
+    reasonBefore,
+    reasonAfter,
+    changedFields,
   });
   return normalizeProductForAdminList(merged, { rowid: row.rowid, public_slug: mapped.public_slug });
+}
+
+async function loadProductOverrides() {
+  try {
+    return JSON.parse(await fsp.readFile(OVERRIDES_PATH, "utf8")) || {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveProductOverride(identifier, product, source = "admin_update") {
+  const key = String(identifier || product?.sku || product?.id || "").trim();
+  if (!key) return;
+  const overrides = await loadProductOverrides();
+  overrides[key] = {
+    visibility: product.visibility,
+    status: product.status,
+    enabled: product.enabled,
+    updatedAt: new Date().toISOString(),
+    source,
+  };
+  await fsp.writeFile(OVERRIDES_PATH, JSON.stringify(overrides, null, 2), "utf8");
 }
 
 function buildCatalogPathsInfo() {
@@ -932,6 +969,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
 
       let count = 0;
       let publicCount = 0;
+      const overrides = await loadProductOverrides();
       const slugCounts = new Map();
       const batch = [];
       const BATCH_SIZE = 500;
@@ -986,7 +1024,10 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
       await productsStreamRepo.streamProducts({
         filePath: PRODUCTS_JSON_PATH,
         onProduct: async (product) => {
-          const mapped = mapProductRow(product, { rowNumber: count + 1, slugCounts });
+          const identifier = String(product?.id || product?.sku || product?.code || "").trim();
+          const override = identifier ? overrides[identifier] : null;
+          const mergedProduct = override ? { ...product, ...override } : product;
+          const mapped = mapProductRow(mergedProduct, { rowNumber: count + 1, slugCounts });
           batch.push(mapped);
           count += 1;
           if (mapped.is_public === 1) publicCount += 1;
@@ -1856,6 +1897,41 @@ async function repairPublicFlags() {
   return { ok: true, total: rows.length, beforePublicCount, afterPublicCount, updatedRows, rejectedCounts };
 }
 
+async function bulkPublication({ action = "publish", scope = "private_products", dryRun = false } = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const rows = await all(db, "SELECT rowid, id, sku, code, raw_json, is_public FROM products ORDER BY rowid ASC");
+  const beforePublicCount = rows.reduce((acc, row) => acc + (Number(row.is_public || 0) === 1 ? 1 : 0), 0);
+  let updatedRows = 0;
+  let skipped = 0;
+  const examplesUpdated = [];
+  for (const row of rows) {
+    let raw = {};
+    try { raw = JSON.parse(row.raw_json || "{}"); } catch {}
+    const computed = computeProductPublicState(raw);
+    const isPrivate = !computed.isPublic;
+    if (!(action === "publish" && scope === "private_products" && isPrivate)) {
+      skipped += 1;
+      continue;
+    }
+    const patch = { visibility: "public", status: "active", enabled: true };
+    const merged = { ...raw, ...patch };
+    const mapped = mapProductRow(merged, { rowNumber: row.rowid });
+    if (!dryRun) {
+      await run(
+        db,
+        `UPDATE products SET visibility=?, status=?, enabled=?, is_public=?, search_text=?, public_slug=?, raw_json=? WHERE rowid=?`,
+        [mapped.visibility, mapped.status, mapped.enabled, mapped.is_public, mapped.search_text, mapped.public_slug, mapped.raw_json, row.rowid],
+      );
+      await saveProductOverride(row.id || row.sku || row.code, merged, "admin_bulk_publish");
+    }
+    updatedRows += 1;
+    if (examplesUpdated.length < 10) examplesUpdated.push({ identifier: row.id || row.sku || row.code, reasonBefore: computed.reason, reasonAfter: computeProductPublicState(merged).reason });
+  }
+  const afterPublicCount = dryRun ? beforePublicCount + updatedRows : Number((await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1"))?.total || 0);
+  return { ok: true, beforePublicCount, afterPublicCount, updatedRows, skipped, examplesUpdated, dryRun: Boolean(dryRun) };
+}
+
 async function getCatalogFieldAudit({ sampleSize = 300 } = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
@@ -2134,6 +2210,7 @@ module.exports = {
   debugCatalogSearch,
   debugPublicationByIdentifier,
   repairPublicFlags,
+  bulkPublication,
   computeProductPublicState,
   updateProductByIdentifier,
   normalizeProductForPublic,
