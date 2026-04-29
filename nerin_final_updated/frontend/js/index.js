@@ -37,10 +37,10 @@ const PLACEHOLDER_IMAGE =
 
 const DEFAULT_HOME_CONTENT = {
   hero: {
-    eyebrow: "NERIN Parts · Repuestos para celular",
-    title: "Encontrá el repuesto exacto sin perder tiempo",
+    eyebrow: "NERIN Parts · Repuestos originales para reparación profesional",
+    title: "Pantallas Samsung Service Pack originales, con stock real y factura A/B",
     description:
-      "Buscá por modelo, código de pieza o SKU. Displays, módulos, baterías y repuestos para reparación profesional, con catálogo online, stock visible y atención real.",
+      "Trabajamos repuestos originales y verificados para técnicos, talleres, revendedores y clientes finales. Coordinamos retiro con turno en CABA o envío a todo el país.",
     bullets: [
       "Stock visible",
       "Factura A/B",
@@ -48,7 +48,7 @@ const DEFAULT_HOME_CONTENT = {
       "Atención técnica",
     ],
     primaryCta: { label: "Buscar en catálogo", href: "/shop.html" },
-    secondaryCta: { label: "Consultar por WhatsApp", href: "https://wa.me/541112345678" },
+    secondaryCta: { label: "Consultar por WhatsApp", href: "https://wa.me/5491130341550" },
     media: {
       desktop: "/assets/hero.png",
       mobile: "/assets/hero.png",
@@ -787,7 +787,7 @@ function resolveWhatsAppNumber() {
     const sanitized = cfg.whatsappNumber.replace(/[^0-9]/g, "");
     if (sanitized) return sanitized;
   }
-  return "541112345678";
+  return "5491130341550";
 }
 
 function setupContactForm() {

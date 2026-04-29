@@ -555,7 +555,7 @@ async function initMinorAccount() {
       (typeof cfg.whatsappNumber === "string"
         ? cfg.whatsappNumber.replace(/[^0-9]/g, "")
         : "");
-    const phone = sanitized || "541112345678";
+    const phone = sanitized || "5491130341550";
     supportBtn.href = `https://wa.me/${phone}`;
   }
 
