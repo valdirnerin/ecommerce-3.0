@@ -6276,6 +6276,28 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/admin/catalog/repair-public-flags" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    if (productsSqliteRepo.isRebuildInProgress()) {
+      return sendJson(res, 409, {
+        ok: false,
+        code: "REBUILD_IN_PROGRESS",
+        catalogState: productsSqliteRepo.catalogStateSnapshot(),
+      });
+    }
+    try {
+      const result = await productsSqliteRepo.repairPublicFlags();
+      return sendJson(res, 200, { source: "sqlite", ...result });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        code: "REPAIR_PUBLIC_FLAGS_FAILED",
+        error: error?.message || "No se pudo reparar flags públicos",
+      });
+    }
+  }
+
   if (pathname === "/api/catalog/performance-test" && req.method === "GET") {
     try {
       const perfStartedAt = Date.now();
