@@ -130,5 +130,25 @@
     "andreani": "/assets/footer-badges/andreani.png",
     "efectivo": "/assets/footer-badges/efectivo.png",
     "transferencia": "/assets/footer-badges/transferencia.png"
+  },
+  "legalDetails": {
+    "title": "Información fiscal y comercial",
+    "businessName": "NERIN PARTS",
+    "cuit": "30-93002432-2",
+    "iibb": "901-117119-4",
+    "condition": "Venta online · Depósito en CABA · Retiro con turno · Sin local a la calle",
+    "address": "CABA, Argentina",
+    "invoice": "Factura A/B",
+    "payments": "Mercado Pago, transferencia bancaria y efectivo",
+    "shipping": "Andreani · Envíos a todo el país"
+  },
+  "dataFiscal": {
+    "enabled": true,
+    "mode": "placeholder",
+    "label": "Data Fiscal ARCA / AFIP",
+    "placeholder": "Data Fiscal ARCA / AFIP pendiente de carga",
+    "html": "",
+    "image": "",
+    "link": ""
   }
 }

@@ -2017,6 +2017,26 @@ const DEFAULT_FOOTER = {
     terms: "/pages/terminos.html",
     privacy: "/pages/terminos.html#datos",
   },
+  legalDetails: {
+    title: "Información fiscal y comercial",
+    businessName: "NERIN PARTS",
+    cuit: "30-93002432-2",
+    iibb: "901-117119-4",
+    condition: "Venta online · Depósito en CABA · Retiro con turno · Sin local a la calle",
+    address: "CABA, Argentina",
+    invoice: "Factura A/B",
+    payments: "Mercado Pago, transferencia bancaria y efectivo",
+    shipping: "Andreani · Envíos a todo el país",
+  },
+  dataFiscal: {
+    enabled: true,
+    mode: "placeholder",
+    label: "Data Fiscal ARCA / AFIP",
+    placeholder: "Data Fiscal ARCA / AFIP pendiente de carga",
+    html: "",
+    image: "",
+    link: "",
+  },
   show: {
     cta: true,
     branding: true,
@@ -5475,6 +5495,30 @@ function normalizeFooter(data) {
     iibb: String(data?.legal?.iibb || ""),
     terms: String(data?.legal?.terms || ""),
     privacy: String(data?.legal?.privacy || ""),
+  };
+  out.legalDetails = {
+    title: String(data?.legalDetails?.title || base?.legalDetails?.title || "Información fiscal y comercial"),
+    businessName: String(data?.legalDetails?.businessName || base?.legalDetails?.businessName || out.brand || "NERIN PARTS"),
+    cuit: String(data?.legalDetails?.cuit || data?.legal?.cuit || base?.legalDetails?.cuit || ""),
+    iibb: String(data?.legalDetails?.iibb || data?.legal?.iibb || base?.legalDetails?.iibb || "").replace(/^IIBB CABA\s*/i, ""),
+    condition: String(data?.legalDetails?.condition || base?.legalDetails?.condition || ""),
+    address: String(data?.legalDetails?.address || base?.legalDetails?.address || out.contact.address || ""),
+    invoice: String(data?.legalDetails?.invoice || base?.legalDetails?.invoice || "Factura A/B"),
+    payments: String(data?.legalDetails?.payments || base?.legalDetails?.payments || ""),
+    shipping: String(data?.legalDetails?.shipping || base?.legalDetails?.shipping || ""),
+  };
+  out.dataFiscal = {
+    enabled: true,
+    mode: String(data?.dataFiscal?.mode || base?.dataFiscal?.mode || "placeholder"),
+    label: String(data?.dataFiscal?.label || base?.dataFiscal?.label || "Data Fiscal ARCA / AFIP"),
+    placeholder: String(
+      data?.dataFiscal?.placeholder ||
+        base?.dataFiscal?.placeholder ||
+        "Data Fiscal ARCA / AFIP pendiente de carga",
+    ),
+    html: String(data?.dataFiscal?.html || base?.dataFiscal?.html || ""),
+    image: String(data?.dataFiscal?.image || base?.dataFiscal?.image || ""),
+    link: String(data?.dataFiscal?.link || base?.dataFiscal?.link || ""),
   };
   out.show = {
     cta: Boolean(data?.show?.cta),

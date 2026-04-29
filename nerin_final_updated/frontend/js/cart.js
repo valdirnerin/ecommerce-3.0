@@ -236,7 +236,7 @@ async function renderCart() {
     const phone =
       fromDataset ||
       sanitizedCfg ||
-      (rawCfg ? rawCfg.replace(/[^0-9]/g, "") : "541112345678");
+      (rawCfg ? rawCfg.replace(/[^0-9]/g, "") : "5491130341550");
     let message = "Hola! Deseo hacer un pedido:%0A";
     cart.forEach((item) => {
       const basePrice = item.price;

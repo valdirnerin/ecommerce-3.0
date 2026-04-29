@@ -142,6 +142,27 @@
           terms: "/pages/terminos.html",
           privacy: "/pages/terminos.html#datos",
         },
+        legalDetails: {
+          title: "Información fiscal y comercial",
+          businessName: "NERIN PARTS",
+          cuit: "30-93002432-2",
+          iibb: "901-117119-4",
+          condition:
+            "Venta online · Depósito en CABA · Retiro con turno · Sin local a la calle",
+          address: "CABA, Argentina",
+          invoice: "Factura A/B",
+          payments: "Mercado Pago, transferencia bancaria y efectivo",
+          shipping: "Andreani · Envíos a todo el país",
+        },
+        dataFiscal: {
+          enabled: true,
+          mode: "placeholder",
+          label: "Data Fiscal ARCA / AFIP",
+          placeholder: "Data Fiscal ARCA / AFIP pendiente de carga",
+          html: "",
+          image: "",
+          link: "",
+        },
         show: {
           cta: true,
           branding: true,
@@ -432,36 +453,95 @@
       // Legal
       const legal = footerEl.querySelector(".np-footer__legal");
       if (legal && show.legal && cfg.legal) {
+        legal.innerHTML = "";
         legal.hidden = false;
         const y = new Date().getFullYear();
-        const brand = cfg.brand || "NERIN PARTS";
-        legal.appendChild(document.createTextNode(`© ${y} ${brand}`));
-        if (cfg.legal.cuit) {
-          legal.appendChild(
-            document.createTextNode(` – CUIT ${cfg.legal.cuit}`),
-          );
+        const legalDetails = cfg.legalDetails || {};
+        const businessName = legalDetails.businessName || cfg.brand || "NERIN PARTS";
+        const cuit = legalDetails.cuit || cfg.legal.cuit || "";
+        const iibb = legalDetails.iibb || String(cfg.legal.iibb || "").replace("IIBB CABA", "").trim();
+
+        const title = document.createElement("h3");
+        title.className = "np-footer__legal-title";
+        title.textContent = legalDetails.title || "Información fiscal y comercial";
+        legal.appendChild(title);
+
+        const list = document.createElement("ul");
+        list.className = "np-footer__legal-list";
+        const rows = [
+          ["Razón comercial", businessName],
+          ["CUIT", cuit],
+          ["IIBB CABA", iibb],
+          ["Condición comercial", legalDetails.condition],
+          ["Dirección comercial", legalDetails.address || cfg.contact?.address || ""],
+          ["Comprobantes", legalDetails.invoice || "Factura A/B"],
+          ["Medios de pago", legalDetails.payments],
+          ["Envíos", legalDetails.shipping],
+        ];
+        rows.forEach(([label, value]) => {
+          if (!value) return;
+          const li = document.createElement("li");
+          li.innerHTML = `<strong>${label}:</strong> ${value}`;
+          list.appendChild(li);
+        });
+        legal.appendChild(list);
+
+        const links = document.createElement("p");
+        links.className = "np-footer__legal-links";
+        links.append(`© ${y} ${businessName} · `);
+        const terms = document.createElement("a");
+        terms.href = cfg.legal.terms || "/pages/terminos.html";
+        terms.textContent = "Términos y condiciones";
+        terms.rel = "noopener";
+        const privacy = document.createElement("a");
+        privacy.href = cfg.legal.privacy || "/pages/terminos.html#datos";
+        privacy.textContent = "Política de privacidad";
+        privacy.rel = "noopener";
+        const warranty = document.createElement("a");
+        warranty.href = "/garantia.html";
+        warranty.textContent = "Garantía y devoluciones";
+        warranty.rel = "noopener";
+        const tracking = document.createElement("a");
+        tracking.href = "/seguimiento.html";
+        tracking.textContent = "Seguimiento de pedido";
+        tracking.rel = "noopener";
+        const contact = document.createElement("a");
+        contact.href = "/contact.html";
+        contact.textContent = "Contacto";
+        contact.rel = "noopener";
+        links.append(terms, " · ", privacy, " · ", warranty, " · ", tracking, " · ", contact);
+        legal.appendChild(links);
+
+        const fiscal = document.createElement("div");
+        fiscal.className = "np-footer__data-fiscal";
+        const fiscalLabel = document.createElement("h4");
+        fiscalLabel.textContent = cfg.dataFiscal?.label || "Data Fiscal ARCA / AFIP";
+        fiscal.appendChild(fiscalLabel);
+        if (cfg.dataFiscal?.mode === "html" && cfg.dataFiscal?.html) {
+          fiscal.insertAdjacentHTML("beforeend", cfg.dataFiscal.html);
+        } else if (cfg.dataFiscal?.mode === "image" && cfg.dataFiscal?.image) {
+          const img = document.createElement("img");
+          img.src = cfg.dataFiscal.image;
+          img.alt = cfg.dataFiscal.label || "Data Fiscal";
+          img.loading = "lazy";
+          img.decoding = "async";
+          if (cfg.dataFiscal?.link) {
+            const a = document.createElement("a");
+            a.href = cfg.dataFiscal.link;
+            a.target = "_blank";
+            a.rel = "noopener noreferrer";
+            a.appendChild(img);
+            fiscal.appendChild(a);
+          } else {
+            fiscal.appendChild(img);
+          }
+        } else {
+          const placeholder = document.createElement("p");
+          placeholder.textContent =
+            cfg.dataFiscal?.placeholder || "Data Fiscal ARCA / AFIP pendiente de carga";
+          fiscal.appendChild(placeholder);
         }
-        if (cfg.legal.iibb) {
-          legal.appendChild(
-            document.createTextNode(` – IIBB ${cfg.legal.iibb}`),
-          );
-        }
-        if (cfg.legal.terms) {
-          legal.appendChild(document.createTextNode(" – "));
-          const terms = document.createElement("a");
-          terms.href = cfg.legal.terms;
-          terms.textContent = "Términos";
-          terms.rel = "noopener";
-          legal.appendChild(terms);
-        }
-        if (cfg.legal.privacy) {
-          legal.appendChild(document.createTextNode(" – "));
-          const priv = document.createElement("a");
-          priv.href = cfg.legal.privacy;
-          priv.textContent = "Privacidad";
-          priv.rel = "noopener";
-          legal.appendChild(priv);
-        }
+        legal.appendChild(fiscal);
       }
 
       // Theme

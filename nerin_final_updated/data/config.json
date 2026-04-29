@@ -1,35 +1,39 @@
 {
   "googleAnalyticsId": "",
   "metaPixelId": "2627676134264110",
-  "whatsappNumber": "541112345678",
-  "defaultCarriers": ["Andreani", "Correo Argentino", "OCA"],
+  "whatsappNumber": "5491130341550",
+  "defaultCarriers": [
+    "Andreani",
+    "Correo Argentino",
+    "OCA"
+  ],
   "mercadoPagoToken": "",
   "afipCUIT": "",
   "afipCert": "",
   "afipKey": "",
   "resendApiKey": "",
-  "supportEmail": "soporte@nerinparts.com.ar",
+  "supportEmail": "ventas@nerinparts.com.ar",
   "fromEmailContacto": "NERIN Soporte <soporte@nerinparts.com.ar>",
   "wholesaleNotificationEmails": [],
   "publicUrl": "https://nerinparts.com.ar",
   "apiBase": "",
   "homePage": {
     "hero": {
-      "eyebrow": "Operamos para laboratorios y cadenas",
-      "title": "Pantallas y repuestos originales listos para instalar",
-      "description": "Nacimos atendiendo la demanda de pantallas Samsung Service Pack y hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones corporativas. Todo con control técnico propio y despacho en horas, no en días.",
+      "eyebrow": "NERIN Parts · Repuestos originales para reparación profesional",
+      "title": "Pantallas Samsung Service Pack originales, con stock real y factura A/B",
+      "description": "Trabajamos repuestos originales y verificados para técnicos, talleres, revendedores y clientes finales. Coordinamos retiro con turno en CABA o envío a todo el país.",
       "bullets": [
         "Stock auditado en CABA con envíos al país",
         "Laboratorio interno para validar cada lote",
         "Plan de expansión a nuevas marcas premium"
       ],
       "primaryCta": {
-        "label": "Ver catálogo",
+        "label": "Buscar en catálogo",
         "href": "/shop.html"
       },
       "secondaryCta": {
-        "label": "Hablar con un asesor",
-        "href": "/contact.html"
+        "label": "Consultar por WhatsApp",
+        "href": "https://wa.me/5491130341550"
       },
       "media": {
         "desktop": "/assets/hero.png",

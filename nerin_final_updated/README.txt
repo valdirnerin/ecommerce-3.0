@@ -165,7 +165,7 @@ Una vez configurado, desde el frontend puedes crear una preferencia de pago envi
 El archivo `frontend/cart.html` incluye dos botones: **Enviar por
 WhatsApp** y **Confirmar pedido**. El primero genera un enlace a la API
 de WhatsApp con el resumen de la compra. Por defecto envía el mensaje al
-número `541112345678`. Puedes cambiar este teléfono editando el valor
+número `5491130341550`. Puedes cambiar este teléfono editando el valor
 `phone` en `frontend/js/cart.js` (variable dentro del método
 `whatsappBtn.onclick`). El botón **Confirmar pedido** envía una petición
 POST a `/api/checkout`. A partir de allí puedes invocar el endpoint de
