@@ -190,18 +190,12 @@
             Encontrá el repuesto exacto sin perder tiempo
           </h1>
           <p class="lead" data-home-text="hero.description">
-            Buscá por modelo, código de pieza o SKU. Displays, módulos, baterías y repuestos para reparación profesional, con catálogo online, stock visible y atención real.
+            Buscá por modelo, código de pieza o SKU. Displays, módulos, baterías y repuestos para reparación profesional, con stock visible y atención real.
           </p>
           <form class="home-hero__search" action="/shop.html" method="get">
-            <input type="search" name="search" placeholder="Buscá por modelo, SKU, GH82 o componente…" aria-label="Buscar repuesto" required />
+            <input type="search" name="search" placeholder="Modelo, SKU, GH82 o componente…" aria-label="Buscar repuesto" required />
             <button type="submit" class="button primary">Buscar en catálogo</button>
           </form>
-          <ul class="home-hero__bullets" data-home-list="hero.bullets">
-            <li>Stock visible</li>
-            <li>Factura A/B</li>
-            <li>Envíos</li>
-            <li>Atención técnica</li>
-          </ul>
           <div class="buttons">
             <a
               href="/shop.html"
@@ -254,55 +248,12 @@
         </div>
       </section>
 
-      <section class="home-about" id="quienes-somos" data-home-section="about">
-        <div class="home-about__media">
-          <picture>
-            <img
-              src="/assets/product1.png"
-              alt="Equipo calibrando módulos para el relanzamiento"
-              data-home-image="about.image"
-            />
-          </picture>
-        </div>
-        <div class="home-about__content">
-          <p class="eyebrow">Nuestra historia</p>
-          <h2 data-home-text="about.title">
-            De Mercado Libre a un laboratorio integral
-          </h2>
-          <p class="lead" data-home-text="about.lead">
-            Arrancamos en 2021 vendiendo repuestos a través de Mercado Libre.
-            Las restricciones a las importaciones frenaron el proyecto, pero
-            volvimos en 2025 mejor preparados.
-          </p>
-          <p data-home-text="about.body">
-            El relanzamiento de NERIN combina procesos de control renovados,
-            acuerdos logísticos ágiles y un sistema pensado para técnicos y
-            cadenas. Apostamos a calidad sostenible, servicio responsable y un
-            ecosistema que pueda escalar sin perder cercanía.
-          </p>
-          <ul class="home-milestones" id="homeMilestones"></ul>
-        </div>
-      </section>
-
-      <section class="home-why" data-home-section="why">
-        <div class="home-why__header">
-          <p class="eyebrow">Por qué elegir NERIN</p>
-          <h2 data-home-text="why.title">Por qué elegir NERIN</h2>
-          <p data-home-text="why.description">
-            Diseñamos una experiencia alineada con la operación técnica: datos
-            reales, logística predecible y soporte especializado.
-          </p>
-        </div>
-        <div class="home-why__grid" id="homeWhyCards"></div>
-      </section>
-
       <section class="home-featured" data-home-section="featured">
         <div class="home-featured__header">
-          <p class="eyebrow">Selección del laboratorio</p>
+          <p class="eyebrow">Destacados</p>
           <h2 data-home-text="featured.title">Productos destacados</h2>
           <p data-home-text="featured.description">
-            Seleccionamos los módulos con mejor rendimiento y disponibilidad
-            inmediata.
+            Repuestos con salida rápida para técnicos, revendedores y clientes finales.
           </p>
         </div>
         <div id="featuredGrid" class="product-grid premium-grid" role="list"></div>
@@ -311,132 +262,15 @@
         </div>
       </section>
 
-      <section class="home-steps">
-        <div class="home-section-head">
-          <p class="eyebrow">Proceso</p>
-          <h2>Comprar sin vueltas</h2>
+      <section class="home-cta" data-home-section="cta">
+        <div class="home-cta__content">
+          <h2>¿No encontrás el repuesto?</h2>
+          <p>Mandanos modelo, código de pieza o foto del repuesto y te confirmamos disponibilidad.</p>
         </div>
-        <ol class="home-steps__list">
-          <li>Buscá el repuesto por modelo o código.</li>
-          <li>Revisá stock, precio y compatibilidad.</li>
-          <li>Comprá online o consultá por WhatsApp.</li>
-          <li>Coordinamos envío o retiro.</li>
-        </ol>
-      </section>
-
-      <section class="home-segments">
-        <div class="home-section-head">
-          <p class="eyebrow">Atención por perfil</p>
-          <h2>Para técnicos, revendedores y particulares</h2>
+        <div class="home-cta__actions">
+          <a class="button primary" href="https://wa.me/541112345678?text=Hola%20NERIN%2C%20necesito%20ayuda%20para%20encontrar%20un%20repuesto" target="_blank" rel="noopener">Consultar por WhatsApp</a>
+          <a class="button secondary" href="/shop.html">Ver catálogo</a>
         </div>
-        <div class="home-segments__grid">
-          <article><h3>Técnicos</h3><p>Buscá por código, modelo o SKU. Ideal para reparaciones con compatibilidad clara.</p></article>
-          <article><h3>Revendedores</h3><p>Consultá precio por cantidad y disponibilidad.</p></article>
-          <article><h3>Particulares</h3><p>Te ayudamos a confirmar el repuesto correcto antes de comprar.</p></article>
-        </div>
-      </section>
-
-      <section class="home-contact" id="contacto" data-home-section="contact">
-        <div class="home-contact__intro">
-          <p class="eyebrow" data-home-text="contact.eyebrow">Cotizá en segundos</p>
-          <h2 data-home-text="contact.title">
-            Contanos qué necesitás y coordinamos la entrega
-          </h2>
-          <p data-home-text="contact.description">
-            Respondemos con precio, stock y opciones de retiro o envío en
-            horario comercial.
-          </p>
-          <ul class="home-contact__bullets" id="homeContactBullets"></ul>
-          <p class="home-contact__note" data-home-text="contact.note">
-            Si lo necesitás urgente marcá la opción correspondiente y
-            priorizamos tu caso.
-          </p>
-        </div>
-        <form id="contactForm" class="contact-form">
-          <div class="contact-form__row">
-            <label class="contact-form__field">
-              <span>Nombre y apellido</span>
-              <input
-                type="text"
-                id="contactName"
-                name="name"
-                autocomplete="name"
-                placeholder="Ej.: Laura González"
-                required
-              />
-            </label>
-            <label class="contact-form__field">
-              <span>Modelo exacto</span>
-              <input
-                type="text"
-                id="contactModel"
-                name="model"
-                placeholder="Ej.: SM-A546"
-                autocomplete="off"
-                required
-              />
-            </label>
-          </div>
-          <div class="contact-form__row">
-            <label class="contact-form__field">
-              <span>Cantidad estimada</span>
-              <input
-                type="number"
-                id="contactQuantity"
-                name="quantity"
-                min="1"
-                value="1"
-                inputmode="numeric"
-              />
-            </label>
-            <label class="contact-form__field">
-              <span>Necesito el repuesto para</span>
-              <select id="contactUrgency" name="urgency">
-                <option value="hoy">Entregarlo hoy</option>
-                <option value="48hs">Programar en 48 hs</option>
-                <option value="planificar">Planificar stock</option>
-              </select>
-            </label>
-          </div>
-          <fieldset class="contact-form__fieldset">
-            <legend>Perfil</legend>
-            <div class="contact-form__chips" id="contactRoleGroup">
-              <label class="chip">
-                <input
-                  type="radio"
-                  name="contactRole"
-                  value="tecnico"
-                  checked
-                />
-                <span>Técnico</span>
-              </label>
-              <label class="chip">
-                <input type="radio" name="contactRole" value="revendedor" />
-                <span>Revendedor</span>
-              </label>
-              <label class="chip">
-                <input type="radio" name="contactRole" value="particular" />
-                <span>Particular</span>
-              </label>
-            </div>
-          </fieldset>
-          <label class="contact-form__field contact-form__field--full">
-            <span>Detalles adicionales (opcional)</span>
-            <textarea
-              id="contactMessage"
-              name="message"
-              rows="3"
-              placeholder="Indicá color, serie u otra necesidad"
-            ></textarea>
-          </label>
-          <div class="contact-form__actions">
-            <button type="submit" class="button primary">
-              Solicitar cotización
-            </button>
-            <a class="button secondary" href="https://wa.me/541112345678?text=Hola%20NERIN%20Parts%2C%20quiero%20cotizar%20un%20repuesto" target="_blank" rel="noopener">Enviar por WhatsApp</a>
-            <p id="contactFeedback" class="form-feedback" aria-live="polite"></p>
-          </div>
-        </form>
       </section>
     </main>
 
