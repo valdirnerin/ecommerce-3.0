@@ -37,17 +37,18 @@ const PLACEHOLDER_IMAGE =
 
 const DEFAULT_HOME_CONTENT = {
   hero: {
-    eyebrow: "Operamos para laboratorios y cadenas",
-    title: "Pantallas y repuestos originales listos para instalar",
+    eyebrow: "NERIN Parts · Repuestos para celular",
+    title: "Encontrá el repuesto exacto sin perder tiempo",
     description:
-      "Nacimos atendiendo la demanda de pantallas Samsung Service Pack y hoy ampliamos el catálogo con líneas Apple, Motorola y soluciones corporativas. Todo con control técnico propio y despacho en horas, no en días.",
+      "Buscá por modelo, código de pieza o SKU. Displays, módulos, baterías y repuestos para reparación profesional, con catálogo online, stock visible y atención real.",
     bullets: [
-      "Stock auditado en CABA con envíos al país",
-      "Laboratorio interno para validar cada lote",
-      "Plan de expansión a nuevas marcas premium",
+      "Stock visible",
+      "Factura A/B",
+      "Envíos",
+      "Atención técnica",
     ],
-    primaryCta: { label: "Ver catálogo", href: "/shop.html" },
-    secondaryCta: { label: "Hablar con un asesor", href: "/contact.html" },
+    primaryCta: { label: "Buscar en catálogo", href: "/shop.html" },
+    secondaryCta: { label: "Consultar por WhatsApp", href: "https://wa.me/541112345678" },
     media: {
       desktop: "/assets/hero.png",
       mobile: "/assets/hero.png",
@@ -56,22 +57,20 @@ const DEFAULT_HOME_CONTENT = {
   },
   highlights: [
     {
-      icon: "📦",
-      title: "Stock auditado cada mañana",
-      description:
-        "Inventario real de Service Pack y módulos OEM con controles de lote y trazabilidad.",
+      title: "Stock visible y catálogo actualizado",
+      description: "Publicaciones con precio, stock y datos técnicos visibles.",
     },
     {
-      icon: "🛠️",
-      title: "Garantía laboratorio",
-      description:
-        "Probamos módulos y flex antes de despachar para reducir DOA en los talleres que atendemos.",
+      title: "Repuestos originales / premium",
+      description: "Lotes verificados con foco en compatibilidad real.",
     },
     {
-      icon: "🚚",
-      title: "Logística en 24/48 hs",
-      description:
-        "Despachos en el día para CABA y GBA y operadores nacionales para llegar a cada provincia.",
+      title: "Envíos y retiro coordinado",
+      description: "Despacho por correo o retiro con coordinación comercial.",
+    },
+    {
+      title: "Factura A/B y atención comercial",
+      description: "Respuesta real antes de comprar para técnicos y revendedores.",
     },
   ],
   about: {
@@ -498,7 +497,7 @@ function getProductDescription(product) {
       if (trimmed) return trimmed;
     }
   }
-  return "Descripción no disponible.";
+  return "";
 }
 
 function createDescriptionPreview(description, maxLength = 200) {
@@ -673,9 +672,12 @@ function createFeaturedCard(product) {
   const desc = document.createElement("p");
   desc.className = "description";
   const descriptionText = getProductDescription(product);
-  desc.textContent = createDescriptionPreview(descriptionText);
-  desc.title = descriptionText;
-  card.appendChild(desc);
+  const previewText = createDescriptionPreview(descriptionText);
+  if (previewText) {
+    desc.textContent = previewText;
+    desc.title = descriptionText;
+    card.appendChild(desc);
+  }
 
   const availability = document.createElement("div");
   availability.className = "availability-badges";
