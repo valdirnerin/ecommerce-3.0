@@ -70,6 +70,26 @@ const defaultConfig = {
     terms: "/pages/terminos.html",
     privacy: "/pages/terminos.html#datos",
   },
+  legalDetails: {
+    title: "Información fiscal y comercial",
+    businessName: "NERIN PARTS",
+    cuit: "30-93002432-2",
+    iibb: "901-117119-4",
+    condition: "Venta online · Depósito en CABA · Retiro con turno · Sin local a la calle",
+    address: "CABA, Argentina",
+    invoice: "Factura A/B",
+    payments: "Mercado Pago, transferencia bancaria y efectivo",
+    shipping: "Andreani · Envíos a todo el país",
+  },
+  dataFiscal: {
+    enabled: true,
+    mode: "placeholder",
+    label: "Data Fiscal ARCA / AFIP",
+    placeholder: "Data Fiscal ARCA / AFIP pendiente de carga",
+    html: "",
+    image: "",
+    link: "",
+  },
   show: { cta: true, branding: true, columns: true, contact: true, social: true, badges: true, newsletter: false, legal: true },
   theme: {
     accentFrom: "#60a5fa",
@@ -121,6 +141,19 @@ function fillForm(cfg) {
   form.iibb.value = cfg.legal.iibb;
   form.terms.value = cfg.legal.terms;
   form.privacy.value = cfg.legal.privacy;
+  form.legalTitle.value = cfg.legalDetails?.title || "";
+  form.businessName.value = cfg.legalDetails?.businessName || "";
+  form.legalCondition.value = cfg.legalDetails?.condition || "";
+  form.legalAddress.value = cfg.legalDetails?.address || "";
+  form.legalInvoice.value = cfg.legalDetails?.invoice || "";
+  form.legalPayments.value = cfg.legalDetails?.payments || "";
+  form.legalShipping.value = cfg.legalDetails?.shipping || "";
+  form.dataFiscalMode.value = cfg.dataFiscal?.mode || "placeholder";
+  form.dataFiscalLabel.value = cfg.dataFiscal?.label || "";
+  form.dataFiscalPlaceholder.value = cfg.dataFiscal?.placeholder || "";
+  form.dataFiscalHtml.value = cfg.dataFiscal?.html || "";
+  form.dataFiscalImage.value = cfg.dataFiscal?.image || "";
+  form.dataFiscalLink.value = cfg.dataFiscal?.link || "";
   form.accentFrom.value = cfg.theme.accentFrom;
   form.accentTo.value = cfg.theme.accentTo;
   form.bg.value = cfg.theme.bg;
@@ -181,6 +214,26 @@ function collectForm() {
     iibb: form.iibb.value.trim(),
     terms: form.terms.value.trim(),
     privacy: form.privacy.value.trim(),
+  };
+  cfg.legalDetails = {
+    title: form.legalTitle.value.trim(),
+    businessName: form.businessName.value.trim(),
+    cuit: form.cuit.value.trim(),
+    iibb: form.iibb.value.trim().replace(/^IIBB CABA\s*/i, ""),
+    condition: form.legalCondition.value.trim(),
+    address: form.legalAddress.value.trim() || form.address.value.trim(),
+    invoice: form.legalInvoice.value.trim(),
+    payments: form.legalPayments.value.trim(),
+    shipping: form.legalShipping.value.trim(),
+  };
+  cfg.dataFiscal = {
+    enabled: true,
+    mode: form.dataFiscalMode.value || "placeholder",
+    label: form.dataFiscalLabel.value.trim(),
+    placeholder: form.dataFiscalPlaceholder.value.trim(),
+    html: form.dataFiscalHtml.value.trim(),
+    image: form.dataFiscalImage.value.trim(),
+    link: form.dataFiscalLink.value.trim(),
   };
   cfg.theme = {
     accentFrom: form.accentFrom.value,

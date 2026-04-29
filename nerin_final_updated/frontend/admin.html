@@ -1489,6 +1489,28 @@
           <input type="text" name="iibb" placeholder="IIBB" />
           <input type="text" name="terms" placeholder="URL Términos" />
           <input type="text" name="privacy" placeholder="URL Privacidad" />
+          <h4>Información fiscal y comercial (footer)</h4>
+          <input type="text" name="legalTitle" placeholder="Título bloque legal" />
+          <input type="text" name="businessName" placeholder="Razón / nombre comercial" />
+          <input type="text" name="legalCondition" placeholder="Condición comercial" />
+          <input type="text" name="legalAddress" placeholder="Dirección comercial" />
+          <input type="text" name="legalInvoice" placeholder="Comprobantes (ej: Factura A/B)" />
+          <input type="text" name="legalPayments" placeholder="Medios de pago" />
+          <input type="text" name="legalShipping" placeholder="Envíos" />
+          <h4>Data Fiscal / Formulario 960D</h4>
+          <label>
+            Modo Data Fiscal
+            <select name="dataFiscalMode">
+              <option value="placeholder">Placeholder</option>
+              <option value="html">HTML embebido</option>
+              <option value="image">Imagen + link</option>
+            </select>
+          </label>
+          <input type="text" name="dataFiscalLabel" placeholder="Etiqueta Data Fiscal" />
+          <input type="text" name="dataFiscalPlaceholder" placeholder="Texto placeholder Data Fiscal" />
+          <textarea name="dataFiscalHtml" placeholder="Pegar aquí HTML oficial Formulario 960/D" style="min-height:120px"></textarea>
+          <input type="text" name="dataFiscalImage" placeholder="URL imagen QR/insignia oficial" />
+          <input type="text" name="dataFiscalLink" placeholder="URL destino verificación ARCA/AFIP (opcional)" />
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <button type="submit" class="button primary">Guardar</button>
             <button type="button" id="footerReset" class="button">Restaurar defaults</button>
