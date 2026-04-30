@@ -74,9 +74,9 @@ const DEFAULT_HOME_CONTENT = {
     },
   ],
   about: {
-    title: "De Mercado Libre a un laboratorio integral",
+    title: "De tienda online a un laboratorio integral",
     lead:
-      "Arrancamos en 2021 vendiendo repuestos a través de Mercado Libre. Las restricciones a las importaciones frenaron el proyecto, pero volvimos en 2025 mejor preparados.",
+      "Arrancamos en 2021 vendiendo repuestos por canales digitales. Las restricciones a las importaciones frenaron el proyecto, pero volvimos en 2025 mejor preparados.",
     body:
       "El relanzamiento de NERIN combina procesos de control renovados, acuerdos logísticos ágiles y un sistema pensado para técnicos y cadenas. Apostamos a calidad sostenible, servicio responsable y un ecosistema que pueda escalar sin perder cercanía.",
     image: "/assets/product1.png",
@@ -84,7 +84,7 @@ const DEFAULT_HOME_CONTENT = {
     milestones: [
       {
         title: "2021",
-        description: "Comercializamos repuestos originales a través de Mercado Libre.",
+        description: "Comercializamos repuestos originales a través de canales digitales.",
       },
       {
         title: "2023",
