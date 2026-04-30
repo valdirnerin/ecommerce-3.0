@@ -243,6 +243,23 @@ function getDeliveryPromiseCopy(product, fulfillmentMode) {
   return "24 a 48 hs hábiles.";
 }
 
+
+function shouldRequireDelayTermsAcceptance(product, fulfillmentMode = getFulfillmentMode(product)) {
+  if (fulfillmentMode !== "remote") return false;
+  return true;
+}
+
+function buildDelayTermsMessage(product) {
+  const deliveryCopy = getDeliveryPromiseCopy(product, "remote");
+  return [
+    `Este producto es con demora: ${deliveryCopy}`,
+    "Condiciones legales (AR): la publicación es informativa y está sujeta a disponibilidad real del proveedor.",
+    "Si no hay stock al momento de confirmar, la operación puede cancelarse y se reintegra el 100% del dinero abonado por el mismo medio de pago.",
+    "Antes de pagar, te recomendamos confirmar por WhatsApp.",
+    "Al continuar, confirmás que leíste y aceptás estos términos para productos con demora."
+  ].join("\n\n");
+}
+
 function matchesStockFilter(product, stockFilterValue) {
   if (!stockFilterValue) return true;
   const fulfillmentMode = getFulfillmentMode(product);
@@ -426,7 +443,12 @@ function resetAllFilters() {
 }
 
 function addToCart(product) {
-  if (typeof product.stock === "number" && product.stock <= 0) {
+  const fulfillmentMode = getFulfillmentMode(product);
+  if (shouldRequireDelayTermsAcceptance(product, fulfillmentMode)) {
+    const acceptedTerms = window.confirm(buildDelayTermsMessage(product));
+    if (!acceptedTerms) return;
+  }
+  if (typeof product.stock === "number" && product.stock <= 0 && fulfillmentMode !== "remote") {
     alert("Sin stock disponible");
     return;
   }
@@ -533,8 +555,21 @@ function createProductCard(product) {
 
   const deliveryPromise = document.createElement("p");
   deliveryPromise.className = "product-delivery-promise";
-  deliveryPromise.textContent = `Entrega estimada: ${getDeliveryPromiseCopy(product, fulfillmentMode)}`;
+  deliveryPromise.textContent =
+    fulfillmentMode === "remote"
+      ? `El vendedor necesita ${getDeliveryPromiseCopy(product, fulfillmentMode)} para tener listo este producto.`
+      : `Entrega estimada: ${getDeliveryPromiseCopy(product, fulfillmentMode)}`;
   card.appendChild(deliveryPromise);
+
+  if (fulfillmentMode === "remote") {
+    const legalBanner = document.createElement("div");
+    legalBanner.className = "product-legal-banner";
+    legalBanner.innerHTML =
+      '<strong>Importante:</strong> Publicación sujeta a disponibilidad del distribuidor oficial. ' +
+      'Si no hay stock, la compra puede cancelarse y se reintegra el dinero. ' +
+      'Consultá por WhatsApp antes de pagar. Al agregar al carrito aceptás estos términos.';
+    card.appendChild(legalBanner);
+  }
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
