@@ -875,14 +875,30 @@ body.cart-indicator-visible .toastify {
 }
 
 .product-card .product-delivery-promise {
-  margin: 0 0 0.75rem;
-  padding: 0.45rem 0.6rem;
+  margin: 0 0 0.45rem;
+  padding: 0.4rem 0.55rem;
   border-radius: 10px;
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   color: #1d4ed8;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
   font-weight: 700;
+}
+
+.product-card .product-legal-banner {
+  margin: 0 0 0.8rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.product-card .product-legal-banner strong {
+  font-weight: 800;
 }
 
 .price {
