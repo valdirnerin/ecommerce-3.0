@@ -1688,6 +1688,36 @@ async function getProductByPublicSlugOrAnyIdentifier(value) {
   }
 }
 
+async function getProductsByIdentifiers(identifiers = []) {
+  const list = Array.isArray(identifiers) ? identifiers : [];
+  const uniqueTargets = [...new Set(
+    list.map((value) => String(value || "").trim()).filter(Boolean),
+  )];
+  const found = [];
+  const missing = [];
+  for (const identifier of uniqueTargets) {
+    const resolved = await getProductByPublicSlugOrAnyIdentifier(identifier);
+    if (resolved?.product) {
+      found.push({
+        identifier,
+        foundBy: resolved.foundBy || "unknown",
+        source: "sqlite",
+        product: resolved.product,
+      });
+    } else {
+      missing.push(identifier);
+    }
+  }
+  return {
+    source: "sqlite",
+    requestedCount: uniqueTargets.length,
+    foundCount: found.length,
+    missingCount: missing.length,
+    found,
+    missing,
+  };
+}
+
 async function getManifestFromDb() {
   try {
     const raw = await fsp.readFile(MANIFEST_PATH, "utf8");
@@ -2207,6 +2237,7 @@ module.exports = {
   getProductById,
   getProductByCode,
   getProductByPublicSlugOrAnyIdentifier,
+  getProductsByIdentifiers,
   getManifestFromDb,
   getCatalogHealth,
   getCatalogPriceAudit,
