@@ -50,23 +50,17 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              titulo: producto.titulo,
-              precio: producto.precio,
-              cantidad: producto.cantidad,
-              datos: {
-                nombre: saved.nombre,
-                apellido: saved.apellido,
+              usuario: {
                 email: saved.email,
-                telefono: saved.telefono,
               },
-              envio: {
-                provincia: saved.provincia,
-                localidad: saved.localidad,
-                direccion: saved.direccion,
-                cp: saved.cp,
-                metodo: saved.metodo,
-                costo: saved.costo,
-              },
+              carrito: [
+                {
+                  titulo: producto.titulo,
+                  precio: producto.precio,
+                  cantidad: producto.cantidad,
+                  currency_id: 'ARS',
+                },
+              ],
             }),
           });
           const data = await res.json();
