@@ -1293,7 +1293,7 @@ function renderProduct(product) {
     fulfillmentTrust.className = "product-fulfillment-trust";
     fulfillmentTrust.innerHTML = `
       <p><strong>${fulfillment.mode === "remote" ? "Stock remoto" : "Stock físico"}</strong> · Entrega asegurada.</p>
-      <p>También vendemos en Mercado Libre para que puedas validar reputación y comprar con la misma seguridad.</p>
+      <p>Podés comprar con la misma seguridad y respaldo en todos nuestros canales de venta.</p>
       <p>Acá el precio publicado ya es final: IVA incluido, factura A y envío gratis.</p>
     `;
     purchaseCard.appendChild(fulfillmentTrust);

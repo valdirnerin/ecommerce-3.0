@@ -874,6 +874,17 @@ body.cart-indicator-visible .toastify {
   font-weight: 600;
 }
 
+.product-card .product-delivery-promise {
+  margin: 0 0 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .price {
   font-size: 1rem;
   font-weight: 600;

@@ -236,6 +236,25 @@ function getRemoteLeadTimeCopy(product) {
   return "Entrega estimada: 20 a 30 días (importación a pedido + preparación).";
 }
 
+function getDeliveryPromiseCopy(product, fulfillmentMode) {
+  if (fulfillmentMode === "remote") {
+    return getRemoteLeadTimeCopy(product).replace("Entrega estimada: ", "");
+  }
+  return "24 a 48 hs hábiles.";
+}
+
+function matchesStockFilter(product, stockFilterValue) {
+  if (!stockFilterValue) return true;
+  const fulfillmentMode = getFulfillmentMode(product);
+  const stockQty = resolveStockQuantity(product);
+  const hasStock = Number.isFinite(stockQty) ? stockQty > 0 : true;
+
+  if (stockFilterValue === "in-stock") return hasStock;
+  if (stockFilterValue === "physical") return fulfillmentMode === "physical" && hasStock;
+  if (stockFilterValue === "remote") return fulfillmentMode === "remote";
+  return true;
+}
+
 function getStockStatus(product) {
   const stock = resolveStockQuantity(product);
   if (!Number.isFinite(stock)) return "unknown";
@@ -508,9 +527,14 @@ function createProductCard(product) {
   if (fulfillmentMode === "remote") {
     const fulfillmentNote = document.createElement("p");
     fulfillmentNote.className = "product-fulfillment-note";
-    fulfillmentNote.textContent = `Stock remoto • ${getRemoteLeadTimeCopy(product)} Sujeto a disponibilidad. Puede cancelarse con reembolso total.`;
+    fulfillmentNote.textContent = "Stock remoto · Entrega sujeta a disponibilidad.";
     card.appendChild(fulfillmentNote);
   }
+
+  const deliveryPromise = document.createElement("p");
+  deliveryPromise.className = "product-delivery-promise";
+  deliveryPromise.textContent = `Entrega estimada: ${getDeliveryPromiseCopy(product, fulfillmentMode)}`;
+  card.appendChild(deliveryPromise);
 
   const priceBlock = document.createElement("div");
   priceBlock.className = "price-block";
@@ -854,6 +878,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     .map(normalizeStorefrontProduct)
     .map(sanitizePublicProduct)
     .filter(Boolean);
+  const filteredItems = normalizedItems.filter((product) => matchesStockFilter(product, filters.stock));
 
   if (!filtersInitialized) {
     populateFilters(normalizedItems);
@@ -863,7 +888,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     filtersInitialized = true;
   }
 
-  allProducts = normalizedItems;
+  allProducts = filteredItems;
   currentProductsPage = Number(response.page || currentProductsPage || 1);
   publicProductsHasNextPage = Boolean(response.hasNextPage);
   publicProductsHasPrevPage = Boolean(response.hasPrevPage || currentProductsPage > 1);
@@ -877,6 +902,13 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
       : null;
 
   totalFilteredItems = publicProductsTotalItems ?? allProducts.length;
+  if (filters.stock) {
+    totalFilteredItems = allProducts.length;
+    publicProductsTotalItems = null;
+    publicProductsTotalPages = null;
+    publicProductsHasNextPage = false;
+    publicProductsHasPrevPage = currentProductsPage > 1;
+  }
   productGrid.innerHTML = "";
   console.info("[shop-products] render start");
   if (!allProducts.length) {
