@@ -12379,15 +12379,3 @@ if (require.main === module) {
     });
   })();
 }
-            console.log("[checkout-payment:create-preference]", {
-              paymentMethod: "mercado_pago",
-              itemCount: resolvedCart.length,
-              total,
-              source: "sqlite",
-            });
-            console.log("[checkout-payment:create-preference]", {
-              paymentMethod,
-              itemCount: resolvedItems.length,
-              total: grandTotal,
-              source: "sqlite",
-            });
