@@ -463,8 +463,23 @@ function addToCart(product) {
     existing.quantity += 1;
   } else {
     const display = resolveDisplayPrice(product);
+    const url = buildProductUrl(product);
+    const stableIdentifier =
+      product.adminIdentifier ||
+      product.id ||
+      product.sku ||
+      product.code ||
+      product.publicSlug ||
+      product.slug ||
+      "";
     cart.push({
       id: product.id,
+      identifier: String(stableIdentifier || ""),
+      sku: product.sku || "",
+      code: product.code || "",
+      publicSlug: product.publicSlug || product.public_slug || "",
+      slug: product.slug || "",
+      url,
       name: product.name,
       price: display.active,
       quantity: 1,
