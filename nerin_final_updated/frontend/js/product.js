@@ -1393,9 +1393,23 @@ function renderProduct(product) {
         existing.sku = skuValue;
       }
     } else {
+      const stableIdentifier =
+        product.adminIdentifier ||
+        product.id ||
+        skuValue ||
+        product.sku ||
+        product.code ||
+        product.publicSlug ||
+        product.slug ||
+        "";
       cart.push({
         id: product.id,
+        identifier: String(stableIdentifier || ""),
         sku: skuValue || product.id,
+        code: product.code || "",
+        publicSlug: product.publicSlug || product.public_slug || "",
+        slug: product.slug || "",
+        url: buildRelativeProductUrl(product),
         name: product.name,
         price: resolveProductDisplayPrice(product),
         quantity: qty,

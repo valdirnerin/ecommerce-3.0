@@ -5383,21 +5383,53 @@ function sendJson(res, statusCode, data, extraHeaders = {}) {
   res.end(json);
 }
 
-function getCartItemIdentifier(item = {}) {
-  return String(
+function extractSlugFromCheckoutUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const normalized = raw.replace(/^https?:\/\/[^/]+/i, "");
+  const match = normalized.match(/\/p\/([^/?#]+)/i);
+  if (match && match[1]) {
+    try {
+      return decodeURIComponent(match[1]).trim();
+    } catch {
+      return match[1].trim();
+    }
+  }
+  return "";
+}
+
+function getCheckoutItemIdentifier(item = {}) {
+  const candidate =
+    item?.productId ||
+    item?.product_id ||
     item?.id ||
-      item?.sku ||
-      item?.code ||
-      item?.publicSlug ||
-      item?.public_slug ||
-      item?.slug ||
-      item?.partNumber ||
-      item?.mpn ||
-      item?.ean ||
-      item?.gtin ||
-      item?.supplierCode ||
-      "",
-  ).trim();
+    item?.product?.id ||
+    item?.product?.sku ||
+    item?.product?.code ||
+    item?.sku ||
+    item?.SKU ||
+    item?.code ||
+    item?.Code ||
+    item?.publicSlug ||
+    item?.public_slug ||
+    item?.slug ||
+    item?.product?.publicSlug ||
+    item?.product?.public_slug ||
+    item?.product?.slug ||
+    item?.partNumber ||
+    item?.mpn ||
+    item?.ean ||
+    item?.gtin ||
+    item?.supplierCode;
+  const direct = String(candidate || "").trim();
+  if (direct) return direct;
+  return (
+    extractSlugFromCheckoutUrl(item?.url) ||
+    extractSlugFromCheckoutUrl(item?.href) ||
+    extractSlugFromCheckoutUrl(item?.link) ||
+    extractSlugFromCheckoutUrl(item?.productUrl) ||
+    ""
+  );
 }
 
 function resolveProductPrice(product = {}) {
@@ -5416,7 +5448,30 @@ function resolveProductPrice(product = {}) {
 
 async function resolveCheckoutCartItems(cart = []) {
   const startedAt = Date.now();
-  const identifiers = cart.map((item) => getCartItemIdentifier(item)).filter(Boolean);
+  cart.forEach((item = {}) => {
+    console.log("[checkout-cart-item-shape]", {
+      itemKeys: Object.keys(item || {}),
+      itemPreview: {
+        id: item?.id,
+        productId: item?.productId,
+        product_id: item?.product_id,
+        sku: item?.sku,
+        code: item?.code,
+        slug: item?.slug,
+        publicSlug: item?.publicSlug,
+        public_slug: item?.public_slug,
+        url: item?.url,
+        href: item?.href,
+        name: item?.name,
+        title: item?.title,
+        quantity: item?.quantity,
+        qty: item?.qty,
+        price: item?.price,
+        unit_price: item?.unit_price,
+      },
+    });
+  });
+  const identifiers = cart.map((item) => getCheckoutItemIdentifier(item)).filter(Boolean);
   console.log("[checkout-products-resolve:start]", {
     itemCount: cart.length,
     identifiers,
@@ -5425,7 +5480,16 @@ async function resolveCheckoutCartItems(cart = []) {
   const byIdentifier = new Map(lookup.found.map((entry) => [entry.identifier, entry.product]));
   const resolvedItems = [];
   for (const item of cart) {
-    const identifier = getCartItemIdentifier(item);
+    const identifier = getCheckoutItemIdentifier(item);
+    if (!identifier) {
+      const hasName = Boolean(String(item?.name || item?.title || "").trim());
+      const hasPrice = Number.isFinite(Number(item?.price || item?.unit_price));
+      if (hasName && hasPrice) {
+        const error = new Error("El producto del carrito no tiene identificador. Volvé a agregarlo al carrito desde el catálogo.");
+        error.statusCode = 400;
+        throw error;
+      }
+    }
     const product = byIdentifier.get(identifier);
     if (!product) {
       const error = new Error("Producto no encontrado en catálogo rápido");
