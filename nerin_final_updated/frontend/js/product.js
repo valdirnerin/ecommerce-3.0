@@ -1373,6 +1373,23 @@ function renderProduct(product) {
   `;
 
   const handleAddToCart = () => {
+    const identifier = String(
+      product?.adminIdentifier ||
+        product?.identifier ||
+        product?.id ||
+        skuValue ||
+        product?.sku ||
+        product?.code ||
+        product?.publicSlug ||
+        product?.public_slug ||
+        product?.slug ||
+        product?.url ||
+        "",
+    ).trim();
+    if (!identifier) {
+      alert("No se pudo agregar el producto porque falta identificador.");
+      return;
+    }
     const qty = qtyControl.getValue();
     if (qty > (product.stock || 0)) {
       alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
@@ -1393,18 +1410,9 @@ function renderProduct(product) {
         existing.sku = skuValue;
       }
     } else {
-      const stableIdentifier =
-        product.adminIdentifier ||
-        product.id ||
-        skuValue ||
-        product.sku ||
-        product.code ||
-        product.publicSlug ||
-        product.slug ||
-        "";
       cart.push({
         id: product.id,
-        identifier: String(stableIdentifier || ""),
+        identifier,
         sku: skuValue || product.id,
         code: product.code || "",
         publicSlug: product.publicSlug || product.public_slug || "",

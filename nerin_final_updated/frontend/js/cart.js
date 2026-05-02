@@ -39,7 +39,15 @@ function getStoredCart() {
   try {
     const raw = localStorage.getItem("nerinCart");
     const cart = JSON.parse(raw || "[]");
-    return Array.isArray(cart) ? cart : [];
+    const items = Array.isArray(cart) ? cart : [];
+    const valid = items.filter((item) => String(item?.identifier || "").trim());
+    if (valid.length !== items.length) {
+      localStorage.setItem("nerinCart", JSON.stringify(valid));
+      if (typeof window !== "undefined" && typeof window.alert === "function") {
+        window.alert("Algunos productos viejos del carrito fueron removidos porque faltaba información. Volvé a agregarlos desde el catálogo.");
+      }
+    }
+    return valid;
   } catch (err) {
     console.warn("Cart storage corrupt, resetting", err);
     localStorage.removeItem("nerinCart");
