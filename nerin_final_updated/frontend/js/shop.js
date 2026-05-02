@@ -443,6 +443,22 @@ function resetAllFilters() {
 }
 
 function addToCart(product) {
+  const identifier = String(
+    product?.adminIdentifier ||
+      product?.identifier ||
+      product?.id ||
+      product?.sku ||
+      product?.code ||
+      product?.publicSlug ||
+      product?.public_slug ||
+      product?.slug ||
+      product?.url ||
+      "",
+  ).trim();
+  if (!identifier) {
+    alert("No se pudo agregar el producto porque falta identificador.");
+    return;
+  }
   const fulfillmentMode = getFulfillmentMode(product);
   if (shouldRequireDelayTermsAcceptance(product, fulfillmentMode)) {
     const acceptedTerms = window.confirm(buildDelayTermsMessage(product));
@@ -464,17 +480,9 @@ function addToCart(product) {
   } else {
     const display = resolveDisplayPrice(product);
     const url = buildProductUrl(product);
-    const stableIdentifier =
-      product.adminIdentifier ||
-      product.id ||
-      product.sku ||
-      product.code ||
-      product.publicSlug ||
-      product.slug ||
-      "";
     cart.push({
       id: product.id,
-      identifier: String(stableIdentifier || ""),
+      identifier,
       sku: product.sku || "",
       code: product.code || "",
       publicSlug: product.publicSlug || product.public_slug || "",

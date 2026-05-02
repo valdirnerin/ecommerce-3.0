@@ -5482,13 +5482,13 @@ async function resolveCheckoutCartItems(cart = []) {
   for (const item of cart) {
     const identifier = getCheckoutItemIdentifier(item);
     if (!identifier) {
-      const hasName = Boolean(String(item?.name || item?.title || "").trim());
-      const hasPrice = Number.isFinite(Number(item?.price || item?.unit_price));
-      if (hasName && hasPrice) {
-        const error = new Error("El producto del carrito no tiene identificador. Volvé a agregarlo al carrito desde el catálogo.");
-        error.statusCode = 400;
-        throw error;
-      }
+      console.warn("[checkout-cart-item-invalid]", {
+        itemKeys: Object.keys(item || {}),
+        quantity: item?.quantity ?? item?.qty ?? null,
+      });
+      const error = new Error("El carrito contiene un producto sin identificador. Eliminá ese item y volvé a agregarlo desde el catálogo.");
+      error.statusCode = 400;
+      throw error;
     }
     const product = byIdentifier.get(identifier);
     if (!product) {

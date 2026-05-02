@@ -536,6 +536,22 @@ function resolveDisplayPrice(product) {
 }
 
 function addToCart(product, quantity = 1) {
+  const identifier = String(
+    product?.adminIdentifier ||
+      product?.identifier ||
+      product?.id ||
+      product?.sku ||
+      product?.code ||
+      product?.publicSlug ||
+      product?.public_slug ||
+      product?.slug ||
+      product?.url ||
+      "",
+  ).trim();
+  if (!identifier) {
+    alert("No se pudo agregar el producto porque falta identificador.");
+    return;
+  }
   const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
   const existing = cart.find((item) => item.id === product.id);
   const qty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
@@ -553,6 +569,12 @@ function addToCart(product, quantity = 1) {
     const price = resolveDisplayPrice(product);
     cart.push({
       id: product.id,
+      identifier,
+      sku: product.sku || "",
+      code: product.code || "",
+      publicSlug: product.publicSlug || product.public_slug || "",
+      slug: product.slug || "",
+      url: buildProductUrl(product),
       name: product.name,
       price,
       quantity: Math.min(qty, available),
