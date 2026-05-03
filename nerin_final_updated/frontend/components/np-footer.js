@@ -18,7 +18,7 @@
 
   ready(async () => {
     try {
-      const version = "np-r2";
+      const version = "np-r3";
       let tpl = document.getElementById("np-footer-template");
       if (!tpl) {
         try {
@@ -208,10 +208,12 @@
           (window.NERIN_CONFIG && window.NERIN_CONFIG.apiBase) ||
           window.API_BASE_URL ||
           "";
-        const res = await fetch(`${base}/api/footer`, { cache: "no-store" });
+        const res = await fetch(`${base}/api/footer?ts=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         remote = await res.json();
-      } catch (e) {
-        console.warn("[NP-FOOTER] /api/footer failed", e);
+        console.info("[NP-FOOTER] remote config loaded", remote);
+      } catch (error) {
+        console.warn("[NP-FOOTER] using defaults because /api/footer failed", error);
       }
       const cfg = merge(defaults, remote);
       const show = cfg.show || {};
