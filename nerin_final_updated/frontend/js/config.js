@@ -1,5 +1,6 @@
 import { apiFetch } from "./api.js";
 import { startTracking, trackEvent } from "./tracker.js";
+import { readCart, writeCart } from "./cart-utils.js";
 
 const CONFIG_CACHE_KEY = "nerin:config-cache";
 
