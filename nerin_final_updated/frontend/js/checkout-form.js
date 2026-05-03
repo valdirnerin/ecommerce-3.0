@@ -146,6 +146,7 @@ document.addEventListener("DOMContentLoaded", () => {
         metodo_envio: document.getElementById("metodo_envio").value,
         comentarios: document.getElementById("comentarios").value.trim(),
       };
+      console.log("[checkout:payload-items]", payload.productos);
 
       try {
         const profileToStore = {

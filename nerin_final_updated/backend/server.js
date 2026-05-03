@@ -9199,6 +9199,7 @@ async function requestHandler(req, res) {
       try {
         const data = JSON.parse(body || "{}");
         console.log("/api/orders body", data);
+        console.log("[checkout:raw-body]", JSON.stringify(data, null, 2));
         const items = data.productos || data.items || [];
         if (!Array.isArray(items) || items.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });

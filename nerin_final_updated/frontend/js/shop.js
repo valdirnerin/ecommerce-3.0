@@ -917,6 +917,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     .filter(Boolean);
   const filteredItems = normalizedItems.filter((product) => matchesStockFilter(product, filters.stock));
   console.log("[catalog:first-product]", normalizedItems?.[0]);
+  console.log("[catalog:first-product-keys]", normalizedItems?.[0] ? Object.keys(normalizedItems[0]) : null);
 
   if (!filtersInitialized) {
     populateFilters(normalizedItems);

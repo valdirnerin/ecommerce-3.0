@@ -531,6 +531,7 @@ async function submitOfflineOrder(paymentMethod) {
         ? { reference: 'Pendiente de comprobante' }
         : {},
   };
+  console.log('[checkout:payload-items]', payload.productos);
   const originalText = confirmarBtn.textContent;
   confirmarBtn.disabled = true;
   confirmarBtn.textContent = 'Generando pedido...';

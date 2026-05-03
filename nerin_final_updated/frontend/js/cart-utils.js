@@ -5,6 +5,7 @@ export function getProductIdentifier(product = {}) {
     product?.id,
     product?.productId,
     product?.product_id,
+    product?.identifier,
     product?.sku,
     product?.code,
     product?.publicSlug,
@@ -25,28 +26,28 @@ export function getProductIdentifier(product = {}) {
   return "";
 }
 
-export function normalizeCartItem(item = {}) {
-  const identifier = getProductIdentifier(item);
+export function normalizeCartItem(product = {}, quantity = 1) {
+  const identifier = getProductIdentifier(product);
   if (!identifier) {
-    console.error("[add-to-cart:invalid-product]", item);
+    console.error("[add-to-cart:blocked-invalid-product]", product);
     throw new Error("No se puede agregar al carrito un producto sin identificador");
   }
   return {
-    ...item,
-    id: item?.id ?? item?.productId ?? item?.product_id ?? null,
-    sku: item?.sku ?? null,
-    code: item?.code ?? null,
-    publicSlug: item?.publicSlug ?? item?.public_slug ?? null,
-    slug: item?.slug ?? null,
-    partNumber: item?.partNumber ?? item?.part_number ?? null,
-    mpn: item?.mpn ?? null,
-    ean: item?.ean ?? null,
-    gtin: item?.gtin ?? null,
-    supplierCode: item?.supplierCode ?? item?.supplier_code ?? null,
-    productId: item?.productId ?? item?.product_id ?? item?.id ?? null,
-    product_id: item?.product_id ?? item?.productId ?? item?.id ?? null,
-    quantity: Number(item?.quantity ?? item?.qty ?? 1),
-    identifier,
+    ...product,
+    id: product?.id ?? product?.productId ?? product?.product_id ?? null,
+    identifier: identifier || null,
+    sku: product?.sku ?? null,
+    code: product?.code ?? null,
+    publicSlug: product?.publicSlug ?? product?.public_slug ?? null,
+    slug: product?.slug ?? null,
+    partNumber: product?.partNumber ?? product?.part_number ?? null,
+    mpn: product?.mpn ?? null,
+    ean: product?.ean ?? null,
+    gtin: product?.gtin ?? null,
+    supplierCode: product?.supplierCode ?? product?.supplier_code ?? null,
+    productId: product?.productId ?? product?.product_id ?? product?.id ?? null,
+    product_id: product?.product_id ?? product?.productId ?? product?.id ?? null,
+    quantity: Number(quantity || product?.quantity || product?.qty || 1),
   };
 }
 
@@ -89,16 +90,13 @@ export function readCart({ migrate = true, onInvalidItems = null } = {}) {
 }
 
 export function writeCart(items = []) {
-  const valid = sanitizeCart(
-    (Array.isArray(items) ? items : []).filter((item) => {
-      const identifier = getProductIdentifier(item);
-      if (!identifier) {
-        console.error("[cart:blocked-invalid-item]", item);
-        return false;
-      }
-      return true;
-    }),
-  );
+  const nextCart = Array.isArray(items) ? items : [];
+  console.log("[cart:before-save]", nextCart);
+  const validCart = nextCart.filter((item) => Boolean(getProductIdentifier(item)));
+  if (validCart.length !== nextCart.length) {
+    console.error("[cart:blocked-invalid-items]", { before: nextCart, after: validCart });
+  }
+  const valid = sanitizeCart(validCart);
   localStorage.setItem(CART_KEY, JSON.stringify(valid));
   return valid;
 }
