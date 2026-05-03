@@ -1,6 +1,7 @@
 import { fetchProductsPage, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
+import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
 
 console.info("[shop-products] shop.js loaded", {
   version: "sqlite-public-debug-v3",
@@ -443,9 +444,9 @@ function resetAllFilters() {
 }
 
 function addToCart(product) {
-  console.log("[add-to-cart:received-product]", product);
-  console.log("[add-to-cart:received-product-keys]", product ? Object.keys(product) : null);
+  console.log("[shop:add-to-cart:start]", product);
   const cartItem = buildCartItemFromProduct(product);
+  console.log("[shop:add-to-cart:cart-item]", cartItem);
   if (!cartItem.identifier) {
     alert("No se pudo agregar el producto porque falta identificador.");
     return;
@@ -459,7 +460,7 @@ function addToCart(product) {
     alert("Sin stock disponible");
     return;
   }
-  const cart = readCart();
+  const cart = readCart({ migrate: true });
   const existing = cart.find((item) => item.identifier === cartItem.identifier || item.id === String(product.id || ""));
   const available = typeof product.stock === "number" ? product.stock : Infinity;
   if (existing) {
@@ -475,6 +476,10 @@ function addToCart(product) {
   }
   writeCart(cart);
   if (window.updateNav) window.updateNav();
+  console.log("[shop:add-to-cart:indicator-available]", {
+    showCartIndicator: typeof window.showCartIndicator,
+    showToast: typeof window.showToast,
+  });
   if (window.showCartIndicator) {
     window.showCartIndicator({
       productId: product.id,
@@ -482,6 +487,10 @@ function addToCart(product) {
       productSku: product.sku || product.id,
       source: "shop",
     });
+  } else if (window.showToast) {
+    window.showToast("✅ Producto agregado al carrito");
+  } else {
+    console.warn("[shop:add-to-cart:no-indicator]");
   }
 }
 
