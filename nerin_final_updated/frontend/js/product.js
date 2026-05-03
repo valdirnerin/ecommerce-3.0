@@ -10,6 +10,7 @@ import {
   removeQualitySelector,
 } from "./components/ComparisonQualityTable.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
+import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
 const detailSection = document.getElementById("productDetail");
@@ -1373,20 +1374,8 @@ function renderProduct(product) {
   `;
 
   const handleAddToCart = () => {
-    const identifier = String(
-      product?.adminIdentifier ||
-        product?.identifier ||
-        product?.id ||
-        skuValue ||
-        product?.sku ||
-        product?.code ||
-        product?.publicSlug ||
-        product?.public_slug ||
-        product?.slug ||
-        product?.url ||
-        "",
-    ).trim();
-    if (!identifier) {
+    const cartItem = buildCartItemFromProduct(product, { sku: skuValue || product?.sku });
+    if (!cartItem.identifier) {
       alert("No se pudo agregar el producto porque falta identificador.");
       return;
     }
@@ -1395,8 +1384,8 @@ function renderProduct(product) {
       alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
       return;
     }
-    const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
-    const existing = cart.find((item) => item.id === product.id);
+    const cart = readCart();
+    const existing = cart.find((item) => item.identifier === cartItem.identifier || item.id === String(product.id || ""));
     const available = product.stock;
     if (existing) {
       if (existing.quantity + qty > available) {
@@ -1410,21 +1399,9 @@ function renderProduct(product) {
         existing.sku = skuValue;
       }
     } else {
-      cart.push({
-        id: product.id,
-        identifier,
-        sku: skuValue || product.id,
-        code: product.code || "",
-        publicSlug: product.publicSlug || product.public_slug || "",
-        slug: product.slug || "",
-        url: buildRelativeProductUrl(product),
-        name: product.name,
-        price: resolveProductDisplayPrice(product),
-        quantity: qty,
-        image: cartImage,
-      });
+      cart.push({ ...cartItem, url: buildRelativeProductUrl(product), name: product.name, price: resolveProductDisplayPrice(product), quantity: qty, image: cartImage });
     }
-    localStorage.setItem("nerinCart", JSON.stringify(cart));
+    writeCart(cart);
     if (window.updateNav) window.updateNav();
     if (window.showCartIndicator) {
       window.showCartIndicator({

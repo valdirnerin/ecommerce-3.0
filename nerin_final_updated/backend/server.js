@@ -5484,7 +5484,11 @@ async function resolveCheckoutCartItems(cart = []) {
     if (!identifier) {
       console.warn("[checkout-cart-item-invalid]", {
         itemKeys: Object.keys(item || {}),
-        quantity: item?.quantity ?? item?.qty ?? null,
+        originalItem: item,
+        normalizedPreview: {
+          identifier,
+          quantity: item?.quantity ?? item?.qty ?? null,
+        },
       });
       const error = new Error("El carrito contiene un producto sin identificador. Eliminá ese item y volvé a agregarlo desde el catálogo.");
       error.statusCode = 400;
