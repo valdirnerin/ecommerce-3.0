@@ -6698,6 +6698,10 @@ async function requestHandler(req, res) {
         totalPages: responsePayload.totalPages,
         durationMs,
       });
+      console.log("[public-products:first-item-shape]", {
+        keys: items?.[0] ? Object.keys(items[0]) : [],
+        sample: items?.[0],
+      });
       return sendJson(res, 200, responsePayload, {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
@@ -8432,6 +8436,7 @@ async function requestHandler(req, res) {
     req.on("end", async () => {
       try {
         const parsed = JSON.parse(body || "{}");
+        console.log("[checkout:raw-body]", JSON.stringify(parsed, null, 2));
         const cart = parsed.cart;
         const customer = parsed.customer;
         if (!Array.isArray(cart) || cart.length === 0) {

@@ -1,42 +1,53 @@
 const CART_KEY = "nerinCart";
 
-const IDENTIFIER_FIELDS = [
-  "id",
-  "productId",
-  "product_id",
-  "sku",
-  "code",
-  "slug",
-  "publicSlug",
-  "public_slug",
-  "partNumber",
-  "mpn",
-  "ean",
-  "gtin",
-  "supplierCode",
-];
-
-function pickIdentifier(item = {}) {
-  for (const key of IDENTIFIER_FIELDS) {
-    const value = String(item?.[key] ?? "").trim();
-    if (value) return value;
+export function getProductIdentifier(product = {}) {
+  const candidates = [
+    product?.id,
+    product?.productId,
+    product?.product_id,
+    product?.sku,
+    product?.code,
+    product?.publicSlug,
+    product?.public_slug,
+    product?.slug,
+    product?.partNumber,
+    product?.part_number,
+    product?.mpn,
+    product?.ean,
+    product?.gtin,
+    product?.supplierCode,
+    product?.supplier_code,
+  ];
+  for (const value of candidates) {
+    const normalized = String(value ?? "").trim();
+    if (normalized) return normalized;
   }
   return "";
 }
 
 export function normalizeCartItem(item = {}) {
-  const normalized = {
+  const identifier = getProductIdentifier(item);
+  if (!identifier) {
+    console.error("[add-to-cart:invalid-product]", item);
+    throw new Error("No se puede agregar al carrito un producto sin identificador");
+  }
+  return {
     ...item,
-    id: String(item?.id ?? item?.productId ?? item?.product_id ?? "").trim(),
-    productId: String(item?.productId ?? item?.product_id ?? item?.id ?? "").trim(),
-    product_id: String(item?.product_id ?? item?.productId ?? item?.id ?? "").trim(),
-    publicSlug: String(item?.publicSlug ?? item?.public_slug ?? "").trim(),
-    public_slug: String(item?.public_slug ?? item?.publicSlug ?? "").trim(),
+    id: item?.id ?? item?.productId ?? item?.product_id ?? null,
+    sku: item?.sku ?? null,
+    code: item?.code ?? null,
+    publicSlug: item?.publicSlug ?? item?.public_slug ?? null,
+    slug: item?.slug ?? null,
+    partNumber: item?.partNumber ?? item?.part_number ?? null,
+    mpn: item?.mpn ?? null,
+    ean: item?.ean ?? null,
+    gtin: item?.gtin ?? null,
+    supplierCode: item?.supplierCode ?? item?.supplier_code ?? null,
+    productId: item?.productId ?? item?.product_id ?? item?.id ?? null,
+    product_id: item?.product_id ?? item?.productId ?? item?.id ?? null,
     quantity: Number(item?.quantity ?? item?.qty ?? 1),
+    identifier,
   };
-  const identifier = pickIdentifier(normalized);
-  normalized.identifier = identifier;
-  return normalized;
 }
 
 export function isValidCartItem(item = {}) {
@@ -47,8 +58,14 @@ export function isValidCartItem(item = {}) {
 export function sanitizeCart(items = []) {
   const src = Array.isArray(items) ? items : [];
   return src
-    .map((item) => normalizeCartItem(item))
-    .filter((item) => isValidCartItem(item));
+    .map((item) => {
+      try {
+        return normalizeCartItem(item);
+      } catch (_err) {
+        return null;
+      }
+    })
+    .filter((item) => item && isValidCartItem(item));
 }
 
 export function readCart({ migrate = true, onInvalidItems = null } = {}) {
@@ -58,6 +75,10 @@ export function readCart({ migrate = true, onInvalidItems = null } = {}) {
     const valid = sanitizeCart(items);
     if (migrate && valid.length !== items.length) {
       localStorage.setItem(CART_KEY, JSON.stringify(valid));
+      console.warn("[cart:removed-invalid-items]", {
+        before: items,
+        after: valid,
+      });
       if (typeof onInvalidItems === "function") onInvalidItems(items.length - valid.length);
     }
     return valid;
@@ -68,7 +89,16 @@ export function readCart({ migrate = true, onInvalidItems = null } = {}) {
 }
 
 export function writeCart(items = []) {
-  const valid = sanitizeCart(items);
+  const valid = sanitizeCart(
+    (Array.isArray(items) ? items : []).filter((item) => {
+      const identifier = getProductIdentifier(item);
+      if (!identifier) {
+        console.error("[cart:blocked-invalid-item]", item);
+        return false;
+      }
+      return true;
+    }),
+  );
   localStorage.setItem(CART_KEY, JSON.stringify(valid));
   return valid;
 }

@@ -1374,6 +1374,8 @@ function renderProduct(product) {
   `;
 
   const handleAddToCart = () => {
+    console.log("[add-to-cart:received-product]", product);
+    console.log("[add-to-cart:received-product-keys]", product ? Object.keys(product) : null);
     const cartItem = buildCartItemFromProduct(product, { sku: skuValue || product?.sku });
     if (!cartItem.identifier) {
       alert("No se pudo agregar el producto porque falta identificador.");
