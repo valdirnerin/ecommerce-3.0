@@ -26,7 +26,14 @@ export function getProductIdentifier(product = {}) {
   return "";
 }
 
-export function normalizeCartItem(product = {}, quantity = 1) {
+function normalizeQuantity(product = {}, quantity) {
+  const rawQuantity = quantity ?? product?.quantity ?? product?.qty ?? 1;
+  const parsed = Number(rawQuantity);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.max(1, Math.floor(parsed));
+}
+
+export function normalizeCartItem(product = {}, quantity = undefined) {
   const identifier = getProductIdentifier(product);
   if (!identifier) {
     console.error("[add-to-cart:blocked-invalid-product]", product);
@@ -47,7 +54,7 @@ export function normalizeCartItem(product = {}, quantity = 1) {
     supplierCode: product?.supplierCode ?? product?.supplier_code ?? null,
     productId: product?.productId ?? product?.product_id ?? product?.id ?? null,
     product_id: product?.product_id ?? product?.productId ?? product?.id ?? null,
-    quantity: Number(quantity || product?.quantity || product?.qty || 1),
+    quantity: normalizeQuantity(product, quantity),
   };
 }
 
