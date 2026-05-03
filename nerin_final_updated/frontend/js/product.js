@@ -10,7 +10,7 @@ import {
   removeQualitySelector,
 } from "./components/ComparisonQualityTable.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
-import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
+import { buildCartItemFromProduct, readCart, writeCart, getProductIdentifier } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
 const detailSection = document.getElementById("productDetail");
@@ -1374,13 +1374,16 @@ function renderProduct(product) {
   `;
 
   const handleAddToCart = () => {
-    console.log("[add-to-cart:received-product]", product);
-    console.log("[add-to-cart:received-product-keys]", product ? Object.keys(product) : null);
-    const cartItem = buildCartItemFromProduct(product, { sku: skuValue || product?.sku });
-    if (!cartItem.identifier) {
+    console.log("[product-detail:add-to-cart:product]", product);
+    console.log("[product-detail:add-to-cart:product-keys]", product ? Object.keys(product) : null);
+    const identifier = getProductIdentifier(product);
+    if (!identifier) {
+      console.error("[product-detail:add-to-cart:blocked-invalid-product]", product);
       alert("No se pudo agregar el producto porque falta identificador.");
       return;
     }
+    const cartItem = buildCartItemFromProduct(product, { sku: skuValue || product?.sku });
+    console.log("[product-detail:add-to-cart:cart-item]", cartItem);
     const qty = qtyControl.getValue();
     if (qty > (product.stock || 0)) {
       alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
@@ -1403,6 +1406,7 @@ function renderProduct(product) {
     } else {
       cart.push({ ...cartItem, url: buildRelativeProductUrl(product), name: product.name, price: resolveProductDisplayPrice(product), quantity: qty, image: cartImage });
     }
+    console.log("[product-detail:cart:before-save]", cart);
     writeCart(cart);
     if (window.updateNav) window.updateNav();
     if (window.showCartIndicator) {
