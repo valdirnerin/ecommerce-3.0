@@ -11361,11 +11361,14 @@ async function requestHandler(req, res) {
         }
 
         const cartItemsForLookup = carrito.map((item) => ({
-          id: item.id || item.productId,
-          sku: item.sku,
-          code: item.code,
+          id: item.id || item.productId || item.product_id || item.identifier,
+          productId: item.productId || item.product_id || item.id || item.identifier,
+          product_id: item.product_id || item.productId || item.id || item.identifier,
+          sku: item.sku || item.identifier,
+          code: item.code || item.identifier,
           publicSlug: item.publicSlug || item.public_slug,
-          slug: item.slug,
+          public_slug: item.public_slug || item.publicSlug,
+          slug: item.slug || item.identifier,
           partNumber: item.partNumber,
           mpn: item.mpn,
           ean: item.ean,
