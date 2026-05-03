@@ -24,6 +24,33 @@ const cart = readCart({ migrate: true, onInvalidItems: () => window.alert('Se re
 if (cart.length === 0) {
   window.location.href = '/cart.html';
 }
+function applyRolePricingToCart() {
+  const role = String(localStorage.getItem('nerinUserRole') || '').trim().toLowerCase();
+  const wholesaleRole = role === 'mayorista' || role === 'admin' || role === 'vip';
+  let changed = false;
+  cart.forEach((item) => {
+    const retail = Number(item.retailPrice ?? item.price_minorista ?? item.precio_minorista ?? item.price);
+    const wholesale = Number(item.wholesalePrice ?? item.price_mayorista ?? item.precio_mayorista ?? item.price_wholesale);
+    const nextPrice =
+      wholesaleRole && Number.isFinite(wholesale) && wholesale > 0 ? wholesale : retail;
+    const nextPriceType =
+      wholesaleRole && Number.isFinite(wholesale) && wholesale > 0 ? 'wholesale' : 'retail';
+    if (Number.isFinite(nextPrice) && nextPrice > 0 && Number(item.price) !== nextPrice) {
+      item.price = nextPrice;
+      changed = true;
+    }
+    item.priceType = nextPriceType;
+    if (Number.isFinite(retail) && retail > 0) item.retailPrice = retail;
+    if (Number.isFinite(wholesale) && wholesale > 0) item.wholesalePrice = wholesale;
+  });
+  if (changed) {
+    localStorage.setItem('nerinCart', JSON.stringify(cart));
+    if (wholesaleRole) {
+      window.alert('Actualizamos tu carrito con tus precios mayoristas.');
+    }
+  }
+}
+applyRolePricingToCart();
 const { contents: checkoutContents, value: checkoutValue } = buildPixelContents(cart);
 const checkoutIds = checkoutContents.map((item) => item.id).filter(Boolean);
 if (checkoutIds.length) {

@@ -5432,21 +5432,43 @@ function getCheckoutItemIdentifier(item = {}) {
   );
 }
 
-function resolveProductPrice(product = {}) {
-  const candidates = [
-    product.price,
-    product.price_minorista,
-    product.precio_minorista,
-    product.precio_final,
-  ];
-  for (const value of candidates) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  return null;
+function isWholesaleRole(role) {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  return normalizedRole === "mayorista" || normalizedRole === "admin" || normalizedRole === "vip";
 }
 
-async function resolveCheckoutCartItems(cart = []) {
+function resolveCheckoutUnitPrice(product = {}, userRole = "anonymous") {
+  const retail = Number(
+    product.price_minorista ??
+      product.price ??
+      product.precio_minorista ??
+      product.precio_final,
+  );
+  const wholesale = Number(
+    product.price_mayorista ??
+      product.precio_mayorista ??
+      product.price_wholesale,
+  );
+
+  if (isWholesaleRole(userRole) && Number.isFinite(wholesale) && wholesale > 0) {
+    return {
+      price: wholesale,
+      priceType: "wholesale",
+      retail,
+      wholesale,
+    };
+  }
+
+  return {
+    price: retail,
+    priceType: "retail",
+    retail,
+    wholesale: Number.isFinite(wholesale) ? wholesale : null,
+  };
+}
+
+async function resolveCheckoutCartItems(cart = [], options = {}) {
+  const userRole = String(options?.userRole || "anonymous").trim().toLowerCase() || "anonymous";
   const startedAt = Date.now();
   cart.forEach((item = {}) => {
     console.log("[checkout-cart-item-shape]", {
@@ -5512,14 +5534,38 @@ async function resolveCheckoutCartItems(cart = []) {
       error.statusCode = 400;
       throw error;
     }
-    const price = resolveProductPrice(product);
+    const resolvedPricing = resolveCheckoutUnitPrice(product, userRole);
+    if (!Number.isFinite(resolvedPricing.price) || resolvedPricing.price <= 0) {
+      const error = new Error("El producto no tiene un precio válido para checkout");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (isWholesaleRole(userRole) && !(Number.isFinite(resolvedPricing.wholesale) && resolvedPricing.wholesale > 0)) {
+      console.warn("[checkout-pricing:missing-wholesale-price]", {
+        identifier,
+        sku: product?.sku || null,
+        role: userRole,
+      });
+    }
+    console.log("[checkout-pricing:item]", {
+      identifier,
+      sku: product?.sku || null,
+      frontendPrice: item?.precio ?? item?.price ?? null,
+      retail: resolvedPricing.retail,
+      wholesale: resolvedPricing.wholesale,
+      selectedPrice: resolvedPricing.price,
+      priceType: resolvedPricing.priceType,
+    });
     resolvedItems.push({
       identifier,
       id: String(product.id || identifier),
       sku: String(product.sku || ""),
       code: String(product.code || ""),
       name: String(product.name || product.title || item.name || "Producto sin nombre"),
-      price,
+      price: resolvedPricing.price,
+      priceType: resolvedPricing.priceType,
+      retailPrice: resolvedPricing.retail,
+      wholesalePrice: resolvedPricing.wholesale,
       quantity,
       source: "sqlite",
     });
@@ -9204,9 +9250,15 @@ async function requestHandler(req, res) {
         if (!Array.isArray(items) || items.length === 0) {
           return sendJson(res, 400, { error: "Carrito vacío" });
         }
+        const authUser = resolveAuthUser(req);
+        const userRole = String(authUser?.role || "anonymous").trim().toLowerCase() || "anonymous";
+        console.log("[checkout-pricing:role]", {
+          userId: authUser?.id || authUser?.email || null,
+          role: userRole,
+        });
         let resolvedItems;
         try {
-          resolvedItems = await resolveCheckoutCartItems(items);
+          resolvedItems = await resolveCheckoutCartItems(items, { userRole });
         } catch (error) {
           return sendJson(res, error.statusCode || 500, { error: error.message || "Error al validar carrito" });
         }
@@ -11342,6 +11394,12 @@ async function requestHandler(req, res) {
         const parsedBody = JSON.parse(body || "{}");
         console.log("[checkout:raw-body]", JSON.stringify(parsedBody, null, 2));
         const { carrito, usuario } = parsedBody;
+        const authUser = resolveAuthUser(req);
+        const userRole = String(authUser?.role || "anonymous").trim().toLowerCase() || "anonymous";
+        console.log("[checkout-pricing:role]", {
+          userId: authUser?.id || authUser?.email || null,
+          role: userRole,
+        });
         const hasValidItems =
           Array.isArray(carrito) &&
           carrito.length > 0 &&
@@ -11350,8 +11408,6 @@ async function requestHandler(req, res) {
               i &&
               typeof i.titulo === "string" &&
               i.titulo.trim() !== "" &&
-              !isNaN(Number(i.precio)) &&
-              Number(i.precio) > 0 &&
               Number.isInteger(Number(i.cantidad)) &&
               Number(i.cantidad) > 0 &&
               (typeof i.currency_id === "undefined" ||
@@ -11376,7 +11432,9 @@ async function requestHandler(req, res) {
           supplierCode: item.supplierCode,
           quantity: item.cantidad,
         }));
-        const resolvedCheckoutItems = await resolveCheckoutCartItems(cartItemsForLookup);
+        const resolvedCheckoutItems = await resolveCheckoutCartItems(cartItemsForLookup, {
+          userRole,
+        });
 
         const shippingTable = getShippingTable();
         const rawShippingMethod = String(
