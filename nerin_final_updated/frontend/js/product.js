@@ -1090,8 +1090,47 @@ function createQuantityControl(product) {
   };
 }
 
+
+function addToCart(product, { quantity = 1, sku = "", image = "" } = {}) {
+  console.log("[product-detail:add-to-cart:product]", product);
+  console.log("[product-detail:add-to-cart:product-keys]", product ? Object.keys(product) : null);
+
+  const identifier = getProductIdentifier(product);
+
+  if (!identifier) {
+    console.error("[product-detail:add-to-cart:blocked-invalid-product]", product);
+    alert("No se pudo agregar el producto porque falta identificador.");
+    return false;
+  }
+
+  const cartItem = buildCartItemFromProduct(product, { sku: sku || product?.sku });
+  console.log("[product-detail:add-to-cart:cart-item]", cartItem);
+
+  const cart = readCart({ migrate: true });
+  const existing = cart.find((item) => item.identifier === cartItem.identifier);
+  const qty = Math.max(1, Number(quantity) || 1);
+
+  if (existing) {
+    existing.quantity += qty;
+  } else {
+    cart.push({
+      ...cartItem,
+      name: product.name || product.title || "",
+      price: Number(product.price || product.price_minorista || product.precio_final || 0),
+      image: image || product.image || product.thumbnail || "",
+      quantity: qty,
+      url: buildRelativeProductUrl(product),
+    });
+  }
+
+  console.log("[product-detail:cart:before-save]", cart);
+  writeCart(cart);
+  return true;
+}
+
 function renderProduct(product) {
-  if (!infoContainer || !galleryContainer) return;
+  try {
+    if (!infoContainer || !galleryContainer) return;
   const { product: enriched, title: seoTitle } = resolveSeo(product);
   product = enriched;
   const skuValue = getProductSku(product);
@@ -1374,40 +1413,13 @@ function renderProduct(product) {
   `;
 
   const handleAddToCart = () => {
-    console.log("[product-detail:add-to-cart:product]", product);
-    console.log("[product-detail:add-to-cart:product-keys]", product ? Object.keys(product) : null);
-    const identifier = getProductIdentifier(product);
-    if (!identifier) {
-      console.error("[product-detail:add-to-cart:blocked-invalid-product]", product);
-      alert("No se pudo agregar el producto porque falta identificador.");
-      return;
-    }
-    const cartItem = buildCartItemFromProduct(product, { sku: skuValue || product?.sku });
-    console.log("[product-detail:add-to-cart:cart-item]", cartItem);
     const qty = qtyControl.getValue();
     if (qty > (product.stock || 0)) {
       alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
       return;
     }
-    const cart = readCart();
-    const existing = cart.find((item) => item.identifier === cartItem.identifier || item.id === String(product.id || ""));
-    const available = product.stock;
-    if (existing) {
-      if (existing.quantity + qty > available) {
-        alert(
-          `Ya tienes ${existing.quantity} unidades en el carrito. Disponibles: ${available}`,
-        );
-        return;
-      }
-      existing.quantity += qty;
-      if (skuValue && !existing.sku) {
-        existing.sku = skuValue;
-      }
-    } else {
-      cart.push({ ...cartItem, url: buildRelativeProductUrl(product), name: product.name, price: resolveProductDisplayPrice(product), quantity: qty, image: cartImage });
-    }
-    console.log("[product-detail:cart:before-save]", cart);
-    writeCart(cart);
+    const added = addToCart(product, { quantity: qty, sku: skuValue, image: cartImage });
+    if (!added) return;
     if (window.updateNav) window.updateNav();
     if (window.showCartIndicator) {
       window.showCartIndicator({
@@ -1435,7 +1447,9 @@ function renderProduct(product) {
     }
   };
 
-  addBtn.addEventListener("click", handleAddToCart);
+  addBtn.addEventListener("click", () => {
+    handleAddToCart();
+  });
 
   const legalNote = document.createElement("p");
   legalNote.className = "product-buy-legal";
@@ -1584,6 +1598,12 @@ function renderProduct(product) {
 
   if (product && product.id != null) {
     loadReviews(String(product.id));
+  }
+  } catch (error) {
+    console.error("[product-detail:render-error]", error);
+    if (infoContainer) {
+      infoContainer.innerHTML = "<p>Error al renderizar el producto.</p>";
+    }
   }
 }
 
