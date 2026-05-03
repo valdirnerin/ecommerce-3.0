@@ -1,4 +1,4 @@
-const DELIVERY_POLICY_VERSION = "delivery-policy-20260503";
+const DELIVERY_POLICY_VERSION = "delivery-policy-20260503-v2";
 const REMOTE_MIN_DAYS = 20;
 const REMOTE_MAX_DAYS = 30;
 
@@ -80,7 +80,7 @@ function hasSupplierImportSignals(product = {}) {
 
 function hasExplicitPhysicalSignal(product = {}) {
   const explicit = normalizeText(product.stock_mode || product.fulfillment_mode || product.delivery_mode || product.deliveryMode);
-  return ["physical", "fisico", "físico", "local", "manual", "inmediato", "immediate"].includes(explicit);
+  return ["physical", "fisico", "local", "manual", "inmediato", "immediate"].includes(explicit);
 }
 
 function hasExplicitRemoteSignal(product = {}) {
@@ -129,11 +129,6 @@ export function resolveDeliveryProfile(product = {}) {
     return { mode: "physical", minDays: 1, maxDays: 2, reason: "local_uploaded_asset" };
   }
 
-  const stock = toNumberOrNull(product.stock ?? product.quantity ?? product.available_quantity);
-  if (stock && stock > 0 && !hasSupplierImportSignals(product)) {
-    return { mode: "physical", minDays: 1, maxDays: 2, reason: "local_stock_without_import" };
-  }
-
   return { mode: "remote", minDays: REMOTE_MIN_DAYS, maxDays: REMOTE_MAX_DAYS, reason: "default_remote" };
 }
 
@@ -166,16 +161,25 @@ export function applyDeliveryPolicyToProduct(product = {}) {
   return normalized;
 }
 
+function rememberDeliveryProduct(product) {
+  if (!product || typeof product !== "object") return product;
+  if (typeof window !== "undefined") {
+    window.NERIN_CURRENT_DELIVERY_PRODUCT = product;
+    window.NERIN_CURRENT_DELIVERY_PROFILE = resolveDeliveryProfile(product);
+  }
+  return product;
+}
+
 function normalizePayload(payload) {
   if (Array.isArray(payload)) return payload.map(applyDeliveryPolicyToProduct);
   if (!payload || typeof payload !== "object") return payload;
   const next = { ...payload };
   if (Array.isArray(next.items)) next.items = next.items.map(applyDeliveryPolicyToProduct);
   if (Array.isArray(next.products)) next.products = next.products.map(applyDeliveryPolicyToProduct);
-  if (next.product && typeof next.product === "object") next.product = applyDeliveryPolicyToProduct(next.product);
-  if (next.item && typeof next.item === "object") next.item = applyDeliveryPolicyToProduct(next.item);
+  if (next.product && typeof next.product === "object") next.product = rememberDeliveryProduct(applyDeliveryPolicyToProduct(next.product));
+  if (next.item && typeof next.item === "object") next.item = rememberDeliveryProduct(applyDeliveryPolicyToProduct(next.item));
   if ((next.id || next.sku || next.slug || next.publicSlug || next.public_slug) && (next.name || next.title || next.price || next.price_minorista)) {
-    return applyDeliveryPolicyToProduct(next);
+    return rememberDeliveryProduct(applyDeliveryPolicyToProduct(next));
   }
   return next;
 }
@@ -220,9 +224,59 @@ function installFetchPatch() {
   };
 }
 
+function buildRemoteDelayTermsMessage(product) {
+  const profile = resolveDeliveryProfile(product || {});
+  const name = cleanText(product?.name || product?.title || "este producto");
+  return [
+    `Este producto (${name}) es con stock remoto y demora estimada de ${profile.minDays} a ${profile.maxDays} días.`,
+    "La publicación está sujeta a disponibilidad real del proveedor.",
+    "Si el proveedor no tiene stock al confirmar la compra, la operación puede cancelarse y se reintegra el 100% del dinero abonado por el mismo medio de pago.",
+    "Antes de pagar, recomendamos confirmar por WhatsApp.",
+    "Al continuar, confirmás que leíste y aceptás estos términos para productos con demora."
+  ].join("\n\n");
+}
+
+function isProductDetailPage() {
+  const path = String(window.location?.pathname || "");
+  return Boolean(document.getElementById("productInfo")) || /^\/p\//.test(path) || /product\.html$/i.test(path);
+}
+
+function isAddToCartTarget(target) {
+  const clickable = target?.closest?.("button, a, [role='button']");
+  if (!clickable) return false;
+  const text = normalizeText(clickable.textContent || clickable.getAttribute("aria-label") || "");
+  const marker = normalizeText([
+    clickable.id,
+    clickable.name,
+    clickable.className,
+    clickable.dataset?.action,
+    clickable.dataset?.cartAction,
+  ].join(" "));
+  return /agregar/.test(text) && /carrito/.test(text) || /add.*cart|cart.*add|agregar.*carrito/.test(marker);
+}
+
+function installProductDetailDelayConfirm() {
+  if (window.__NERIN_PRODUCT_DELAY_CONFIRM__) return;
+  window.__NERIN_PRODUCT_DELAY_CONFIRM__ = DELIVERY_POLICY_VERSION;
+  document.addEventListener("click", (event) => {
+    if (!isProductDetailPage() || !isAddToCartTarget(event.target)) return;
+    const product = window.NERIN_CURRENT_DELIVERY_PRODUCT;
+    if (!product) return;
+    const profile = resolveDeliveryProfile(product);
+    if (profile.mode !== "remote") return;
+    const accepted = window.confirm(buildRemoteDelayTermsMessage(product));
+    if (accepted) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+  }, true);
+}
+
 installFetchPatch();
+installProductDetailDelayConfirm();
 
 if (typeof window !== "undefined") {
   window.NERIN_DELIVERY_POLICY_VERSION = DELIVERY_POLICY_VERSION;
   window.NERIN_APPLY_DELIVERY_POLICY = applyDeliveryPolicyToProduct;
+  window.NERIN_RESOLVE_DELIVERY_PROFILE = resolveDeliveryProfile;
 }
