@@ -443,6 +443,8 @@ function resetAllFilters() {
 }
 
 function addToCart(product) {
+  console.log("[add-to-cart:received-product]", product);
+  console.log("[add-to-cart:received-product-keys]", product ? Object.keys(product) : null);
   const cartItem = buildCartItemFromProduct(product);
   if (!cartItem.identifier) {
     alert("No se pudo agregar el producto porque falta identificador.");
@@ -914,6 +916,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     .map(sanitizePublicProduct)
     .filter(Boolean);
   const filteredItems = normalizedItems.filter((product) => matchesStockFilter(product, filters.stock));
+  console.log("[catalog:first-product]", normalizedItems?.[0]);
 
   if (!filtersInitialized) {
     populateFilters(normalizedItems);

@@ -537,6 +537,8 @@ function resolveDisplayPrice(product) {
 }
 
 function addToCart(product, quantity = 1) {
+  console.log("[add-to-cart:received-product]", product);
+  console.log("[add-to-cart:received-product-keys]", product ? Object.keys(product) : null);
   const cartItem = buildCartItemFromProduct(product);
   const identifier = cartItem.identifier;
   if (!identifier) {
