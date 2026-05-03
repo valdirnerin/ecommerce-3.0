@@ -445,6 +445,7 @@ async function submitMercadoPago() {
       cantidad: item.quantity,
       quantity: item.quantity,
     }));
+    console.log("[checkout:mp-carritoBackend]", carritoBackend);
     const res = await apiFetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

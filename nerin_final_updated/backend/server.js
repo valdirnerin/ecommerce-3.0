@@ -11339,7 +11339,9 @@ async function requestHandler(req, res) {
     });
     req.on("end", async () => {
       try {
-        const { carrito, usuario } = JSON.parse(body || "{}");
+        const parsedBody = JSON.parse(body || "{}");
+        console.log("[checkout:raw-body]", JSON.stringify(parsedBody, null, 2));
+        const { carrito, usuario } = parsedBody;
         const hasValidItems =
           Array.isArray(carrito) &&
           carrito.length > 0 &&

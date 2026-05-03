@@ -1,3 +1,4 @@
+import { readCart } from "./cart-utils.js";
 document.addEventListener("DOMContentLoaded", () => {
   function buildApiUrl(path) {
     const builder = window.NERIN_BUILD_API_URL;
@@ -19,7 +20,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const form = document.querySelector("form.shipping-form");
   const loading = document.getElementById("loading");
   if (!form) return;
-  const cartForTracking = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+  const cartForTracking = readCart({
+    migrate: true,
+    onInvalidItems: () => {
+      alert("Se removieron productos inválidos del carrito. Volvé a agregarlos desde el catálogo.");
+    },
+  });
   if (typeof window.NERIN_TRACK_EVENT === "function") {
     const totalValue = cartForTracking.reduce(
       (acc, item) => acc + Number(item.price || 0) * Number(item.quantity || 0),
@@ -114,7 +120,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!valid) return;
 
     try {
-      const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
+      const cart = readCart({
+        migrate: true,
+        onInvalidItems: () => {
+          alert("Se removieron productos inválidos del carrito. Volvé a agregarlos desde el catálogo.");
+        },
+      });
       if (cart.length === 0) {
         alert("Carrito vacío");
         return;
