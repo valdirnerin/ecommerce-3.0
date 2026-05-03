@@ -111,6 +111,22 @@ const BADGE_KEYS = ["mercadoPago", "andreani", "efectivo", "transferencia"];
 let badgeUploadsInProgress = 0;
 let dataFiscalUploadInProgress = 0;
 
+function merge(base, incoming) {
+  if (Array.isArray(base) || Array.isArray(incoming)) {
+    return Array.isArray(incoming) ? incoming : Array.isArray(base) ? base : [];
+  }
+  const out = { ...base };
+  for (const key in incoming || {}) {
+    const value = incoming[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      out[key] = merge(base?.[key] ?? {}, value);
+    } else if (value !== undefined) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function isBadgeUploadInProgress() {
   return badgeUploadsInProgress > 0;
 }
@@ -121,9 +137,10 @@ function isDataFiscalUploadInProgress() {
 
 async function loadFooterConfig() {
   try {
-    const res = await fetch('/api/footer');
+    const res = await fetch(`/api/footer?ts=${Date.now()}`, { cache: 'no-store' });
     const data = await res.json();
-    fillForm({ ...defaultConfig, ...data });
+    const cfg = merge(defaultConfig, data);
+    fillForm(cfg);
   } catch (e) {
     fillForm(defaultConfig);
   }
@@ -284,12 +301,21 @@ async function persistFooterConfig({ showSuccessAlert = true } = {}) {
     headers,
     body: JSON.stringify(cfg),
   });
-  if (res.ok) {
-    if (showSuccessAlert) alert('Footer guardado');
-  } else {
-    alert('Error al guardar footer');
+  const postData = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(postData.error || 'Error al guardar footer');
+    return false;
   }
-  return res.ok;
+  const verifyRes = await fetch(`/api/footer?ts=${Date.now()}`, { cache: 'no-store', headers });
+  const verifyData = await verifyRes.json().catch(() => ({}));
+  const expected = JSON.stringify(merge(defaultConfig, cfg));
+  const actual = JSON.stringify(merge(defaultConfig, verifyData));
+  if (!verifyRes.ok || expected !== actual) {
+    alert('El footer se guardó pero la web pública no está leyendo la misma configuración. Revisar Render Disk / DATA_DIR.');
+    return false;
+  }
+  if (showSuccessAlert) alert('Footer guardado');
+  return true;
 }
 
 form.addEventListener('submit', async (e) => {

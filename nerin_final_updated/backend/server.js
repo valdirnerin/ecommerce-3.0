@@ -1940,7 +1940,7 @@ const fetchFn =
   globalThis.fetch ||
   ((...a) => import("node-fetch").then(({ default: f }) => f(...a)));
 
-const FOOTER_FILE = dataPath("footer.json");
+const FOOTER_FILE_PATH = dataPath("footer.json");
 const DEFAULT_FOOTER = {
   brand: "NERIN PARTS",
   slogan: "Samsung Service Pack Original",
@@ -5608,30 +5608,47 @@ function sendOrderPaidEmail(order) {
   }
 }
 // Leer y guardar configuración de footer
+function buildFooterNoCacheHeaders() {
+  return {
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  };
+}
+
 function readFooter() {
+  console.log("[footer:get]", {
+    path: FOOTER_FILE_PATH,
+    exists: fs.existsSync(FOOTER_FILE_PATH),
+    dataDir: DATA_DIR,
+    persistent: IS_DATA_DIR_PERSISTENT,
+  });
   try {
-    const txt = fs.readFileSync(FOOTER_FILE, "utf8");
+    const txt = fs.readFileSync(FOOTER_FILE_PATH, "utf8");
     return JSON.parse(txt);
-  } catch {
-    try {
-      fs.writeFileSync(FOOTER_FILE, JSON.stringify(DEFAULT_FOOTER, null, 2));
-    } catch (e) {
-      console.error("Cannot write default footer", e);
-    }
+  } catch (error) {
     return { ...DEFAULT_FOOTER };
   }
 }
 
-function saveFooter(cfg) {
-  try {
-    fs.writeFileSync(FOOTER_FILE, JSON.stringify(cfg, null, 2));
-  } catch (e) {
-    console.error("Cannot save footer", e);
-  }
+async function saveFooter(cfg) {
+  console.log("[footer:post]", {
+    path: FOOTER_FILE_PATH,
+    dataDir: DATA_DIR,
+    persistent: IS_DATA_DIR_PERSISTENT,
+  });
+  await fsp.mkdir(path.dirname(FOOTER_FILE_PATH), { recursive: true });
+  const tmpPath = `${FOOTER_FILE_PATH}.tmp-${Date.now()}-${process.pid}`;
+  const payload = JSON.stringify(cfg, null, 2);
+  await fsp.writeFile(tmpPath, payload, "utf8");
+  await fsp.rename(tmpPath, FOOTER_FILE_PATH);
+  const saved = JSON.parse(await fsp.readFile(FOOTER_FILE_PATH, "utf8"));
+  console.log("[footer:post]", { path: FOOTER_FILE_PATH, saved: true });
+  return saved;
 }
 
 function normalizeFooter(data) {
-  const base = readFooter();
+  const base = DEFAULT_FOOTER;
   const out = { ...base };
   out.brand = typeof data.brand === "string" ? data.brand.trim() : base.brand;
   out.slogan =
@@ -8702,22 +8719,25 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/footer" && req.method === "GET") {
     const cfg = readFooter();
-    return sendJson(res, 200, cfg);
+    return sendJson(res, 200, cfg, buildFooterNoCacheHeaders());
   }
 
   if (pathname === "/api/footer" && req.method === "POST") {
     if (!requireAdmin(req, res, { allowSeller: false })) return;
     let body = "";
     req.on("data", (c) => (body += c));
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const data = JSON.parse(body || "{}");
         const cfg = normalizeFooter(data);
-        saveFooter(cfg);
-        return sendJson(res, 200, { success: true });
+        const savedCfg = await saveFooter(cfg);
+        return sendJson(res, 200, savedCfg, buildFooterNoCacheHeaders());
       } catch (e) {
-        console.error(e);
-        return sendJson(res, 400, { error: "Solicitud inválida" });
+        console.error("footer:post", e);
+        if (e instanceof SyntaxError) {
+          return sendJson(res, 400, { error: "Solicitud inválida" });
+        }
+        return sendJson(res, 500, { error: "No se pudo guardar footer.json en DATA_DIR" });
       }
     });
     return;
