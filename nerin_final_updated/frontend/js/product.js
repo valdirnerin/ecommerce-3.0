@@ -1131,6 +1131,7 @@ function addToCart(product, { quantity = 1, sku = "", image = "" } = {}) {
 function renderProduct(product) {
   try {
     if (!infoContainer || !galleryContainer) return;
+    console.log("[product-detail:render-product]", product);
   const { product: enriched, title: seoTitle } = resolveSeo(product);
   product = enriched;
   const skuValue = getProductSku(product);
@@ -1413,6 +1414,10 @@ function renderProduct(product) {
   `;
 
   const handleAddToCart = () => {
+    addBtn.click();
+  };
+
+  addBtn.addEventListener("click", () => {
     const qty = qtyControl.getValue();
     if (qty > (product.stock || 0)) {
       alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
@@ -1445,10 +1450,6 @@ function renderProduct(product) {
         currency: "ARS",
       });
     }
-  };
-
-  addBtn.addEventListener("click", () => {
-    handleAddToCart();
   });
 
   const legalNote = document.createElement("p");
@@ -1598,6 +1599,22 @@ function renderProduct(product) {
 
   if (product && product.id != null) {
     loadReviews(String(product.id));
+  }
+
+  console.log("[product-detail:info-children]", infoContainer?.children?.length || 0);
+  if (infoContainer && !infoContainer.children.length) {
+    console.warn("[product-detail:info-empty-fallback]", product);
+    infoContainer.innerHTML = `
+    <article class="product-detail-card product-detail-card--fallback">
+      <p class="eyebrow">${product.sku || product.code || ""}</p>
+      <h1>${product.name || product.title || "Producto"}</h1>
+      <p class="product-detail-price">$${Number(product.price || product.price_minorista || product.precio_final || 0).toLocaleString("es-AR")}</p>
+      <p>Stock: ${product.stock ?? "Consultar"}</p>
+      <button type="button" class="button primary" id="fallbackAddToCart">Agregar al carrito</button>
+      <a class="button secondary" href="/cart.html">Ir al carrito</a>
+    </article>
+  `;
+    document.getElementById("fallbackAddToCart")?.addEventListener("click", () => addToCart(product));
   }
   } catch (error) {
     console.error("[product-detail:render-error]", error);
