@@ -43,19 +43,24 @@
     },
     "highlights": [
       {
-        "icon": "📦",
-        "title": "Stock auditado cada mañana",
-        "description": "Inventario real de Service Pack y módulos OEM con controles de lote y trazabilidad."
+        "title": "Stock real en CABA",
+        "description": "Inventario actualizado para que compres con disponibilidad real.",
+        "icon": "📦"
       },
       {
-        "icon": "🛠️",
-        "title": "Garantía laboratorio",
-        "description": "Probamos módulos y flex antes de despachar para reducir DOA en los talleres que atendemos."
+        "title": "Verificación por foto",
+        "description": "Confirmamos estado y compatibilidad visual antes del despacho.",
+        "icon": "📸"
       },
       {
-        "icon": "🚚",
-        "title": "Logística en 24/48 hs",
-        "description": "Despachos en el día para CABA y GBA y operadores nacionales para llegar a cada provincia."
+        "title": "Compatibilidad por modelo",
+        "description": "Te ayudamos a validar código, modelo y versión de equipo.",
+        "icon": "🧩"
+      },
+      {
+        "title": "Factura A/B",
+        "description": "Operación comercial formal con comprobantes para minorista y técnico.",
+        "icon": "🧾"
       }
     ],
     "about": {

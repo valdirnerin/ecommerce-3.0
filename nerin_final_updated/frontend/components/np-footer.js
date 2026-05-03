@@ -477,6 +477,8 @@
           ["Comprobantes", legalDetails.invoice || "Factura A/B"],
           ["Medios de pago", legalDetails.payments],
           ["Envíos", legalDetails.shipping],
+          ["WhatsApp", cfg.contact?.whatsapp || ""],
+          ["Email", cfg.contact?.email || ""],
         ];
         rows.forEach(([label, value]) => {
           if (!value) return;
@@ -539,6 +541,7 @@
           const placeholder = document.createElement("p");
           placeholder.textContent =
             cfg.dataFiscal?.placeholder || "Data Fiscal ARCA / AFIP pendiente de carga";
+          placeholder.title = "Admin: cargá el HTML oficial del Formulario 960/D en dataFiscal.html o configurá dataFiscal.image + dataFiscal.link.";
           fiscal.appendChild(placeholder);
         }
         legal.appendChild(fiscal);
