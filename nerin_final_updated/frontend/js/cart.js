@@ -13,6 +13,7 @@ import { isWholesale, fetchProducts } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes, formatArs } from "./utils/pricing.js";
 import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
+import { readCart, writeCart } from "./cart-utils.js";
 
 // Referencias a los elementos del DOM
 const itemsContainer = document.getElementById("cartItems");
@@ -38,16 +39,14 @@ function calculateDiscountedPrice(basePrice, quantity) {
 function getStoredCart() {
   try {
     const raw = localStorage.getItem("nerinCart");
-    const cart = JSON.parse(raw || "[]");
-    const items = Array.isArray(cart) ? cart : [];
-    const valid = items.filter((item) => String(item?.identifier || "").trim());
-    if (valid.length !== items.length) {
-      localStorage.setItem("nerinCart", JSON.stringify(valid));
-      if (typeof window !== "undefined" && typeof window.alert === "function") {
-        window.alert("Algunos productos viejos del carrito fueron removidos porque faltaba información. Volvé a agregarlos desde el catálogo.");
-      }
-    }
-    return valid;
+    return readCart({
+      migrate: true,
+      onInvalidItems: () => {
+        if (typeof window !== "undefined" && typeof window.alert === "function") {
+          window.alert("Algunos productos viejos del carrito fueron removidos porque faltaba información. Volvé a agregarlos desde el catálogo.");
+        }
+      },
+    });
   } catch (err) {
     console.warn("Cart storage corrupt, resetting", err);
     localStorage.removeItem("nerinCart");
@@ -94,7 +93,7 @@ async function renderCart() {
     const available = stockMap[item.id] ?? Infinity;
     if (item.quantity > available) {
       item.quantity = available;
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      writeCart(cart);
     }
 
     if (item.image) {
@@ -157,7 +156,7 @@ async function renderCart() {
     minus.addEventListener("click", () => {
       if (cart[index].quantity > 1) {
         cart[index].quantity -= 1;
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        writeCart(cart);
         renderCart();
       }
     });
@@ -176,7 +175,7 @@ async function renderCart() {
         alert(`Stock disponible: ${available}`);
       }
       cart[index].quantity = qty;
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      writeCart(cart);
       renderCart();
     });
     const plus = document.createElement("button");
@@ -185,7 +184,7 @@ async function renderCart() {
     plus.addEventListener("click", () => {
       if (cart[index].quantity < available) {
         cart[index].quantity += 1;
-        localStorage.setItem("nerinCart", JSON.stringify(cart));
+        writeCart(cart);
         renderCart();
       } else {
         alert(`Stock disponible: ${available}`);
@@ -208,7 +207,7 @@ async function renderCart() {
     removeBtn.textContent = "Eliminar";
     removeBtn.addEventListener("click", () => {
       cart.splice(index, 1);
-      localStorage.setItem("nerinCart", JSON.stringify(cart));
+      writeCart(cart);
       renderCart();
     });
     controls.appendChild(removeBtn);

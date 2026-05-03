@@ -1,6 +1,7 @@
 import { apiFetch } from "./api.js";
 import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 import { calculateNetNoNationalTaxes, formatArs } from "./utils/pricing.js";
+import { readCart } from "./cart-utils.js";
 
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
@@ -19,7 +20,7 @@ const pagoRadios = document.getElementsByName('pago');
 const protectionNote = document.getElementById('protectionNote');
 const metodoInfo = document.getElementById('metodoInfo');
 
-const cart = JSON.parse(localStorage.getItem('nerinCart') || '[]');
+const cart = readCart({ migrate: true, onInvalidItems: () => window.alert('Se removieron productos inválidos del carrito. Volvé a agregarlos desde el catálogo.') });
 if (cart.length === 0) {
   window.location.href = '/cart.html';
 }
@@ -425,10 +426,24 @@ async function submitMercadoPago() {
   confirmarBtn.textContent = 'Procesando...';
   try {
     console.log('Creando preferencia MP', { cart, customer });
-    const carritoBackend = cart.map(({ name, price, quantity }) => ({
-      titulo: name,
-      precio: price,
-      cantidad: quantity,
+    const carritoBackend = cart.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      product_id: item.product_id,
+      sku: item.sku,
+      code: item.code,
+      slug: item.slug,
+      publicSlug: item.publicSlug,
+      public_slug: item.public_slug,
+      partNumber: item.partNumber,
+      mpn: item.mpn,
+      ean: item.ean,
+      gtin: item.gtin,
+      supplierCode: item.supplierCode,
+      titulo: item.name,
+      precio: item.price,
+      cantidad: item.quantity,
+      quantity: item.quantity,
     }));
     const res = await apiFetch('/api/mercado-pago/crear-preferencia', {
       method: 'POST',

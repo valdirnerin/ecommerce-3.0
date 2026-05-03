@@ -247,24 +247,18 @@ let lastToastInstance = null;
 let cartPreviewHideTimer = null;
 
 function readCartItems() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem("nerinCart") || "[]");
-    const cart = Array.isArray(parsed) ? parsed : [];
-    const valid = cart.filter((item) => String(item?.identifier || "").trim());
-    if (valid.length !== cart.length) {
-      localStorage.setItem("nerinCart", JSON.stringify(valid));
+  return readCart({
+    migrate: true,
+    onInvalidItems: () => {
       if (typeof window !== "undefined" && typeof window.showToast === "function") {
         window.showToast("Algunos productos viejos del carrito fueron removidos porque faltaba información. Volvé a agregarlos desde el catálogo.");
       }
-    }
-    return valid;
-  } catch (_err) {
-    return [];
-  }
+    },
+  });
 }
 
 function saveCartItems(items) {
-  localStorage.setItem("nerinCart", JSON.stringify(items));
+  writeCart(items);
   updateNav();
 }
 

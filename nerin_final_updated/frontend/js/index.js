@@ -1,5 +1,6 @@
 import { fetchProducts, isWholesale, getUserRole } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
+import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 
 const CONFIG_CACHE_KEY = "nerin:config-cache";
@@ -536,24 +537,14 @@ function resolveDisplayPrice(product) {
 }
 
 function addToCart(product, quantity = 1) {
-  const identifier = String(
-    product?.adminIdentifier ||
-      product?.identifier ||
-      product?.id ||
-      product?.sku ||
-      product?.code ||
-      product?.publicSlug ||
-      product?.public_slug ||
-      product?.slug ||
-      product?.url ||
-      "",
-  ).trim();
+  const cartItem = buildCartItemFromProduct(product);
+  const identifier = cartItem.identifier;
   if (!identifier) {
     alert("No se pudo agregar el producto porque falta identificador.");
     return;
   }
-  const cart = JSON.parse(localStorage.getItem("nerinCart") || "[]");
-  const existing = cart.find((item) => item.id === product.id);
+  const cart = readCart();
+  const existing = cart.find((item) => item.identifier === cartItem.identifier || item.id === String(product.id || ""));
   const qty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
   const available =
     typeof product.stock === "number" && product.stock >= 0
@@ -568,20 +559,18 @@ function addToCart(product, quantity = 1) {
   } else {
     const price = resolveDisplayPrice(product);
     cart.push({
-      id: product.id,
+      ...cartItem,
       identifier,
       sku: product.sku || "",
-      code: product.code || "",
       publicSlug: product.publicSlug || product.public_slug || "",
-      slug: product.slug || "",
-      url: buildProductUrl(product),
       name: product.name,
       price,
       quantity: Math.min(qty, available),
+      url: buildProductUrl(product),
       image: getPrimaryImage(product) || PLACEHOLDER_IMAGE,
     });
   }
-  localStorage.setItem("nerinCart", JSON.stringify(cart));
+  writeCart(cart);
   if (window.updateNav) window.updateNav();
   if (window.showCartIndicator) {
     window.showCartIndicator({
