@@ -1092,60 +1092,6 @@ function createQuantityControl(product) {
 
 
 
-function renderSimpleGallery(product) {
-  if (!galleryContainer) return;
-
-  const images = Array.isArray(product.images) && product.images.length
-    ? product.images
-    : [product.image || product.thumbnail].filter(Boolean);
-
-  const firstImage = images[0] || "";
-
-  galleryContainer.innerHTML = `
-    <div class="product-gallery product-gallery--simple">
-      ${firstImage ? `<img class="product-gallery__image product-hero-img" src="${firstImage}" alt="${product.name || product.title || "Producto"}" />` : ""}
-    </div>
-  `;
-}
-
-function renderProductInfoFallback(product) {
-  if (!infoContainer || !product) return;
-
-  const price = Number(
-    product.price ||
-    product.price_minorista ||
-    product.precio_minorista ||
-    product.precio_final ||
-    0
-  );
-
-  const sku = product.sku || product.code || product.id || "";
-  const stock = product.stock ?? "Consultar";
-  const title = product.name || product.title || "Producto";
-
-  infoContainer.innerHTML = `
-    <article class="product-detail-card product-detail-card--fallback">
-      ${sku ? `<p class="eyebrow">${sku}</p>` : ""}
-      <h1>${title}</h1>
-      <p class="product-detail-price">$${price.toLocaleString("es-AR")}</p>
-      <p class="product-detail-stock">Stock: ${stock}</p>
-      <div class="product-detail-actions">
-        <button type="button" class="button primary" id="productFallbackAddToCart">
-          Agregar al carrito
-        </button>
-        <a class="button secondary" href="/cart.html">Ir al carrito</a>
-        <a class="button secondary" href="https://wa.me/5491130341550" target="_blank" rel="noopener">
-          Consultar por WhatsApp
-        </a>
-      </div>
-    </article>
-  `;
-
-  document
-    .getElementById("productFallbackAddToCart")
-    ?.addEventListener("click", () => addToCart(product));
-}
-
 function addToCart(product, { quantity = 1, sku = "", image = "" } = {}) {
   console.log("[product-detail:add-to-cart:product]", product);
   console.log("[product-detail:add-to-cart:product-keys]", product ? Object.keys(product) : null);
@@ -1192,9 +1138,9 @@ function addToCart(product, { quantity = 1, sku = "", image = "" } = {}) {
 }
 
 function renderProduct(product) {
-  try {
-    if (!infoContainer || !galleryContainer) return;
-    console.log("[product-detail:render-product]", product);
+  if (!infoContainer || !galleryContainer) return;
+  console.log("[product-detail:render-product]", product);
+  console.log("[product-detail:gallery-fix-version]", "product-gallery-fix-20260503");
   const { product: enriched, title: seoTitle } = resolveSeo(product);
   product = enriched;
   const skuValue = getProductSku(product);
@@ -1220,9 +1166,6 @@ function renderProduct(product) {
   product.images = [...images];
   product.image = primaryImage || cartImage;
   buildGallery(galleryContainer, images, alts);
-  if (galleryContainer && galleryContainer.querySelectorAll(".product-gallery__image").length > 1) {
-    renderSimpleGallery(product);
-  }
   updateHeadImages(images, alts);
   const metaInfo = updateProductMeta(product, images);
   syncBrowserUrl(metaInfo.relativeUrl);
@@ -1668,14 +1611,7 @@ function renderProduct(product) {
   }
 
   console.log("[product-detail:info-children]", infoContainer?.children?.length || 0);
-  if (infoContainer && !infoContainer.children.length) {
-    console.warn("[product-detail:info-empty-fallback]", product);
-    renderProductInfoFallback(product);
-  }
-  } catch (error) {
-    console.error("[product-detail:render-error]", error);
-    renderProductInfoFallback(product);
-  }
+  console.log("[product-detail:gallery-children]", galleryContainer?.children?.length || 0);
 }
 
 async function fetchPreviewProduct() {
