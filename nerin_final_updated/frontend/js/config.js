@@ -628,18 +628,18 @@ function updateNav() {
   const config = window.NERIN_CONFIG || {};
   const role = localStorage.getItem("nerinUserRole");
   const token = localStorage.getItem("nerinToken");
-  const loggedIn = Boolean(role && token);
+  const loggedIn = Boolean(token);
+  const isAdminUser = Boolean(token && (role === "admin" || role === "vendedor"));
   const name = localStorage.getItem("nerinUserName");
   const email = localStorage.getItem("nerinUserEmail");
-  // Eliminar botones duplicados de Admin si existieran
+  // Limpiar enlaces Admin hardcodeados para que sólo aparezcan cuando corresponda.
   const adminLinks = navUl.querySelectorAll('a[href="/admin.html"]');
-  if (adminLinks.length > 1) {
-    adminLinks.forEach((link, idx) => {
-      if (idx > 0 && link.parentElement) {
-        link.parentElement.remove();
-      }
-    });
-  }
+  adminLinks.forEach((link, idx) => {
+    const li = link.closest("li");
+    if (!isAdminUser || idx > 0) {
+      li?.remove();
+    }
+  });
   // Calcular cantidad total en el carrito
   let cartCount = 0;
   try {
@@ -686,7 +686,7 @@ function updateNav() {
     if (href && href.includes("/login.html")) {
       if (loggedIn) {
         // Usuario autenticado: cambiar enlace a Admin o Mi cuenta
-        if (role === "admin" || role === "vendedor") {
+        if (isAdminUser) {
           a.textContent = "Admin";
           a.setAttribute("href", "/admin.html");
         } else if (role === "minorista") {
@@ -702,6 +702,26 @@ function updateNav() {
       }
     }
   });
+  if (isAdminUser) {
+    const adminNavLinks = navUl.querySelectorAll('a[href="/admin.html"]');
+    if (adminNavLinks.length === 0) {
+      const adminLi = document.createElement("li");
+      const adminLink = document.createElement("a");
+      adminLink.href = "/admin.html";
+      adminLink.textContent = "Admin";
+      adminLi.appendChild(adminLink);
+      const logoutLi = navUl.querySelector("li.logout-item");
+      if (logoutLi) {
+        navUl.insertBefore(adminLi, logoutLi);
+      } else {
+        navUl.appendChild(adminLi);
+      }
+    } else if (adminNavLinks.length > 1) {
+      adminNavLinks.forEach((link, idx) => {
+        if (idx > 0) link.closest("li")?.remove();
+      });
+    }
+  }
   // Añadir enlace de cierre de sesión si no existe y el usuario está autenticado
   if (loggedIn) {
     let logoutLi = navUl.querySelector("li.logout-item");
