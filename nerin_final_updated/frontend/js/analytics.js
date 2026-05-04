@@ -334,12 +334,12 @@ export async function renderAnalyticsDashboard(
     const payload = await res.json();
     const analytics = payload?.analytics || payload || {};
     container.innerHTML = "";
-    if (!analytics?.analyticsAvailable) {
+    if (analytics?.analyticsAvailable === false) {
       const disabled = document.createElement("div");
       disabled.className = "analytics-empty analytics-empty--inline";
       disabled.innerHTML = `
-        <strong>Métricas no disponibles temporalmente</strong>
-        <p>${analytics?.message || "Métricas desactivadas temporalmente para catálogo grande"}</p>
+        <strong>No se pudieron cargar las analíticas</strong>
+        <p>${analytics?.error || analytics?.message || "Ocurrió un error técnico. Reintentá en unos segundos."}</p>
       `;
       container.appendChild(disabled);
       return;

@@ -212,10 +212,6 @@ const MAX_ACTIVITY_SESSIONS = 300;
 const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
-const DISABLE_HEAVY_ANALYTICS = true;
-const HEAVY_ANALYTICS_PRODUCTS_SIZE_LIMIT_BYTES = 5 * 1024 * 1024;
-const ANALYTICS_DISABLED_REASON = "disabled_for_large_catalog";
-const EMERGENCY_PRODUCTS_MODE = true;
 const DISABLE_PRODUCTS_STREAMING_FALLBACK =
   String(process.env.DISABLE_PRODUCTS_STREAMING_FALLBACK || "true").trim().toLowerCase() === "true";
 const REVIEW_TOKEN_TTL_DAYS =
@@ -3138,6 +3134,8 @@ async function calculateDetailedAnalytics(options = {}) {
   let revenueThisWeek = 0;
   let ordersToday = 0;
   let ordersThisWeek = 0;
+  const orderStatusBreakdown = {};
+  const paymentStatusBreakdown = {};
   orders.forEach((order) => {
     totalSales += order.total || 0;
     const orderDateRaw =
@@ -3153,6 +3151,10 @@ async function calculateDetailedAnalytics(options = {}) {
         ordersThisWeek += 1;
       }
     }
+    const orderStatus = String(order.status || order.shipping_status || "sin_estado").trim() || "sin_estado";
+    orderStatusBreakdown[orderStatus] = (orderStatusBreakdown[orderStatus] || 0) + 1;
+    const paymentStatus = String(order.payment_status || order.paymentStatus || "sin_estado").trim() || "sin_estado";
+    paymentStatusBreakdown[paymentStatus] = (paymentStatusBreakdown[paymentStatus] || 0) + 1;
     // Agrupar ventas por mes
     if (order.date) {
       const month = order.date.slice(0, 7); // YYYY-MM
@@ -3700,8 +3702,10 @@ async function calculateDetailedAnalytics(options = {}) {
     brandsCount: catalogSnapshot.brandsCount,
     revenueToday,
     revenueThisWeek,
+    revenueInRange: revenueThisWeek,
     ordersToday,
     ordersThisWeek,
+    ordersInRange: ordersThisWeek,
     conversionRate,
     cartAbandonmentRate,
     averageSessionDuration,
@@ -3721,6 +3725,8 @@ async function calculateDetailedAnalytics(options = {}) {
     averageOrderValue,
     returnRate,
     mostReturnedProduct,
+    orderStatusBreakdown,
+    paymentStatusBreakdown,
     activeSessions: activeSessions.length,
     checkoutInProgress,
     activeCarts,
@@ -3757,14 +3763,6 @@ async function calculateDetailedAnalytics(options = {}) {
   };
 }
 
-function buildDisabledAnalyticsPayload({ reason = ANALYTICS_DISABLED_REASON } = {}) {
-  return {
-    analyticsAvailable: false,
-    reason,
-    productManifest: productsStreamRepo.safeReadManifest() || null,
-    message: "Analytics desactivado temporalmente para catálogo grande",
-  };
-}
 
 // Leer productos desde el archivo JSON
 function getProducts() {
@@ -4021,7 +4019,7 @@ async function getProductsEmergencyResponse({
       hasPrevPage: Boolean(emergencyPage.hasPrevPage || page > 1),
       warning: warning || null,
       totalItemsUnknown: safeTotalItems == null,
-      mode: EMERGENCY_PRODUCTS_MODE ? "emergency_streaming" : "standard",
+      mode: "emergency_streaming",
       scannedCount: emergencyPage.scannedCount,
       matchedCount: emergencyPage.matchedCount,
     };
@@ -11370,10 +11368,29 @@ async function requestHandler(req, res) {
    * análisis profundo y dashboards.
    */
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
-    return sendJson(res, 200, {
-      analyticsAvailable: false,
-      reason: ANALYTICS_DISABLED_REASON,
-    });
+    try {
+      const range = parseAnalyticsRange(parsedUrl.query);
+      const events = getEventsByRange({ from: range.from, to: range.to });
+      let sessions = getStoredSessions();
+      if (!Array.isArray(sessions) || sessions.length === 0) {
+        const fallback = getActivityLog();
+        sessions = Array.isArray(fallback.sessions) ? fallback.sessions : [];
+      }
+      const analytics = await calculateDetailedAnalytics({
+        rangeStart: range.from,
+        rangeEnd: range.to,
+        events,
+        sessions,
+      });
+      return sendJson(res, 200, { analyticsAvailable: true, analytics, range });
+    } catch (err) {
+      console.error("analytics-detailed error", err);
+      return sendJson(res, 500, {
+        analyticsAvailable: false,
+        error: "No se pudieron calcular las analíticas detalladas",
+        details: err?.message || String(err),
+      });
+    }
   }
 
   /*
