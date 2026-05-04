@@ -17,6 +17,18 @@ if (typeof window !== "undefined" && !window.__NERIN_ADMIN_BUILD__) {
   window.__NERIN_ADMIN_BUILD__ = ADMIN_BUILD_FALLBACK;
 }
 
+function shouldShowAdminBuildBadge() {
+  if (typeof window === "undefined") return false;
+  const host = String(window.location?.hostname || "").toLowerCase();
+  if (host === "localhost" || host === "127.0.0.1") return true;
+  const flags = [
+    window.DEBUG_ADMIN_BUILD,
+    window.SHOW_BUILD_BADGE,
+    window.NEXT_PUBLIC_SHOW_BUILD_BADGE,
+  ];
+  return flags.some((value) => value === true || String(value).toLowerCase() === "true");
+}
+
 async function logAdminBuildVersion() {
   let buildId = ADMIN_BUILD_FALLBACK;
   try {
@@ -39,7 +51,11 @@ async function logAdminBuildVersion() {
   if (typeof document !== "undefined") {
     const banner = document.getElementById("admin-build-banner");
     if (banner) {
-      banner.textContent = `Build: ${buildId || "dev"} • Multi-images: ON`;
+      const showBadge = shouldShowAdminBuildBadge();
+      banner.hidden = !showBadge;
+      if (showBadge) {
+        banner.textContent = `Build: ${buildId || "dev"} • Multi-images: ON`;
+      }
     }
   }
   console.info("admin-js-version", buildId);

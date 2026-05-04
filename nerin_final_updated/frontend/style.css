@@ -9729,3 +9729,32 @@ html, body{ max-width:100%; overflow-x:hidden; }
   height: auto;
   object-fit: contain;
 }
+
+
+.admin-nav {
+  display: flex;
+  gap: .5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  padding: .5rem 1rem;
+  scroll-padding-left: 1rem;
+}
+
+.admin-nav button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 768px) {
+  .admin-container {
+    overflow-x: hidden;
+  }
+
+  .admin-nav {
+    margin-left: calc(-1 * var(--container-padding, 1rem));
+    margin-right: calc(-1 * var(--container-padding, 1rem));
+    padding-left: var(--container-padding, 1rem);
+    padding-right: var(--container-padding, 1rem);
+  }
+}
