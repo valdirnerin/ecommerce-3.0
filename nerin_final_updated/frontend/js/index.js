@@ -810,6 +810,8 @@ function setupContactForm() {
   const modelField = document.getElementById("contactModel");
   const quantityField = document.getElementById("contactQuantity");
   const urgencyField = document.getElementById("contactUrgency");
+  const partField = document.getElementById("contactPart");
+  const phoneField = document.getElementById("contactPhone");
   const messageField = document.getElementById("contactMessage");
   const feedback = document.getElementById("contactFeedback");
 
@@ -836,22 +838,28 @@ function setupContactForm() {
       modelField.focus();
       return;
     }
+    const roleSelect = document.getElementById("contactRole");
     const roleInput = form.querySelector('input[name="contactRole"]:checked');
-    const roleLabel =
-      roleInput?.nextElementSibling?.textContent?.trim() || "Técnico";
+    const roleLabel = roleSelect
+      ? roleSelect.options[roleSelect.selectedIndex]?.text?.trim() || "Cliente"
+      : roleInput?.nextElementSibling?.textContent?.trim() || "Cliente";
     const quantityValue = parseInt(quantityField.value, 10) || 1;
-    const urgencyText =
-      urgencyField.options[urgencyField.selectedIndex]?.text?.trim() ||
-      urgencyField.value;
+    const urgencyText = urgencyField
+      ? urgencyField.options?.[urgencyField.selectedIndex]?.text?.trim() || urgencyField.value
+      : "";
+    const partValue = partField?.value?.trim() || "";
+    const phoneValue = phoneField?.value?.trim() || "";
     const extraMessage = messageField.value.trim();
 
     const parts = [
       `Hola. Soy ${nameValue}.`,
       `Perfil: ${roleLabel}.`,
+      `WhatsApp: ${phoneValue}.`,
       `Modelo: ${modelValue}.`,
+      `Repuesto: ${partValue}.`,
       `Cantidad: ${quantityValue}.`,
-      `Urgencia: ${urgencyText}.`,
     ];
+    if (urgencyText) parts.push(`Entrega/Zona: ${urgencyText}.`);
     if (extraMessage) {
       parts.push(`Detalle: ${extraMessage}.`);
     }
@@ -865,6 +873,8 @@ function setupContactForm() {
     quantityField.value = "1";
     const defaultRole = form.querySelector('input[name="contactRole"][value="tecnico"]');
     if (defaultRole) defaultRole.checked = true;
+    const roleSelectReset = document.getElementById("contactRole");
+    if (roleSelectReset) roleSelectReset.selectedIndex = 0;
     setFeedback("Listo. Te respondemos por WhatsApp hoy mismo.", "success");
   });
 }
