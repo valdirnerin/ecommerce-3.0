@@ -35,10 +35,10 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no"
     />
     <title>Seguimiento de tu pedido – NERIN</title>
-          <link rel="stylesheet" href="/style.css?v=cartfix-2" />
+    <link rel="stylesheet" href="/style.css?v=cartfix-2" />
     <link rel="stylesheet" href="/components/np-footer.css?v=np-r2">
-  <script src="/components/np-footer.js?v=np-r2" defer></script>
-</head>
+    <script src="/components/np-footer.js?v=np-r2" defer></script>
+  </head>
   <body>
     <header>
       <div class="header-inner">
@@ -54,38 +54,45 @@
         </nav>
       </div>
     </header>
-    <main class="container tracking-container">
-      <h1>Seguimiento de tu pedido</h1>
-      <p>
-        Acá podés ver en qué estado está tu compra. Ante cualquier duda,
-        escribinos por WhatsApp.
-      </p>
+    <main class="container tracking-page">
+      <section class="tracking-hero">
+        <span class="tracking-kicker">Centro de soporte</span>
+        <h1>Seguimiento de tu pedido</h1>
+        <p class="tracking-subtitle">Consultá en segundos el estado de tu compra, envío y factura con tu email y número de pedido.</p>
+      </section>
 
-      <form id="trackForm" class="login-container">
-        <input type="email" id="email" placeholder="Tu email" required />
-        <input type="text" id="orderId" placeholder="Número de pedido" required />
-        <button type="submit">Ver estado</button>
-      </form>
-
-      <div id="orderSummary" class="order-card" style="display:none"></div>
+      <section class="tracking-panel" aria-label="Formulario de seguimiento">
+        <form id="trackForm" class="tracking-form" novalidate>
+          <div class="tracking-field">
+            <label for="email">Email de compra</label>
+            <input type="email" id="email" placeholder="ejemplo@correo.com" autocomplete="email" required />
+          </div>
+          <div class="tracking-field">
+            <label for="orderId">Número de pedido</label>
+            <input type="text" id="orderId" placeholder="Ej: 10542" autocomplete="off" required />
+          </div>
+          <button id="trackSubmit" type="submit">Consultar pedido</button>
+        </form>
+        <p class="tracking-help">Usá los mismos datos que recibiste en el email de confirmación.</p>
+      </section>
 
       <div id="orderAlert" class="order-alert" role="alert" style="display:none"></div>
-
+      <div id="orderSummary" class="order-card" style="display:none"></div>
       <div id="orderProgress" class="order-progress-container" style="display:none"></div>
 
-      <div class="contact-section">
-        <p>Si tenés alguna duda, escribinos con tu número de pedido.</p>
-        <a id="contactWhatsApp" class="button primary" target="_blank">
-          <img src="/assets/whatsapp.svg" alt="WhatsApp" /> WhatsApp
-        </a>
-      </div>
+      <section class="tracking-actions">
+        <div class="contact-section">
+          <p>¿Necesitás ayuda adicional? Te respondemos por WhatsApp con tu número de pedido.</p>
+          <a id="contactWhatsApp" class="button primary" target="_blank" rel="noopener">
+            <img src="/assets/whatsapp.svg" alt="WhatsApp" /> Contactar por WhatsApp
+          </a>
+        </div>
 
-      <div style="margin-top:2rem;text-align:center">
-        <a href="/index.html" class="button secondary">Volver al inicio</a>
-      </div>
+        <a href="/index.html" class="button secondary tracking-back">Volver al inicio</a>
+      </section>
     </main>
 
-    <script type="module" src="/js/seguimiento.js?v=20241002-nerin-01"></script>
+    <script type="module" src="/js/seguimiento.js?v=20260506-tracking-ui-01"></script>
     <script type="module" src="/js/config.js?v=nav-admin-fix-20260504"></script>
   </body>
 </html>

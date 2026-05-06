@@ -9,6 +9,7 @@ const summaryEl = document.getElementById('orderSummary');
 const progressContainer = document.getElementById('orderProgress');
 const alertEl = document.getElementById('orderAlert');
 const contactBtn = document.getElementById('contactWhatsApp');
+const submitBtn = document.getElementById('trackSubmit');
 
 let invoiceInfo = null;
 let pollTimer = null;
@@ -304,10 +305,18 @@ function hideAlert() {
   alertEl.textContent = '';
 }
 
-function showAlert(message) {
+function showAlert(message, variant = 'error') {
   if (!alertEl) return;
+  alertEl.className = `order-alert is-${variant}`;
   alertEl.textContent = message;
   alertEl.style.display = 'block';
+}
+
+function setLoading(isLoading) {
+  if (!submitBtn) return;
+  submitBtn.disabled = !!isLoading;
+  submitBtn.classList.toggle('is-loading', !!isLoading);
+  submitBtn.textContent = isLoading ? 'Consultando…' : 'Consultar pedido';
 }
 
 function renderOrderProgress(order = {}) {
@@ -359,7 +368,7 @@ function renderOrderProgress(order = {}) {
       ? `${alertMessage} / Pago revertido`
       : 'Pago revertido';
   }
-  if (alertMessage) showAlert(alertMessage);
+  if (alertMessage) showAlert(alertMessage, 'warning');
   else hideAlert();
 }
 
@@ -413,21 +422,27 @@ function renderOrder(order = {}) {
   }
 
   summaryEl.innerHTML = `
-    <p><strong>Número de pedido:</strong> ${orderId}</p>
-    <p><strong>Estado del pago:</strong> ${paymentLabel}</p>
-    <p><strong>Estado del envío:</strong> ${shippingLabel}</p>
-    <p><strong>Fecha:</strong> ${formattedDate}</p>
-    ${itemsHtml ? `<ul>${itemsHtml}</ul>` : ''}
-    <p><strong>Total:</strong> ${totalLabel}</p>
-    ${paymentMethod ? `<p><strong>Método de pago:</strong> ${paymentMethod}</p>` : ''}
-    ${destination ? `<p><strong>Envío a:</strong> ${destination}</p>` : '<p><em>Coordinación de envío por WhatsApp</em></p>'}
-    ${province ? `<p><strong>Provincia de envío:</strong> ${province}</p>` : ''}
-    ${shippingCostLabel ? `<p><strong>Costo de envío:</strong> ${shippingCostLabel}</p>` : ''}
-    ${customerEmail ? `<p><strong>Email:</strong> ${customerEmail}</p>` : ''}
-    ${trackingCode ? `<p><strong>Nº de seguimiento:</strong> ${trackingCode}${carrier ? ` (${carrier})` : ''}</p>` : ''}
-    ${invoiceToShow && invoiceToShow.url
-      ? `<p><a href="${invoiceToShow.url}" target="_blank" rel="noopener">Ver/Descargar factura</a></p>`
-      : '<p><em>Factura pendiente</em></p>'}
+    <div class="order-card__header">
+      <h2>Pedido #${orderId || '-'}</h2>
+      <span class="status-chip status-chip--neutral">Última actualización: ${formattedDate}</span>
+    </div>
+    <div class="order-card__grid">
+      <div class="order-data"><span>Estado general</span><strong>${shippingLabel}</strong></div>
+      <div class="order-data"><span>Estado del pago</span><strong>${paymentLabel}</strong></div>
+      <div class="order-data"><span>Método de pago</span><strong>${paymentMethod || 'No informado'}</strong></div>
+      <div class="order-data"><span>Total</span><strong>${totalLabel}</strong></div>
+      <div class="order-data"><span>Empresa de envío</span><strong>${carrier || 'A confirmar'}</strong></div>
+      <div class="order-data"><span>Tracking</span><strong>${trackingCode || 'Pendiente'}</strong></div>
+      <div class="order-data"><span>Destino</span><strong>${destination || 'Coordinación por WhatsApp'}${province ? ` (${province})` : ''}</strong></div>
+      <div class="order-data"><span>Contacto</span><strong>${customerEmail || 'No informado'}</strong></div>
+    </div>
+    ${itemsHtml ? `<div class="order-items"><h3>Productos</h3><ul>${itemsHtml}</ul></div>` : ''}
+    <div class="order-card__footer">
+      ${shippingCostLabel ? `<span class="status-chip">Envío: ${shippingCostLabel}</span>` : ''}
+      ${invoiceToShow && invoiceToShow.url
+      ? `<a class="status-chip status-chip--link" href="${invoiceToShow.url}" target="_blank" rel="noopener">Ver/Descargar factura</a>`
+      : '<span class="status-chip status-chip--neutral">Factura pendiente</span>'}
+    </div>
   `;
   summaryEl.style.display = 'block';
   renderOrderProgress(order);
@@ -487,7 +502,8 @@ function startPolling() {
 async function fetchOrder(email, id) {
   resetView();
   if (!email || !id) return;
-  summaryEl.textContent = 'Buscando...';
+  summaryEl.innerHTML = '<p class="summary-loading">Estamos buscando tu pedido…</p>';
+  setLoading(true);
   summaryEl.style.display = 'block';
   stopPolling();
   currentOrderId = null;
@@ -499,7 +515,9 @@ async function fetchOrder(email, id) {
       body: JSON.stringify({ email, id }),
     });
     if (!res.ok) {
-      summaryEl.textContent = 'No encontramos un pedido con esos datos.';
+      showAlert('No encontramos un pedido con esos datos. Revisá el email y número de pedido.', 'error');
+      summaryEl.innerHTML = '<p class="summary-empty">No se encontró información para esta búsqueda.</p>' ;
+      setLoading(false);
       return;
     }
     const data = await res.json();
@@ -510,9 +528,13 @@ async function fetchOrder(email, id) {
     lastEtag = null;
     await pollOrder();
     startPolling();
+    showAlert('Consulta realizada con éxito.', 'success');
+    setLoading(false);
   } catch (e) {
     console.error(e);
-    summaryEl.textContent = 'Error al buscar el pedido.';
+    showAlert('Tuvimos un inconveniente al consultar el pedido. Intentá nuevamente.', 'error');
+    summaryEl.innerHTML = '<p class="summary-empty">No pudimos completar la consulta.</p>' ;
+    setLoading(false);
   }
 }
 

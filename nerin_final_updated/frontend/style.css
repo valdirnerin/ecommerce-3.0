@@ -9758,3 +9758,44 @@ html, body{ max-width:100%; overflow-x:hidden; }
     padding-right: var(--container-padding, 1rem);
   }
 }
+
+/* ==== Seguimiento de pedidos (refresh 2026) ==== */
+.tracking-page { max-width: 980px; padding-bottom: 3rem; }
+.tracking-hero { text-align: center; margin: clamp(1.5rem,4vw,3rem) auto 1.2rem; }
+.tracking-kicker { display:inline-block; padding:.35rem .7rem; border:1px solid #dbe6ff; background:#f4f8ff; color:#2854c5; border-radius:999px; font-size:.8rem; font-weight:700; }
+.tracking-subtitle { max-width: 760px; margin: .75rem auto 0; color:#4b5563; }
+.tracking-panel { background:#fff; border:1px solid #e5e7eb; border-radius:20px; padding:clamp(1rem,2vw,1.75rem); box-shadow:0 12px 36px rgba(17,24,39,.08); }
+.tracking-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; align-items:end; }
+.tracking-field { display:flex; flex-direction:column; gap:.45rem; }
+.tracking-field label { font-weight:600; font-size:.92rem; color:#334155; }
+.tracking-field input { height:48px; border-radius:12px; border:1px solid #cbd5e1; padding:0 .85rem; font-size:1rem; background:#fff; }
+.tracking-field input:hover { border-color:#93c5fd; }
+.tracking-field input:focus { outline:none; border-color:#3b82f6; box-shadow:0 0 0 4px rgba(59,130,246,.18); }
+#trackSubmit { height:48px; border-radius:12px; background:linear-gradient(135deg,#2563eb,#1d4ed8); color:#fff; border:none; font-weight:700; }
+#trackSubmit.is-loading { opacity:.8; cursor:wait; }
+#trackSubmit:disabled { opacity:.7; }
+.tracking-help { margin:.8rem 0 0; color:#64748b; font-size:.9rem; }
+.order-alert { border-radius:12px; margin-top:1rem; }
+.order-alert.is-success { background:#ecfdf3; border-color:#86efac; color:#14532d; }
+.order-alert.is-warning { background:#fff7ed; border-color:#fdba74; color:#9a3412; }
+.order-alert.is-error { background:#fef2f2; border-color:#fca5a5; color:#991b1b; }
+.order-card { margin-top:1rem; padding:1.2rem; border-radius:20px; background:#fff; border:1px solid #e5e7eb; box-shadow:0 8px 30px rgba(15,23,42,.06); }
+.order-card__header { display:flex; justify-content:space-between; gap:.8rem; align-items:flex-start; flex-wrap:wrap; margin-bottom:.9rem; }
+.status-chip { display:inline-flex; padding:.3rem .7rem; border-radius:999px; background:#e0edff; color:#1d4ed8; font-weight:600; font-size:.83rem; }
+.status-chip--neutral { background:#f1f5f9; color:#475569; }
+.status-chip--link { text-decoration:none; }
+.order-card__grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
+.order-data { border:1px solid #e2e8f0; background:#f8fafc; border-radius:12px; padding:.75rem; }
+.order-data span { display:block; color:#64748b; font-size:.78rem; margin-bottom:.2rem; }
+.order-items { margin-top:1rem; }
+.order-items ul { margin:.5rem 0 0; padding-left:1.1rem; }
+.order-card__footer { display:flex; gap:.6rem; flex-wrap:wrap; margin-top:1rem; }
+.tracking-actions { margin:1.8rem 0 0; text-align:center; }
+.tracking-back { margin-top:1rem; display:inline-flex; }
+.summary-loading,.summary-empty{ margin:0; color:#475569; }
+
+@media (max-width: 760px){
+  .tracking-form { grid-template-columns:1fr; }
+  .order-card__grid { grid-template-columns:1fr; }
+  .tracking-page { padding-inline: .9rem; }
+}
