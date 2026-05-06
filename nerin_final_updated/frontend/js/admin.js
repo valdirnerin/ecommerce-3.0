@@ -4672,9 +4672,17 @@ const OrdersUI = (() => {
 
 
   function renderAdminBadge(status, type, fallbackLabel = "Sin estado") {
+    const safeLabel = fallbackLabel == null || fallbackLabel === "" ? "Sin estado" : String(fallbackLabel);
     const renderer = window?.NERIN_STATUS_BADGES?.renderStatusBadge;
-    if (typeof renderer === "function") return renderer(status, type);
-    return `<span class="order-badge">${escapeHtml(fallbackLabel)}</span>`;
+    if (typeof renderer === "function") {
+      try {
+        const html = renderer(status, type);
+        if (typeof html === "string" && html.trim()) return html;
+      } catch (error) {
+        console.warn("status-badge-render", error);
+      }
+    }
+    return `<span class="order-badge">${escapeHtml(safeLabel)}</span>`;
   }
 
   function mapOrderStatusForBadge(rawStatus) {
@@ -5866,6 +5874,24 @@ function formatWholesaleStatusBadge(status) {
   return renderAdminBadge(mapped, "wholesale", meta.label);
 }
 
+
+function normalizeWholesaleRequest(request = {}) {
+  if (!request || typeof request !== "object") return { id: "", status: "pending_review" };
+  const normalized = { ...request };
+  normalized.id = request.id || request.requestId || request._id || "";
+  normalized.status = String(request.status || request.state || "pending_review").trim() || "pending_review";
+  normalized.legalName = request.legalName || request.legal_name || "";
+  normalized.contactName = request.contactName || request.contact_name || "";
+  normalized.email = request.email || request.contactEmail || request.contact_email || "";
+  normalized.taxId = request.taxId || request.tax_id || request.cuit || "";
+  normalized.companyType = request.companyType || request.company_type || "";
+  normalized.salesChannel = request.salesChannel || request.sales_channel || "";
+  normalized.updatedAt = request.updatedAt || request.updated_at || request.createdAt || request.created_at || null;
+  normalized.submittedAt = request.submittedAt || request.submitted_at || null;
+  normalized.createdAt = request.createdAt || request.created_at || null;
+  return normalized;
+}
+
 function getFilteredWholesaleRequests() {
   const statusValue =
     wholesaleStatusFilter && wholesaleStatusFilter.value
@@ -5952,7 +5978,12 @@ async function loadWholesaleRequests(options = {}) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    const list = Array.isArray(data.requests) ? data.requests.slice() : [];
+    const rawList = Array.isArray(data.requests)
+      ? data.requests
+      : Array.isArray(data.wholesaleRequests)
+      ? data.wholesaleRequests
+      : [];
+    const list = rawList.map((item) => normalizeWholesaleRequest(item));
     list.sort((a, b) => {
       const tA = Date.parse(a.updatedAt || a.createdAt || 0) || 0;
       const tB = Date.parse(b.updatedAt || b.createdAt || 0) || 0;
