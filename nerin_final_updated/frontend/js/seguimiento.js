@@ -377,6 +377,28 @@ function formatCurrency(value) {
   if (!Number.isFinite(number)) return '';
   return `$${number.toLocaleString('es-AR')}`;
 }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+function humanizeLabel(value, fallback = 'A confirmar') {
+  const cleaned = normalizeStatusValue(value).replace(/[_-]+/g, ' ').trim();
+  if (!cleaned) return fallback;
+  const map = {
+    'mercado pago': 'Mercado Pago',
+    approved: 'Aprobado',
+    pending: 'Pendiente de pago',
+    pending_payment: 'Pendiente de pago',
+    rejected: 'Rechazado',
+    refunded: 'Reintegrado',
+    charged_back: 'Contracargo',
+    received: 'Pedido recibido',
+    preparing: 'Preparando el pedido',
+    shipped: 'Enviado',
+    delivered: 'Entregado',
+    canceled: 'Cancelado',
+  };
+  return map[cleaned] || cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
 
 function formatItems(order = {}) {
   const source = Array.isArray(order.productos) && order.productos.length
@@ -398,10 +420,10 @@ function formatItems(order = {}) {
 
 function renderOrder(order = {}) {
   const orderId = order.id || order.order_number || order.external_reference || '';
-  const paymentLabel = order.payment_status || order.estado_pago || 'Pendiente';
-  const shippingLabel = order.shipping_status || order.estado_envio || 'Pendiente';
+  const paymentLabel = humanizeLabel(order.payment_status || order.estado_pago, 'Pendiente de pago');
+  const shippingLabel = humanizeLabel(order.shipping_status || order.estado_envio, 'A confirmar');
   const rawDate = order.fecha || order.created_at || order.createdAt || order.date;
-  const formattedDate = rawDate ? new Date(rawDate).toLocaleDateString('es-AR') : '-';
+  const formattedDate = rawDate ? new Date(rawDate).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
   const itemsHtml = formatItems(order);
   const totalValue = order.total ?? order.total_amount ?? order.totals?.grand_total ?? null;
   const totalLabel = formatCurrency(totalValue) || '$0';
@@ -409,10 +431,9 @@ function renderOrder(order = {}) {
   const shippingCostLabel = formatCurrency(shippingCost);
   const trackingCode = order.seguimiento || order.tracking || '';
   const carrier = order.transportista || order.carrier || '';
-  const paymentMethod = order.metodo_pago || order.payment_method || '';
+  const paymentMethod = humanizeLabel(order.metodo_pago || order.payment_method, 'A confirmar');
   const destination = order.destino || order.address || order.shipping_address?.street || '';
   const province = order.provincia_envio || order.shipping_address?.province || '';
-  const customerEmail = order.cliente?.email || order.customer?.email || order.user_email || '';
   const orderInvoices = Array.isArray(order.invoices) ? order.invoices : [];
   const activeInvoice = orderInvoices.find((inv) => inv && !inv.deleted_at && inv.url);
   const invoiceToShow =
@@ -422,21 +443,23 @@ function renderOrder(order = {}) {
   }
 
   summaryEl.innerHTML = `
-    <div class="order-card__header">
-      <h2>Pedido #${orderId || '-'}</h2>
-      <span class="status-chip status-chip--neutral">Última actualización: ${formattedDate}</span>
+    <div class="order-card__header order-card__header--strong">
+      <div><p class="order-eyebrow">Resultado de seguimiento</p><h2>Pedido #${escapeHtml(orderId || '-')}</h2></div>
+      <span class="status-chip status-chip--neutral"><span class="icon">${iconClock()}</span>Última actualización: ${escapeHtml(formattedDate)}</span>
+    </div>
+    <div class="order-card__grid order-card__grid--primary">
+      <div class="order-data"><span class="icon">${iconBadge()}</span><span>Estado del pedido</span><strong>${escapeHtml(shippingLabel)}</strong></div>
+      <div class="order-data"><span class="icon">${iconWallet()}</span><span>Estado del pago</span><strong>${escapeHtml(paymentLabel)}</strong></div>
+      <div class="order-data"><span class="icon">${iconTruck()}</span><span>Estado del envío</span><strong>${escapeHtml(shippingLabel)}</strong></div>
+      <div class="order-data"><span class="icon">${iconHash()}</span><span>Tracking</span><strong>${escapeHtml(trackingCode || 'A confirmar')}</strong></div>
+      <div class="order-data"><span class="icon">${iconPackage()}</span><span>Empresa de envío</span><strong>${escapeHtml(carrier || 'A confirmar')}</strong></div>
+      <div class="order-data"><span class="icon">${iconMapPin()}</span><span>Destino</span><strong>${escapeHtml(destination || 'Coordinación por WhatsApp')}${province ? ` (${escapeHtml(province)})` : ''}</strong></div>
     </div>
     <div class="order-card__grid">
-      <div class="order-data"><span>Estado general</span><strong>${shippingLabel}</strong></div>
-      <div class="order-data"><span>Estado del pago</span><strong>${paymentLabel}</strong></div>
-      <div class="order-data"><span>Método de pago</span><strong>${paymentMethod || 'No informado'}</strong></div>
-      <div class="order-data"><span>Total</span><strong>${totalLabel}</strong></div>
-      <div class="order-data"><span>Empresa de envío</span><strong>${carrier || 'A confirmar'}</strong></div>
-      <div class="order-data"><span>Tracking</span><strong>${trackingCode || 'Pendiente'}</strong></div>
-      <div class="order-data"><span>Destino</span><strong>${destination || 'Coordinación por WhatsApp'}${province ? ` (${province})` : ''}</strong></div>
-      <div class="order-data"><span>Contacto</span><strong>${customerEmail || 'No informado'}</strong></div>
+      <div class="order-data order-data--muted"><span>Método de pago</span><strong>${escapeHtml(paymentMethod)}</strong></div>
+      <div class="order-data order-data--muted"><span>Total</span><strong>${escapeHtml(totalLabel)}</strong></div>
     </div>
-    ${itemsHtml ? `<div class="order-items"><h3>Productos</h3><ul>${itemsHtml}</ul></div>` : ''}
+    ${itemsHtml ? `<div class="order-items"><h3>Productos del pedido</h3><ul>${itemsHtml}</ul></div>` : ''}
     <div class="order-card__footer">
       ${shippingCostLabel ? `<span class="status-chip">Envío: ${shippingCostLabel}</span>` : ''}
       ${invoiceToShow && invoiceToShow.url
@@ -447,6 +470,14 @@ function renderOrder(order = {}) {
   summaryEl.style.display = 'block';
   renderOrderProgress(order);
 }
+function iconBase(path) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`; }
+const iconClock = () => iconBase('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>');
+const iconBadge = () => iconBase('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="m9 14 2 2 4-4"/>');
+const iconWallet = () => iconBase('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M16 12h.01"/><path d="M6 9h6"/>');
+const iconTruck = () => iconBase('<path d="M10 17H3V7h11v10h-1"/><path d="M14 10h4l3 3v4h-2"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="17.5" cy="17.5" r="1.5"/>');
+const iconHash = () => iconBase('<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>');
+const iconPackage = () => iconBase('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="M12 12 4 7.5M12 12l8-4.5"/>');
+const iconMapPin = () => iconBase('<path d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11Z"/><circle cx="12" cy="10" r="2.3"/>');
 
 function resetView() {
   summaryEl.style.display = 'none';
@@ -528,7 +559,7 @@ async function fetchOrder(email, id) {
     lastEtag = null;
     await pollOrder();
     startPolling();
-    showAlert('Consulta realizada con éxito.', 'success');
+    showAlert('Pedido encontrado. Este es el estado más reciente de tu compra.', 'success');
     setLoading(false);
   } catch (e) {
     console.error(e);

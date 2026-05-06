@@ -9799,3 +9799,20 @@ html, body{ max-width:100%; overflow-x:hidden; }
   .order-card__grid { grid-template-columns:1fr; }
   .tracking-page { padding-inline: .9rem; }
 }
+
+/* ==== Seguimiento de pedidos (ui polish override) ==== */
+.order-card{margin-top:1rem;padding:1.2rem;border-radius:20px;background:#fff;border:1px solid #e5e7eb;box-shadow:0 8px 30px rgba(15,23,42,.06)}
+.order-eyebrow{margin:0 0 .25rem;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:#64748b;font-weight:700}
+.order-card__header--strong h2{margin:0;font-size:clamp(1.2rem,2.3vw,1.6rem)}
+.order-card__grid--primary{margin-bottom:.75rem}
+.order-data{display:grid;grid-template-columns:auto 1fr;grid-template-areas:"icon label" "icon value";column-gap:.55rem}
+.order-data .icon{grid-area:icon;color:#2563eb;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px}
+.order-data .icon svg{width:18px;height:18px}
+.order-data span:not(.icon){grid-area:label}
+.order-data strong{grid-area:value}
+.order-data--muted{background:#fff}
+.order-progress-container{padding:1rem;border:1px solid #e2e8f0;border-radius:16px;background:#fff}
+.order-alert{display:none}
+.contact-section{background:#fff;border:1px solid #dbeafe;border-radius:16px;padding:1rem 1.2rem;display:flex;flex-wrap:wrap;justify-content:space-between;gap:.9rem;align-items:center}
+.contact-section p{margin:0;color:#334155;text-align:left}
+@media (max-width:760px){.contact-section{padding:.9rem}.contact-section p{font-size:.94rem}}
