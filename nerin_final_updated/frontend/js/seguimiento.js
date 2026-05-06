@@ -90,15 +90,20 @@ function buildOrderStepper() {
     item.className = 'step';
     item.dataset.step = String(index + 1);
 
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.setAttribute('aria-hidden', 'true');
+    const marker = document.createElement('span');
+    marker.className = 'step-marker';
+    marker.setAttribute('aria-hidden', 'true');
+    marker.textContent = String(index + 1);
 
     const label = document.createElement('span');
     label.className = 'lbl';
     label.textContent = typeof step === 'string' ? step : step?.label ?? '';
 
-    item.append(dot, label);
+    const state = document.createElement('span');
+    state.className = 'step-state';
+    state.textContent = 'Pendiente';
+
+    item.append(marker, label, state);
     list.appendChild(item);
   });
 
@@ -196,8 +201,18 @@ function renderOrderSteps(rootOrStatuses = progressContainer, maybeStatuses) {
     const stepNumber = index + 1;
     const isDone = stepNumber < activeStep;
     const isCurrent = stepNumber === activeStep;
+    const marker = item.querySelector('.step-marker');
+    const state = item.querySelector('.step-state');
     item.classList.toggle('is-done', isDone);
     item.classList.toggle('is-current', isCurrent);
+    item.classList.toggle('is-pending', !isDone && !isCurrent);
+
+    if (marker) {
+      marker.textContent = isDone ? '✓' : String(stepNumber);
+    }
+    if (state) {
+      state.textContent = isCurrent ? 'Actual' : isDone ? 'Completado' : 'Pendiente';
+    }
     if (isCurrent) {
       item.setAttribute('aria-current', 'step');
     } else {
