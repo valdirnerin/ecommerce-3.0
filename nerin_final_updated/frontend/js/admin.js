@@ -5973,12 +5973,19 @@ async function loadWholesaleRequests(options = {}) {
   wholesaleState.loading = true;
   renderWholesaleTable({ loading: true });
   try {
-    const res = await apiFetch("/api/wholesale/requests");
+    const res = await apiFetch("/api/wholesale/requests", { cache: "no-store" });
+    if (res.status === 401 || res.status === 403) {
+      throw new Error(`AUTH ${res.status}`);
+    }
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    const data = await res.json();
-    const rawList = Array.isArray(data.requests)
+    const data = await res.json().catch(() => {
+      throw new Error("INVALID_JSON");
+    });
+    const rawList = Array.isArray(data)
+      ? data
+      : Array.isArray(data.requests)
       ? data.requests
       : Array.isArray(data.wholesaleRequests)
       ? data.wholesaleRequests
@@ -5990,6 +5997,14 @@ async function loadWholesaleRequests(options = {}) {
       return tB - tA;
     });
     wholesaleState.requests = list;
+    if (!list.length) {
+      wholesaleTableBody.innerHTML =
+        '<tr><td colspan="5">No hay solicitudes mayoristas por ahora.</td></tr>';
+      if (!wholesaleState.selectedId) {
+        renderWholesaleDetail(null);
+      }
+      return;
+    }
     renderWholesaleTable();
     if (wholesaleState.selectedId) {
       const match = list.find((item) => item.id === wholesaleState.selectedId);
@@ -6001,7 +6016,7 @@ async function loadWholesaleRequests(options = {}) {
   } catch (err) {
     console.error("wholesale-load", err);
     wholesaleTableBody.innerHTML =
-      '<tr><td colspan="5">No se pudieron cargar las solicitudes.</td></tr>';
+      '<tr><td colspan="5">No se pudieron cargar las solicitudes mayoristas.</td></tr>';
     if (window.showToast) {
       showToast("No se pudieron cargar las solicitudes mayoristas");
     }
