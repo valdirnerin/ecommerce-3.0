@@ -1,0 +1,65 @@
+:root {
+  --np-status-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+  --np-status-ring: rgba(15, 23, 42, 0.08);
+}
+
+.np-status-badge {
+  --bg: #f5f7fa;
+  --fg: #1f2937;
+  --bd: #d8dee8;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.34rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--bd);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--np-status-font);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  vertical-align: middle;
+  box-shadow: inset 0 0 0 1px var(--np-status-ring);
+}
+
+.np-status-badge__icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.np-status-badge__icon svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.np-status-badge__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np-status-badge[data-tone="neutral"] { --bg: #f3f4f6; --fg: #374151; --bd: #e5e7eb; }
+.np-status-badge[data-tone="info"] { --bg: #eff6ff; --fg: #1d4ed8; --bd: #bfdbfe; }
+.np-status-badge[data-tone="success"] { --bg: #ecfdf5; --fg: #047857; --bd: #a7f3d0; }
+.np-status-badge[data-tone="warning"] { --bg: #fffbeb; --fg: #b45309; --bd: #fde68a; }
+.np-status-badge[data-tone="danger"] { --bg: #fef2f2; --fg: #b91c1c; --bd: #fecaca; }
+.np-status-badge[data-tone="purple"] { --bg: #f5f3ff; --fg: #6d28d9; --bd: #ddd6fe; }
+
+@media (max-width: 640px) {
+  .np-status-badge {
+    font-size: 0.74rem;
+    padding: 0.32rem 0.5rem;
+    gap: 0.36rem;
+  }
+}

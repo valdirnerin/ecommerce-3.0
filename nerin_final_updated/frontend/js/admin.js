@@ -4670,6 +4670,44 @@ const OrdersUI = (() => {
     return SHIPPING_STATUS_LABELS[code] || (status ? String(status) : "");
   }
 
+
+  function renderAdminBadge(status, type, fallbackLabel = "Sin estado") {
+    const renderer = window?.NERIN_STATUS_BADGES?.renderStatusBadge;
+    if (typeof renderer === "function") return renderer(status, type);
+    return `<span class="order-badge">${escapeHtml(fallbackLabel)}</span>`;
+  }
+
+  function mapOrderStatusForBadge(rawStatus) {
+    const code = String(rawStatus || "").trim().toLowerCase();
+    if (["pending_payment", "pending", "pendiente"].includes(code)) return "pending_payment";
+    if (["payment_approved", "approved", "paid", "pagado", "aprobado"].includes(code)) return "payment_approved";
+    if (["preparing", "preparando"].includes(code)) return "preparing";
+    if (["ready_to_ship", "listo_para_enviar"].includes(code)) return "ready_to_ship";
+    if (["shipped", "enviado", "despachado"].includes(code)) return "shipped";
+    if (["delivered", "entregado"].includes(code)) return "delivered";
+    if (["cancelled", "canceled", "cancelado"].includes(code)) return "cancelled";
+    if (["refunded", "reintegrado"].includes(code)) return "refunded";
+    return "pending_payment";
+  }
+
+  function mapShippingForBadge(rawStatus) {
+    const code = String(rawStatus || "").trim().toLowerCase();
+    if (["delivered", "entregado"].includes(code)) return "delivered";
+    if (["shipped", "in_transit", "en_transito", "enviado", "despachado"].includes(code)) return "in_transit";
+    if (["created"].includes(code)) return "created";
+    if (["label_generated", "etiqueta_generada"].includes(code)) return "label_generated";
+    if (["failed", "fallido", "error"].includes(code)) return "failed";
+    if (["returned", "devuelto"].includes(code)) return "returned";
+    return "not_created";
+  }
+
+  function mapInvoiceForBadge(order = {}) {
+    const raw = order.invoice_status || order.factura_estado || order.invoiceStatus;
+    const code = String(raw || "").trim().toLowerCase();
+    if (["available", "generated", "generada", "emitida", "disponible"].includes(code)) return "available";
+    return "pending";
+  }
+
   function formatInputDate(date) {
     const d = date instanceof Date ? date : new Date(date);
     const year = d.getFullYear();
@@ -4936,7 +4974,7 @@ const OrdersUI = (() => {
     const total = cache.items.length;
     if (total === 0) {
       elements.tableBody.innerHTML =
-        '<tr><td colspan="9">No hay pedidos para la fecha elegida.</td></tr>';
+        '<tr><td colspan="12">No hay pedidos para la fecha elegida.</td></tr>';
       return;
     }
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
@@ -4987,14 +5025,18 @@ const OrdersUI = (() => {
       methodTd.textContent = formatPaymentMethod(
         order.payment_method || order.metodo_pago,
       );
+      const orderStatusTd = document.createElement("td");
+      const orderStatusSource = order.order_status || order.status || order.estado || "";
+      orderStatusTd.innerHTML = renderAdminBadge(mapOrderStatusForBadge(orderStatusSource), "order", orderStatusSource || "Pendiente");
       const paymentTd = document.createElement("td");
-      const paymentLabel = localizePaymentStatus(
-        order.payment_status ||
-          order.payment_status_code ||
-          order.status ||
-          "",
-      );
-      paymentTd.textContent = paymentLabel ? paymentLabel : "—";
+      const paymentSource = order.payment_status || order.payment_status_code || order.estado_pago || order.status || "";
+      paymentTd.innerHTML = renderAdminBadge(mapPaymentStatusCodeForUi(paymentSource), "payment", localizePaymentStatus(paymentSource) || "Pago pendiente");
+      const shippingTd = document.createElement("td");
+      const shippingSource = order.shipping_status || order.estado_envio || order.shippingStatus || order.envio_estado || "";
+      shippingTd.innerHTML = renderAdminBadge(mapShippingForBadge(shippingSource), "shipment", localizeShippingStatus(shippingSource) || "Sin envío");
+      const invoiceTd = document.createElement("td");
+      const invoiceBadge = mapInvoiceForBadge(order);
+      invoiceTd.innerHTML = renderAdminBadge(invoiceBadge, "invoice", invoiceBadge === "available" ? "Factura disponible" : "Factura pendiente");
       const actionsTd = document.createElement("td");
       actionsTd.className = "order-actions";
 
@@ -5031,7 +5073,10 @@ const OrdersUI = (() => {
       tr.appendChild(itemsTd);
       tr.appendChild(totalTd);
       tr.appendChild(methodTd);
+      tr.appendChild(orderStatusTd);
       tr.appendChild(paymentTd);
+      tr.appendChild(shippingTd);
+      tr.appendChild(invoiceTd);
       tr.appendChild(actionsTd);
       elements.tableBody.appendChild(tr);
     });
@@ -5281,7 +5326,7 @@ const OrdersUI = (() => {
         </dl>
         <dl>
           <dt>Pago</dt>
-          <dd>${displayValue(paymentLabel)}</dd>
+          <dd>${renderAdminBadge(mapPaymentStatusCodeForUi(paymentSource), 'payment', paymentLabel || 'Pago pendiente')}</dd>
         </dl>
         <dl>
           <dt>Método de pago</dt>
@@ -5293,7 +5338,7 @@ const OrdersUI = (() => {
         </dl>
         <dl>
           <dt>Envío</dt>
-          <dd>${displayValue(shippingLabel)}</dd>
+          <dd>${renderAdminBadge(mapShippingForBadge(shippingSource), 'shipment', shippingLabel || 'Sin envío')}</dd>
         </dl>
         <dl>
           <dt>Tracking</dt>
@@ -5319,6 +5364,7 @@ const OrdersUI = (() => {
     ${editSection}
     <div class="order-invoices">
       <h5>Facturas</h5>
+      <div class="order-invoice-status">${renderAdminBadge(mapInvoiceForBadge(detail), "invoice", mapInvoiceForBadge(detail) === "available" ? "Factura disponible" : "Factura pendiente")}</div>
       ${invoiceItemsHtml}
       ${invoiceUploadHtml}
     </div>
@@ -5588,7 +5634,7 @@ const OrdersUI = (() => {
     }
     if (elements.tableBody) {
       elements.tableBody.innerHTML =
-        '<tr><td colspan="9">Cargando pedidos…</td></tr>';
+        '<tr><td colspan="12">Cargando pedidos…</td></tr>';
     }
     let res;
     let responseBodyText = "";
@@ -5691,7 +5737,7 @@ const OrdersUI = (() => {
       cache = { items: [], summary: null };
       if (elements.tableBody) {
         elements.tableBody.innerHTML =
-          '<tr><td colspan="9">No se pudieron cargar los pedidos.</td></tr>';
+          '<tr><td colspan="12">No se pudieron cargar los pedidos.</td></tr>';
       }
       if (elements.pagination) elements.pagination.innerHTML = "";
       renderBanner();
@@ -5811,9 +5857,13 @@ function getWholesaleStatusMeta(status) {
 
 function formatWholesaleStatusBadge(status) {
   const meta = getWholesaleStatusMeta(status);
-  return `<span class="wh-status-badge wh-status-badge--${meta.tone}">${escapeHtml(
-    meta.label,
-  )}</span>`;
+  const key = String(status || "").trim().toLowerCase();
+  const mapped = ["approved", "aprobado"].includes(key)
+    ? "approved"
+    : ["rejected", "rechazado"].includes(key)
+    ? "rejected"
+    : "pending";
+  return renderAdminBadge(mapped, "wholesale", meta.label);
 }
 
 function getFilteredWholesaleRequests() {
@@ -6684,7 +6734,7 @@ async function loadReturns() {
         <td>${ret.customerEmail || ""}</td>
         <td>${new Date(ret.date).toLocaleString("es-AR")}</td>
         <td>${ret.reason}</td>
-        <td>${ret.status}</td>
+        <td>${renderAdminBadge((ret.status || "pending").toLowerCase() === "aprobado" ? "approved" : (ret.status || "pending").toLowerCase() === "rechazado" ? "rejected" : "pending", "wholesale", ret.status || "pendiente")}</td>
         <td></td>
       `;
       // Acción de aprobar/rechazar

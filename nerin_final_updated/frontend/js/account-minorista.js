@@ -212,6 +212,44 @@ function addItemsToCart(items) {
   }
 }
 
+
+function getBadgeRenderer() {
+  return window?.NERIN_STATUS_BADGES?.renderStatusBadge || null;
+}
+
+function mapPaymentStatusForBadge(rawStatus) {
+  const code = toStatusCode(rawStatus);
+  if (["approved", "paid", "accredited", "payment_approved", "pagado", "aprobado"].includes(code)) return "approved";
+  if (["rejected", "declined", "failed", "rechazado"].includes(code)) return "rejected";
+  if (["cancelled", "canceled", "cancelado"].includes(code)) return "cancelled";
+  return "pending";
+}
+
+function mapShipmentStatusForBadge(rawStatus) {
+  const code = toStatusCode(rawStatus);
+  if (["delivered", "entregado"].includes(code)) return "delivered";
+  if (["shipped", "in_transit", "en_transito", "enviado", "despachado"].includes(code)) return code === "shipped" ? "in_transit" : "in_transit";
+  if (["created", "label_generated", "etiqueta_generada"].includes(code)) return code;
+  if (["returned", "devuelto"].includes(code)) return "returned";
+  if (["failed", "fallido", "error"].includes(code)) return "failed";
+  if (["ready_to_ship", "listo_para_enviar"].includes(code)) return "created";
+  return "not_created";
+}
+
+function mapInvoiceStatusForBadge(order) {
+  const raw = order?.invoice_status || order?.factura_estado || order?.invoiceStatus;
+  const code = toStatusCode(raw);
+  if (["available", "available_invoice", "generada", "emitida", "disponible"].includes(code)) return "available";
+  return "pending";
+}
+
+function renderBadgeOrFallback(status, type, fallbackLabel) {
+  const renderer = getBadgeRenderer();
+  if (renderer) return renderer(status, type);
+  const label = fallbackLabel || formatStatusLabel(status || "pendiente");
+  return `<span class="status-badge status-${toStatusCode(status || 'pending')}">${label}</span>`;
+}
+
 function determineMinorLoyalty(orderCount, totalSpent) {
   let level = "Nuevo";
   let progress = Math.min(100, (orderCount / 2) * 100);
@@ -244,7 +282,7 @@ async function renderOrders(orders, email) {
   if (!Array.isArray(orders) || !orders.length) {
     const tr = document.createElement("tr");
     tr.innerHTML =
-      '<td colspan="5">Todavía no registramos pedidos. ¡Empezá tu primera compra en la tienda!</td>';
+      '<td colspan="7">Todavía no registramos pedidos. ¡Empezá tu primera compra en la tienda!</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -271,7 +309,9 @@ async function renderOrders(orders, email) {
       tr.innerHTML = `
         <td>${numero || "—"}</td>
         <td>${fecha ? formatDateTime(fecha) : "—"}</td>
-        <td><span class="status-badge status-${statusCode}">${statusLabel}</span></td>
+        <td>${renderBadgeOrFallback(mapShipmentStatusForBadge(statusRaw), "shipment", statusLabel)}</td>
+        <td>${renderBadgeOrFallback(mapPaymentStatusForBadge(getPaymentStatus(raw)), "payment", formatStatusLabel(getPaymentStatus(raw) || "pending"))}</td>
+        <td>${renderBadgeOrFallback(mapInvoiceStatusForBadge(raw), "invoice", mapInvoiceStatusForBadge(raw) === "available" ? "Factura disponible" : "Factura pendiente")}</td>
         <td>${formatCurrency(totalVal)}</td>
         <td class="order-actions">
           <button type="button" class="button outline small" data-action="track">Ver seguimiento</button>
@@ -352,7 +392,7 @@ async function renderOrders(orders, email) {
               if (!tbody.querySelector("tr")) {
                 const emptyRow = document.createElement("tr");
                 emptyRow.innerHTML =
-                  '<td colspan="5">Todavía no registramos pedidos. ¡Empezá tu primera compra en la tienda!</td>';
+                  '<td colspan="7">Todavía no registramos pedidos. ¡Empezá tu primera compra en la tienda!</td>';
                 tbody.appendChild(emptyRow);
               }
               document.dispatchEvent(
