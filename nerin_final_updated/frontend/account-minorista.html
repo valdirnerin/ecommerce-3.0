@@ -42,6 +42,7 @@
     />
     <link rel="stylesheet" href="/style.css?v=cartfix-2" />
     <link rel="stylesheet" href="/components/np-footer.css?v=np-r2" />
+    <link rel="stylesheet" href="/css/status-badges.css" />
     <script src="/components/np-footer.js?v=np-r2" defer></script>
   </head>
   <body>
@@ -187,14 +188,16 @@
               <tr>
                 <th>Pedido</th>
                 <th>Fecha</th>
-                <th>Estado</th>
+                <th>Estado envío</th>
+                <th>Estado pago</th>
+                <th>Factura</th>
                 <th>Total</th>
                 <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td colspan="5">Cargando pedidos...</td>
+                <td colspan="7">Cargando pedidos...</td>
               </tr>
             </tbody>
           </table>
@@ -254,6 +257,7 @@
     </main>
     <script type="module" src="/js/account-minorista.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="/js/status-badges.js"></script>
     <script type="module" src="/js/config.js?v=nav-admin-fix-20260504"></script>
   </body>
 </html>

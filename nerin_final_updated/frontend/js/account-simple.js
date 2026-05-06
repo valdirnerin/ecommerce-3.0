@@ -64,6 +64,27 @@ function isDelivered(order) {
   return String(getOrderStatus(order)).toLowerCase() === "entregado";
 }
 
+
+function normalizeStatusCode(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+function mapShipmentStatus(rawStatus) {
+  const code = normalizeStatusCode(rawStatus);
+  if (["delivered", "entregado"].includes(code)) return "delivered";
+  if (["shipped", "in_transit", "en_transito", "enviado", "despachado"].includes(code)) return "in_transit";
+  if (["preparing", "preparando"].includes(code)) return "created";
+  if (["failed", "fallido", "error"].includes(code)) return "failed";
+  if (["returned", "devuelto"].includes(code)) return "returned";
+  return "not_created";
+}
+
+function renderShipmentBadge(status) {
+  const renderer = window?.NERIN_STATUS_BADGES?.renderStatusBadge;
+  if (typeof renderer === "function") return renderer(mapShipmentStatus(status), "shipment");
+  return `<span class="status-pill">${String(status || "pendiente")}</span>`;
+}
+
 function normalizeOrders(payload) {
   if (Array.isArray(payload?.orders)) return payload.orders;
   if (Array.isArray(payload?.items)) return payload.items;
@@ -85,7 +106,7 @@ function renderOrders(orders) {
     tr.innerHTML = `
       <td>${getOrderId(order) || "—"}</td>
       <td>${formatDate(getOrderDate(order))}</td>
-      <td><span class="status-pill">${getOrderStatus(order)}</span></td>
+      <td>${renderShipmentBadge(getOrderStatus(order))}</td>
       <td>${getCarrier(order)}</td>
       <td>${formatMoney(order?.total_amount || order?.total || order?.amount)}</td>
     `;
@@ -143,7 +164,7 @@ async function loadReturns(email) {
           <td>${item.orderId || "—"}</td>
           <td>${formatDate(item.date)}</td>
           <td>${item.reason || "—"}</td>
-          <td><span class="status-pill">${item.status || "pendiente"}</span></td>
+          <td>${renderShipmentBadge(item.status || "pendiente")}</td>
         `;
         tbody.appendChild(tr);
       });
