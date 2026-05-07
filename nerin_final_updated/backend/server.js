@@ -40,6 +40,16 @@ const {
   sendReviewRequest,
 } = require("./services/emailNotifications");
 const {
+  sendWholesaleRequestReceivedEmail: sendWholesaleRequestReceivedEmailOnce,
+  sendWholesaleApprovedEmail: sendWholesaleApprovedEmailOnce,
+  sendWholesaleRejectedEmail: sendWholesaleRejectedEmailOnce,
+  sendOrderReceivedEmail: sendOrderReceivedEmailOnce,
+  sendOrderPreparingEmail: sendOrderPreparingEmailOnce,
+  sendOrderShippedEmail: sendOrderShippedEmailOnce,
+  sendInvoiceAvailableEmail: sendInvoiceAvailableEmailOnce,
+  sendAdminSaleNotificationEmail: sendAdminSaleNotificationEmailOnce,
+} = require("./services/emailService");
+const {
   STATUS_ES_TO_CODE,
   mapPaymentStatusCode,
   localizePaymentStatus,
@@ -7910,11 +7920,19 @@ async function requestHandler(req, res) {
           `[wholesale] Solicitud mayorista recibida de ${email} (${requests[idx].legalName || "sin razón social"})`,
         );
 
+        let requestEmailResult = null;
         try {
-          await sendWholesaleApplicationReceived({
-            to: email,
-            contactName: requests[idx].contactName,
-          });
+          requestEmailResult = await sendWholesaleRequestReceivedEmailOnce(
+            requests[idx],
+            {
+              logicalKey: `wholesale_request_received:${requests[idx].id || email}`,
+              emailType: "wholesale_request_received",
+              wholesaleRequestId: requests[idx].id || null,
+              metadata: {
+                requestStatus: requests[idx].status || "pending_review",
+              },
+            },
+          );
         } catch (error) {
           console.warn("wholesale apply confirmation email", error?.message || error);
         }
@@ -7928,9 +7946,15 @@ async function requestHandler(req, res) {
           console.warn("wholesale apply admin email", error?.message || error);
         }
 
+        const emailWarning =
+          requestEmailResult && requestEmailResult.ok === false
+            ? "La solicitud se registró, pero no se pudo enviar el email de confirmación."
+            : null;
         return sendJson(res, 201, {
           success: true,
           message: "Solicitud mayorista recibida",
+          emailStatus: requestEmailResult?.status || null,
+          emailWarning,
         });
       } catch (error) {
         console.error("wholesale apply", error);
@@ -8176,25 +8200,50 @@ async function requestHandler(req, res) {
 
         const shouldNotify = Boolean(payload.notifyApplicant);
         const notifyStatus = desiredStatus || current.status;
+        let applicantEmailResult = null;
         if (shouldNotify && current.email) {
           const subject =
             normalizeTextInput(payload.emailSubject) ||
             defaultWholesaleEmailSubject(notifyStatus);
           const message = normalizeTextInput(payload.emailMessage);
           try {
-            const html = defaultWholesaleEmailBody(
-              notifyStatus,
-              current,
-              message,
-              tempCredentials,
-            );
-            await sendEmail({
-              to: current.email,
-              subject,
-              html,
-              type: "no-reply",
-            });
-            emailSent = true;
+            if (notifyStatus === "approved") {
+              applicantEmailResult = await sendWholesaleApprovedEmailOnce(current, {
+                logicalKey: `wholesale_approved:${current.id || current.email}`,
+                emailType: "wholesale_approved",
+                wholesaleRequestId: current.id || null,
+                metadata: {
+                  requestStatus: notifyStatus,
+                  customMessage: message || null,
+                  tempPasswordIssued: Boolean(tempCredentials?.tempPassword),
+                },
+              });
+            } else if (notifyStatus === "rejected") {
+              applicantEmailResult = await sendWholesaleRejectedEmailOnce(current, {
+                logicalKey: `wholesale_rejected:${current.id || current.email}`,
+                emailType: "wholesale_rejected",
+                wholesaleRequestId: current.id || null,
+                metadata: {
+                  requestStatus: notifyStatus,
+                  customMessage: message || null,
+                },
+              });
+            } else {
+              const html = defaultWholesaleEmailBody(
+                notifyStatus,
+                current,
+                message,
+                tempCredentials,
+              );
+              await sendEmail({
+                to: current.email,
+                subject,
+                html,
+                type: "no-reply",
+              });
+              applicantEmailResult = { ok: true, skipped: false, status: "sent" };
+            }
+            emailSent = applicantEmailResult?.ok === true;
             const emailEntry = {
               action: "notification_sent",
               at: nowIso,
@@ -8225,6 +8274,11 @@ async function requestHandler(req, res) {
           success: true,
           request: sanitizeWholesaleRequestForResponse(record),
           emailSent,
+          emailStatus: applicantEmailResult?.status || null,
+          emailWarning:
+            shouldNotify && applicantEmailResult && applicantEmailResult.ok === false
+              ? "La operación se realizó, pero no se pudo enviar el email."
+              : null,
           credentials: tempCredentials,
         });
       } catch (error) {
@@ -9415,6 +9469,58 @@ async function requestHandler(req, res) {
           orderItems.push(line);
         });
         saveOrderItems(orderItems);
+        let orderReceivedEmailStatus = null;
+        let orderReceivedEmailWarning = null;
+        let adminSaleEmailStatus = null;
+        let adminSaleEmailWarning = null;
+        try {
+          const receivedEmail = await sendOrderReceivedEmailOnce(
+            baseOrder,
+            {
+              email: baseOrder.user_email || baseOrder.cliente?.email || "",
+              name:
+                baseOrder.cliente?.nombre ||
+                baseOrder.cliente?.name ||
+                baseOrder.cliente?.contactName ||
+                "",
+            },
+            {
+              logicalKey: `order_received:${baseOrder.id || orderId}`,
+              emailType: "order_received",
+              orderId: baseOrder.id || orderId,
+              metadata: { source: "api_orders_post" },
+            },
+          );
+          orderReceivedEmailStatus = receivedEmail?.status || null;
+          if (receivedEmail && receivedEmail.ok === false) {
+            orderReceivedEmailWarning =
+              "El pedido se creó correctamente, pero no se pudo enviar el email de confirmación.";
+          }
+        } catch (orderEmailErr) {
+          console.warn("order received email failed", orderEmailErr?.message || orderEmailErr);
+          orderReceivedEmailWarning =
+            "El pedido se creó correctamente, pero no se pudo enviar el email de confirmación.";
+        }
+        try {
+          const adminSaleResult = await sendAdminSaleNotificationEmailOnce(baseOrder, {
+            logicalKey: `admin_order_received_notification:${baseOrder.id || orderId}`,
+            emailType: "admin_order_received_notification",
+            orderId: baseOrder.id || orderId,
+            metadata: { source: "api_orders_post" },
+          });
+          adminSaleEmailStatus = adminSaleResult?.status || null;
+          if (adminSaleResult?.reason === "missing-admin-sales-email") {
+            adminSaleEmailWarning =
+              "No se envió la notificación interna de venta porque ADMIN_SALES_EMAIL/ADMIN_SALES_EMAILS no está configurado.";
+          } else if (adminSaleResult && adminSaleResult.ok === false) {
+            adminSaleEmailWarning =
+              "El pedido se creó correctamente, pero no se pudo enviar la notificación interna de venta.";
+          }
+        } catch (adminSaleErr) {
+          console.warn("admin sale notification failed", adminSaleErr?.message || adminSaleErr);
+          adminSaleEmailWarning =
+            "El pedido se creó correctamente, pero no se pudo enviar la notificación interna de venta.";
+        }
 
         if (paymentMethod === "transferencia") {
           try {
@@ -9466,7 +9572,14 @@ async function requestHandler(req, res) {
             console.error("Error MP preference", e);
           }
         }
-        return sendJson(res, 201, { orderId, init_point: initPoint });
+        return sendJson(res, 201, {
+          orderId,
+          init_point: initPoint,
+          emailStatus: orderReceivedEmailStatus,
+          emailWarning: orderReceivedEmailWarning,
+          adminSaleEmailStatus,
+          adminSaleEmailWarning,
+        });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
@@ -10012,6 +10125,8 @@ async function requestHandler(req, res) {
         }
         orders[index] = next;
         saveOrders(orders);
+        const emailWarnings = [];
+        const emailStatuses = {};
         if (
           incomingStatus != null &&
           nextPaymentCode === "cancelled" &&
@@ -10043,12 +10158,26 @@ async function requestHandler(req, res) {
           const payload = prepareOrderEmailPayload(orders[index]);
           if (payload) {
             try {
-              await sendOrderPreparing({
-                to: payload.recipient,
-                order: payload.order,
-              });
+              const preparingResult = await sendOrderPreparingEmailOnce(
+                payload.order,
+                { email: payload.recipient },
+                {
+                  logicalKey: `order_preparing:${payload.order?.id || payload.order?.order_number || next.id}`,
+                  emailType: "order_preparing",
+                  orderId: payload.order?.id || payload.order?.order_number || next.id,
+                },
+              );
+              emailStatuses.orderPreparing = preparingResult?.status || null;
+              if (preparingResult && preparingResult.ok === false) {
+                emailWarnings.push(
+                  "La operación se realizó correctamente, pero no se pudo enviar el email de pedido en preparación.",
+                );
+              }
             } catch (emailErr) {
               console.error("order preparing email failed", emailErr);
+              emailWarnings.push(
+                "La operación se realizó correctamente, pero no se pudo enviar el email de pedido en preparación.",
+              );
             }
           }
         }
@@ -10060,16 +10189,34 @@ async function requestHandler(req, res) {
           const payload = prepareOrderEmailPayload(orders[index]);
           if (payload) {
             try {
-              await sendOrderShipped({
-                to: payload.recipient,
-                order: payload.order,
-                carrier: payload.carrier,
-                tracking: payload.tracking,
-                trackingUrl: payload.trackingUrl,
-                statusUrl: payload.statusUrl,
-              });
+              const shippedResult = await sendOrderShippedEmailOnce(
+                {
+                  ...payload.order,
+                  carrier: payload.carrier,
+                  tracking: payload.tracking,
+                },
+                { email: payload.recipient },
+                {
+                  logicalKey: `order_shipped:${payload.order?.id || payload.order?.order_number || next.id}`,
+                  emailType: "order_shipped",
+                  orderId: payload.order?.id || payload.order?.order_number || next.id,
+                  metadata: {
+                    trackingUrl: payload.trackingUrl || null,
+                    statusUrl: payload.statusUrl || null,
+                  },
+                },
+              );
+              emailStatuses.orderShipped = shippedResult?.status || null;
+              if (shippedResult && shippedResult.ok === false) {
+                emailWarnings.push(
+                  "La operación se realizó correctamente, pero no se pudo enviar el email de pedido enviado.",
+                );
+              }
             } catch (emailErr) {
               console.error("order shipped email failed", emailErr);
+              emailWarnings.push(
+                "La operación se realizó correctamente, pero no se pudo enviar el email de pedido enviado.",
+              );
             }
           }
         }
@@ -10124,7 +10271,12 @@ async function requestHandler(req, res) {
             }
           }
         }
-        return sendJson(res, 200, { success: true, order: orders[index] });
+        return sendJson(res, 200, {
+          success: true,
+          order: orders[index],
+          emailStatuses,
+          emailWarning: emailWarnings.length ? emailWarnings.join(" ") : null,
+        });
       } catch (err) {
         console.error(err);
         return sendJson(res, 400, { error: "Solicitud inválida" });
@@ -10469,20 +10621,38 @@ async function requestHandler(req, res) {
           includeDeleted: true,
         });
         const payload = prepareOrderEmailPayload(updatedOrder);
+        let invoiceEmailStatus = null;
+        let invoiceEmailWarning = null;
         if (payload) {
           const invoiceUrl = buildAbsoluteUrl(payload.baseUrl, record.url);
           try {
-            await sendInvoiceUploaded({
-              to: payload.recipient,
-              order: payload.order,
-              invoiceUrl,
-              statusUrl: payload.statusUrl,
-            });
+            const invoiceEmailResult = await sendInvoiceAvailableEmailOnce(
+              { ...payload.order, invoiceUrl },
+              { email: payload.recipient },
+              {
+                logicalKey: `invoice_available:${payload.order?.id || payload.order?.order_number || orderId}`,
+                emailType: "invoice_available",
+                orderId: payload.order?.id || payload.order?.order_number || orderId,
+                metadata: { statusUrl: payload.statusUrl || null },
+              },
+            );
+            invoiceEmailStatus = invoiceEmailResult?.status || null;
+            if (invoiceEmailResult && invoiceEmailResult.ok === false) {
+              invoiceEmailWarning =
+                "La factura se guardó correctamente, pero no se pudo enviar el email.";
+            }
           } catch (emailErr) {
             console.error("invoice upload email failed", emailErr);
+            invoiceEmailWarning =
+              "La factura se guardó correctamente, pero no se pudo enviar el email.";
           }
         }
-        return sendJson(res, 201, { invoice: record, invoices });
+        return sendJson(res, 201, {
+          invoice: record,
+          invoices,
+          emailStatus: invoiceEmailStatus,
+          emailWarning: invoiceEmailWarning,
+        });
       } catch (error) {
         console.error(error);
         if (error.code === 'ORDER_NOT_FOUND') {
