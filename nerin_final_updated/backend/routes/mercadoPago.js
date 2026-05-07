@@ -7,10 +7,11 @@ const {
   revertInventoryForOrder,
 } = require('../services/inventory');
 const {
-  sendOrderConfirmed,
+  sendPaymentApprovedEmail,
   sendPaymentPending,
   sendPaymentRejected,
-} = require('../services/emailNotifications');
+  sendAdminSalePaidNotificationEmail,
+} = require('../services/emailService');
 const inflight = require('../utils/inflightLock');
 
 const ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
@@ -222,7 +223,7 @@ function resolveOrderIdentifier(order = {}) {
 }
 
 const STATUS_EMAIL_HANDLERS = {
-  approved: { sender: sendOrderConfirmed, flag: 'confirmedSent' },
+  approved: { sender: sendPaymentApprovedEmail, flag: 'confirmedSent' },
   pending: { sender: sendPaymentPending, flag: 'pendingSent' },
   rejected: { sender: sendPaymentRejected, flag: 'rejectedSent' },
 };
@@ -290,7 +291,23 @@ async function notifyCustomerStatus({
 
   let sendSucceeded = false;
   try {
-    await config.sender({ to, order });
+    await config.sender(order, { to });
+    if (status === 'approved') {
+      try {
+        await sendAdminSalePaidNotificationEmail(order, {
+          logicalKey: `admin_sale_paid_notification:${resolvedOrderId || order?.id || paymentId}`,
+          emailType: 'admin_sale_paid_notification',
+          orderId: resolvedOrderId || order?.id || null,
+          metadata: { source: 'mp_webhook', paymentId: paymentId || null },
+        });
+      } catch (adminEmailErr) {
+        logger.warn('mp-webhook admin paid email failed', {
+          paymentId,
+          status,
+          error: adminEmailErr?.message || adminEmailErr,
+        });
+      }
+    }
     sendSucceeded = true;
   } catch (error) {
     const errorPayload =
