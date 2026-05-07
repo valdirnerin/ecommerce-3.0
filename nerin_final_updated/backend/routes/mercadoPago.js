@@ -291,14 +291,21 @@ async function notifyCustomerStatus({
 
   let sendSucceeded = false;
   try {
-    await config.sender(order, { to });
+    await config.sender(order, { email: to }, {
+      logicalKey: status === 'approved' ? `payment_approved:${resolvedOrderId || order?.id || paymentId}` : undefined,
+      emailType: status === 'approved' ? 'payment_approved' : undefined,
+      orderId: resolvedOrderId || order?.id || null,
+      metadata: status === 'approved'
+        ? { source: 'mercado_pago_webhook', paymentId: paymentId || null }
+        : undefined,
+    });
     if (status === 'approved') {
       try {
         await sendAdminSalePaidNotificationEmail(order, {
           logicalKey: `admin_sale_paid_notification:${resolvedOrderId || order?.id || paymentId}`,
           emailType: 'admin_sale_paid_notification',
           orderId: resolvedOrderId || order?.id || null,
-          metadata: { source: 'mp_webhook', paymentId: paymentId || null },
+          metadata: { source: 'mercado_pago_webhook', paymentId: paymentId || null },
         });
       } catch (adminEmailErr) {
         logger.warn('mp-webhook admin paid email failed', {

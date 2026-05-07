@@ -48,6 +48,8 @@ const {
   sendOrderShippedEmail: sendOrderShippedEmailOnce,
   sendInvoiceAvailableEmail: sendInvoiceAvailableEmailOnce,
   sendAdminSaleNotificationEmail: sendAdminSaleNotificationEmailOnce,
+  sendPaymentApprovedEmail: sendPaymentApprovedEmailOnce,
+  sendAdminSalePaidNotificationEmail: sendAdminSalePaidNotificationEmailOnce,
 } = require("./services/emailService");
 const {
   STATUS_ES_TO_CODE,
@@ -10127,6 +10129,67 @@ async function requestHandler(req, res) {
         saveOrders(orders);
         const emailWarnings = [];
         const emailStatuses = {};
+
+        if (incomingStatus != null && nextPaymentCode === "approved" && prevPaymentCode !== "approved") {
+          const payload = prepareOrderEmailPayload(orders[index]);
+          const orderIdentifier = payload?.order?.id || payload?.order?.order_number || next.id;
+          const paymentMethodRaw = String(
+            payload?.order?.payment_method || next.payment_method || prev.payment_method || ""
+          )
+            .toLowerCase()
+            .trim();
+          const isTransfer = paymentMethodRaw === "transferencia" || paymentMethodRaw === "transfer" || paymentMethodRaw === "bank_transfer";
+          const source = isTransfer ? "admin_manual_transfer_payment" : "admin_manual_payment_update";
+          if (payload) {
+            try {
+              const approvedResult = await sendPaymentApprovedEmailOnce(
+                payload.order,
+                { email: payload.recipient },
+                {
+                  logicalKey: `payment_approved:${orderIdentifier}`,
+                  emailType: "payment_approved",
+                  orderId: orderIdentifier,
+                  metadata: { source },
+                },
+              );
+              emailStatuses.paymentApproved = approvedResult?.status || null;
+              if (approvedResult && approvedResult.ok === false) {
+                emailWarnings.push(
+                  "La operación se realizó correctamente, pero no se pudo enviar el email de pago aprobado.",
+                );
+              }
+            } catch (emailErr) {
+              console.error("order payment approved email failed", emailErr);
+              emailWarnings.push(
+                "La operación se realizó correctamente, pero no se pudo enviar el email de pago aprobado.",
+              );
+            }
+          }
+
+          try {
+            const adminPaidResult = await sendAdminSalePaidNotificationEmailOnce(next, {
+              logicalKey: `admin_sale_paid_notification:${orderIdentifier}`,
+              emailType: "admin_sale_paid_notification",
+              orderId: orderIdentifier,
+              subject: isTransfer
+                ? `Vendiste en NERIN Parts — Pago aprobado por transferencia — Pedido #${orderIdentifier}`
+                : undefined,
+              metadata: { source },
+            });
+            emailStatuses.adminSalePaidNotification = adminPaidResult?.status || null;
+            if (adminPaidResult && adminPaidResult.ok === false) {
+              emailWarnings.push(
+                "La operación se realizó correctamente, pero no se pudo enviar el email interno de pago aprobado.",
+              );
+            }
+          } catch (adminEmailErr) {
+            console.error("order admin paid email failed", adminEmailErr);
+            emailWarnings.push(
+              "La operación se realizó correctamente, pero no se pudo enviar el email interno de pago aprobado.",
+            );
+          }
+        }
+
         if (
           incomingStatus != null &&
           nextPaymentCode === "cancelled" &&
