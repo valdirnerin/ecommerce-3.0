@@ -10132,49 +10132,71 @@ async function requestHandler(req, res) {
 
         if (incomingStatus != null && nextPaymentCode === "approved" && prevPaymentCode !== "approved") {
           const payload = prepareOrderEmailPayload(orders[index]);
-          const orderIdentifier = payload?.order?.id || payload?.order?.order_number || next.id;
+          const orderForEmail = payload?.order || prepareOrderForEmail(orders[index]);
+          const orderIdentifier =
+            orderForEmail?.id || orderForEmail?.order_number || next.id || prev.id || id;
           const paymentMethodRaw = String(
-            payload?.order?.payment_method || next.payment_method || prev.payment_method || ""
+            orderForEmail?.payment_method || next.payment_method || prev.payment_method || ""
           )
             .toLowerCase()
             .trim();
-          const isTransfer = paymentMethodRaw === "transferencia" || paymentMethodRaw === "transfer" || paymentMethodRaw === "bank_transfer";
-          const source = isTransfer ? "admin_manual_transfer_payment" : "admin_manual_payment_update";
-          if (payload) {
-            try {
-              const approvedResult = await sendPaymentApprovedEmailOnce(
-                payload.order,
-                { email: payload.recipient },
-                {
-                  logicalKey: `payment_approved:${orderIdentifier}`,
-                  emailType: "payment_approved",
-                  orderId: orderIdentifier,
-                  metadata: { source },
-                },
-              );
-              emailStatuses.paymentApproved = approvedResult?.status || null;
-              if (approvedResult && approvedResult.ok === false) {
-                emailWarnings.push(
-                  "La operación se realizó correctamente, pero no se pudo enviar el email de pago aprobado.",
-                );
-              }
-            } catch (emailErr) {
-              console.error("order payment approved email failed", emailErr);
+          const isTransfer =
+            paymentMethodRaw === "transferencia" ||
+            paymentMethodRaw === "transfer" ||
+            paymentMethodRaw === "bank_transfer";
+          const metadata = {
+            source: "admin_manual_transfer_payment",
+            paymentMethod: isTransfer
+              ? "Transferencia bancaria"
+              : orderForEmail?.payment_method || next.payment_method || prev.payment_method || null,
+          };
+          console.info("[email-payment-approved-admin] sending", {
+            orderId: orderIdentifier,
+            previousPaymentStatus: prevPaymentCode,
+            nextPaymentStatus: nextPaymentCode,
+          });
+
+          try {
+            const approvedResult = await sendPaymentApprovedEmailOnce(
+              orderForEmail,
+              { email: payload?.recipient || null },
+              {
+                logicalKey: `payment_approved:${orderIdentifier}`,
+                emailType: "payment_approved",
+                orderId: orderIdentifier,
+                metadata,
+              },
+            );
+            emailStatuses.paymentApproved = approvedResult?.status || null;
+            if (approvedResult && approvedResult.ok === false) {
               emailWarnings.push(
                 "La operación se realizó correctamente, pero no se pudo enviar el email de pago aprobado.",
               );
             }
+            console.info("[email-payment-approved-admin] result", {
+              orderId: orderIdentifier,
+              paymentApprovedStatus: approvedResult?.status || null,
+            });
+          } catch (emailErr) {
+            console.error("[email-payment-approved-admin] error", {
+              orderId: orderIdentifier,
+              channel: "payment_approved",
+              message: emailErr?.message || "unknown_error",
+            });
+            emailWarnings.push(
+              "La operación se realizó correctamente, pero no se pudo enviar el email de pago aprobado.",
+            );
           }
 
           try {
-            const adminPaidResult = await sendAdminSalePaidNotificationEmailOnce(next, {
+            const adminPaidResult = await sendAdminSalePaidNotificationEmailOnce(orderForEmail, {
               logicalKey: `admin_sale_paid_notification:${orderIdentifier}`,
               emailType: "admin_sale_paid_notification",
               orderId: orderIdentifier,
               subject: isTransfer
                 ? `Vendiste en NERIN Parts — Pago aprobado por transferencia — Pedido #${orderIdentifier}`
                 : undefined,
-              metadata: { source },
+              metadata,
             });
             emailStatuses.adminSalePaidNotification = adminPaidResult?.status || null;
             if (adminPaidResult && adminPaidResult.ok === false) {
@@ -10182,12 +10204,26 @@ async function requestHandler(req, res) {
                 "La operación se realizó correctamente, pero no se pudo enviar el email interno de pago aprobado.",
               );
             }
+            console.info("[email-payment-approved-admin] result", {
+              orderId: orderIdentifier,
+              adminSalePaidStatus: adminPaidResult?.status || null,
+            });
           } catch (adminEmailErr) {
-            console.error("order admin paid email failed", adminEmailErr);
+            console.error("[email-payment-approved-admin] error", {
+              orderId: orderIdentifier,
+              channel: "admin_sale_paid_notification",
+              message: adminEmailErr?.message || "unknown_error",
+            });
             emailWarnings.push(
               "La operación se realizó correctamente, pero no se pudo enviar el email interno de pago aprobado.",
             );
           }
+        } else if (incomingStatus != null) {
+          console.info("[email-payment-approved-admin] skipped no transition", {
+            orderId: prev.id || prev.order_number || id,
+            previousPaymentStatus: prevPaymentCode,
+            nextPaymentStatus: nextPaymentCode,
+          });
         }
 
         if (
