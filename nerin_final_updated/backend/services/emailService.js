@@ -110,12 +110,41 @@ function formatOrderNumber(value) {
 }
 
 function resolveBaseUrl() {
-  return (
+  const raw = (
     normalizeString(process.env.APP_BASE_URL) ||
     normalizeString(process.env.PUBLIC_BASE_URL) ||
     normalizeString(process.env.FRONTEND_BASE_URL) ||
+    normalizeString(process.env.PUBLIC_URL) ||
     ''
-  ).replace(/\/+$/, '');
+  );
+  if (!raw) return '';
+  let normalized = raw.trim();
+  if (/^\/\//.test(normalized)) normalized = `https:${normalized}`;
+  else if (!/^https?:\/\//i.test(normalized)) normalized = `https://${normalized}`;
+  return normalized.replace(/\/+$/, '');
+}
+
+function sanitizeResendTagValue(value, maxLength = 128) {
+  const asString = normalizeString(value);
+  if (!asString) return null;
+  const sanitized = asString
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '')
+    .slice(0, maxLength);
+  return sanitized || null;
+}
+
+function buildSafeResendTags(metadata) {
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  const tags = Object.entries(metadata)
+    .slice(0, 5)
+    .map(([name, value]) => ({
+      name: sanitizeResendTagValue(name, 64),
+      value: sanitizeResendTagValue(value, 128),
+    }))
+    .filter((tag) => tag.name && tag.value);
+  return tags.length ? tags : undefined;
 }
 
 function resolveTrackingUrl(order = {}, customer = {}) {
@@ -481,12 +510,7 @@ async function sendTransactionalEmail({ to, subject, html, text, replyTo, metada
       text: safeText || undefined,
       reply_to: normalizeString(replyTo) || cfg.replyTo || undefined,
       headers: runtimeTestMode ? { 'X-NERIN-Email-Test-Mode': 'true' } : undefined,
-      tags: metadata && typeof metadata === 'object'
-        ? Object.entries(metadata)
-            .filter(([, value]) => value != null)
-            .slice(0, 5)
-            .map(([name, value]) => ({ name: normalizeString(name), value: normalizeString(value) }))
-        : undefined,
+      tags: buildSafeResendTags(metadata),
     });
     return {
       ok: true,
@@ -592,6 +616,15 @@ async function sendTransactionalEmailOnce(options = {}) {
   const status = result?.error === null && result?.skipped && result?.dryRun
     ? 'disabled'
     : extractStatusFromSendResult(result);
+
+  if (!result?.ok) {
+    console.error('[email-send-error]', {
+      emailType: options.emailType || 'generic',
+      logicalKey: explicitLogicalKey,
+      status,
+      error: result?.error || 'send-failed',
+    });
+  }
 
   emailLogsRepo.updateEmailLog(pending.id, {
     status,
@@ -710,4 +743,8 @@ module.exports = {
   sendAdminSalePaidNotificationEmail,
   buildEmailLogicalKey: emailLogsRepo.buildEmailLogicalKey,
   normalizeEmailRecipient: emailLogsRepo.normalizeEmailRecipient,
+  sanitizeResendTagValue,
+  buildSafeResendTags,
+  resolveBaseUrl,
+  resolveTrackingUrl,
 };
