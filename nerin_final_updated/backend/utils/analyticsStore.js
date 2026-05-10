@@ -190,7 +190,7 @@ function getSessions({ from, to, search, status } = {}) {
     });
 }
 
-function getEventsByRange({ from, to, type } = {}) {
+function getEventsByRange({ from, to, type, skipArchive = false } = {}) {
   const fromMs = from ? new Date(from).getTime() : null;
   const toMs = to ? new Date(to).getTime() : null;
   const typeFilter =
@@ -227,6 +227,13 @@ function getEventsByRange({ from, to, type } = {}) {
         events.push(evt);
       });
   });
+  if (skipArchive) {
+    return events.sort((a, b) => {
+      const aTime = Date.parse(a.timestamp || "") || 0;
+      const bTime = Date.parse(b.timestamp || "") || 0;
+      return aTime - bTime;
+    });
+  }
   const archiveFiles = listArchiveFiles();
   archiveFiles.forEach((archive) => {
     const weekMs = archive.weekDate.getTime();

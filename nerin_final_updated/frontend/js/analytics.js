@@ -20,6 +20,52 @@ const analyticsRangeState = {
   to: "",
 };
 
+const LIVE_REFRESH_MS = 8000;
+let liveRefreshTimer = null;
+let liveRefreshInFlight = false;
+let liveAbortController = null;
+let detailedInFlight = false;
+let detailedAbortController = null;
+
+function updateLiveDom(live = {}) {
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+  setText("analytics-live-active-sessions", formatNumber(live.activeSessions || 0));
+  setText("analytics-live-checkout-in-progress", formatNumber(live.checkoutInProgress || 0));
+  const statusEl = document.getElementById("analytics-live-updated-at");
+  if (statusEl) {
+    const stamp = live.updatedAt || new Date().toISOString();
+    statusEl.textContent = `Última actualización ${new Date(stamp).toLocaleTimeString("es-AR")}`;
+  }
+  const healthEl = document.getElementById("analytics-live-health");
+  if (healthEl) {
+    healthEl.textContent = `Último evento ${live.lastEventAt ? new Date(live.lastEventAt).toLocaleTimeString("es-AR") : "sin eventos"} · ${formatNumber(live.eventsLastHour || 0)} eventos/h`;
+  }
+}
+
+async function fetchLiveAnalytics() {
+  if (liveRefreshInFlight) return;
+  liveRefreshInFlight = true;
+  try {
+    if (liveAbortController) liveAbortController.abort();
+    liveAbortController = new AbortController();
+    const res = await apiFetch('/api/analytics/live', { signal: liveAbortController.signal });
+    const payload = await res.json();
+    updateLiveDom(payload || {});
+  } catch (err) {
+    if (err?.name !== 'AbortError') console.warn('analytics-live-refresh-error', err);
+  } finally {
+    liveRefreshInFlight = false;
+  }
+}
+
+function ensureLiveRefresh() {
+  if (liveRefreshTimer) return;
+  liveRefreshTimer = window.setInterval(fetchLiveAnalytics, LIVE_REFRESH_MS);
+}
+
 function buildRangeParams(state) {
   const params = new URLSearchParams();
   const range = state?.range || "7d";
@@ -310,12 +356,14 @@ export async function renderAnalyticsDashboard(
   containerId = "analytics-dashboard",
   options = {},
 ) {
-  const { autoRefreshMs = null, range, from, to } = options || {};
+  const { autoRefreshMs = null, range, from, to, isAutoRefresh = false } = options || {};
   const container =
     typeof containerId === "string"
       ? document.getElementById(containerId)
       : containerId;
   if (!container) return;
+  if (detailedInFlight) return;
+  detailedInFlight = true;
   if (activeCharts.length) {
     activeCharts.forEach((chart) => {
       if (chart && typeof chart.destroy === "function") {
@@ -324,7 +372,9 @@ export async function renderAnalyticsDashboard(
     });
     activeCharts.splice(0, activeCharts.length);
   }
-  container.innerHTML = "<p>Cargando...</p>";
+  if (!isAutoRefresh || !container.dataset.analyticsReady) {
+    container.innerHTML = "<p>Cargando...</p>";
+  }
   if (range) analyticsRangeState.range = range;
   if (from !== undefined) analyticsRangeState.from = from || "";
   if (to !== undefined) analyticsRangeState.to = to || "";
@@ -334,6 +384,7 @@ export async function renderAnalyticsDashboard(
     const payload = await res.json();
     const analytics = payload?.analytics || payload || {};
     container.innerHTML = "";
+    container.dataset.analyticsReady = "1";
     if (analytics?.analyticsAvailable === false) {
       const disabled = document.createElement("div");
       disabled.className = "analytics-empty analytics-empty--inline";
@@ -424,7 +475,8 @@ export async function renderAnalyticsDashboard(
     meta.setAttribute("role", "status");
     const status = document.createElement("span");
     status.className = "analytics-meta__status";
-    status.textContent = `Actualizado ${fetchedAt.toLocaleTimeString("es-AR", {
+    status.id = "analytics-live-updated-at";
+    status.textContent = `Última actualización ${fetchedAt.toLocaleTimeString("es-AR", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -434,12 +486,13 @@ export async function renderAnalyticsDashboard(
       const intervalSeconds = Math.max(1, Math.round(autoRefreshMs / 1000));
       const hint = document.createElement("span");
       hint.className = "analytics-meta__hint";
-      hint.textContent = `Actualización automática cada ${intervalSeconds} s`;
+      hint.textContent = `Actualización detallada cada ${intervalSeconds} s · actualización en vivo cada ${Math.round(LIVE_REFRESH_MS/1000)} s`;
       meta.appendChild(hint);
     }
     if (analytics?.trackingHealth) {
       const health = document.createElement("span");
       health.className = "analytics-meta__hint";
+      health.id = "analytics-live-health";
       const lastEventText = analytics.trackingHealth.lastEventAt
         ? new Date(analytics.trackingHealth.lastEventAt).toLocaleTimeString("es-AR", {
             hour: "2-digit",
@@ -465,12 +518,14 @@ export async function renderAnalyticsDashboard(
       {
         title: "Sesiones activas",
         value: formatNumber(analytics.activeSessions || 0),
+        id: "analytics-live-active-sessions",
         subtitle: "Personas navegando en tiempo real",
         tone: "primary",
       },
       {
         title: "Checkout en curso",
         value: formatNumber(analytics.checkoutInProgress || 0),
+        id: "analytics-live-checkout-in-progress",
         subtitle: "Usuarios a punto de comprar",
         tone: "warning",
       },
@@ -509,7 +564,12 @@ export async function renderAnalyticsDashboard(
       },
     ];
     summaryCards.forEach((card) => {
-      summaryGrid.appendChild(createStatCard(card));
+      const cardEl = createStatCard(card);
+      if (card.id) {
+        const metric = cardEl.querySelector(".analytics-card__metric");
+        if (metric) metric.id = card.id;
+      }
+      summaryGrid.appendChild(cardEl);
     });
     container.appendChild(summaryGrid);
 
@@ -1191,8 +1251,14 @@ export async function renderAnalyticsDashboard(
       timeline.appendChild(createEmptyState("Todavía no hay eventos registrados."));
     }
     container.appendChild(timeline);
+    ensureLiveRefresh();
+    fetchLiveAnalytics();
   } catch (err) {
     console.error(err);
-    container.innerHTML = "<p>No se pudieron cargar las analíticas</p>";
+    if (!container.dataset.analyticsReady) {
+      container.innerHTML = "<p>No se pudieron cargar las analíticas</p>";
+    }
+  } finally {
+    detailedInFlight = false;
   }
 }
