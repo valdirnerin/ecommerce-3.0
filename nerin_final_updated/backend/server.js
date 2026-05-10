@@ -224,6 +224,15 @@ const MAX_ACTIVITY_SESSIONS = 300;
 const ACTIVITY_SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 días
 const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
+const analyticsDetailedCache = new Map();
+const analyticsLiveCache = { at: 0, value: null };
+
+function getDetailedAnalyticsTtlMs(range = "7d") {
+  if (range === "today") return 15_000;
+  if (range === "7d") return 30_000;
+  if (range === "30d") return 60_000;
+  return 60_000;
+}
 const DISABLE_PRODUCTS_STREAMING_FALLBACK =
   String(process.env.DISABLE_PRODUCTS_STREAMING_FALLBACK || "true").trim().toLowerCase() === "true";
 const REVIEW_TOKEN_TTL_DAYS =
@@ -11630,6 +11639,38 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/analytics/live" && req.method === "GET") {
+    const startedAt = Date.now();
+    try {
+      const now = Date.now();
+      if (analyticsLiveCache.value && now - analyticsLiveCache.at < 4000) {
+        const cached = { ...analyticsLiveCache.value, cacheHit: true };
+        console.log("[analytics:live]", {
+          activeSessions: cached.activeSessions || 0,
+          eventsLastHour: cached.eventsLastHour || 0,
+          durationMs: Date.now() - startedAt,
+          cacheHit: true,
+        });
+        return sendJson(res, 200, cached);
+      }
+      const oneHourAgo = new Date(now - 60 * 60 * 1000);
+      const sessions = getStoredSessions();
+      const liveSessions = Array.isArray(sessions) ? sessions.slice(0, 8).map((s) => ({ id: s.id, userName: s.userName, userEmail: s.userEmail, lastSeenAt: s.lastSeenAt, currentStep: s.currentStep, cartValue: s.cartValue })) : [];
+      const activeSessions = liveSessions.filter((s) => String(s.status || "active") === "active").length || liveSessions.length;
+      const checkoutInProgress = liveSessions.filter((s) => String(s.currentStep || "").toLowerCase().includes("checkout")).length;
+      const eventsLastHour = getEventsByRange({ from: oneHourAgo, to: new Date(now), skipArchive: true }).length;
+      const trackingHealth = getTrackingHealth();
+      const payload = { activeSessions, checkoutInProgress, liveSessions, lastEventAt: trackingHealth?.lastEventAt || null, eventsLastHour, trackingHealth: { isPersistentDataDir: trackingHealth?.isPersistentDataDir !== false }, updatedAt: new Date().toISOString(), cacheHit: false };
+      analyticsLiveCache.at = now;
+      analyticsLiveCache.value = payload;
+      console.log("[analytics:live]", { activeSessions, eventsLastHour, durationMs: Date.now() - startedAt, cacheHit: false });
+      return sendJson(res, 200, payload);
+    } catch (err) {
+      console.error("analytics-live error", err);
+      return sendJson(res, 500, { error: "No se pudieron cargar las métricas live" });
+    }
+  }
+
   /*
    * API: Analíticas avanzadas
    * Devuelve métricas más detalladas: ventas por categoría, volumen por producto,
@@ -11639,6 +11680,14 @@ async function requestHandler(req, res) {
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
     try {
       const range = parseAnalyticsRange(parsedUrl.query);
+      const cacheKey = JSON.stringify({ range: range.key, from: range.from?.toISOString?.() || null, to: range.to?.toISOString?.() || null });
+      const ttlMs = getDetailedAnalyticsTtlMs(range.key);
+      const cached = analyticsDetailedCache.get(cacheKey);
+      if (cached && Date.now() - cached.at < ttlMs) {
+        console.log("[analytics:detailed]", { range: range.key, durationMs: Date.now() - cached.at, cacheHit: true, eventsCount: cached.eventsCount || 0 });
+        return sendJson(res, 200, { analyticsAvailable: true, analytics: cached.analytics, range });
+      }
+      const startedAt = Date.now();
       const events = getEventsByRange({ from: range.from, to: range.to });
       let sessions = getStoredSessions();
       if (!Array.isArray(sessions) || sessions.length === 0) {
@@ -11651,6 +11700,8 @@ async function requestHandler(req, res) {
         events,
         sessions,
       });
+      analyticsDetailedCache.set(cacheKey, { at: Date.now(), analytics, eventsCount: events.length });
+      console.log("[analytics:detailed]", { range: range.key, durationMs: Date.now() - startedAt, cacheHit: false, eventsCount: events.length });
       return sendJson(res, 200, { analyticsAvailable: true, analytics, range });
     } catch (err) {
       console.error("analytics-detailed error", err);

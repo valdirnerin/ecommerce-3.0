@@ -104,7 +104,7 @@ if (currentRole === "vendedor") {
 const navButtons = document.querySelectorAll(".admin-nav button");
 const sections = document.querySelectorAll(".admin-section");
 const analyticsSection = document.getElementById("analyticsSection");
-const ANALYTICS_REFRESH_INTERVAL_MS = 30 * 1000;
+const ANALYTICS_REFRESH_INTERVAL_MS = 45 * 1000;
 let analyticsRefreshTimer = null;
 let analyticsAutoRefreshMs = null;
 let analyticsLoading = false;
@@ -4464,6 +4464,7 @@ async function loadAnalytics(options = {}) {
   try {
     await renderAnalyticsDashboard("analytics-dashboard", {
       autoRefreshMs: analyticsAutoRefreshMs,
+      isAutoRefresh: Boolean(options?.isAutoRefresh),
     });
   } catch (err) {
     console.error("analytics-dashboard-refresh-error", err);
@@ -4494,7 +4495,7 @@ function startAnalyticsAutoRefresh({ immediate = true } = {}) {
       stopAnalyticsAutoRefresh();
       return;
     }
-    loadAnalytics({ skipIfHidden: true });
+    loadAnalytics({ skipIfHidden: true, isAutoRefresh: true });
   }, ANALYTICS_REFRESH_INTERVAL_MS);
 }
 
