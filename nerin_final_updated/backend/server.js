@@ -1778,6 +1778,46 @@ function getProductLastModifiedDate(product) {
   return parsed;
 }
 
+
+function buildSitemapIndexXml(baseUrl, sitemapPaths = []) {
+  const body = sitemapPaths
+    .filter(Boolean)
+    .map((pathSegment) => `<sitemap><loc>${esc(absoluteUrl(pathSegment, baseUrl))}</loc></sitemap>`)
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</sitemapindex>`;
+}
+
+function buildSitemapPartXml(baseUrl, entries = []) {
+  const body = entries
+    .filter((entry) => entry && entry.loc)
+    .map(({ loc, lastmod, changefreq, priority }) => {
+      const parts = [`<loc>${esc(loc)}</loc>`];
+      if (lastmod) parts.push(`<lastmod>${lastmod}</lastmod>`);
+      if (changefreq) parts.push(`<changefreq>${changefreq}</changefreq>`);
+      if (priority) parts.push(`<priority>${priority}</priority>`);
+      return `<url>${parts.join("")}</url>`;
+    })
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</urlset>`;
+}
+
+function buildSitemapPlan(baseUrl, products = []) {
+  const siteBase = normalizeBaseUrl(baseUrl) || FALLBACK_BASE_URL;
+  const generatedAt = toIsoString(new Date());
+  const toAbsolute = (pathSegment) => absoluteUrl(pathSegment, siteBase);
+  const staticEntries = ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((path) => ({
+    loc: toAbsolute(path), lastmod: generatedAt, changefreq: "daily", priority: path === "/" ? "1.0" : "0.8",
+  }));
+  const productEntries = products.filter((p)=>isProductPublic(p)).map((product)=>{
+    const slug = typeof product.slug === "string" && product.slug.trim() ? product.slug.trim() : null;
+    if (!slug) return null;
+    return { loc: toAbsolute(`/p/${encodeURIComponent(slug)}`), lastmod: toIsoString(getProductLastModifiedDate(product)) || generatedAt, changefreq: "weekly", priority: "0.8" };
+  }).filter(Boolean);
+  const MAX = 45000;
+  const productSitemaps = [];
+  for (let i=0;i<productEntries.length;i+=MAX) productSitemaps.push(productEntries.slice(i,i+MAX));
+  return { siteBase, staticEntries, productEntries, productSitemaps };
+}
 function buildSitemapXml(baseUrl, products = []) {
   const siteBase = normalizeBaseUrl(baseUrl) || FALLBACK_BASE_URL;
   const generatedAt = toIsoString(new Date());
@@ -1787,11 +1827,7 @@ function buildSitemapXml(baseUrl, products = []) {
     { path: "/shop.html", changefreq: "daily", priority: "0.9" },
     { path: "/shop", changefreq: "daily", priority: "0.9" },
     { path: "/contact.html", changefreq: "monthly", priority: "0.5" },
-    { path: "/seguimiento.html", changefreq: "weekly", priority: "0.4" },
-    { path: "/cart.html", changefreq: "weekly", priority: "0.3" },
-    { path: "/checkout.html", changefreq: "weekly", priority: "0.5" },
-    { path: "/login.html", changefreq: "monthly", priority: "0.3" },
-    { path: "/register.html", changefreq: "monthly", priority: "0.3" },
+    { path: "/garantia.html", changefreq: "monthly", priority: "0.4" },
   ];
 
   const urls = staticPages
@@ -1801,7 +1837,7 @@ function buildSitemapXml(baseUrl, products = []) {
       priority: entry.priority,
       lastmod: generatedAt,
     }))
-    .filter((entry) => Boolean(entry.loc));
+    .filter((entry) => entry && Boolean(entry.loc));
 
   const productUrls = products
     .filter((product) => isProductPublic(product))
@@ -1810,9 +1846,8 @@ function buildSitemapXml(baseUrl, products = []) {
         typeof product.slug === "string" && product.slug.trim()
           ? product.slug.trim()
           : null;
-      const pathSegment = slug
-        ? `/p/${encodeURIComponent(slug)}`
-        : `/product.html?id=${encodeURIComponent(String(product.id))}`;
+      if (!slug) return null;
+      const pathSegment = `/p/${encodeURIComponent(slug)}`;
       const lastModifiedDate = getProductLastModifiedDate(product);
       const lastmod = toIsoString(lastModifiedDate) || generatedAt;
       return {
@@ -5547,9 +5582,14 @@ async function resolveCheckoutCartItems(cart = [], options = {}) {
       error.statusCode = 400;
       throw error;
     }
-    const available = Number(product.stock);
-    if (Number.isFinite(available) && quantity > available) {
-      const error = new Error(`Stock insuficiente para ${product.name || "producto"}. Disponibles: ${available}`);
+    const availability = resolveProductAvailability(product);
+    if (!availability.checkoutAllowed) {
+      const error = new Error("Este producto no está disponible para compra automática. Consultanos por WhatsApp.");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (availability.hasLocalStock && quantity > availability.stockLocal) {
+      const error = new Error(`Stock insuficiente para ${product.name || "producto"}. Disponibles: ${availability.stockLocal}`);
       error.statusCode = 400;
       throw error;
     }
@@ -12326,11 +12366,16 @@ async function requestHandler(req, res) {
     const siteBase = getPublicBaseUrl(cfg);
     const lines = [
       "User-agent: *",
-      "Disallow:",
       "Allow: /",
-      "Disallow: /admin",
-      "Disallow: /admin/",
-      "Disallow: /backend/",
+      "Disallow: /api/",
+      "Disallow: /admin.html",
+      "Disallow: /checkout.html",
+      "Disallow: /cart.html",
+      "Disallow: /account.html",
+      "Disallow: /account-minorista.html",
+      "Disallow: /seguimiento.html",
+      "Disallow: /login",
+      "Disallow: /*?*",
     ];
     if (siteBase) {
       lines.push(`Sitemap: ${siteBase}/sitemap.xml`);
@@ -12423,16 +12468,39 @@ async function requestHandler(req, res) {
     return;
   }
 
-  if (pathname === "/sitemap.xml" && req.method === "GET") {
+  if ((pathname === "/sitemap.xml" || pathname === "/sitemap-static.xml" || /^\/sitemap-products-\d+\.xml$/.test(pathname)) && req.method === "GET") {
     const cfg = getConfig();
     const siteBase = getPublicBaseUrl(cfg);
-    const { sizeBytes, isLarge } = isLargeCatalogFile(PRODUCTS_FILE_PATH);
-    const products = isLarge ? [] : loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
-    const xml = buildSitemapXml(siteBase, products);
-    res.writeHead(200, {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
-    });
+    const products = loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
+    const plan = buildSitemapPlan(siteBase, products);
+    const productCount = plan.productEntries.length;
+    const needsIndex = productCount > 45000;
+    if (pathname === "/sitemap.xml") {
+      const xml = needsIndex
+        ? buildSitemapIndexXml(plan.siteBase, [
+            "/sitemap-static.xml",
+            ...plan.productSitemaps.map((_, idx) => `/sitemap-products-${idx + 1}.xml`),
+          ])
+        : buildSitemapPartXml(plan.siteBase, [...plan.staticEntries, ...plan.productEntries]);
+      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      res.end(xml);
+      return;
+    }
+    if (pathname === "/sitemap-static.xml") {
+      const xml = buildSitemapPartXml(plan.siteBase, plan.staticEntries);
+      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      res.end(xml);
+      return;
+    }
+    const m = pathname.match(/^\/sitemap-products-(\d+)\.xml$/);
+    const idx = Number(m?.[1] || 0) - 1;
+    if (idx < 0 || idx >= plan.productSitemaps.length) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Not found");
+      return;
+    }
+    const xml = buildSitemapPartXml(plan.siteBase, plan.productSitemaps[idx]);
+    res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
     res.end(xml);
     return;
   }
@@ -12588,10 +12656,7 @@ async function requestHandler(req, res) {
     const defaultAlt = name || "Imagen del producto";
     const primaryImage = imageList[0] || null;
     const primaryAlt = normalizedAlts[0] || defaultAlt;
-    const availability =
-      typeof product.stock === "number" && product.stock > 0
-        ? "https://schema.org/InStock"
-        : "https://schema.org/OutOfStock";
+    const availability = resolveProductAvailability(product).seoAvailability;
     const brandName =
       typeof product.brand === "string" && product.brand.trim()
         ? product.brand.trim()
