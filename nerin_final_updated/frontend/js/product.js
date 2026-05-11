@@ -12,6 +12,7 @@ import {
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { buildCartItemFromProduct, readCart, writeCart, getProductIdentifier } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
+import { resolveProductAvailability } from "./availability.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -574,10 +575,7 @@ function updateJsonLd(product, images, productUrl) {
   if (!absoluteImages.length && product.image) {
     absoluteImages.push(resolveAbsoluteUrl(product.image));
   }
-  const availability =
-    typeof product.stock === "number" && product.stock > 0
-      ? "https://schema.org/InStock"
-      : "https://schema.org/OutOfStock";
+  const availability = resolveProductAvailability(product).seoAvailability;
   const priceSource = resolveProductDisplayPrice(product);
   const numericPrice = Number(priceSource);
   const formattedPrice = Number.isFinite(numericPrice)
@@ -1256,17 +1254,8 @@ function renderProduct(product) {
     meta.appendChild(category);
   }
 
-  let stockCopy = "";
-  if (typeof product.stock === "number") {
-    const stockValue = Number(product.stock || 0);
-    if (stockValue <= 0) {
-      stockCopy = "Sin stock";
-    } else if (stockValue <= 5) {
-      stockCopy = `Stock crítico: ${stockValue} u.`;
-    } else {
-      stockCopy = `${stockValue} unidades disponibles`;
-    }
-  }
+  const availability = resolveProductAvailability(product);
+  const stockCopy = availability.availabilityLabel.toUpperCase();
 
   summary.appendChild(meta);
 
@@ -1295,14 +1284,9 @@ function renderProduct(product) {
   if (stockCopy) {
     const stockBadge = document.createElement("span");
     stockBadge.className = "product-stock-badge";
-    const stockValue = Number(product.stock || 0);
-    if (stockValue <= 0) {
-      stockBadge.classList.add("product-stock-badge--out");
-    } else if (stockValue <= 5) {
-      stockBadge.classList.add("product-stock-badge--low");
-    } else {
-      stockBadge.classList.add("product-stock-badge--in");
-    }
+    if (availability.availabilityBadge === "out_of_stock") stockBadge.classList.add("product-stock-badge--out");
+    else if (availability.availabilityBadge === "remote_available") stockBadge.classList.add("product-stock-badge--low");
+    else stockBadge.classList.add("product-stock-badge--in");
     stockBadge.textContent = stockCopy;
     purchaseHeader.appendChild(stockBadge);
   }
@@ -1312,18 +1296,19 @@ function renderProduct(product) {
   const shippingBanner = document.createElement("div");
   shippingBanner.className = "product-shipping-banner";
   const fulfillment = resolveFulfillmentProfile(product);
-  const leadCopy =
-    fulfillment.minDays === fulfillment.maxDays
+  const leadCopy = availability.isRemote
+    ? `${availability.leadMinDays} a ${availability.leadMaxDays} días`
+    : fulfillment.minDays === fulfillment.maxDays
       ? `${fulfillment.minDays} día${fulfillment.minDays === 1 ? "" : "s"}`
       : `${fulfillment.minDays} a ${fulfillment.maxDays} días`;
   shippingBanner.innerHTML = `
     <div class="shipping-banner__badge" aria-hidden="true">🚚</div>
     <div class="shipping-banner__copy">
-      <span class="shipping-banner__title">Envío gratis a todo el país</span>
+      <span class="shipping-banner__title">Envío a todo el país</span>
       <span class="shipping-banner__meta">
         ${
           fulfillment.mode === "remote"
-            ? `Stock remoto: entrega estimada en ${leadCopy}. Sujeto a disponibilidad del proveedor; puede demorar más.`
+            ? `Stock remoto: entrega estimada en ${leadCopy}. Sujeto a disponibilidad del proveedor.`
             : fulfillment.isConfigured
               ? "Stock físico: despacho prioritario en 24 h hábiles con seguimiento en vivo."
               : "Despachamos a diario con empaque blindado y seguimiento en vivo."
@@ -1428,8 +1413,12 @@ function renderProduct(product) {
 
   addBtn.addEventListener("click", () => {
     const qty = qtyControl.getValue();
-    if (qty > (product.stock || 0)) {
-      alert(`No hay stock suficiente. Disponibles: ${product.stock || 0}`);
+    if (!availability.checkoutAllowed) {
+      alert("Este producto no está disponible para compra automática. Consultanos por WhatsApp.");
+      return;
+    }
+    if (availability.hasLocalStock && qty > availability.stockLocal) {
+      alert(`No hay stock suficiente. Disponibles: ${availability.stockLocal}`);
       return;
     }
     const added = addToCart(product, { quantity: qty, sku: skuValue, image: cartImage });
