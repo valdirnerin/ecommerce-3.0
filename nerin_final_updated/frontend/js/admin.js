@@ -1742,6 +1742,14 @@ const descriptionAssistStatus = document.getElementById("descriptionAssistStatus
 const bulkSelect = document.getElementById("bulkActionSelect");
 const bulkValueInput = document.getElementById("bulkValue");
 const applyBulkBtn = document.getElementById("applyBulkBtn");
+const bulkPublishSearch = document.getElementById("bulkPublishSearch");
+const bulkPublishBrand = document.getElementById("bulkPublishBrand");
+const bulkPublishCategory = document.getElementById("bulkPublishCategory");
+const bulkPublishOnlyHidden = document.getElementById("bulkPublishOnlyHidden");
+const bulkPublishLimit = document.getElementById("bulkPublishLimit");
+const bulkPublishPreviewBtn = document.getElementById("bulkPublishPreviewBtn");
+const bulkPublishRunBtn = document.getElementById("bulkPublishRunBtn");
+const bulkPublishSummary = document.getElementById("bulkPublishSummary");
 const importCatalogCsvBtn = document.getElementById("importCatalogCsvBtn");
 const catalogCsvFileInput = document.getElementById("catalogCsvFile");
 const catalogCsvIncludeOutOfStock = document.getElementById("catalogCsvIncludeOutOfStock");
@@ -3762,6 +3770,47 @@ if (applyBulkBtn && bulkSelect) {
     }
   }
   loadProducts();
+  });
+}
+
+function getBulkPublishPayload() {
+  const filters = {
+    search: bulkPublishSearch?.value?.trim() || "",
+    brand: bulkPublishBrand?.value?.trim() || "",
+    category: bulkPublishCategory?.value?.trim() || "",
+  };
+  if (bulkPublishOnlyHidden?.checked) filters.visibility = "private";
+  return {
+    filters,
+    limit: Number(bulkPublishLimit?.value || 500),
+  };
+}
+
+function renderBulkPublishSummary(data = {}, mode = "preview") {
+  if (!bulkPublishSummary) return;
+  const reasons = Object.entries(data.reasonCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  const warnings = Object.entries(data.warningCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  bulkPublishSummary.textContent = `${mode === "publish" ? "Publicación ejecutada" : "Simulación"} · Escaneados: ${data.totalScanned || 0} · Aptos: ${data.eligibleCount || 0} · Bloqueados: ${data.blockedCount || 0} · Warnings: ${data.warningCount || 0}${reasons ? ` · Reasons: ${reasons}` : ""}${warnings ? ` · Warnings: ${warnings}` : ""}`;
+}
+
+if (bulkPublishPreviewBtn) {
+  bulkPublishPreviewBtn.addEventListener("click", async () => {
+    const payload = getBulkPublishPayload();
+    const res = await apiFetch("/api/admin/products/bulk-publish-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "No se pudo simular publicación");
+    renderBulkPublishSummary(data, "preview");
+  });
+}
+
+if (bulkPublishRunBtn) {
+  bulkPublishRunBtn.addEventListener("click", async () => {
+    const payload = { ...getBulkPublishPayload(), dryRun: false, publishMode: "eligible_only" };
+    const res = await apiFetch("/api/admin/products/bulk-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "No se pudo publicar en masa");
+    renderBulkPublishSummary(data, "publish");
+    loadProducts();
   });
 }
 
