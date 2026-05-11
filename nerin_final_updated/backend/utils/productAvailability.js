@@ -54,6 +54,24 @@ function resolveProductAvailability(product = {}) {
     };
   }
 
+  const priceValue = Number(product.price || product.precio || product.price_minorista || product.precio_minorista || product.precio_final || 0);
+  if (Number.isFinite(priceValue) && priceValue > 0) {
+    return {
+      stockLocal,
+      hasLocalStock: false,
+      isRemote: true,
+      hasRemoteStock: true,
+      isSellable: true,
+      availabilityLabel: "Disponible a pedido",
+      availabilityBadge: "remote_available",
+      deliveryLabel: "Entrega estimada en 20 a 30 días",
+      checkoutAllowed: true,
+      seoAvailability: "https://schema.org/PreOrder",
+      leadMinDays: 20,
+      leadMaxDays: 30,
+    };
+  }
+
   return {
     stockLocal,
     hasLocalStock: false,

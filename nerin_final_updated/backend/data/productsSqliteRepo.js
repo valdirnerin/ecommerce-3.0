@@ -513,6 +513,52 @@ function isProductPublic(product) {
   return computeProductPublicState(product).isPublic;
 }
 
+function resolveBulkPublishEligibility(product = {}) {
+  const reasons = [];
+  const warnings = [];
+  const updates = {};
+  const computed = computeProductPublicState(product);
+  const signals = computed?.signals || {};
+
+  const hasName = !signals.missingName;
+  const hasIdentifier = !signals.missingIdentifier;
+  const priceValue = firstFiniteNumber([
+    getField(product, ["price", "precio", "price_minorista", "precio_minorista", "precio_final", "finalPrice", "salePrice"]),
+  ]);
+  const hasValidPrice = Number.isFinite(priceValue) && priceValue > 0;
+
+  if (!hasName) reasons.push("missing_name");
+  if (!hasIdentifier) reasons.push("missing_identifier");
+  if (!hasValidPrice) reasons.push("missing_price");
+  if (signals.deleted) reasons.push("deleted");
+  if (signals.archived) reasons.push("archived");
+  if (signals.enabledFalse) reasons.push("disabled");
+  if (signals.vipOnly) reasons.push("vip_only");
+  if (signals.wholesaleOnly) reasons.push("wholesale_only");
+  if (signals.visibility === "hidden" || signals.status === "hidden") reasons.push("hidden");
+  if (signals.visibility === "private" || signals.status === "private") reasons.push("private");
+  if (signals.visibility === "draft" || signals.status === "draft") reasons.push("draft");
+  if (signals.visibility === "disabled" || signals.status === "disabled") reasons.push("disabled");
+  if (signals.visibility === "deleted" || signals.status === "deleted") reasons.push("deleted");
+  if (signals.visibility === "archived" || signals.status === "archived") reasons.push("archived");
+
+  const publicSlug = toNullableText(getField(product, ["public_slug", "publicSlug", "slug"]));
+  if (!publicSlug) {
+    updates.public_slug = buildPublicSlug(product, product?.rowid);
+    warnings.push("generated_slug");
+  }
+  const imageValue = toNullableText(getField(product, ["image", "imagen", "imageUrl", "image_url"]));
+  if (!imageValue) warnings.push("missing_image");
+  const description = toNullableText(getField(product, ["description", "descripcion", "shortDescription", "short_description"]));
+  if (!description) warnings.push("missing_description");
+  const stock = Number(firstFiniteNumber([getField(product, ["stock", "stock_local"])]) || 0);
+  if (stock <= 0) {
+    warnings.push("stock_zero_remote_assumed");
+    warnings.push("remote_delivery_estimated");
+  }
+  return { eligible: reasons.length === 0, reasons: Array.from(new Set(reasons)), warnings: Array.from(new Set(warnings)), updates };
+}
+
 function buildSearchText(product = {}) {
   const mappedCore = {
     publicSlug: toNullableText(getField(product, ["publicSlug", "public_slug"])),
@@ -1967,6 +2013,66 @@ async function bulkPublication({ action = "publish", scope = "private_products",
   return { ok: true, beforePublicCount, afterPublicCount, updatedRows, skipped, examplesUpdated, dryRun: Boolean(dryRun) };
 }
 
+async function previewBulkPublish({ filters = {}, limit = 500 } = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const safeLimit = Math.max(1, Math.min(50000, Number(limit) || 500));
+  const query = await queryAdminProducts({
+    page: 1,
+    pageSize: safeLimit,
+    search: filters?.search || "",
+    brand: filters?.brand || "",
+    category: filters?.category || "",
+    visibility: filters?.visibility || "",
+    status: filters?.status || "",
+  });
+  const rows = query.items || [];
+  const reasonCounts = {};
+  const warningCounts = {};
+  const samplesEligible = [];
+  const samplesBlocked = [];
+  let eligibleCount = 0;
+  rows.forEach((item) => {
+    const result = resolveBulkPublishEligibility(item);
+    result.reasons.forEach((reason) => { reasonCounts[reason] = (reasonCounts[reason] || 0) + 1; });
+    result.warnings.forEach((warning) => { warningCounts[warning] = (warningCounts[warning] || 0) + 1; });
+    if (result.eligible) {
+      eligibleCount += 1;
+      if (samplesEligible.length < 10) samplesEligible.push({ identifier: item.id || item.sku || item.code, name: item.name || item.title || null, warnings: result.warnings, updates: result.updates });
+    } else if (samplesBlocked.length < 10) {
+      samplesBlocked.push({ identifier: item.id || item.sku || item.code, name: item.name || item.title || null, reasons: result.reasons });
+    }
+  });
+  return { totalScanned: rows.length, eligibleCount, blockedCount: rows.length - eligibleCount, warningCount: Object.values(warningCounts).reduce((a, b) => a + b, 0), samplesEligible, samplesBlocked, reasonCounts, warningCounts };
+}
+
+async function bulkPublishEligible({ dryRun = false, filters = {}, limit = 500, publishMode = "eligible_only" } = {}) {
+  if (publishMode !== "eligible_only") throw new Error("publishMode must be eligible_only");
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const preview = await previewBulkPublish({ filters, limit });
+  const query = await queryAdminProducts({ page: 1, pageSize: Math.max(1, Math.min(50000, Number(limit) || 500)), search: filters?.search || "", brand: filters?.brand || "", category: filters?.category || "", visibility: filters?.visibility || "", status: filters?.status || "" });
+  const rows = query.items || [];
+  let updatedCount = 0;
+  for (const item of rows) {
+    const result = resolveBulkPublishEligibility(item);
+    if (!result.eligible) continue;
+    const identifier = item.id || item.sku || item.code || item.public_slug || item.slug;
+    if (!identifier) continue;
+    const patch = { visibility: "public", status: "active", enabled: true, is_public: true };
+    if (result.updates.public_slug) patch.public_slug = result.updates.public_slug;
+    if (Number(item.stock || 0) <= 0) {
+      patch.stock_mode = "remote";
+      patch.fulfillment_mode = "remote";
+      patch.remote_lead_min_days = Number(item.remote_lead_min_days || 20);
+      patch.remote_lead_max_days = Number(item.remote_lead_max_days || 30);
+    }
+    if (!dryRun) await updateProductByIdentifier(identifier, patch, { forceEnabledTrue: true });
+    updatedCount += 1;
+  }
+  return { ok: true, dryRun: Boolean(dryRun), publishMode, ...preview, updatedCount };
+}
+
 async function getCatalogFieldAudit({ sampleSize = 300 } = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
@@ -2247,6 +2353,9 @@ module.exports = {
   debugPublicationByIdentifier,
   repairPublicFlags,
   bulkPublication,
+  resolveBulkPublishEligibility,
+  previewBulkPublish,
+  bulkPublishEligible,
   computeProductPublicState,
   updateProductByIdentifier,
   normalizeProductForPublic,

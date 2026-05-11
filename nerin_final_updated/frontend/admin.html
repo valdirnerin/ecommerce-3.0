@@ -443,6 +443,19 @@
           <div id="stockXlsxImportStatus" role="status" aria-live="polite"></div>
           <progress id="stockXlsxImportProgress" value="0" max="100" style="width:100%;display:none;"></progress>
           <div class="bulk-actions">
+            <strong>Publicación masiva</strong>
+            <input type="text" id="bulkPublishSearch" placeholder="Buscar" />
+            <input type="text" id="bulkPublishBrand" placeholder="Marca" />
+            <input type="text" id="bulkPublishCategory" placeholder="Categoría" />
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="bulkPublishOnlyHidden" /> Solo ocultos/privados
+            </label>
+            <input type="number" id="bulkPublishLimit" placeholder="Límite" min="1" max="50000" />
+            <button id="bulkPublishPreviewBtn" class="button secondary">Simular publicación</button>
+            <button id="bulkPublishRunBtn" class="button">Publicar productos aptos</button>
+          </div>
+          <div id="bulkPublishSummary" role="status" aria-live="polite"></div>
+          <div class="bulk-actions">
             <select id="bulkActionSelect">
               <option value="">Acción masiva…</option>
               <option value="delete">Eliminar</option>

@@ -6641,6 +6641,46 @@ async function requestHandler(req, res) {
     return;
   }
 
+  if (pathname === "/api/admin/products/bulk-publish-preview" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const result = await productsSqliteRepo.previewBulkPublish({
+          filters: payload?.filters || {},
+          limit: payload?.limit || 500,
+        });
+        return sendJson(res, 200, { ok: true, ...result });
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, code: "BULK_PUBLISH_PREVIEW_FAILED", error: error?.message || "No se pudo simular publicación masiva" });
+      }
+    });
+    return;
+  }
+
+  if (pathname === "/api/admin/products/bulk-publish" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = JSON.parse(body || "{}");
+        const result = await productsSqliteRepo.bulkPublishEligible({
+          dryRun: Boolean(payload?.dryRun),
+          filters: payload?.filters || {},
+          limit: payload?.limit || 500,
+          publishMode: payload?.publishMode || "eligible_only",
+        });
+        return sendJson(res, 200, result);
+      } catch (error) {
+        return sendJson(res, 500, { ok: false, code: "BULK_PUBLISH_FAILED", error: error?.message || "No se pudo publicar productos aptos" });
+      }
+    });
+    return;
+  }
+
   if (pathname === "/api/catalog/performance-test" && req.method === "GET") {
     try {
       const perfStartedAt = Date.now();
