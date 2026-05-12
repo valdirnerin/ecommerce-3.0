@@ -74,6 +74,7 @@ const PLACEHOLDER_IMAGE =
 
 const productGrid = document.getElementById("productGrid");
 const searchInput = document.getElementById("searchInput");
+const searchForm = searchInput?.closest("form");
 const searchClear = document.getElementById("searchClear");
 const brandFilter = document.getElementById("brandFilter");
 const modelFilter = document.getElementById("modelFilter");
@@ -1005,7 +1006,8 @@ function safelyRenderProducts(options) {
 
 function applyInitialFilters() {
   const params = new URLSearchParams(window.location.search);
-  if (searchInput && params.get("q")) searchInput.value = params.get("q");
+  const searchParam = params.get("q") || params.get("search");
+  if (searchInput && searchParam) searchInput.value = searchParam;
   if (brandFilter && params.get("brand")) brandFilter.value = params.get("brand");
   updateModelOptions(brandFilter?.value || "");
   if (modelFilter && params.get("model")) modelFilter.value = params.get("model");
@@ -1079,6 +1081,12 @@ async function initShop() {
         currentProductsPage = 1;
         safelyRenderProducts({ page: 1 });
       }, SEARCH_DEBOUNCE_MS);
+    });
+    searchForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      clearTimeout(searchDebounceTimer);
+      currentProductsPage = 1;
+      safelyRenderProducts({ page: 1 });
     });
     searchClear?.addEventListener("click", () => {
       searchInput.value = "";
