@@ -18,19 +18,19 @@ function patch(rel, updater) {
   if (after !== before) {
     write(rel, after);
     changedFiles += 1;
-    console.log(`[codex-patch] updated ${rel}`);
+    console.log("[codex-patch] updated " + rel);
   }
 }
 
 function replaceRequired(text, pattern, replacement, label) {
   const next = text.replace(pattern, replacement);
   if (next === text && !String(text).includes(String(replacement).slice(0, 80))) {
-    console.warn(`[codex-patch] ${label} was already applied or pattern was not found`);
+    console.warn("[codex-patch] " + label + " was already applied or pattern was not found");
   }
   return next;
 }
 
-const shopHelpers = `function renderShopListing(products, siteBase, totalCount = null) {
+const shopHelpers = String.raw`function renderShopListing(products, siteBase, totalCount = null) {
   const valid = Array.isArray(products)
     ? products.filter((p) => p && isProductPublic(p))
     : [];
@@ -70,7 +70,7 @@ function filterShopProductsForSsr(products = [], { search = "", category = "", b
 
 function replaceBasePlaceholders`;
 
-const seoHelpers = `function buildShopSeoState({ siteBase, search = "", category = "", brand = "", count = 0, products = [] } = {}) {
+const seoHelpers = String.raw`function buildShopSeoState({ siteBase, search = "", category = "", brand = "", count = 0, products = [] } = {}) {
   const normalizedBase = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
   const cleanSearch = compactText(search);
   const cleanCategory = compactText(category);
@@ -78,23 +78,24 @@ const seoHelpers = `function buildShopSeoState({ siteBase, search = "", category
   const query = new URLSearchParams();
   if (cleanCategory) query.set("category", cleanCategory);
   if (cleanBrand) query.set("brand", cleanBrand);
-  const canonical = `${normalizedBase}/shop.html${query.toString() ? `?${query.toString()}` : ""}`;
+  const queryText = query.toString();
+  const canonical = normalizedBase + "/shop.html" + (queryText ? "?" + queryText : "");
   const titleSubject = [cleanCategory, cleanBrand].filter(Boolean).join(" ");
   const title = cleanSearch
-    ? `Resultados para ${cleanSearch} | NERIN Parts`
+    ? "Resultados para " + cleanSearch + " | NERIN Parts"
     : titleSubject
-      ? `${titleSubject} en stock | NERIN Parts`
+      ? titleSubject + " en stock | NERIN Parts"
       : "Catalogo de repuestos para celulares | NERIN Parts";
   const description = cleanSearch
-    ? `Resultados de busqueda para ${cleanSearch} en NERIN Parts. Repuestos para celulares con stock real, factura A/B y envios a todo el pais.`
+    ? "Resultados de busqueda para " + cleanSearch + " en NERIN Parts. Repuestos para celulares con stock real, factura A/B y envios a todo el pais."
     : titleSubject
-      ? `Compra ${titleSubject} en NERIN Parts. Stock real, factura A/B, retiro con turno en CABA y envios a todo Argentina.`
+      ? "Compra " + titleSubject + " en NERIN Parts. Stock real, factura A/B, retiro con turno en CABA y envios a todo Argentina."
       : "Catalogo actualizado de pantallas, modulos, baterias y repuestos para celulares. Stock real, garantia, factura A/B y envios a todo Argentina.";
   const robots = cleanSearch ? "noindex,follow" : "index,follow";
   const itemListElement = products
     .map((product, index) => {
       const slug = product?.publicSlug || product?.public_slug || product?.slug || product?.id;
-      const urlValue = slug ? absoluteUrl(`/p/${encodeURIComponent(String(slug))}`, normalizedBase) : null;
+      const urlValue = slug ? absoluteUrl("/p/" + encodeURIComponent(String(slug)), normalizedBase) : null;
       if (!urlValue) return null;
       return {
         "@type": "ListItem",
@@ -113,7 +114,7 @@ const seoHelpers = `function buildShopSeoState({ siteBase, search = "", category
     isPartOf: {
       "@type": "WebSite",
       name: "NERIN Parts",
-      url: `${normalizedBase}/`,
+      url: normalizedBase + "/",
     },
     mainEntity: {
       "@type": "ItemList",
@@ -126,30 +127,30 @@ const seoHelpers = `function buildShopSeoState({ siteBase, search = "", category
 
 function replaceTag(html, regex, replacement) {
   if (regex.test(html)) return html.replace(regex, replacement);
-  return `${html}${replacement}`;
+  return html + replacement;
 }
 
 function applyShopSeoHead(head, seo) {
   let next = head || "";
-  next = replaceTag(next, /<title>[\s\S]*?<\/title>/i, `<title>${esc(seo.title)}</title>`);
-  next = replaceTag(next, /<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${esc(seo.description)}">`);
-  next = replaceTag(next, /<meta\s+name=["']robots["'][^>]*>/i, `<meta name="robots" content="${esc(seo.robots)}">`);
-  next = replaceTag(next, /<link\s+rel=["']canonical["'][^>]*>/i, `<link rel="canonical" href="${esc(seo.canonical)}">`);
-  next = replaceTag(next, /<meta\s+property=["']og:title["'][^>]*>/i, `<meta property="og:title" content="${esc(seo.title)}">`);
-  next = replaceTag(next, /<meta\s+property=["']og:description["'][^>]*>/i, `<meta property="og:description" content="${esc(seo.description)}">`);
-  next = replaceTag(next, /<meta\s+property=["']og:url["'][^>]*>/i, `<meta property="og:url" content="${esc(seo.canonical)}">`);
-  next = replaceTag(next, /<meta\s+name=["']twitter:title["'][^>]*>/i, `<meta name="twitter:title" content="${esc(seo.title)}">`);
-  next = replaceTag(next, /<meta\s+name=["']twitter:description["'][^>]*>/i, `<meta name="twitter:description" content="${esc(seo.description)}">`);
-  next = replaceTag(next, /<meta\s+name=["']twitter:url["'][^>]*>/i, `<meta name="twitter:url" content="${esc(seo.canonical)}">`);
+  next = replaceTag(next, /<title>[\s\S]*?<\/title>/i, "<title>" + esc(seo.title) + "</title>");
+  next = replaceTag(next, /<meta\s+name=["']description["'][^>]*>/i, "<meta name=\"description\" content=\"" + esc(seo.description) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']robots["'][^>]*>/i, "<meta name=\"robots\" content=\"" + esc(seo.robots) + "\">");
+  next = replaceTag(next, /<link\s+rel=["']canonical["'][^>]*>/i, "<link rel=\"canonical\" href=\"" + esc(seo.canonical) + "\">");
+  next = replaceTag(next, /<meta\s+property=["']og:title["'][^>]*>/i, "<meta property=\"og:title\" content=\"" + esc(seo.title) + "\">");
+  next = replaceTag(next, /<meta\s+property=["']og:description["'][^>]*>/i, "<meta property=\"og:description\" content=\"" + esc(seo.description) + "\">");
+  next = replaceTag(next, /<meta\s+property=["']og:url["'][^>]*>/i, "<meta property=\"og:url\" content=\"" + esc(seo.canonical) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']twitter:title["'][^>]*>/i, "<meta name=\"twitter:title\" content=\"" + esc(seo.title) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']twitter:description["'][^>]*>/i, "<meta name=\"twitter:description\" content=\"" + esc(seo.description) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']twitter:url["'][^>]*>/i, "<meta name=\"twitter:url\" content=\"" + esc(seo.canonical) + "\">");
   return next.replace(
     /<script[^>]+id=["']shop-schema["'][^>]*>[\s\S]*?<\/script>/i,
-    `<script type="application/ld+json" id="shop-schema">${safeJsonForScript(seo.collectionLd)}</script>`,
+    "<script type=\"application/ld+json\" id=\"shop-schema\">" + safeJsonForScript(seo.collectionLd) + "</script>",
   );
 }
 
 function replaceBasePlaceholders`;
 
-const shopRoute = `  // SSR del catalogo
+const shopRoute = String.raw`  // SSR del catalogo
   if (
     (pathname === "/shop.html" || pathname === "/shop" || pathname === "/shop/") &&
     req.method === "GET"
@@ -197,18 +198,18 @@ const shopRoute = `  // SSR del catalogo
     const hydratedHead = applyShopSeoHead(replaceBasePlaceholders(templateHead, siteBase), seo);
     let hydratedBody = replaceBasePlaceholders(templateBody, siteBase);
     hydratedBody = hydratedBody.replace(
-      /<div\\s+id=\"productGrid\"[^>]*>\\s*<\\/div>/i,
-      `<div id="productGrid" class="product-grid premium-grid" role="list">${listing}</div>`,
+      /<div\s+id=\"productGrid\"[^>]*>\s*<\/div>/i,
+      '<div id="productGrid" class="product-grid premium-grid" role="list">' + listing + '</div>',
     );
     hydratedBody = hydratedBody.replace(
-      /<span\\s+id=\"resultCount\">[^<]*<\\/span>/i,
-      `<span id="resultCount">${esc(String(rendered.count || 0))}</span>`,
+      /<span\s+id=\"resultCount\">[^<]*<\/span>/i,
+      '<span id="resultCount">' + esc(String(rendered.count || 0)) + '</span>',
     );
     hydratedBody = hydratedBody.replace(
-      /<p>\\s*<span\\s+id=\"resultCount\">[^<]*<\\/span>[^<]*<\\/p>/i,
-      `<p><span id="resultCount">${esc(String(rendered.count || 0))}</span> ${esc(summary)}</p>`,
+      /<p>\s*<span\s+id=\"resultCount\">[^<]*<\/span>[^<]*<\/p>/i,
+      '<p><span id="resultCount">' + esc(String(rendered.count || 0)) + '</span> ' + esc(summary) + '</p>',
     );
-    const html = `<!doctype html><html lang="es"><head>${hydratedHead}</head>${hydratedBody}</html>`;
+    const html = '<!doctype html><html lang="es"><head>' + hydratedHead + '</head>' + hydratedBody + '</html>';
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;
@@ -261,7 +262,7 @@ patch("frontend/admin.html", (text) => {
   return next;
 });
 
-const bulkRunHandler = `if (bulkPublishRunBtn) {
+const bulkRunHandler = String.raw`if (bulkPublishRunBtn) {
   bulkPublishRunBtn.addEventListener("click", async () => {
     const payload = { ...getBulkPublishPayload(), dryRun: false, publishMode: "eligible_only" };
     bulkPublishRunBtn.disabled = true;
@@ -279,7 +280,8 @@ const bulkRunHandler = `if (bulkPublishRunBtn) {
         return;
       }
       const scope = payload.filters?.visibility === "private" ? "privados/ocultos" : "filtrados";
-      if (!confirm(`Se van a publicar ${preview.eligibleCount} productos ${scope} (limite ${payload.limit}). Continuar?`)) {
+      const message = "Se van a publicar " + preview.eligibleCount + " productos " + scope + " (limite " + payload.limit + "). Continuar?";
+      if (!confirm(message)) {
         renderBulkPublishSummary(preview, "preview");
         return;
       }
@@ -313,4 +315,4 @@ patch("frontend/js/admin.js", (text) => {
   return next;
 });
 
-console.log(`[codex-patch] complete; changedFiles=${changedFiles}`);
+console.log("[codex-patch] complete; changedFiles=" + changedFiles);
