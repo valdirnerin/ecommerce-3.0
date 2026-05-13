@@ -21,7 +21,7 @@ if (!text.includes(marker)) {
 const snippet = String.raw`async function requestHandler(req, res) {
   // [sitemap-hotfix-large-catalog]
   // Intercepta sitemaps antes del handler historico para evitar cargar products.json completo en memoria.
-  // El catalogo real puede superar 100 MB, por eso aca se consulta SQLite via productsSqliteRepo.
+  // Mantener este handler simple: no ejecutar SEO, no generar contenido, no evaluar cada producto con funciones pesadas.
   const __sitemapParsedUrl = url.parse(req.url, true);
   const __sitemapPathname = __sitemapParsedUrl.pathname;
   if (
@@ -43,23 +43,26 @@ const snippet = String.raw`async function requestHandler(req, res) {
         priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" || pathSegment === "/shop" ? "0.9" : "0.5",
       }));
       const toProductEntry = (product) => {
-        const slug = product?.publicSlug || product?.public_slug || product?.slug;
-        if (!slug) return null;
-        const autoContent = buildProductAutoContent(product || {});
-        if (!evaluateProductSeoQuality(product || {}, autoContent).indexable) return null;
-        return {
-          loc: absoluteUrl("/p/" + encodeURIComponent(String(slug)), base),
-          lastmod: generatedAt,
-          changefreq: "weekly",
-          priority: "0.8",
-        };
+        try {
+          const slug = product?.publicSlug || product?.public_slug || product?.slug;
+          if (!slug) return null;
+          return {
+            loc: absoluteUrl("/p/" + encodeURIComponent(String(slug)), base),
+            lastmod: generatedAt,
+            changefreq: "weekly",
+            priority: "0.8",
+          };
+        } catch (entryError) {
+          console.warn("[sitemap:product-skip]", entryError?.message || entryError);
+          return null;
+        }
       };
       const firstPage = await productsSqliteRepo.queryProducts({ page: 1, pageSize: 1 });
       const publicCount = Number(firstPage?.totalItems || firstPage?.total || firstPage?.count || firstPage?.items?.length || 0);
       const totalParts = Math.max(1, Math.ceil(publicCount / pageSize));
 
       if (__sitemapPathname === "/sitemap-static.xml") {
-        console.log("[sitemap] static");
+        console.log("[sitemap] static count=" + staticEntries.length);
         const xml = buildSitemapPartXml(base, staticEntries);
         res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
         res.end(xml);
@@ -99,7 +102,7 @@ const snippet = String.raw`async function requestHandler(req, res) {
       res.end(xml);
       return;
     } catch (error) {
-      console.error("[sitemap:error]", error?.message || error);
+      console.error("[sitemap:error]", error?.stack || error?.message || error);
       res.writeHead(500, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store" });
       res.end('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap temporarily unavailable</error>');
       return;
