@@ -363,6 +363,17 @@ function getProductSku(product) {
   return normalizeContentId(product.id);
 }
 
+function getVisibleProductName(product) {
+  const raw =
+    product?.name ||
+    product?.title ||
+    product?.description ||
+    product?.sku ||
+    product?.id ||
+    "Producto";
+  return normalizeText(String(raw)) || "Producto";
+}
+
 function resolveSeo(product) {
   const { product: enriched, generated } = applySeoDefaults(product || {});
   return {
@@ -373,14 +384,8 @@ function resolveSeo(product) {
 }
 
 function buildModuleAltLabel(product) {
-  const { title } = resolveSeo(product);
-  const label = stripBrandSuffix(title) || normalizeText(product?.name);
-  if (label) {
-    return label.toLowerCase().startsWith("módulo")
-      ? label
-      : `Módulo ${label} Service Pack original`;
-  }
-  return "Módulo Service Pack original";
+  const label = getVisibleProductName(product);
+  return label || "Producto";
 }
 
 function buildMetaTitle(product) {
@@ -407,7 +412,7 @@ function buildMetaDescription(product) {
   const { description } = resolveSeo(product);
   if (description) return truncateText(description, 180);
   const fallback = getProductDescription(product, { preferMeta: true });
-  return truncateText(fallback || "Repuesto original Service Pack", 180);
+  return truncateText(fallback || "Repuesto", 180);
 }
 
 function setMetaContent(attr, key, value) {
@@ -442,7 +447,7 @@ function setCanonicalUrl(url) {
 function updateBreadcrumbJsonLd(product, productUrl) {
   const script = document.getElementById("product-breadcrumbs");
   if (!script || !product) return;
-  const heading = stripBrandSuffix(resolveSeo(product).title) || product.name || "Producto";
+  const heading = getVisibleProductName(product);
   const breadcrumbs = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -567,7 +572,7 @@ function updateJsonLd(product, images, productUrl) {
   if (!product) return;
   const head = document.head;
   if (!head) return;
-  const heading = stripBrandSuffix(resolveSeo(product).title) || product.name || "Producto";
+  const heading = getVisibleProductName(product);
   const gallery = Array.isArray(images) ? images : [];
   const absoluteImages = gallery
     .filter(Boolean)
@@ -1220,7 +1225,7 @@ function renderProduct(product) {
   summary.className = "product-summary product-buy-header";
 
   const title = document.createElement("h1");
-  title.textContent = stripBrandSuffix(seoTitle) || product.name || "Producto";
+  title.textContent = getVisibleProductName(product);
   summary.appendChild(title);
 
   const meta = document.createElement("div");
@@ -1562,7 +1567,7 @@ function renderProduct(product) {
       ? formatPrice(netUnitPrice)
       : formatPrice(0);
     taxFreeNote.textContent = `Precio sin impuestos: ${netText}`;
-    stickyPrice.textContent = `Precio: ${formatPrice(unitPrice)} · x${qty} u · Service Pack original`;
+    stickyPrice.textContent = `Precio: ${formatPrice(unitPrice)} · x${qty} u`;
     if (productPriceContext.canUseWholesale) {
       const bulkSavings = productPriceContext.discountAmount * qty;
       if (productPriceContext.discountAmount > 0) {
@@ -1582,7 +1587,7 @@ function renderProduct(product) {
 
   const setCtaLabels = () => {
     const isMobile = window.matchMedia("(max-width: 768px)").matches;
-    const label = "COMPRAR MÓDULO AHORA";
+    const label = "COMPRAR AHORA";
     addBtn.textContent = label;
     stickyBtn.textContent = label;
   };

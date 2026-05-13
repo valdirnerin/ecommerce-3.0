@@ -9,14 +9,18 @@ describe("product SEO taxonomy", () => {
     expect(["Repuesto", "Adhesivo / pegamento"]).toContain(productType);
     expect(productType).not.toBe("Pantalla / display");
     expect(seo.title).toBe("RESIN PC | NERIN Parts");
-    expect(seo.description).toBe("RESIN PC disponible en NERIN Parts. Verificá compatibilidad, SKU 0103-009557 y disponibilidad antes de comprar.");
+    expect(seo.description).toContain("RESIN PC disponible en NERIN Parts.");
+    expect(seo.description).toContain("SKU/código de pieza");
+    expect(seo.description).toContain("SKU: 0103-009557.");
     expect(`${seo.title} ${seo.description}`).not.toMatch(/M[oó]dulo Pantalla|Samsung Galaxy|Original Service Pack/i);
   });
 
   test("real display is classified as screen", () => {
     const product = { description: "Display incl. frame Original Samsung Galaxy S25 SM-S931", brand: "Samsung", model: "Galaxy S25 SM-S931", quality: "Original" };
     expect(detectProductType(product)).toBe("Pantalla / display");
-    expect(generateProductSeo(product).title).toMatch(/Pantalla/i);
+    const seo = generateProductSeo(product);
+    expect(seo.title).toContain("Display incl. frame Original Samsung Galaxy S25 SM-S931");
+    expect(`${seo.title} ${seo.description}`).not.toMatch(/M[oó]dulo Pantalla|Pantalla para|Original Service Pack/i);
   });
 
   test("display adhesive is adhesive, not screen", () => {
@@ -46,4 +50,12 @@ describe("product SEO taxonomy", () => {
   test("flex cable is internal flex", () => {
     expect(detectProductType({ name: "Flex cable" })).toBe("Flex / cable interno");
   });
+
+  test("RESIN PC keeps real commercial name in SEO", () => {
+    const product = { name: "RESIN PC" };
+    const seo = generateProductSeo(product);
+    expect(seo.title).toContain("RESIN PC");
+    expect(`${seo.title} ${seo.description}`).not.toMatch(/M[oó]dulo Pantalla|Pantalla para|Samsung Galaxy|Original Service Pack/i);
+  });
+
 });

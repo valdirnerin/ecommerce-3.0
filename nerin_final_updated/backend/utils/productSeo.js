@@ -1,4 +1,3 @@
-const { buildProductAutoContent } = require("./productAutoContent");
 const { detectProductType } = require("./productTaxonomy");
 
 const GENERIC_SEO_TITLES = new Set([
@@ -79,30 +78,16 @@ function buildSafeProductDescription(product = {}, label = "") {
 function generateProductSeo(product = {}) {
   const productType = detectProductType(product);
   const label = buildSafeProductLabel(product);
+  const brand = normalizeText(pickField(product, ["brand", "catalog_brand", "Brand"]));
+  const sku = normalizeText(pickField(product, ["sku", "SKU", "part_number", "partNumber", "PartNumber", "Part Number"]));
 
-  if (productType !== "Pantalla / display") {
-    const description = buildSafeProductDescription(product, label);
-    return {
-      title: truncateText(`${label} | NERIN Parts`, 160),
-      description: truncateText(description, 200),
-      ogTitle: label,
-      ogDescription: description,
-      productType,
-    };
-  }
+  const descriptionParts = [
+    `${label} disponible en NERIN Parts. Verificá compatibilidad, SKU/código de pieza y disponibilidad antes de comprar.`,
+  ];
+  if (brand) descriptionParts.push(`Marca: ${brand}.`);
+  if (sku) descriptionParts.push(`SKU: ${sku}.`);
+  const description = compactText(descriptionParts.join(" "));
 
-  const autoContent = buildProductAutoContent(product);
-  if (autoContent && (autoContent.seoTitle || autoContent.seoDescription)) {
-    return {
-      title: truncateText(autoContent.seoTitle || `${label} | NERIN Parts`, 160),
-      description: truncateText(autoContent.seoDescription || autoContent.shortDescription || buildSafeProductDescription(product, label), 200),
-      ogTitle: autoContent.h1 || autoContent.seoTitle || label,
-      ogDescription: autoContent.longDescription || autoContent.seoDescription || buildSafeProductDescription(product, label),
-      productType,
-    };
-  }
-
-  const description = buildSafeProductDescription(product, label);
   return {
     title: truncateText(`${label} | NERIN Parts`, 160),
     description: truncateText(description, 200),
