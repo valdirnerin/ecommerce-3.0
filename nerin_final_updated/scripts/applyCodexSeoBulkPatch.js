@@ -247,6 +247,48 @@ patch("backend/data/productsSqliteRepo.js", (text) => {
   next = next.replace(/\n\s*if \(signals\.visibility === "hidden" \|\| signals\.status === "hidden"\) reasons\.push\("hidden"\);/g, "");
   next = next.replace(/\n\s*if \(signals\.visibility === "private" \|\| signals\.status === "private"\) reasons\.push\("private"\);/g, "");
   next = next.replace(/firstFiniteNumber\(\[/g, "firstNumber([");
+  next = next.replace(
+    /const query = await queryAdminProducts\(\{\n    page: 1,\n    pageSize: safeLimit,\n    search: filters\?\.search \|\| "",\n    brand: filters\?\.brand \|\| "",\n    category: filters\?\.category \|\| "",\n    visibility: filters\?\.visibility \|\| "",\n    status: filters\?\.status \|\| "",\n  \}\);\n  const rows = query\.items \|\| \[\];/,
+    `const privateScope = filters?.privateScope === "private_or_hidden";
+  const query = await queryAdminProducts({
+    page: 1,
+    pageSize: safeLimit,
+    search: filters?.search || "",
+    brand: filters?.brand || "",
+    category: filters?.category || "",
+    visibility: privateScope ? "" : filters?.visibility || "",
+    status: filters?.status || "",
+  });
+  const rawRows = query.items || [];
+  const rows = privateScope
+    ? rawRows.filter((item) => {
+        const visibility = normalizeQueryText(item.visibility || "");
+        const status = normalizeQueryText(item.status || "");
+        return visibility === "private" || visibility === "hidden" || status === "private" || status === "hidden";
+      })
+    : rawRows;`,
+  );
+  next = next.replace(
+    /const query = await queryAdminProducts\(\{ page: 1, pageSize: Math\.max\(1, Math\.min\(50000, Number\(limit\) \|\| 500\)\), search: filters\?\.search \|\| "", brand: filters\?\.brand \|\| "", category: filters\?\.category \|\| "", visibility: filters\?\.visibility \|\| "", status: filters\?\.status \|\| "" \}\);\n  const rows = query\.items \|\| \[\];/,
+    `const publishPrivateScope = filters?.privateScope === "private_or_hidden";
+  const query = await queryAdminProducts({
+    page: 1,
+    pageSize: Math.max(1, Math.min(50000, Number(limit) || 500)),
+    search: filters?.search || "",
+    brand: filters?.brand || "",
+    category: filters?.category || "",
+    visibility: publishPrivateScope ? "" : filters?.visibility || "",
+    status: filters?.status || "",
+  });
+  const rawRows = query.items || [];
+  const rows = publishPrivateScope
+    ? rawRows.filter((item) => {
+        const visibility = normalizeQueryText(item.visibility || "");
+        const status = normalizeQueryText(item.status || "");
+        return visibility === "private" || visibility === "hidden" || status === "private" || status === "hidden";
+      })
+    : rawRows;`,
+  );
   return next;
 });
 
@@ -256,9 +298,18 @@ patch("frontend/admin.html", (text) => {
     /(<input type="number" id="bulkPublishLimit" placeholder="[^"]*" min="1" max="50000")( \/>)/,
     '$1 value="500"$2',
   );
-  next = next.replace(/<option value="">Acci[oó]n masiva[^<]*<\/option>/, '<option value="">Accion por seleccion...</option>');
-  next = next.replace(/\n\s*<option value="vis-public">[^<]*<\/option>/g, "");
-  next = next.replace(/\n\s*<option value="vis-private">[^<]*<\/option>/g, "");
+  next = next.replace(/<option value="">Acci[oÃ³]n masiva[^<]*<\/option>/, '<option value="">Accion por seleccion...</option>');
+  next = next.replace(/<strong>Publicaci[^<]*masiva<\/strong>/, '<strong>Privados -&gt; publicos</strong>');
+  next = next.replace(/(<input type="checkbox" id="bulkPublishOnlyHidden")( \/>)/, '$1 checked$2');
+  next = next.replace(/Solo ocultos\/privados/g, "Solo privados u ocultos");
+  next = next.replace(/Simular publicaci[^<]*<\/button>/, 'Simular privados -&gt; publicos</button>');
+  next = next.replace(/Publicar productos aptos<\/button>/, 'Pasar privados -&gt; publicos</button>');
+  if (!next.includes('value="vis-public"')) {
+    next = next.replace(
+      /<option value="delete">Eliminar<\/option>/,
+      '<option value="delete">Eliminar</option>\n              <option value="vis-public">Pasar seleccionados a publico</option>\n              <option value="vis-private">Pasar seleccionados a privado</option>',
+    );
+  }
   return next;
 });
 
@@ -266,7 +317,7 @@ const bulkRunHandler = String.raw`if (bulkPublishRunBtn) {
   bulkPublishRunBtn.addEventListener("click", async () => {
     const payload = { ...getBulkPublishPayload(), dryRun: false, publishMode: "eligible_only" };
     bulkPublishRunBtn.disabled = true;
-    bulkPublishRunBtn.textContent = "Publicando...";
+    bulkPublishRunBtn.textContent = "Pasando...";
     try {
       const previewRes = await apiFetch("/api/admin/products/bulk-publish-preview", {
         method: "POST",
@@ -274,25 +325,25 @@ const bulkRunHandler = String.raw`if (bulkPublishRunBtn) {
         body: JSON.stringify(payload),
       });
       const preview = await previewRes.json();
-      if (!previewRes.ok) throw new Error(preview?.error || "No se pudo simular publicacion");
+      if (!previewRes.ok) throw new Error(preview?.error || "No se pudo simular privados a publicos");
       if (!preview.eligibleCount) {
         renderBulkPublishSummary(preview, "preview");
         return;
       }
-      const scope = payload.filters?.visibility === "private" ? "privados/ocultos" : "filtrados";
-      const message = "Se van a publicar " + preview.eligibleCount + " productos " + scope + " (limite " + payload.limit + "). Continuar?";
+      const scope = payload.filters?.privateScope === "private_or_hidden" ? "privados/ocultos" : "filtrados";
+      const message = "Se van a pasar a publico " + preview.eligibleCount + " productos " + scope + " (limite " + payload.limit + "). Continuar?";
       if (!confirm(message)) {
         renderBulkPublishSummary(preview, "preview");
         return;
       }
       const res = await apiFetch("/api/admin/products/bulk-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "No se pudo publicar en masa");
+      if (!res.ok) throw new Error(data?.error || "No se pudo pasar a publico en masa");
       renderBulkPublishSummary(data, "publish");
       loadProducts();
     } finally {
       bulkPublishRunBtn.disabled = false;
-      bulkPublishRunBtn.textContent = "Publicar productos aptos";
+      bulkPublishRunBtn.textContent = "Pasar privados -> publicos";
     }
   });
 }
@@ -306,6 +357,7 @@ patch("frontend/js/admin.js", (text) => {
     'function getBulkPublishPayload() {\n  const safeLimit = Math.max(1, Math.min(50000, Number(bulkPublishLimit?.value || 500) || 500));\n  const filters = {',
   );
   next = next.replace(/limit: Number\(bulkPublishLimit\?\.value \|\| 500\),/, "limit: safeLimit,");
+  next = next.replace(/if \(bulkPublishOnlyHidden\?\.checked\) filters\.visibility = "private";/, 'if (bulkPublishOnlyHidden?.checked) filters.privateScope = "private_or_hidden";');
   next = replaceRequired(
     next,
     /if \(bulkPublishRunBtn\) \{[\s\S]*?\n\}\n\nasync function deleteProduct/,
