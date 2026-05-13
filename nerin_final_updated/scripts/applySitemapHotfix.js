@@ -20,8 +20,8 @@ if (!text.includes(marker)) {
 
 const snippet = String.raw`async function requestHandler(req, res) {
   // [sitemap-hotfix-large-catalog]
-  // Intercepta sitemaps antes del handler histórico para evitar cargar products.json completo en memoria.
-  // El catálogo real puede superar 100 MB, por eso acá se consulta SQLite vía productsSqliteRepo.
+  // Intercepta sitemaps antes del handler historico para evitar cargar products.json completo en memoria.
+  // El catalogo real puede superar 100 MB, por eso aca se consulta SQLite via productsSqliteRepo.
   const __sitemapParsedUrl = url.parse(req.url, true);
   const __sitemapPathname = __sitemapParsedUrl.pathname;
   if (
@@ -45,6 +45,8 @@ const snippet = String.raw`async function requestHandler(req, res) {
       const toProductEntry = (product) => {
         const slug = product?.publicSlug || product?.public_slug || product?.slug;
         if (!slug) return null;
+        const autoContent = buildProductAutoContent(product || {});
+        if (!evaluateProductSeoQuality(product || {}, autoContent).indexable) return null;
         return {
           loc: absoluteUrl("/p/" + encodeURIComponent(String(slug)), base),
           lastmod: generatedAt,
