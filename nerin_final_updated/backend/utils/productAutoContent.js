@@ -8,16 +8,12 @@ function cleanSentence(value) {
 }
 
 function pickMetadata(product = {}) {
-  return product && typeof product.metadata === "object" && product.metadata !== null
-    ? product.metadata
-    : {};
+  return product && typeof product.metadata === "object" && product.metadata !== null ? product.metadata : {};
 }
 
 function pickSupplierImport(product = {}) {
   const meta = pickMetadata(product);
-  return meta && typeof meta.supplierImport === "object" && meta.supplierImport !== null
-    ? meta.supplierImport
-    : {};
+  return meta && typeof meta.supplierImport === "object" && meta.supplierImport !== null ? meta.supplierImport : {};
 }
 
 function pickField(product = {}, keys = []) {
@@ -51,10 +47,10 @@ function buildSearchText(product = {}) {
     pickField(product, ["quality", "Quality"]),
     pickField(product, ["name", "title"]),
     pickField(product, ["remarks", "Remarks"]),
-  ]
-    .map(normalizeText)
-    .filter(Boolean)
-    .join(" ");
+    pickField(product, ["category", "Category", "mainCategory", "MainCategory"]),
+    pickField(product, ["subcategory", "subCategory", "SubCategory"]),
+    pickField(product, ["productGroup", "ProductGroup"]),
+  ].map(normalizeText).filter(Boolean).join(" ");
 }
 
 function canonicalQuality(rawQuality) {
@@ -121,9 +117,7 @@ function detectProductQuality(product = {}) {
   const quality = canonicalQuality(raw);
 
   if (!quality) {
-    if (/\brefurb(?:ished)?\b/i.test(description)) {
-      return buildQualityResult("Refurbished", "original_reacondicionado", "Refurbished", "description");
-    }
+    if (/\brefurb(?:ished)?\b/i.test(description)) return buildQualityResult("Refurbished", "original_reacondicionado", "Refurbished", "description");
     return buildQualityResult("Calidad no especificada", "unknown", "", "missing");
   }
 
@@ -139,11 +133,61 @@ function detectProductQuality(product = {}) {
   if (key === "in-cell fhd") return buildQualityResult("Compatible In-Cell FHD", "aftermarket", quality);
   if (/^pulled\b/i.test(quality)) return buildQualityResult(quality, "retirado_de_equipo", quality);
   if (/^po-/i.test(quality)) return buildQualityResult(quality, "pre_owned", quality);
-
   return buildQualityResult(quality, "unknown", quality);
 }
 
-function detectDisplayTechnology(product = {}) {
+function textHas(text, regex) {
+  return regex.test(String(text || ""));
+}
+
+function detectAdhesiveTarget(text) {
+  if (textHas(text, /\b(display|screen|pantalla|lcd|oled|amoled|tft)\b/i)) return "pantalla";
+  if (textHas(text, /\b(back\s+cover|rear\s+cover|battery\s+cover|back\s+glass|tapa\s+trasera)\b/i)) return "tapa trasera";
+  if (textHas(text, /\bbattery|bateria\b/i)) return "bateria";
+  if (textHas(text, /\bcamera\s+lens|lente\s+camara\b/i)) return "lente de camara";
+  return null;
+}
+
+function detectPartType(product = {}) {
+  const text = buildSearchText(product);
+  const mainCategory = normalizeText(pickField(product, ["mainCategory", "MainCategory", "category", "Category"]));
+  const subCategory = normalizeText(pickField(product, ["subCategory", "SubCategory", "subcategory"]));
+  const categoryText = [mainCategory, subCategory].filter(Boolean).join(" ");
+
+  // Orden defensivo: consumibles, adhesivos, herramientas y accesorios se detectan antes que display.
+  // Esto evita que "display adhesive" termine clasificado como pantalla.
+  if (textHas(`${categoryText} ${text}`, /\b(adhesive|adhesive\s+tape|glue|tape|sticker|seal|sealant|gasket|bonding|resin|oca|ac[f]?|epoxy|b7000|t7000|e8000|e6000|uv\s+glue|liquid\s+adhesive|double\s+sided|pegamento|adhesivo|cinta)\b/i)) {
+    const target = detectAdhesiveTarget(text);
+    return target ? `Adhesivo para ${target}` : "Adhesivo / pegamento";
+  }
+
+  if (textHas(`${categoryText} ${text}`, /\b(tool|repair\s+tool|screwdriver|tweezer|spudger|opener|suction|clamp|mat|pressing\s+jig|jig|fixture|solder|tip|herramienta|destornillador|pinza)\b/i)) return "Herramienta / accesorio tecnico";
+  if (textHas(`${categoryText} ${text}`, /\b(screen\s+protection|tempered\s+glass|protector|glass\s+tempered|film)\b/i)) return "Protector de pantalla";
+  if (textHas(`${categoryText} ${text}`, /\b(battery|bateria)\b/i)) return "Bateria";
+  if (textHas(`${categoryText} ${text}`, /\b(back\s+cover|rear\s+cover|battery\s+cover|back\s+glass|housing|case|tapa\s+trasera|carcasa)\b/i)) return "Tapa trasera / carcasa";
+  if (textHas(`${categoryText} ${text}`, /\b(charging\s+board|charge\s+port|charging\s+port|dock\s+connector|usb\s+connector|conector\s+de\s+carga|placa\s+de\s+carga)\b/i)) return "Placa / flex de carga";
+  if (textHas(`${categoryText} ${text}`, /\b(flex\s+cable|flex|ribbon\s+cable|flat\s+cable)\b/i)) return "Flex / cable interno";
+  if (textHas(`${categoryText} ${text}`, /\b(camera\s+lens|lens\s+cover|lente\s+camara)\b/i)) return "Lente / vidrio de camara";
+  if (textHas(`${categoryText} ${text}`, /\b(camera|camara)\b/i)) return "Camara";
+  if (textHas(`${categoryText} ${text}`, /\b(speaker|earpiece|buzzer|loudspeaker|altavoz|auricular)\b/i)) return "Audio / parlante";
+  if (textHas(`${categoryText} ${text}`, /\b(microphone|mic\b|microfono)\b/i)) return "Microfono";
+  if (textHas(`${categoryText} ${text}`, /\b(vibrator|vibration|taptic|vibrador)\b/i)) return "Vibrador / taptic";
+  if (textHas(`${categoryText} ${text}`, /\b(button|keypad|power\s+key|volume\s+key|boton|tecla)\b/i)) return "Boton / tecla";
+  if (textHas(`${categoryText} ${text}`, /\b(sim\s+tray|sim\s+holder|card\s+tray|bandeja\s+sim)\b/i)) return "Bandeja SIM";
+  if (textHas(`${categoryText} ${text}`, /\b(antenna|antena)\b/i)) return "Antena";
+  if (textHas(`${categoryText} ${text}`, /\b(ic|chip|board\s+component|component)\b/i)) return "Componente electronico";
+
+  if (textHas(`${categoryText} ${text}`, /\b(display|screen|pantalla|lcd|oled|amoled|tft)\b/i)) return "Pantalla / display";
+  return mainCategory || subCategory || "Repuesto";
+}
+
+function isDisplayPartType(partType) {
+  return /pantalla|display/i.test(partType || "");
+}
+
+function detectDisplayTechnology(product = {}, partType = null) {
+  const resolvedPartType = partType || detectPartType(product);
+  if (!isDisplayPartType(resolvedPartType)) return null;
   const quality = canonicalQuality(pickField(product, ["quality", "Quality"]));
   const text = buildSearchText(product);
   if (quality === "Compatible Soft" || /\bsoft\s+oled\b/i.test(text)) return "Soft OLED";
@@ -157,12 +201,11 @@ function detectDisplayTechnology(product = {}) {
   return null;
 }
 
-function detectAssemblyType(product = {}) {
+function detectAssemblyType(product = {}, partType = null) {
+  const resolvedPartType = partType || detectPartType(product);
   const text = buildSearchText(product);
-  const result = {
-    assemblyType: null,
-    extra: null,
-  };
+  const result = { assemblyType: null, extra: null };
+  if (!isDisplayPartType(resolvedPartType)) return result;
   if (/\b(?:incl\.?\s*frame|with\s+frame)\b/i.test(text)) result.assemblyType = "con marco";
   if (/\b(?:excl\.?\s*frame|without\s+frame)\b/i.test(text)) result.assemblyType = "sin marco";
   if (/\bfront\s+flex\b/i.test(text)) result.extra = "con flex frontal";
@@ -180,13 +223,6 @@ function detectProductCondition(product = {}) {
   return null;
 }
 
-function detectPartType(product = {}) {
-  const text = buildSearchText(product);
-  const category = normalizeText(pickField(product, ["category", "Category"]));
-  if (/\b(display|screen|pantalla|lcd|oled|amoled|tft)\b/i.test(text)) return "Pantalla / display";
-  return category || "Repuesto";
-}
-
 function detectAvailability(product = {}) {
   const direct = normalizeText(pickField(product, ["availability", "Availability", "availabilityLabel"]));
   if (direct) return direct;
@@ -202,7 +238,7 @@ function detectAvailability(product = {}) {
 function cleanModelCandidate(value = "") {
   return normalizeText(value)
     .replace(/\([^)]*\)/g, " ")
-    .replace(/\bdisplay\b/gi, " ")
+    .replace(/\b(display|screen|pantalla|adhesive|glue|tape|sticker|protector|battery|rear\s+cover|back\s+cover|charging\s+board|charge\s+port|camera|speaker|microphone|flex)\b/gi, " ")
     .replace(/\b(?:incl\.?|excl\.?)\s*frame\b/gi, " ")
     .replace(/\b(?:with|without)\s+frame\b/gi, " ")
     .replace(/\b(?:soft|hard)?\s*oled\b/gi, " ")
@@ -252,8 +288,11 @@ function qualityForTitle(commercialQuality) {
 }
 
 function partTypeForTitle(partType) {
-  if (/pantalla|display/i.test(partType)) return "Pantalla";
-  return partType || "Repuesto";
+  const type = normalizeText(partType);
+  if (/adhesivo/i.test(type)) return type;
+  if (/pantalla|display/i.test(type)) return "Pantalla";
+  if (/bateria/i.test(type)) return "Bateria";
+  return type || "Repuesto";
 }
 
 function buildH1(product, detected) {
@@ -276,18 +315,19 @@ function truncateText(value, limit) {
 
 function buildProductAutoContent(product = {}) {
   const quality = detectProductQuality(product);
-  const displayTechnology = detectDisplayTechnology(product);
-  const assembly = detectAssemblyType(product);
-  const condition = detectProductCondition(product);
   const partType = detectPartType(product);
+  const displayTechnology = detectDisplayTechnology(product, partType);
+  const assembly = detectAssemblyType(product, partType);
+  const condition = detectProductCondition(product);
   const brand = normalizeText(pickField(product, ["brand", "Brand", "manufacturerName", "ManufacturerName"]));
   const model = normalizeText(pickField(product, ["model", "Model"]));
   const brandModel = buildBrandModel(product);
   const sku = normalizeText(pickField(product, ["sku", "SKU", "supplierPartNumber"]));
   const partNumber = normalizeText(pickField(product, ["part_number", "partNumber", "PartNumber", "Part Number", "supplierPartNumber"]));
-  const category = normalizeText(pickField(product, ["category", "Category"]));
+  const category = normalizeText(pickField(product, ["category", "Category", "mainCategory", "MainCategory"]));
+  const subCategory = normalizeText(pickField(product, ["subcategory", "subCategory", "SubCategory"]));
   const availability = detectAvailability(product);
-  const detected = { ...quality, displayTechnology, assemblyType: assembly.assemblyType, assemblyExtra: assembly.extra, condition, partType, brand, model, brandModel, sku, partNumber, category, availability };
+  const detected = { ...quality, displayTechnology, assemblyType: assembly.assemblyType, assemblyExtra: assembly.extra, condition, partType, brand, model, brandModel, sku, partNumber, category, subCategory, availability };
   const h1 = buildH1(product, detected);
   const modelCopy = brandModel || "el modelo indicado por proveedor";
   const qualityCopy = quality.commercialQuality;
@@ -296,14 +336,34 @@ function buildProductAutoContent(product = {}) {
   const conditionCopy = condition ? ` en condicion ${condition}` : "";
   const shortDescription = cleanSentence(`${h1}. Repuesto ${qualityCopy}${technologyCopy}${assemblyCopy}${conditionCopy}. ${availability}.`);
   const supplierDescription = normalizeText(pickField(product, ["description", "Description"]));
+  const displayParagraph = isDisplayPartType(partType)
+    ? (displayTechnology ? `La tecnologia de pantalla detectada es ${displayTechnology}; no se agregan tecnologias que no figuren en la descripcion o en Quality.` : "La tecnologia de pantalla no fue especificada por el proveedor, por eso no se asume OLED, AMOLED, LCD ni otra variante.")
+    : `Este producto fue clasificado como ${partType}; no se lo trata como pantalla ni se le asigna tecnologia OLED/LCD/AMOLED salvo que sea realmente un display.`;
+  const assemblyParagraph = isDisplayPartType(partType)
+    ? (assembly.assemblyType ? `El tipo de armado detectado es ${assembly.assemblyType}${assembly.extra ? `, ${assembly.extra}` : ""}.` : "El montaje no fue especificado por el proveedor.")
+    : "El tipo de armado con/sin marco no aplica para este tipo de repuesto.";
   const longDescription = cleanSentence([
     `${h1} para ${modelCopy}. La calidad informada por el proveedor es ${qualityCopy} y el origen se clasifica como ${quality.originLabel}.`,
-    displayTechnology ? `La tecnologia de pantalla detectada es ${displayTechnology}; no se agregan tecnologias que no figuren en la descripcion o en Quality.` : "La tecnologia de pantalla no fue especificada por el proveedor, por eso no se asume OLED, AMOLED, LCD ni otra variante.",
-    assembly.assemblyType ? `El tipo de armado detectado es ${assembly.assemblyType}${assembly.extra ? `, ${assembly.extra}` : ""}.` : "El montaje no fue especificado por el proveedor.",
+    displayParagraph,
+    assemblyParagraph,
     supplierDescription ? `Descripcion del proveedor: ${supplierDescription}` : "",
     "Antes de instalar, comparar modelo, SKU y numero de parte con el equipo a reparar.",
   ].filter(Boolean).join(" "));
-  const technicalSpecs = { calidad: qualityCopy, tecnologia: displayTechnology || "No especificada por proveedor", tipoRepuesto: partType, marcaModelo: brandModel || "No especificado por proveedor", condicion: condition || "No especificada por proveedor", origen: quality.originLabel, montaje: assembly.assemblyType || "no especificado", extra: assembly.extra || null, sku: sku || null, partNumber: partNumber || null, categoria: category || null, disponibilidad: availability };
+  const technicalSpecs = {
+    calidad: qualityCopy,
+    tecnologia: isDisplayPartType(partType) ? (displayTechnology || "No especificada por proveedor") : "No aplica",
+    tipoRepuesto: partType,
+    marcaModelo: brandModel || "No especificado por proveedor",
+    condicion: condition || "No especificada por proveedor",
+    origen: quality.originLabel,
+    montaje: isDisplayPartType(partType) ? (assembly.assemblyType || "no especificado") : "no aplica",
+    extra: assembly.extra || null,
+    sku: sku || null,
+    partNumber: partNumber || null,
+    categoria: category || null,
+    subcategoria: subCategory || null,
+    disponibilidad: availability,
+  };
   const compatibilityNotice = cleanSentence(`Verificar compatibilidad con ${modelCopy}${sku ? `, SKU ${sku}` : ""}${partNumber ? ` y numero de parte ${partNumber}` : ""} antes de confirmar la compra o realizar la instalacion.`);
   const seoTitle = truncateText(`${h1} | NERIN Parts`, 160);
   const seoDescription = truncateText(`${h1}. Calidad ${qualityCopy}${displayTechnology ? `, tecnologia ${displayTechnology}` : ""}. ${availability}. ${compatibilityNotice}`, 200);
