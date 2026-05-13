@@ -1608,6 +1608,52 @@ function renderProduct(product) {
   console.log("[product-detail:gallery-children]", galleryContainer?.children?.length || 0);
 }
 
+
+function hasServerRenderedProductContent() {
+  const galleryHasContent =
+    !!galleryContainer &&
+    !!galleryContainer.querySelector("img, figure");
+
+  let jsonLdHasProductName = false;
+  const jsonLdNode = document.getElementById("product-jsonld");
+  if (jsonLdNode) {
+    const rawJsonLd = (jsonLdNode.textContent || "").trim();
+    if (rawJsonLd) {
+      try {
+        const parsed = JSON.parse(rawJsonLd);
+        const nodes = Array.isArray(parsed)
+          ? parsed
+          : Array.isArray(parsed?.["@graph"])
+            ? parsed["@graph"]
+            : [parsed];
+        jsonLdHasProductName = nodes.some((node) => {
+          if (!node || typeof node !== "object") return false;
+          const typeValue = node["@type"];
+          const isProduct =
+            typeValue === "Product" ||
+            (Array.isArray(typeValue) && typeValue.includes("Product"));
+          return isProduct && typeof node.name === "string" && node.name.trim().length > 0;
+        });
+      } catch (_err) {
+        jsonLdHasProductName = false;
+      }
+    }
+  }
+
+  const ogTitle = document.querySelector('meta[property="og:title"]');
+  const hasOgTitle =
+    !!ogTitle &&
+    typeof ogTitle.content === "string" &&
+    ogTitle.content.trim().length > 0;
+
+  const infoText = (infoContainer?.textContent || "").trim();
+  const infoHasNonErrorContent =
+    infoText.length > 0 &&
+    !/error al cargar producto|no se pudo cargar el producto/i.test(infoText);
+
+  return galleryHasContent || jsonLdHasProductName || hasOgTitle || infoHasNonErrorContent;
+}
+
 async function fetchPreviewProduct() {
   try {
     const res = await fetch("/api/dev/preview-product", { cache: "no-store" });
@@ -1622,12 +1668,17 @@ async function fetchPreviewProduct() {
 async function fetchProductByIdentifier(identifier) {
   const safe = String(identifier || "").trim();
   if (!safe) return null;
-  const res = await apiFetch(`/api/products/${encodeURIComponent(safe)}`, {
+  const url = `/api/products/${encodeURIComponent(safe)}`;
+  const res = await apiFetch(url, {
     cache: "no-store",
   });
   if (res.status === 404) return null;
   if (!res.ok) {
-    throw new Error(`No se pudo cargar el producto (${res.status})`);
+    const err = new Error(`No se pudo cargar el producto (${res.status})`);
+    err.status = res.status;
+    err.url = url;
+    err.productId = safe;
+    throw err;
   }
   return res.json();
 }
@@ -1673,8 +1724,28 @@ async function initProduct() {
     }
     renderProduct(normalizeProductPayload(product));
   } catch (err) {
-    if (infoContainer)
-      infoContainer.innerHTML = `<p>Error al cargar producto: ${err.message}</p>`;
+    const status = Number.isFinite(Number(err?.status)) ? Number(err.status) : null;
+    const url = typeof err?.url === "string" ? err.url : null;
+    const productId = typeof err?.productId === "string" ? err.productId : null;
+    console.warn("[product] load failed", {
+      productId,
+      slug: targetSlug || null,
+      url,
+      status,
+    });
+
+    if (hasServerRenderedProductContent()) {
+      console.warn("[product] client hydration failed; preserving SSR", {
+        status,
+        error: err?.message || String(err),
+      });
+      return;
+    }
+
+    if (infoContainer) {
+      infoContainer.innerHTML =
+        "<p>No pudimos actualizar la información en tiempo real. Recargá la página o consultanos por WhatsApp.</p>";
+    }
   }
 }
 
