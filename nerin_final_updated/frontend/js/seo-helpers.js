@@ -248,44 +248,24 @@ function inferServicePack(product = {}) {
 }
 
 // Generador centralizado de metadatos SEO para un producto.
-// Usa información del modelo, código GH82, código interno y banderas de Service Pack / marco.
+// Mantiene el nombre comercial real y evita copy inventado.
 export function generateProductSeo(product = {}) {
-  const brand = normalizeText(product.brand || product.catalog_brand) || "Samsung";
-  const line = inferLine(product, brand);
-  const model = extractModelName(product);
-  const modelCode = extractModelCode(product);
-  const ghCode = extractGhCode(product);
-  const brandLine = compactText([brand, line].filter(Boolean).join(" ")) || brand;
-  const modelLabel = compactText(model || modelCode || product?.sku || brandLine);
-  const codeCopy =
-    modelCode && (!modelLabel.toLowerCase().includes(modelCode.toLowerCase()) ? modelCode : "");
-  const ghCopy = ghCode ? ghCode : "";
-
-  const lowerModel = modelLabel.toLowerCase();
-  const lowerLine = line.toLowerCase();
-  let adjustedBrandLine = brandLine;
-  if (line && lowerModel.includes(lowerLine)) {
-    adjustedBrandLine = compactText([brand].filter(Boolean).join(" ")) || brandLine;
-  }
-  let modelSegment = compactText([adjustedBrandLine, modelLabel].filter(Boolean).join(" ")) || adjustedBrandLine;
-  if (adjustedBrandLine && lowerModel.includes(adjustedBrandLine.toLowerCase())) {
-    modelSegment = modelLabel || adjustedBrandLine;
-  }
-
-  const title = compactText(
-    `Módulo Pantalla ${modelSegment}${codeCopy ? ` ${codeCopy}` : ""} Original Service Pack${
-      ghCopy ? ` ${ghCopy}` : ""
-    } | NERIN Parts`,
+  const label = compactText(
+    product?.name || product?.title || product?.description || product?.sku || product?.id || "Repuesto",
   );
+  const brand = normalizeText(product?.brand || product?.catalog_brand);
+  const sku = normalizeText(product?.sku);
 
-  const description = compactText(
-    `Módulo pantalla original ${modelSegment}${codeCopy ? ` ${codeCopy}` : ""}${
-      ghCopy ? ` ${ghCopy}` : ""
-    }. Service Pack listo para montar. Stock en Argentina, envío rápido y garantía para servicio técnico.`,
-  );
+  const extras = [];
+  if (brand) extras.push(`Marca: ${brand}.`);
+  if (sku) extras.push(`SKU: ${sku}.`);
+
+  const baseDescription = `${label} disponible en NERIN Parts. Verificá compatibilidad, SKU/código de pieza y disponibilidad antes de comprar.`;
+  const description = compactText([baseDescription, ...extras].join(" "));
+  const title = compactText(`${label} | NERIN Parts`);
 
   return {
-    title: truncateText(title || "Módulo Pantalla original Service Pack | NERIN Parts", 160),
+    title: truncateText(title, 160),
     description: truncateText(description, 200),
     ogTitle: title,
     ogDescription: description,
