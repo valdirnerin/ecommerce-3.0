@@ -10,41 +10,23 @@ function cleanSentence(value) {
 }
 
 function pickMetadata(product = {}) {
-  return product && typeof product.metadata === "object" && product.metadata !== null
-    ? product.metadata
-    : {};
+  return product && typeof product.metadata === "object" && product.metadata !== null ? product.metadata : {};
 }
 
 function pickSupplierImport(product = {}) {
   const meta = pickMetadata(product);
-  return meta && typeof meta.supplierImport === "object" && meta.supplierImport !== null
-    ? meta.supplierImport
-    : {};
+  return meta && typeof meta.supplierImport === "object" && meta.supplierImport !== null ? meta.supplierImport : {};
 }
 
 function pickField(product = {}, keys = []) {
   const meta = pickMetadata(product);
   const supplierImport = pickSupplierImport(product);
   for (const key of keys) {
-    if (!key) continue;
-    if (Object.prototype.hasOwnProperty.call(product, key)) {
-      const value = product[key];
-      if (value != null && value !== "") return value;
-    }
-    if (Object.prototype.hasOwnProperty.call(meta, key)) {
-      const value = meta[key];
-      if (value != null && value !== "") return value;
-    }
-    if (Object.prototype.hasOwnProperty.call(supplierImport, key)) {
-      const value = supplierImport[key];
-      if (value != null && value !== "") return value;
-    }
+    if (Object.prototype.hasOwnProperty.call(product, key) && product[key] != null && product[key] !== "") return product[key];
+    if (Object.prototype.hasOwnProperty.call(meta, key) && meta[key] != null && meta[key] !== "") return meta[key];
+    if (Object.prototype.hasOwnProperty.call(supplierImport, key) && supplierImport[key] != null && supplierImport[key] !== "") return supplierImport[key];
   }
   return null;
-}
-
-function normalizeKey(value) {
-  return normalizeText(value).toLowerCase();
 }
 
 function buildSearchText(product = {}) {
@@ -53,10 +35,10 @@ function buildSearchText(product = {}) {
     pickField(product, ["quality", "Quality"]),
     pickField(product, ["name", "title"]),
     pickField(product, ["remarks", "Remarks"]),
-  ]
-    .map(normalizeText)
-    .filter(Boolean)
-    .join(" ");
+    pickField(product, ["category", "Category", "mainCategory", "MainCategory"]),
+    pickField(product, ["subcategory", "subCategory", "SubCategory"]),
+    pickField(product, ["productGroup", "ProductGroup"]),
+  ].map(normalizeText).filter(Boolean).join(" ");
 }
 
 function canonicalQuality(rawQuality) {
@@ -119,17 +101,13 @@ function buildQualityResult(commercialQuality, origin, rawQuality, detectedFrom 
 
 function detectProductQuality(product = {}) {
   const raw = pickField(product, ["quality", "Quality"]);
-  const description = normalizeText(pickField(product, ["description", "Description"]));
+  const text = buildSearchText(product);
   const quality = canonicalQuality(raw);
-
   if (!quality) {
-    if (/\brefurb(?:ished)?\b/i.test(description)) {
-      return buildQualityResult("Refurbished", "original_reacondicionado", "Refurbished", "description");
-    }
+    if (/\brefurb(?:ished)?\b/i.test(text)) return buildQualityResult("Refurbished", "original_reacondicionado", "Refurbished", "description");
     return buildQualityResult("Calidad no especificada", "unknown", "", "missing");
   }
-
-  const key = normalizeKey(quality);
+  const key = quality.toLowerCase();
   if (key === "original") return buildQualityResult("Original", "original_fabricante", quality);
   if (key === "refurbished") return buildQualityResult("Refurbished", "original_reacondicionado", quality);
   if (key === "compatible") return buildQualityResult("Compatible", "aftermarket", quality);
@@ -141,19 +119,15 @@ function detectProductQuality(product = {}) {
   if (key === "in-cell fhd") return buildQualityResult("Compatible In-Cell FHD", "aftermarket", quality);
   if (/^pulled\b/i.test(quality)) return buildQualityResult(quality, "retirado_de_equipo", quality);
   if (/^po-/i.test(quality)) return buildQualityResult(quality, "pre_owned", quality);
-
   return buildQualityResult(quality, "unknown", quality);
 }
 
 function detectPartType(product = {}) {
   return detectProductType(product);
-}\n
-function isDisplayPartType(partType) {
-  return partType === "Pantalla / display";
 }
 
 function detectDisplayTechnology(product = {}) {
-  if (!isDisplayPartType(detectProductType(product))) return null;
+  if (detectProductType(product) !== "Pantalla / display") return null;
   const quality = canonicalQuality(pickField(product, ["quality", "Quality"]));
   const text = buildSearchText(product);
   if (quality === "Compatible Soft" || /\bsoft\s+oled\b/i.test(text)) return "Soft OLED";
@@ -168,9 +142,7 @@ function detectDisplayTechnology(product = {}) {
 }
 
 function detectAssemblyType(product = {}) {
-  if (!isDisplayPartType(detectProductType(product))) {
-    return { assemblyType: null, extra: null };
-  }
+  if (detectProductType(product) !== "Pantalla / display") return { assemblyType: null, extra: null };
   const text = buildSearchText(product);
   const result = { assemblyType: null, extra: null };
   if (/\b(?:incl\.?\s*frame|with\s+frame)\b/i.test(text)) result.assemblyType = "con marco";
@@ -186,9 +158,7 @@ function detectProductCondition(product = {}) {
   if (/\bpulled\b/i.test(text) || quality.origin === "retirado_de_equipo") return "retirado de equipo";
   if (quality.origin === "pre_owned") return "equipo pre-owned";
   if (/\bused\b/i.test(text)) return "usado";
-  if (["Original", "Compatible", "Compatible Soft OLED", "Compatible Hard OLED", "Compatible Budget", "Factory Standard", "Compatible In-Cell", "Compatible In-Cell FHD"].includes(quality.commercialQuality)) {
-    return "nuevo";
-  }
+  if (["Original", "Compatible", "Compatible Soft OLED", "Compatible Hard OLED", "Compatible Budget", "Factory Standard", "Compatible In-Cell", "Compatible In-Cell FHD"].includes(quality.commercialQuality)) return "nuevo";
   return null;
 }
 
@@ -198,11 +168,9 @@ function detectAvailability(product = {}) {
   const stock = Number(pickField(product, ["stock", "Stock", "available_stock", "remote_stock"]));
   if (Number.isFinite(stock) && stock > 0) return "Disponible";
   const canBeOrdered = pickField(product, ["canBeOrdered", "csvCanBeOrdered"]);
-  const stockMode = normalizeKey(pickField(product, ["stock_mode", "fulfillment_mode"]));
+  const stockMode = normalizeText(pickField(product, ["stock_mode", "fulfillment_mode"])).toLowerCase();
   const leadDays = Number(pickField(product, ["remote_lead_days", "remote_lead_min_days"]));
-  if (canBeOrdered === true || stockMode === "remote" || (Number.isFinite(leadDays) && leadDays > 0)) {
-    return "Disponible a pedido";
-  }
+  if (canBeOrdered === true || stockMode === "remote" || (Number.isFinite(leadDays) && leadDays > 0)) return "Disponible a pedido";
   return "Consultar disponibilidad";
 }
 
@@ -230,14 +198,7 @@ function cleanModelCandidate(value = "") {
 }
 
 function inferModelFromText(product = {}) {
-  const sources = [
-    pickField(product, ["description", "Description"]),
-    pickField(product, ["name"]),
-    pickField(product, ["title"]),
-  ]
-    .map(normalizeText)
-    .filter(Boolean);
-
+  const sources = [pickField(product, ["description", "Description"]), pickField(product, ["name"]), pickField(product, ["title"])].map(normalizeText).filter(Boolean);
   for (const source of sources) {
     const forMatch = source.match(/\b(?:for|para)\s+(.+?)(?:\.|$)/i);
     if (forMatch && forMatch[1]) {
@@ -281,9 +242,7 @@ function qualityForTitle(commercialQuality) {
   if (!commercialQuality || commercialQuality === "Calidad no especificada") return "";
   if (commercialQuality === "Original") return "original";
   if (commercialQuality === "Refurbished") return "refurbished";
-  if (commercialQuality.startsWith("Compatible ")) {
-    return `compatible ${commercialQuality.slice("Compatible ".length)}`;
-  }
+  if (commercialQuality.startsWith("Compatible ")) return `compatible ${commercialQuality.slice("Compatible ".length)}`;
   if (commercialQuality === "Compatible") return "compatible";
   return commercialQuality;
 }
@@ -294,28 +253,16 @@ function partTypeForTitle(partType) {
 }
 
 function buildSafeProductLabel(product = {}, detected = {}) {
-  return (
-    normalizeText(product?.name) ||
-    normalizeText(product?.title) ||
-    normalizeText(pickField(product, ["description", "Description"])) ||
-    normalizeText(detected.sku) ||
-    normalizeText(detected.partNumber) ||
-    "Producto NERIN Parts"
-  );
+  return normalizeText(product.name) || normalizeText(product.title) || normalizeText(pickField(product, ["description", "Description"])) || normalizeText(detected.sku) || normalizeText(detected.partNumber) || "Producto NERIN Parts";
 }
 
 function buildH1(product, detected) {
-  if (detected.partType !== "Pantalla / display") {
-    return buildSafeProductLabel(product, detected);
-  }
-  const partType = partTypeForTitle(detected.partType);
+  if (detected.partType !== "Pantalla / display") return buildSafeProductLabel(product, detected);
+  const chunks = [partTypeForTitle(detected.partType)];
   const qualityText = qualityForTitle(detected.commercialQuality);
-  const brandModel = detected.brandModel;
-  const assembly = detected.assemblyType;
-  const chunks = [partType];
   if (qualityText) chunks.push(qualityText);
-  if (brandModel) chunks.push(brandModel);
-  if (assembly) chunks.push(assembly);
+  if (detected.brandModel) chunks.push(detected.brandModel);
+  if (detected.assemblyType) chunks.push(detected.assemblyType);
   return cleanSentence(chunks.join(" ")) || buildSafeProductLabel(product, detected);
 }
 
@@ -330,43 +277,27 @@ function truncateText(value, limit) {
 
 function buildProductAutoContent(product = {}) {
   const quality = detectProductQuality(product);
+  const partType = detectPartType(product);
   const displayTechnology = detectDisplayTechnology(product);
   const assembly = detectAssemblyType(product);
   const condition = detectProductCondition(product);
-  const partType = detectPartType(product);
   const brand = normalizeText(pickField(product, ["brand", "Brand", "manufacturerName", "ManufacturerName"]));
   const model = normalizeText(pickField(product, ["model", "Model"]));
   const brandModel = buildBrandModel(product);
   const sku = normalizeText(pickField(product, ["sku", "SKU", "supplierPartNumber"]));
   const partNumber = normalizeText(pickField(product, ["part_number", "partNumber", "PartNumber", "Part Number", "supplierPartNumber"]));
-  const category = normalizeText(pickField(product, ["category", "Category"]));
+  const category = normalizeText(pickField(product, ["category", "Category", "mainCategory", "MainCategory"]));
+  const subCategory = normalizeText(pickField(product, ["subcategory", "subCategory", "SubCategory"]));
   const availability = detectAvailability(product);
-  const detected = {
-    ...quality,
-    displayTechnology,
-    assemblyType: assembly.assemblyType,
-    assemblyExtra: assembly.extra,
-    condition,
-    partType,
-    brand,
-    model,
-    brandModel,
-    sku,
-    partNumber,
-    category,
-    availability,
-  };
+  const detected = { ...quality, displayTechnology, assemblyType: assembly.assemblyType, assemblyExtra: assembly.extra, condition, partType, brand, model, brandModel, sku, partNumber, category, subCategory, availability };
   const h1 = buildH1(product, detected);
+
   if (partType !== "Pantalla / display") {
     const typeCopy = partType || "Repuesto";
     const skuCopy = sku ? `, SKU ${sku}` : "";
     const shortDescription = cleanSentence(`${h1} disponible en NERIN Parts. Verifica compatibilidad${skuCopy} y disponibilidad antes de comprar.`);
-    const longDescription = cleanSentence(
-      `${h1} es un ${typeCopy.toLowerCase()} disponible en NERIN Parts. Verifica compatibilidad${skuCopy} y disponibilidad antes de comprar.`,
-    );
-    const compatibilityNotice = cleanSentence(
-      `Verificar compatibilidad${sku ? ` con SKU ${sku}` : ""}${partNumber ? ` y numero de parte ${partNumber}` : ""} antes de confirmar la compra.`,
-    );
+    const longDescription = cleanSentence(`${h1} es un ${typeCopy.toLowerCase()} disponible en NERIN Parts. Verifica compatibilidad${skuCopy} y disponibilidad antes de comprar.`);
+    const compatibilityNotice = cleanSentence(`Verificar compatibilidad${sku ? ` con SKU ${sku}` : ""}${partNumber ? ` y numero de parte ${partNumber}` : ""} antes de confirmar la compra.`);
     return {
       h1,
       shortDescription,
@@ -383,6 +314,7 @@ function buildProductAutoContent(product = {}) {
         sku: sku || null,
         partNumber: partNumber || null,
         categoria: category || null,
+        subcategoria: subCategory || null,
         disponibilidad: availability,
       },
       compatibilityNotice,
@@ -391,30 +323,21 @@ function buildProductAutoContent(product = {}) {
       detected,
     };
   }
+
   const modelCopy = brandModel || "el modelo indicado por proveedor";
   const qualityCopy = quality.commercialQuality;
   const technologyCopy = displayTechnology ? ` con tecnologia ${displayTechnology}` : "";
   const assemblyCopy = assembly.assemblyType ? `, montaje ${assembly.assemblyType}` : "";
   const conditionCopy = condition ? ` en condicion ${condition}` : "";
-  const shortDescription = cleanSentence(
-    `${h1}. Repuesto ${qualityCopy}${technologyCopy}${assemblyCopy}${conditionCopy}. ${availability}.`,
-  );
+  const shortDescription = cleanSentence(`${h1}. Repuesto ${qualityCopy}${technologyCopy}${assemblyCopy}${conditionCopy}. ${availability}.`);
   const supplierDescription = normalizeText(pickField(product, ["description", "Description"]));
-  const longDescription = cleanSentence(
-    [
-      `${h1} para ${modelCopy}. La calidad informada por el proveedor es ${qualityCopy} y el origen se clasifica como ${quality.originLabel}.`,
-      displayTechnology
-        ? `La tecnologia de pantalla detectada es ${displayTechnology}; no se agregan tecnologias que no figuren en la descripcion o en Quality.`
-        : "La tecnologia de pantalla no fue especificada por el proveedor, por eso no se asume OLED, AMOLED, LCD ni otra variante.",
-      assembly.assemblyType
-        ? `El tipo de armado detectado es ${assembly.assemblyType}${assembly.extra ? `, ${assembly.extra}` : ""}.`
-        : "El montaje no fue especificado por el proveedor.",
-      supplierDescription ? `Descripcion del proveedor: ${supplierDescription}` : "",
-      "Antes de instalar, comparar modelo, SKU y numero de parte con el equipo a reparar.",
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
+  const longDescription = cleanSentence([
+    `${h1} para ${modelCopy}. La calidad informada por el proveedor es ${qualityCopy} y el origen se clasifica como ${quality.originLabel}.`,
+    displayTechnology ? `La tecnologia de pantalla detectada es ${displayTechnology}; no se agregan tecnologias que no figuren en la descripcion o en Quality.` : "La tecnologia de pantalla no fue especificada por el proveedor, por eso no se asume OLED, AMOLED, LCD ni otra variante.",
+    assembly.assemblyType ? `El tipo de armado detectado es ${assembly.assemblyType}${assembly.extra ? `, ${assembly.extra}` : ""}.` : "El montaje no fue especificado por el proveedor.",
+    supplierDescription ? `Descripcion del proveedor: ${supplierDescription}` : "",
+    "Antes de instalar, comparar modelo, SKU y numero de parte con el equipo a reparar.",
+  ].filter(Boolean).join(" "));
   const technicalSpecs = {
     calidad: qualityCopy,
     tecnologia: displayTechnology || "No especificada por proveedor",
@@ -427,29 +350,13 @@ function buildProductAutoContent(product = {}) {
     sku: sku || null,
     partNumber: partNumber || null,
     categoria: category || null,
+    subcategoria: subCategory || null,
     disponibilidad: availability,
   };
-  const compatibilityNotice = cleanSentence(
-    `Verificar compatibilidad con ${modelCopy}${sku ? `, SKU ${sku}` : ""}${
-      partNumber ? ` y numero de parte ${partNumber}` : ""
-    } antes de confirmar la compra o realizar la instalacion.`,
-  );
+  const compatibilityNotice = cleanSentence(`Verificar compatibilidad con ${modelCopy}${sku ? `, SKU ${sku}` : ""}${partNumber ? ` y numero de parte ${partNumber}` : ""} antes de confirmar la compra o realizar la instalacion.`);
   const seoTitle = truncateText(`${h1} | NERIN Parts`, 160);
-  const seoDescription = truncateText(
-    `${h1}. Calidad ${qualityCopy}${displayTechnology ? `, tecnologia ${displayTechnology}` : ""}. ${availability}. ${compatibilityNotice}`,
-    200,
-  );
-
-  return {
-    h1,
-    shortDescription,
-    longDescription,
-    technicalSpecs,
-    compatibilityNotice,
-    seoTitle,
-    seoDescription,
-    detected,
-  };
+  const seoDescription = truncateText(`${h1}. Calidad ${qualityCopy}${displayTechnology ? `, tecnologia ${displayTechnology}` : ""}. ${availability}. ${compatibilityNotice}`, 200);
+  return { h1, shortDescription, longDescription, technicalSpecs, compatibilityNotice, seoTitle, seoDescription, detected };
 }
 
 module.exports = {
