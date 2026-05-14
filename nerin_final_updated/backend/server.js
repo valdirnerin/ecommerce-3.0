@@ -15,6 +15,7 @@ const fsp = fs.promises;
 const path = require("path");
 const url = require("url");
 const crypto = require("crypto");
+const sqlite3 = require("sqlite3");
 const { fork } = require("child_process");
 const { createProxyMiddleware } = require("http-proxy-middleware");
 const previewProductMock = require("./config/previewProductMock");
@@ -1525,6 +1526,46 @@ function buildMetaFeedCsv(products, baseUrl) {
     count,
     inStockCount,
   };
+}
+
+
+function openSqliteReadonly(dbPath) {
+  return new Promise((resolve, reject) => {
+    const dbConn = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (error) => {
+      if (error) reject(error);
+      else resolve(dbConn);
+    });
+  });
+}
+
+function sqliteAll(dbConn, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    dbConn.all(sql, params, (error, rows) => {
+      if (error) reject(error);
+      else resolve(rows || []);
+    });
+  });
+}
+
+function getArgIsoDateInArgentinaPlusDays(days = 30) {
+  const now = new Date();
+  const ms = now.getTime() + (Number(days) * 24 * 60 * 60 * 1000);
+  const tzDate = new Date(ms);
+  const iso = tzDate.toISOString().replace(/\.\d{3}Z$/, '-03:00');
+  return iso;
+}
+
+function toTsvCell(value) {
+  if (value == null) return '';
+  return String(value).replace(/[\t\r\n]+/g, ' ').trim();
+}
+
+function classifyCondition(product, normalizedText) {
+  const text = normalizedText || '';
+  if (/\b(refurbished|refurb|reacondicionado)\b/i.test(text)) return 'refurbished';
+  if (/\b(pulled|used|usado|po-)\b/i.test(text)) return 'used';
+  if (/\b(original|compatible|factory standard|in-cell|nuevo)\b/i.test(text)) return 'new';
+  return 'new';
 }
 
 function renderProductGallerySsr(product, siteBase) {
@@ -12425,6 +12466,80 @@ async function requestHandler(req, res) {
       "Cache-Control": "public, max-age=3600",
     });
     res.end(lines.join("\n") + "\n");
+    return;
+  }
+
+
+  if ((pathname === "/merchant-feed.tsv" || pathname === "/merchant-feed-sample.tsv") && req.method === "GET") {
+    const startedAt = Date.now();
+    console.info('[merchant-feed] start');
+    const cfg = getConfig();
+    const baseUrl = 'https://nerinparts.com.ar';
+    const isSample = pathname === "/merchant-feed-sample.tsv";
+    const requestedLimit = Number(parsedUrl.query?.limit || (isSample ? 100 : 0));
+    const sampleLimit = isSample ? Math.max(1, Math.min(1000, Number.isFinite(requestedLimit) ? requestedLimit : 100)) : null;
+    const headers = [
+      'id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type',
+    ];
+    const rows = [headers.join('\t')];
+    let exported = 0;
+    let skipped = 0;
+    const availabilityDate = getArgIsoDateInArgentinaPlusDays(30);
+    const dbPath = productsSqliteRepo.SQLITE_PATH;
+    let dbConn;
+    try {
+      await productsSqliteRepo.ensureProductsDbOnce();
+      dbConn = await openSqliteReadonly(dbPath);
+      let offset = 0;
+      const pageSize = 500;
+      let done = false;
+      while (!done) {
+        const chunk = await sqliteAll(dbConn, `SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,price_mayorista,precio_minorista,precio_mayorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,hidden,private,draft,vip_only,wholesale_only,is_public FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`, [pageSize, offset]);
+        if (!chunk.length) break;
+        offset += chunk.length;
+        for (const row of chunk) {
+          let raw = {};
+          try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
+          const flags = [row.status, row.visibility, raw.status, raw.visibility].filter(Boolean).join(' ').toLowerCase();
+          const blockedByState = Number(row.deleted) === 1 || Number(row.archived) === 1 || Number(row.enabled) === 0 || Number(row.hidden) === 1 || Number(row.private) === 1 || Number(row.draft) === 1 || Number(row.vip_only) === 1 || Number(row.wholesale_only) === 1 || /deleted|archived|disabled|hidden|private|draft|vip|wholesale/.test(flags);
+          if (blockedByState || Number(row.is_public) !== 1) { skipped += 1; continue; }
+          const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
+          const title = String(row.name || row.title || raw.name || raw.title || raw.description || '').trim();
+          const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
+          const imageCandidates = [row.image, raw.image, ...(Array.isArray(raw.images) ? raw.images : [])].filter(Boolean).map((v) => absoluteUrl(v, baseUrl)).filter((v) => isValidFeedUrl(v));
+          const identifier = String(row.sku || raw.mpn || raw.partNumber || raw.supplierPartNumber || row.id || '').trim();
+          if (!slug || !title || !Number.isFinite(priceNum) || priceNum <= 0 || !imageCandidates.length || !identifier) { skipped += 1; continue; }
+          const link = `https://nerinparts.com.ar/p/${encodeURIComponent(slug)}`;
+          if (!isValidFeedUrl(link)) { skipped += 1; continue; }
+          const stockLocal = Number(row.stock ?? raw.stock ?? 0);
+          const remoteVendible = Number(raw.remote_stock ?? raw.stock_remote ?? raw.available_remote ?? 0) > 0 || Number(raw.allow_backorder ?? 0) === 1 || String(raw.availability || '').toLowerCase() === 'backorder';
+          const availability = stockLocal > 0 ? 'in_stock' : (remoteVendible ? 'backorder' : null);
+          if (!availability) { skipped += 1; continue; }
+          const mpn = String(raw.mpn || raw.partNumber || raw.supplierPartNumber || row.sku || identifier).trim();
+          const brand = String(row.brand || raw.brand || '').trim();
+          const hasIdentifier = Boolean((raw.gtin && String(raw.gtin).trim()) || (brand && mpn));
+          const condition = classifyCondition(raw, `${title} ${raw.description || ''} ${raw.condition || ''} ${raw.state || ''}`);
+          const description = `${title} disponible en NERIN Parts. Verificá compatibilidad, código de pieza y disponibilidad antes de comprar.`;
+          const productType = String(raw.product_type || raw.productType || raw.category || 'Repuestos celulares > Otros').trim();
+          const googleCategory = String(raw.google_product_category || 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles').trim();
+          const additional = imageCandidates.slice(1, 11).join(',');
+          rows.push([identifier,title,description,link,imageCandidates[0],additional,availability,availability === 'backorder' ? availabilityDate : '',`${priceNum.toFixed(2)} ARS`,condition,brand,mpn,hasIdentifier ? 'yes' : 'no',googleCategory,productType].map(toTsvCell).join('	'));
+          exported += 1;
+          if (sampleLimit && exported >= sampleLimit) { done = true; break; }
+        }
+      }
+    } catch (error) {
+      if (dbConn) { try { dbConn.close(); } catch {} }
+      console.error('[merchant-feed] error', error);
+      return sendJson(res, 500, { error: 'No se pudo generar merchant feed' });
+    }
+    if (dbConn) { try { dbConn.close(); } catch {} }
+    const durationMs = Date.now() - startedAt;
+    console.info(`[merchant-feed] exported=${exported}`);
+    console.info(`[merchant-feed] skipped=${skipped}`);
+    console.info(`[merchant-feed] durationMs=${durationMs}`);
+    res.writeHead(200, { 'Content-Type': 'text/tab-separated-values; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    res.end(`${rows.join('\n')}\n`);
     return;
   }
 
