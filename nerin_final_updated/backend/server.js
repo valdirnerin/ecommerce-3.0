@@ -12494,14 +12494,17 @@ async function requestHandler(req, res) {
       const pageSize = 500;
       let done = false;
       while (!done) {
-        const chunk = await sqliteAll(dbConn, `SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,price_mayorista,precio_minorista,precio_mayorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,hidden,private,draft,vip_only,wholesale_only,is_public FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`, [pageSize, offset]);
+        const chunk = await sqliteAll(dbConn, `SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,price_mayorista,precio_minorista,precio_mayorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,gtin,ean,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`, [pageSize, offset]);
         if (!chunk.length) break;
         offset += chunk.length;
         for (const row of chunk) {
           let raw = {};
           try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
           const flags = [row.status, row.visibility, raw.status, raw.visibility].filter(Boolean).join(' ').toLowerCase();
-          const blockedByState = Number(row.deleted) === 1 || Number(row.archived) === 1 || Number(row.enabled) === 0 || Number(row.hidden) === 1 || Number(row.private) === 1 || Number(row.draft) === 1 || Number(row.vip_only) === 1 || Number(row.wholesale_only) === 1 || /deleted|archived|disabled|hidden|private|draft|vip|wholesale/.test(flags);
+          const rawHidden = raw.hidden === true || raw.hidden === 1 || String(raw.hidden).toLowerCase() === "true";
+          const rawPrivate = raw.private === true || raw.private === 1 || String(raw.private).toLowerCase() === "true";
+          const rawDraft = raw.draft === true || raw.draft === 1 || String(raw.draft).toLowerCase() === "true";
+          const blockedByState = Number(row.deleted) === 1 || Number(row.archived) === 1 || Number(row.enabled) === 0 || Number(row.vip_only) === 1 || Number(row.wholesale_only) === 1 || rawHidden || rawPrivate || rawDraft || /deleted|archived|disabled|hidden|private|draft|vip|wholesale/.test(flags);
           if (blockedByState || Number(row.is_public) !== 1) { skipped += 1; continue; }
           const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
           const title = String(row.name || row.title || raw.name || raw.title || raw.description || '').trim();
@@ -12530,7 +12533,11 @@ async function requestHandler(req, res) {
       }
     } catch (error) {
       if (dbConn) { try { dbConn.close(); } catch {} }
-      console.error('[merchant-feed] error', error);
+      console.error('[merchant-feed] error', {
+        message: error?.message,
+        code: error?.code,
+        stack: error?.stack,
+      });
       return sendJson(res, 500, { error: 'No se pudo generar merchant feed' });
     }
     if (dbConn) { try { dbConn.close(); } catch {} }
