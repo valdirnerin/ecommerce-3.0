@@ -48,8 +48,10 @@ function detectProductType(product = {}) {
   const text = buildTaxonomyText(product);
   if (!text) return "Repuesto";
 
+
+  const screenBlockers = /\b(adhesive|tape|glue|protector|pressing\s+jig|tool|flex|charge\s+port|charging\s+board|dock\s+connector|resin|gasket|screw|holder|bracket)\b/i;
   if (has(text, /\b(screen\s+protection|screen\s+protector|tempered\s+glass|vidrio\s+templado|protector(?:\s+de\s+pantalla)?)\b/i)) return "Protector de pantalla";
-  if (has(text, /\b(pressing\s+jig|repair\s+tool|tool|herramienta|jig|molde|fixture)\b/i)) return "Herramienta / accesorio tecnico";
+  if (has(text, /\b(pressing\s+jig|repair\s+tool|tool|herramienta|jig|molde|fixture)\b/i)) return "Herramienta / accesorio técnico";
   if (has(text, /\b(display|screen|pantalla)\s+(adhesive|tape|sticker|seal|sealant|gasket|bonding|glue|oca)\b/i)) return "Adhesivo para pantalla";
   if (has(text, /\b(back|rear|battery)\s+(cover\s+)?(adhesive|tape|sticker|seal|gasket)\b/i)) return "Adhesivo para tapa trasera";
   if (has(text, /\b(resin|adhesive|adhesive\s+tape|glue|tape|sticker|seal|sealant|gasket|bonding|oca|epoxy|pegamento|adhesivo)\b/i)) return "Adhesivo / pegamento";
@@ -65,7 +67,7 @@ function detectProductType(product = {}) {
   if (has(text, /\b(screw|screws|tornillo|tornillos|fixing|fijaci[oó]n|fijaciones)\b/i)) return "Tornillos / fijaciones";
   if (has(text, /\b(holder|bracket|soporte)\b/i)) return "Soporte / bracket";
   if (has(text, /\b(antenna|antena|ic|chip|board\s+component|componente\s+electr[oó]nico)\b/i)) return "Componente electrónico";
-  if (has(text, /\b(display|screen|pantalla|lcd|oled|amoled|tft)\b/i)) return "Pantalla / display";
+  if (has(text, /\b(display|screen|pantalla|lcd|oled|amoled|tft)\b/i) && !screenBlockers.test(text)) return "Pantalla / display";
 
   return "Repuesto";
 }

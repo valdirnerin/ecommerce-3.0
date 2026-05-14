@@ -12470,81 +12470,77 @@ async function requestHandler(req, res) {
   }
 
 
-  if ((pathname === "/merchant-feed.tsv" || pathname === "/merchant-feed-sample.tsv") && req.method === "GET") {
+  if ((pathname === "/merchant-feed.tsv" || pathname === "/merchant-feed-sample.tsv" || pathname === "/merchant-feed-debug.json") && req.method === "GET") {
     const startedAt = Date.now();
-    console.info('[merchant-feed] start');
     const cfg = getConfig();
+    const feedEnabled = String(process.env.MERCHANT_FEED_ENABLED || 'true').toLowerCase() !== 'false';
+    if (!feedEnabled) return sendJson(res, 503, { error: 'Merchant feed disabled' });
+    const allowMissingImages = String(process.env.MERCHANT_FEED_ALLOW_MISSING_IMAGES || '').toLowerCase() === 'true';
     const baseUrl = 'https://nerinparts.com.ar';
+    const defaultLimit = 500;
     const isSample = pathname === "/merchant-feed-sample.tsv";
-    const requestedLimit = Number(parsedUrl.query?.limit || (isSample ? 100 : 0));
-    const sampleLimit = isSample ? Math.max(1, Math.min(1000, Number.isFinite(requestedLimit) ? requestedLimit : 100)) : null;
-    const headers = [
-      'id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type',
-    ];
-    const rows = [headers.join('\t')];
-    let exported = 0;
-    let skipped = 0;
-    const availabilityDate = getArgIsoDateInArgentinaPlusDays(30);
-    const dbPath = productsSqliteRepo.SQLITE_PATH;
+    const emittedLimit = Math.max(1, Number(parsedUrl.query?.limit || process.env.MERCHANT_FEED_LIMIT || (isSample ? 100 : defaultLimit)) || defaultLimit);
+    const emittedOffset = Math.max(0, Number(parsedUrl.query?.offset || process.env.MERCHANT_FEED_OFFSET || 0) || 0);
+    const preorderDays = Math.max(1, Number(process.env.MERCHANT_PREORDER_DAYS || 30) || 30);
+    const headers = ['id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type'];
+    const rows = [headers.join('	')];
+    const stats = { missingImage: 0, missingPrice: 0, missingSlug: 0, privateOrHidden: 0, nonSellable: 0, emitted: 0 };
+    const sample = [];
+    let totalCatalogProducts = 0;
+    let eligibleCount = 0;
+    const { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, detectProductType } = require('./utils/merchantFeed');
     let dbConn;
     try {
       await productsSqliteRepo.ensureProductsDbOnce();
-      dbConn = await openSqliteReadonly(dbPath);
-      let offset = 0;
-      const pageSize = 500;
-      let done = false;
-      while (!done) {
-        const chunk = await sqliteAll(dbConn, `SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,price_mayorista,precio_minorista,precio_mayorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,gtin,ean,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`, [pageSize, offset]);
-        if (!chunk.length) break;
-        offset += chunk.length;
-        for (const row of chunk) {
-          let raw = {};
-          try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
-          const flags = [row.status, row.visibility, raw.status, raw.visibility].filter(Boolean).join(' ').toLowerCase();
-          const rawHidden = raw.hidden === true || raw.hidden === 1 || String(raw.hidden).toLowerCase() === "true";
-          const rawPrivate = raw.private === true || raw.private === 1 || String(raw.private).toLowerCase() === "true";
-          const rawDraft = raw.draft === true || raw.draft === 1 || String(raw.draft).toLowerCase() === "true";
-          const blockedByState = Number(row.deleted) === 1 || Number(row.archived) === 1 || Number(row.enabled) === 0 || Number(row.vip_only) === 1 || Number(row.wholesale_only) === 1 || rawHidden || rawPrivate || rawDraft || /deleted|archived|disabled|hidden|private|draft|vip|wholesale/.test(flags);
-          if (blockedByState || Number(row.is_public) !== 1) { skipped += 1; continue; }
-          const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
-          const title = String(row.name || row.title || raw.name || raw.title || raw.description || '').trim();
-          const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
-          const imageCandidates = [row.image, raw.image, ...(Array.isArray(raw.images) ? raw.images : [])].filter(Boolean).map((v) => absoluteUrl(v, baseUrl)).filter((v) => isValidFeedUrl(v));
-          const identifier = String(row.sku || raw.mpn || raw.partNumber || raw.supplierPartNumber || row.id || '').trim();
-          if (!slug || !title || !Number.isFinite(priceNum) || priceNum <= 0 || !imageCandidates.length || !identifier) { skipped += 1; continue; }
-          const link = `https://nerinparts.com.ar/p/${encodeURIComponent(slug)}`;
-          if (!isValidFeedUrl(link)) { skipped += 1; continue; }
-          const stockLocal = Number(row.stock ?? raw.stock ?? 0);
-          const remoteVendible = Number(raw.remote_stock ?? raw.stock_remote ?? raw.available_remote ?? 0) > 0 || Number(raw.allow_backorder ?? 0) === 1 || String(raw.availability || '').toLowerCase() === 'backorder';
-          const availability = stockLocal > 0 ? 'in_stock' : (remoteVendible ? 'backorder' : null);
-          if (!availability) { skipped += 1; continue; }
-          const mpn = String(raw.mpn || raw.partNumber || raw.supplierPartNumber || row.sku || identifier).trim();
-          const brand = String(row.brand || raw.brand || '').trim();
-          const hasIdentifier = Boolean((raw.gtin && String(raw.gtin).trim()) || (brand && mpn));
-          const condition = classifyCondition(raw, `${title} ${raw.description || ''} ${raw.condition || ''} ${raw.state || ''}`);
-          const description = `${title} disponible en NERIN Parts. Verificá compatibilidad, código de pieza y disponibilidad antes de comprar.`;
-          const productType = String(raw.product_type || raw.productType || raw.category || 'Repuestos celulares > Otros').trim();
-          const googleCategory = String(raw.google_product_category || 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles').trim();
-          const additional = imageCandidates.slice(1, 11).join(',');
-          rows.push([identifier,title,description,link,imageCandidates[0],additional,availability,availability === 'backorder' ? availabilityDate : '',`${priceNum.toFixed(2)} ARS`,condition,brand,mpn,hasIdentifier ? 'yes' : 'no',googleCategory,productType].map(toTsvCell).join('	'));
-          exported += 1;
-          if (sampleLimit && exported >= sampleLimit) { done = true; break; }
-        }
+      dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
+      const totalRows = await sqliteAll(dbConn, 'SELECT COUNT(*) AS c FROM products');
+      totalCatalogProducts = Number(totalRows?.[0]?.c || 0);
+      const allRows = await sqliteAll(dbConn, 'SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,precio_minorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?', [emittedLimit + emittedOffset + 2000, 0]);
+      for (const row of allRows) {
+        let raw = {};
+        try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
+        if (!isEligibleState(row, raw)) { stats.privateOrHidden += 1; continue; }
+        const identifier = String(row.sku || row.id || raw.sku || raw.id || '').trim();
+        const title = buildMerchantTitle(row, raw);
+        const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
+        const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
+        const link = `${baseUrl}/p/${encodeURIComponent(slug)}`;
+        const images = [row.image, raw.image, ...(Array.isArray(raw.images) ? raw.images : [])].filter(Boolean).map((v) => absoluteUrl(v, baseUrl)).filter((v) => isValidFeedUrl(v));
+        if (!slug || !isValidFeedUrl(link)) { stats.missingSlug += 1; continue; }
+        if (!Number.isFinite(priceNum) || priceNum <= 0) { stats.missingPrice += 1; continue; }
+        if (!allowMissingImages && !images.length) { stats.missingImage += 1; continue; }
+        const av = computeAvailability(row, raw, preorderDays);
+        if (!identifier || !title || !av.availability) { stats.nonSellable += 1; continue; }
+        eligibleCount += 1;
+        if (eligibleCount <= emittedOffset) continue;
+        if (stats.emitted >= emittedLimit) continue;
+        const productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
+        const productType = mapProductTypeToFeed(productTypeDetected);
+        const brand = String(row.brand || raw.brand || '').trim();
+        const mpn = String(row.mpn || row.part_number || raw.mpn || identifier).trim();
+        const hasIdentifier = Boolean((raw.gtin && String(raw.gtin).trim()) || (brand && mpn));
+        const additional = images.slice(1, 11).join(',');
+        const description = `${title} disponible en NERIN Parts. Verificá compatibilidad, código de pieza y disponibilidad antes de comprar.`;
+        rows.push([identifier,title,description,link,images[0] || '',additional,av.availability,av.availabilityDate || '',`${priceNum.toFixed(2)} ARS`,classifyCondition(raw, title),brand,mpn,hasIdentifier ? 'yes' : 'no',GOOGLE_CATEGORY,productType].map(toTsvCell).join('	'));
+        stats.emitted += 1;
+        if (sample.length < 10) sample.push({ id: row.id || null, sku: row.sku || null, title, productType, price: priceNum, availability: av.availability, link });
       }
     } catch (error) {
       if (dbConn) { try { dbConn.close(); } catch {} }
-      console.error('[merchant-feed] error', {
-        message: error?.message,
-        code: error?.code,
-        stack: error?.stack,
-      });
+      console.error('[merchant-feed] error', { message: error?.message, code: error?.code, stack: error?.stack });
       return sendJson(res, 500, { error: 'No se pudo generar merchant feed' });
     }
     if (dbConn) { try { dbConn.close(); } catch {} }
     const durationMs = Date.now() - startedAt;
-    console.info(`[merchant-feed] exported=${exported}`);
-    console.info(`[merchant-feed] skipped=${skipped}`);
+    console.info(`[merchant-feed] eligible=${eligibleCount}`);
+    console.info(`[merchant-feed] emitted=${stats.emitted}`);
+    console.info(`[merchant-feed] skipped_missing_image=${stats.missingImage}`);
+    console.info(`[merchant-feed] skipped_missing_price=${stats.missingPrice}`);
+    console.info(`[merchant-feed] skipped_bad_slug=${stats.missingSlug}`);
     console.info(`[merchant-feed] durationMs=${durationMs}`);
+    if (pathname === '/merchant-feed-debug.json') {
+      return sendJson(res, 200, { totalCatalogProducts, eligibleCount, emittedLimit, emittedCount: stats.emitted, skipped: { missingImage: stats.missingImage, missingPrice: stats.missingPrice, missingSlug: stats.missingSlug, privateOrHidden: stats.privateOrHidden, nonSellable: stats.nonSellable }, sample });
+    }
     res.writeHead(200, { 'Content-Type': 'text/tab-separated-values; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     res.end(`${rows.join('\n')}\n`);
     return;
