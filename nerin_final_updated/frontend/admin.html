@@ -138,6 +138,43 @@
         font-weight: 600;
         margin-bottom: 0.35rem;
       }
+      .bulk-publish-panel {
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        padding: 1rem;
+        display: grid;
+        gap: 1rem;
+        background: var(--color-surface, #fff);
+      }
+      .bulk-publish-header h4 { margin: 0 0 0.35rem; }
+      .bulk-publish-header p { margin: 0; color: var(--color-muted, #555); }
+      .bulk-publish-card {
+        border: 1px solid var(--color-border);
+        border-radius: calc(var(--radius) * 0.8);
+        padding: 0.85rem;
+      }
+      .bulk-publish-card h5 { margin: 0 0 0.65rem; }
+      .bulk-publish-filters-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.6rem;
+      }
+      .bulk-publish-field { display: grid; gap: 0.35rem; }
+      .bulk-publish-warning { margin: 0.5rem 0 0; font-size: 0.92rem; color: #7c2d12; }
+      .bulk-publish-actions { display:flex; gap:0.6rem; flex-wrap: wrap; }
+      .bulk-publish-status { font-size: 0.95rem; min-height: 1.2rem; margin-top: 0.65rem; }
+      .bulk-publish-status.is-error { color: #b91c1c; }
+      .bulk-publish-status.is-success { color: #065f46; }
+      .bulk-publish-summary-grid {
+        display:grid; gap:0.6rem; grid-template-columns: repeat(auto-fit, minmax(160px,1fr));
+      }
+      .bulk-kpi { border:1px solid var(--color-border); border-radius:10px; padding:0.65rem; background:#fafafa; }
+      .bulk-kpi-label { display:block; font-size:0.82rem; color:#555; margin-bottom:0.3rem; }
+      .bulk-kpi-value { font-size:1.3rem; font-weight:700; }
+      .bulk-publish-details { display:grid; gap:0.8rem; }
+      .bulk-detail-block h6 { margin:0 0 0.4rem; }
+      .bulk-detail-block ul { margin:0; padding-left:1.1rem; }
+      .bulk-detail-block li { margin:0.2rem 0; }
       .order-detail dd {
         margin: 0;
         color: var(--color-text-muted, #555);
@@ -442,35 +479,40 @@
           </div>
           <div id="stockXlsxImportStatus" role="status" aria-live="polite"></div>
           <progress id="stockXlsxImportProgress" value="0" max="100" style="width:100%;display:none;"></progress>
-          <div class="bulk-actions">
-            <strong>Publicación masiva</strong>
-            <input type="text" id="bulkPublishSearch" placeholder="Buscar" />
-            <input type="text" id="bulkPublishBrand" placeholder="Marca" />
-            <input type="text" id="bulkPublishCategory" placeholder="Tipo de producto" />
-            <input type="text" id="bulkPublishModel" placeholder="Modelo" />
-            <select id="bulkPublishWithImage">
-              <option value="">Con/sin imagen</option>
-              <option value="true">Solo con imagen</option>
-              <option value="false">Solo sin imagen</option>
-            </select>
-            <select id="bulkPublishWithPrice">
-              <option value="">Con/sin precio</option>
-              <option value="true">Solo con precio</option>
-              <option value="false">Solo sin precio</option>
-            </select>
-            <select id="bulkPublishRemoteStock">
-              <option value="">Stock remoto/a pedido</option>
-              <option value="true">Solo remoto/a pedido</option>
-              <option value="false">Excluir remoto/a pedido</option>
-            </select>
-            <label style="display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" id="bulkPublishIncludePrivateHidden" /> Incluir ocultos/privados como candidatos de publicación
-            </label>
-            <input type="number" id="bulkPublishLimit" placeholder="Límite" min="1" max="50000" />
-            <button id="bulkPublishPreviewBtn" class="button secondary">Simular publicación</button>
-            <button id="bulkPublishRunBtn" class="button">Publicar productos aptos</button>
-          </div>
-          <div id="bulkPublishSummary" role="status" aria-live="polite"></div>
+          <section class="bulk-publish-panel" aria-labelledby="bulkPublishTitle">
+            <header class="bulk-publish-header">
+              <h4 id="bulkPublishTitle">Publicación masiva de productos</h4>
+              <p>Publicá productos aptos del catálogo por tandas. La simulación no modifica datos.</p>
+            </header>
+            <div class="bulk-publish-card">
+              <h5>Filtros</h5>
+              <div class="bulk-publish-filters-grid">
+                <label class="bulk-publish-field">Buscar<input type="text" id="bulkPublishSearch" placeholder="Nombre, SKU o texto" /></label>
+                <label class="bulk-publish-field">Marca<input type="text" id="bulkPublishBrand" placeholder="Marca" /></label>
+                <label class="bulk-publish-field">Tipo de producto<input type="text" id="bulkPublishCategory" placeholder="Categoría / tipo" /></label>
+                <label class="bulk-publish-field">Modelo<input type="text" id="bulkPublishModel" placeholder="Modelo" /></label>
+                <label class="bulk-publish-field">Con imagen<select id="bulkPublishWithImage"><option value="">Todos</option><option value="true">Solo con imagen</option><option value="false">Solo sin imagen</option></select></label>
+                <label class="bulk-publish-field">Con precio<select id="bulkPublishWithPrice"><option value="">Todos</option><option value="true">Solo con precio</option><option value="false">Solo sin precio</option></select></label>
+                <label class="bulk-publish-field">Stock remoto/a pedido<select id="bulkPublishRemoteStock"><option value="">Todos</option><option value="true">Solo remoto/a pedido</option><option value="false">Excluir remoto/a pedido</option></select></label>
+                <label class="bulk-publish-field">Límite<input type="number" id="bulkPublishLimit" placeholder="500" min="1" max="50000" value="500" /></label>
+              </div>
+            </div>
+            <div class="bulk-publish-card">
+              <h5>Opciones avanzadas</h5>
+              <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="bulkPublishIncludePrivateHidden" /> Incluir ocultos/privados como candidatos de publicación</label>
+              <p class="bulk-publish-warning">Usar solo si querés hacer públicos productos que actualmente no aparecen en la tienda.</p>
+            </div>
+            <div class="bulk-publish-card">
+              <h5>Acciones</h5>
+              <div class="bulk-publish-actions">
+                <button id="bulkPublishPreviewBtn" class="button secondary">Simular publicación</button>
+                <button id="bulkPublishRunBtn" class="button" disabled>Publicar productos aptos</button>
+              </div>
+              <div id="bulkPublishStatus" class="bulk-publish-status" role="status" aria-live="polite"></div>
+            </div>
+            <div id="bulkPublishSummary" role="status" aria-live="polite"></div>
+            <div id="bulkPublishDetails" class="bulk-publish-details"></div>
+          </section>
           <div class="bulk-actions">
             <select id="bulkActionSelect">
               <option value="">Acción masiva…</option>
