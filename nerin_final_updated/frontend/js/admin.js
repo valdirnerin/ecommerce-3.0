@@ -3786,6 +3786,7 @@ function getBulkPublishPayload() {
     search: bulkPublishSearch?.value?.trim() || "",
     brand: bulkPublishBrand?.value?.trim() || "",
     model: bulkPublishModel?.value?.trim() || "",
+    category: bulkPublishCategory?.value?.trim() || "",
     productType: bulkPublishCategory?.value?.trim() || "",
     withImage: bulkPublishWithImage?.value || "",
     withPrice: bulkPublishWithPrice?.value || "",
@@ -3849,6 +3850,19 @@ function renderBulkPublishSummary(data = {}, mode = "preview") {
     renderSampleList("Samples aptos", data.eligibleSamples || data.samplesEligible || []),
     renderSampleList("Samples bloqueados", data.blockedSamples || data.samplesBlocked || []),
   ].join("");
+
+  const jsonSummary = {
+    mode,
+    ok: data?.ok !== false,
+    eligibleCount: Number(data?.eligibleCount || 0),
+    blockedCount: Number(data?.blockedCount || 0),
+    updatedCount: Number(data?.updatedCount || 0),
+    warningCount: Number(data?.warningCount || 0),
+  };
+  bulkPublishDetails.insertAdjacentHTML(
+    "beforeend",
+    `<section class="bulk-detail-block"><h6>Resumen JSON</h6><pre>${escapeHtml(JSON.stringify(jsonSummary, null, 2))}</pre></section>`,
+  );
 }
 
 if (bulkPublishPreviewBtn) {
@@ -3857,8 +3871,10 @@ if (bulkPublishPreviewBtn) {
       setBulkPublishBusy(true);
       setBulkStatus("Simulando...");
       const payload = getBulkPublishPayload();
+      console.log("[bulk-publish-preview] payload", payload);
       const res = await apiFetch("/api/admin/products/bulk-publish-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
+      console.log("[bulk-publish-preview] response", data);
       if (!res.ok) throw new Error(data?.error || "No se pudo simular publicación");
       lastValidBulkPreview = data;
       renderBulkPublishSummary(data, "preview");
@@ -3886,8 +3902,10 @@ if (bulkPublishRunBtn) {
       setBulkStatus("Publicando productos aptos...");
       const scope = payload.includePrivateHidden ? "filtrados, incluyendo ocultos/privados aptos" : "filtrados";
       if (!confirm(`Publicar ${lastValidBulkPreview.eligibleCount || 0} productos ${scope}?`)) return;
+      console.log("[bulk-publish] payload", payload);
       const res = await apiFetch("/api/admin/products/bulk-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await res.json();
+      console.log("[bulk-publish] response", data);
       if (!res.ok) throw new Error(data?.error || "No se pudo publicar en masa");
       renderBulkPublishSummary(data, "publish");
       const warningsCount = Number(data.warningCount || 0);
