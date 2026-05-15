@@ -446,9 +446,25 @@
             <strong>Publicación masiva</strong>
             <input type="text" id="bulkPublishSearch" placeholder="Buscar" />
             <input type="text" id="bulkPublishBrand" placeholder="Marca" />
-            <input type="text" id="bulkPublishCategory" placeholder="Categoría" />
+            <input type="text" id="bulkPublishCategory" placeholder="Tipo de producto" />
+            <input type="text" id="bulkPublishModel" placeholder="Modelo" />
+            <select id="bulkPublishWithImage">
+              <option value="">Con/sin imagen</option>
+              <option value="true">Solo con imagen</option>
+              <option value="false">Solo sin imagen</option>
+            </select>
+            <select id="bulkPublishWithPrice">
+              <option value="">Con/sin precio</option>
+              <option value="true">Solo con precio</option>
+              <option value="false">Solo sin precio</option>
+            </select>
+            <select id="bulkPublishRemoteStock">
+              <option value="">Stock remoto/a pedido</option>
+              <option value="true">Solo remoto/a pedido</option>
+              <option value="false">Excluir remoto/a pedido</option>
+            </select>
             <label style="display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" id="bulkPublishOnlyHidden" /> Solo ocultos/privados
+              <input type="checkbox" id="bulkPublishIncludePrivateHidden" /> Incluir ocultos/privados como candidatos de publicación
             </label>
             <input type="number" id="bulkPublishLimit" placeholder="Límite" min="1" max="50000" />
             <button id="bulkPublishPreviewBtn" class="button secondary">Simular publicación</button>
