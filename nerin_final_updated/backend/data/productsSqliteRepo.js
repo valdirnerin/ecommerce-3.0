@@ -1790,6 +1790,7 @@ async function queryBase({
   const safePage = Math.max(1, Number(page) || 1);
   const safePageSize = Math.max(1, Number(pageSize) || 24);
   const offset = (safePage - 1) * safePageSize;
+  const normalizedSearch = normalizeQueryText(search);
   const whereClause = buildWhereClause({
     search,
     isPublicOnly,

@@ -1,4 +1,9 @@
-const { computeSearchIntent, scoreProductAgainstIntent } = require('../../backend/data/productsSqliteRepo');
+const {
+  computeSearchIntent,
+  scoreProductAgainstIntent,
+  queryProducts,
+  queryAdminProducts,
+} = require('../../backend/data/productsSqliteRepo');
 
 const score = (query, product) => scoreProductAgainstIntent(product, computeSearchIntent(query));
 
@@ -33,5 +38,28 @@ describe('product search ranking intent', () => {
     const exactSku = score('gh82-31231a', { sku: 'GH82-31231A', name: 'Battery Samsung' });
     const partial = score('gh82-31231a', { sku: 'GH82-00001A', name: 'Battery Samsung' });
     expect(exactSku).toBeGreaterThan(partial);
+  });
+});
+
+
+describe('query APIs should not throw without normalized search scope errors', () => {
+  const expectNoReferenceError = async (promiseFactory) => {
+    try {
+      await promiseFactory();
+    } catch (error) {
+      expect(String(error && error.message ? error.message : error)).not.toMatch(/normalizedSearch is not defined|ReferenceError/i);
+    }
+  };
+
+  test('queryProducts without search does not crash with ReferenceError', async () => {
+    await expectNoReferenceError(() => queryProducts({ page: 1, pageSize: 1 }));
+  });
+
+  test('queryProducts with iphone 15 pro battery does not throw ReferenceError', async () => {
+    await expectNoReferenceError(() => queryProducts({ page: 1, pageSize: 1, search: 'iphone 15 pro battery' }));
+  });
+
+  test('queryAdminProducts without search does not crash with ReferenceError', async () => {
+    await expectNoReferenceError(() => queryAdminProducts({ page: 1, pageSize: 1 }));
   });
 });
