@@ -1754,6 +1754,8 @@ const bulkPublishLimit = document.getElementById("bulkPublishLimit");
 const bulkPublishPreviewBtn = document.getElementById("bulkPublishPreviewBtn");
 const bulkPublishRunBtn = document.getElementById("bulkPublishRunBtn");
 const bulkPublishSummary = document.getElementById("bulkPublishSummary");
+const bulkPublishDetails = document.getElementById("bulkPublishDetails");
+const bulkPublishStatus = document.getElementById("bulkPublishStatus");
 const importCatalogCsvBtn = document.getElementById("importCatalogCsvBtn");
 const catalogCsvFileInput = document.getElementById("catalogCsvFile");
 const catalogCsvIncludeOutOfStock = document.getElementById("catalogCsvIncludeOutOfStock");
@@ -3778,6 +3780,8 @@ if (applyBulkBtn && bulkSelect) {
 }
 
 function getBulkPublishPayload() {
+  const parsedLimit = Number(bulkPublishLimit?.value || 500);
+  const safeLimit = Number.isFinite(parsedLimit) ? Math.max(1, Math.min(50000, parsedLimit)) : 500;
   const filters = {
     search: bulkPublishSearch?.value?.trim() || "",
     brand: bulkPublishBrand?.value?.trim() || "",
@@ -3789,59 +3793,111 @@ function getBulkPublishPayload() {
   };
   return {
     filters,
-    limit: Number(bulkPublishLimit?.value || 500),
+    limit: safeLimit,
     includePrivateHidden: Boolean(bulkPublishIncludePrivateHidden?.checked),
+    confirmPrivateHiddenPublish: false,
   };
+}
+
+let lastValidBulkPreview = null;
+
+function setBulkPublishBusy(isBusy, previewLabel = "Simular publicación") {
+  if (bulkPublishPreviewBtn) {
+    bulkPublishPreviewBtn.disabled = isBusy;
+    bulkPublishPreviewBtn.textContent = isBusy ? "Simulando..." : previewLabel;
+  }
+  if (bulkPublishRunBtn) {
+    bulkPublishRunBtn.disabled = isBusy || !lastValidBulkPreview;
+  }
+}
+
+function setBulkStatus(message, type = "") {
+  if (!bulkPublishStatus) return;
+  bulkPublishStatus.textContent = message || "";
+  bulkPublishStatus.classList.remove("is-error", "is-success");
+  if (type) bulkPublishStatus.classList.add(type);
 }
 
 function renderBulkPublishSummary(data = {}, mode = "preview") {
   if (!bulkPublishSummary) return;
-  const reasons = Object.entries(data.reasons || data.reasonCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k}: ${v}`).join(" � ");
-  const warnings = Object.entries(data.warnings || data.warningCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k}: ${v}`).join(" � ");
-  const lines = [
-    mode === "publish" ? "Publicaci\u00f3n ejecutada" : "Simulaci\u00f3n",
-    `Total cat\u00e1logo: ${data.totalCatalogProducts || 0}`,
-    `P\u00fablicos actuales: ${data.publicProductsCount || 0}`,
-    `Filas escaneadas: ${data.scannedRows || data.totalScanned || 0}`,
-    `Aptos p\u00fablicos: ${data.eligiblePublicCandidates || 0}`,
-    `Aptos ocultos/privados: ${data.eligiblePrivateHiddenCandidates || 0}`,
-    `Bloqueados: ${data.blockedCount || 0}`,
-    `Warnings: ${data.warningCount || 0}`,
+  const cards = [
+    ["Total catálogo", data.totalCatalogProducts || 0],
+    ["Públicos actuales", data.publicProductsCount || 0],
+    ["Filas escaneadas", data.scannedRows || data.totalScanned || 0],
+    ["Aptos públicos", data.eligiblePublicCandidates || 0],
+    ["Aptos ocultos/privados", data.eligiblePrivateHiddenCandidates || 0],
+    ["Bloqueados", data.blockedCount || 0],
+    ["Warnings", data.warningCount || 0],
   ];
-  if (reasons) lines.push(`Reasons: ${reasons}`);
-  if (warnings) lines.push(`Warnings: ${warnings}`);
-  bulkPublishSummary.textContent = lines.join(" � ");
+  bulkPublishSummary.innerHTML = `
+    <div class="bulk-publish-summary-grid">
+      ${cards.map(([label, value]) => `<article class="bulk-kpi"><span class="bulk-kpi-label">${escapeHtml(String(label))}</span><strong class="bulk-kpi-value">${Number(value) || 0}</strong></article>`).join("")}
+    </div>`;
+  if (!bulkPublishDetails) return;
+  const renderMapList = (title, mapObj = {}) => {
+    const entries = Object.entries(mapObj || {}).filter(([, count]) => Number(count) > 0).sort((a, b) => Number(b[1]) - Number(a[1]));
+    if (!entries.length) return "";
+    return `<section class="bulk-detail-block"><h6>${title}</h6><ul>${entries.map(([key, count]) => `<li><strong>${escapeHtml(String(key))}</strong>: ${Number(count) || 0}</li>`).join("")}</ul></section>`;
+  };
+  const renderSampleList = (title, list = []) => {
+    if (!Array.isArray(list) || !list.length) return "";
+    return `<section class="bulk-detail-block"><h6>${title}</h6><ul>${list.slice(0, 8).map((item) => `<li>${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</li>`).join("")}</ul></section>`;
+  };
+  bulkPublishDetails.innerHTML = [
+    renderMapList("Reasons / motivos de bloqueo", data.reasons || data.reasonCounts || {}),
+    renderMapList("Warnings / advertencias", data.warnings || data.warningCounts || {}),
+    renderSampleList("Samples aptos", data.eligibleSamples || data.samplesEligible || []),
+    renderSampleList("Samples bloqueados", data.blockedSamples || data.samplesBlocked || []),
+  ].join("");
 }
 
 if (bulkPublishPreviewBtn) {
   bulkPublishPreviewBtn.addEventListener("click", async () => {
-    const payload = getBulkPublishPayload();
-    const res = await apiFetch("/api/admin/products/bulk-publish-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "No se pudo simular publicaci\u00f3n");
-    renderBulkPublishSummary(data, "preview");
+    try {
+      setBulkPublishBusy(true);
+      setBulkStatus("Simulando...");
+      const payload = getBulkPublishPayload();
+      const res = await apiFetch("/api/admin/products/bulk-publish-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "No se pudo simular publicación");
+      lastValidBulkPreview = data;
+      renderBulkPublishSummary(data, "preview");
+      setBulkStatus("Simulación lista. No se modificaron productos.", "is-success");
+    } catch (error) {
+      lastValidBulkPreview = null;
+      setBulkStatus(error?.message || "Error al simular la publicación.", "is-error");
+    } finally {
+      setBulkPublishBusy(false);
+    }
   });
 }
 
 if (bulkPublishRunBtn) {
   bulkPublishRunBtn.addEventListener("click", async () => {
+    if (!lastValidBulkPreview) return;
     const payload = { ...getBulkPublishPayload(), dryRun: false, publishMode: "eligible_only" };
-    const previewRes = await apiFetch("/api/admin/products/bulk-publish-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const preview = await previewRes.json();
-    if (!previewRes.ok) throw new Error(preview?.error || "No se pudo simular publicaci\u00f3n");
-    renderBulkPublishSummary(preview, "preview");
-    if (payload.includePrivateHidden && Number(preview.eligiblePrivateHiddenCandidates || 0) > 0) {
-      const confirmedPrivateHidden = confirm("Vas a hacer p\u00fablicos productos que actualmente est\u00e1n ocultos o privados. Confirm\u00e1 que quer\u00e9s continuar.");
+    if (payload.includePrivateHidden && Number(lastValidBulkPreview.eligiblePrivateHiddenCandidates || 0) > 0) {
+      const confirmedPrivateHidden = confirm("Vas a hacer públicos productos que actualmente están ocultos o privados. Confirmá que querés continuar.");
       if (!confirmedPrivateHidden) return;
       payload.confirmPrivateHiddenPublish = true;
     }
-    const scope = payload.includePrivateHidden ? "filtrados, incluyendo ocultos/privados aptos" : "filtrados";
-    if (!confirm(`Publicar ${preview.eligibleCount || 0} productos ${scope}?`)) return;
-    const res = await apiFetch("/api/admin/products/bulk-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "No se pudo publicar en masa");
-    renderBulkPublishSummary(data, "publish");
-    loadProducts();
+    try {
+      setBulkPublishBusy(true, "Simular publicación");
+      setBulkStatus("Publicando productos aptos...");
+      const scope = payload.includePrivateHidden ? "filtrados, incluyendo ocultos/privados aptos" : "filtrados";
+      if (!confirm(`Publicar ${lastValidBulkPreview.eligibleCount || 0} productos ${scope}?`)) return;
+      const res = await apiFetch("/api/admin/products/bulk-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "No se pudo publicar en masa");
+      renderBulkPublishSummary(data, "publish");
+      const warningsCount = Number(data.warningCount || 0);
+      setBulkStatus(`Publicación completada. updatedCount: ${data.updatedCount || 0}, eligibleCount: ${data.eligibleCount || 0}, blockedCount: ${data.blockedCount || 0}, warnings: ${warningsCount}.`, "is-success");
+      loadProducts();
+    } catch (error) {
+      setBulkStatus(error?.message || "Error al ejecutar la publicación masiva.", "is-error");
+    } finally {
+      setBulkPublishBusy(false, "Simular publicación");
+    }
   });
 }
 async function deleteProduct(id) {
