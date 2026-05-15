@@ -13,6 +13,7 @@ const COUNT_CACHE_TTL_MS = 60_000;
 const PRODUCTS_SQLITE_SCHEMA_VERSION = 5;
 const CATALOG_MAPPING_VERSION = 2;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
+const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
 
 const REJECTED_STATE_VALUES = new Set([
   "hidden",
@@ -212,6 +213,19 @@ function scoreProductAgainstIntent(product = {}, intent = {}) {
     if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) score -= 500;
   }
   return score;
+}
+
+function rankRowsBySearchIntent(rows = [], intent = {}, { preferPositiveScores = false } = {}) {
+  if (!Array.isArray(rows) || rows.length === 0 || !intent?.normalizedQuery) return [];
+  const ranked = rows.map((row, index) => {
+    const score = scoreProductAgainstIntent(row, intent);
+    return { row, score, index };
+  });
+  ranked.sort((a, b) => b.score - a.score || Number(a.row.rowid || 0) - Number(b.row.rowid || 0) || a.index - b.index);
+  if (!preferPositiveScores) return ranked;
+  const positives = ranked.filter((entry) => entry.score > 0);
+  const nonPositives = ranked.filter((entry) => entry.score <= 0);
+  return positives.concat(nonPositives);
 }
 
 function boolToInt(value, fallback = 0) {
@@ -1804,6 +1818,7 @@ async function queryBase({
   });
 
   const orderBy = buildSort(sort);
+  const shouldIntentRank = Boolean(normalizedSearch) && (!sort || String(sort).trim().toLowerCase() === "relevance");
   const totalStartedAt = Date.now();
 
   const countStartedAt = Date.now();
@@ -1824,15 +1839,25 @@ async function queryBase({
   const countMs = Date.now() - countStartedAt;
 
   const selectStartedAt = Date.now();
-  const rows = await all(
-    db,
-    `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency
-      FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-    [...whereClause.params, safePageSize, offset],
-  );
-  if (normalizedSearch && (!sort || String(sort).trim().toLowerCase() === "relevance")) {
+  let rows = [];
+  if (!shouldIntentRank) {
+    rows = await all(
+      db,
+      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency
+        FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      [...whereClause.params, safePageSize, offset],
+    );
+  } else {
+    const candidateLimit = Math.max(safePageSize, Math.min(SEARCH_RANK_CANDIDATE_LIMIT, totalItems));
+    const candidateRows = await all(
+      db,
+      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency
+        FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET 0`,
+      [...whereClause.params, candidateLimit],
+    );
     const intent = computeSearchIntent(normalizedSearch);
-    rows.sort((a, b) => scoreProductAgainstIntent(b, intent) - scoreProductAgainstIntent(a, intent) || Number(a.rowid || 0) - Number(b.rowid || 0));
+    const ranked = rankRowsBySearchIntent(candidateRows, intent, { preferPositiveScores: Boolean(intent.modelPhrase || intent.replacementType || intent.skuOrMpn || intent.importantTokens?.length) });
+    rows = ranked.slice(offset, offset + safePageSize).map((entry) => entry.row);
   }
   const selectMs = Date.now() - selectStartedAt;
 
@@ -2653,6 +2678,7 @@ module.exports = {
   normalizeQueryText,
   computeSearchIntent,
   scoreProductAgainstIntent,
+  rankRowsBySearchIntent,
   PRODUCTS_SQLITE_SCHEMA_VERSION,
   CATALOG_MAPPING_VERSION,
   getField,

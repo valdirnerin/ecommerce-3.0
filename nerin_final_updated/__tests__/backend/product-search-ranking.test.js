@@ -1,6 +1,7 @@
 const {
   computeSearchIntent,
   scoreProductAgainstIntent,
+  rankRowsBySearchIntent,
   queryProducts,
   queryAdminProducts,
 } = require('../../backend/data/productsSqliteRepo');
@@ -38,6 +39,21 @@ describe('product search ranking intent', () => {
     const exactSku = score('gh82-31231a', { sku: 'GH82-31231A', name: 'Battery Samsung' });
     const partial = score('gh82-31231a', { sku: 'GH82-00001A', name: 'Battery Samsung' });
     expect(exactSku).toBeGreaterThan(partial);
+  });
+
+  test('iphone 15 pro battery keeps iphone 17 and huawei below exact intent matches', () => {
+    const intent = computeSearchIntent('iphone 15 pro battery');
+    const ranked = rankRowsBySearchIntent([
+      { rowid: 1, name: 'Bateria iPhone 17', model: 'iPhone 17', brand: 'Apple' },
+      { rowid: 2, name: 'Pantalla iPhone 15 Pro', model: 'iPhone 15 Pro', brand: 'Apple' },
+      { rowid: 3, name: 'Bateria iPhone 15 Pro', model: 'iPhone 15 Pro', brand: 'Apple' },
+      { rowid: 4, name: 'Bateria Huawei P60', model: 'Huawei P60', brand: 'Huawei' },
+      { rowid: 5, name: 'Bateria iPhone 14', model: 'iPhone 14', brand: 'Apple' },
+    ], intent, { preferPositiveScores: true });
+    const topTwoNames = ranked.slice(0, 2).map((entry) => entry.row.name);
+    expect(topTwoNames).toContain('Bateria iPhone 15 Pro');
+    expect(topTwoNames).not.toContain('Bateria iPhone 17');
+    expect(topTwoNames).not.toContain('Bateria Huawei P60');
   });
 });
 
