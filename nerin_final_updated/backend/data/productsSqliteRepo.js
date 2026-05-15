@@ -133,6 +133,87 @@ function normalizeQueryText(value) {
   }
 }
 
+
+
+const REPLACEMENT_TYPE_SYNONYMS = [
+  { key: "bateria", terms: ["battery", "bateria"] },
+  { key: "pantalla", terms: ["display", "pantalla"] },
+  { key: "placa carga", terms: ["charging board", "charge port", "dock connector", "placa de carga", "pin de carga"] },
+  { key: "adhesivo", terms: ["adhesive", "tape", "glue", "adhesivo"] },
+  { key: "flex", terms: ["flex cable", "flex"] },
+];
+
+function tokenizeSearch(value = "") {
+  return normalizeQueryText(value)
+    .replace(/[^a-z0-9-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function inferReplacementType(text = "") {
+  const normalized = normalizeQueryText(text);
+  for (const entry of REPLACEMENT_TYPE_SYNONYMS) {
+    if (entry.terms.some((term) => normalized.includes(normalizeQueryText(term)))) return entry.key;
+  }
+  return "";
+}
+
+function extractModelPhrase(text = "") {
+  const normalized = normalizeQueryText(text);
+  const patterns = [/iphone\s+\d+\s+pro\s+max/, /iphone\s+\d+\s+pro/, /iphone\s+\d+/, /galaxy\s+s\d+\s+ultra/, /galaxy\s+[as]\d+/, /sm-s\d{3,}/];
+  for (const pattern of patterns) {
+    const matched = normalized.match(pattern);
+    if (matched) return matched[0];
+  }
+  return "";
+}
+
+function extractSkuOrMpn(text = "") {
+  const normalized = normalizeQueryText(text);
+  const match = normalized.match(/(?:gh\d{2}-\d{4,}[a-z]?|sm-s\d{3,}|[a-z]{2,}\d{2,}-\d{2,}[a-z]?)/i);
+  return match ? match[0].toLowerCase() : "";
+}
+
+function computeSearchIntent(query = "") {
+  const normalizedQuery = normalizeQueryText(query);
+  const tokens = tokenizeSearch(normalizedQuery);
+  return {
+    normalizedQuery,
+    tokens,
+    brand: tokens.find((token) => ["iphone", "apple", "samsung", "galaxy", "xiaomi", "motorola"].includes(token)) || "",
+    modelPhrase: extractModelPhrase(normalizedQuery),
+    replacementType: inferReplacementType(normalizedQuery),
+    skuOrMpn: extractSkuOrMpn(normalizedQuery),
+    importantTokens: tokens.filter((token) => token.length >= 3),
+  };
+}
+
+function scoreProductAgainstIntent(product = {}, intent = {}) {
+  if (!intent?.normalizedQuery) return 0;
+  const haystack = normalizeQueryText([
+    getField(product, ["id", "sku", "code", "partNumber", "mpn", "ean", "gtin", "supplier_code"]),
+    getField(product, ["name", "title", "description", "shortDescription", "short_description"]),
+    getField(product, ["brand", "marca"]),
+    getField(product, ["model", "modelo"]),
+    getField(product, ["category", "categoria", "productType"]),
+  ].join(" "));
+  let score = 0;
+  if (intent.skuOrMpn && haystack.includes(intent.skuOrMpn)) score += 1000;
+  if (intent.modelPhrase && haystack.includes(intent.modelPhrase)) score += 700;
+  if (intent.replacementType && inferReplacementType(haystack) === intent.replacementType) score += 400;
+  if (intent.brand && haystack.includes(intent.brand)) score += 150;
+  const allImportantPresent = intent.importantTokens.length > 0 && intent.importantTokens.every((token) => haystack.includes(token));
+  if (allImportantPresent) score += 200;
+  else if (intent.importantTokens.some((token) => haystack.includes(token))) score += 50;
+  if (intent.modelPhrase.includes("iphone") && !haystack.includes(intent.modelPhrase)) {
+    const target = intent.modelPhrase.match(/iphone\s+(\d+)/);
+    const candidate = haystack.match(/iphone\s+(\d+)/);
+    if (target && candidate && target[1] !== candidate[1]) score -= 500;
+    if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) score -= 500;
+  }
+  return score;
+}
+
 function boolToInt(value, fallback = 0) {
   if (value === true) return 1;
   if (value === false) return 0;
@@ -655,15 +736,8 @@ function matchesBulkPublishFilters(product = {}, filters = {}) {
   }
   if (remoteStock !== null && isBulkRemoteStockCandidate(product) !== remoteStock) return false;
   if (!search) return true;
-
-  const haystack = [
-    getField(product, ["id", "sku", "code", "partNumber", "mpn", "ean", "gtin"]),
-    getField(product, ["name", "title", "description", "shortDescription", "short_description"]),
-    getField(product, ["brand", "marca"]),
-    getField(product, ["model", "modelo"]),
-    getField(product, ["category", "categoria", "productType"]),
-  ].map((value) => normalizeQueryText(value || "")).join(" ");
-  return haystack.includes(search);
+  const intent = computeSearchIntent(search);
+  return scoreProductAgainstIntent(product, intent) > 0;
 }
 
 function incCounter(counter, key) {
@@ -1755,6 +1829,10 @@ async function queryBase({
       FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
     [...whereClause.params, safePageSize, offset],
   );
+  if (normalizedSearch && (!sort || String(sort).trim().toLowerCase() === "relevance")) {
+    const intent = computeSearchIntent(normalizedSearch);
+    rows.sort((a, b) => scoreProductAgainstIntent(b, intent) - scoreProductAgainstIntent(a, intent) || Number(a.rowid || 0) - Number(b.rowid || 0));
+  }
   const selectMs = Date.now() - selectStartedAt;
 
   const parseStartedAt = Date.now();
@@ -2572,6 +2650,8 @@ module.exports = {
   normalizeProductForPublic,
   normalizeProductForAdminList,
   normalizeQueryText,
+  computeSearchIntent,
+  scoreProductAgainstIntent,
   PRODUCTS_SQLITE_SCHEMA_VERSION,
   CATALOG_MAPPING_VERSION,
   getField,
