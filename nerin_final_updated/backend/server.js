@@ -6692,6 +6692,7 @@ async function requestHandler(req, res) {
         const result = await productsSqliteRepo.previewBulkPublish({
           filters: payload?.filters || {},
           limit: payload?.limit || 500,
+          includePrivateHidden: payload?.includePrivateHidden === true,
         });
         return sendJson(res, 200, { ok: true, ...result });
       } catch (error) {
@@ -6713,9 +6714,18 @@ async function requestHandler(req, res) {
           filters: payload?.filters || {},
           limit: payload?.limit || 500,
           publishMode: payload?.publishMode || "eligible_only",
+          includePrivateHidden: payload?.includePrivateHidden === true,
+          confirmPrivateHiddenPublish: payload?.confirmPrivateHiddenPublish === true,
         });
         return sendJson(res, 200, result);
       } catch (error) {
+        if (error?.code === "PRIVATE_HIDDEN_CONFIRMATION_REQUIRED") {
+          return sendJson(res, 400, {
+            ok: false,
+            code: "PRIVATE_HIDDEN_CONFIRMATION_REQUIRED",
+            error: "Confirmacion requerida para publicar productos ocultos o privados",
+          });
+        }
         return sendJson(res, 500, { ok: false, code: "BULK_PUBLISH_FAILED", error: error?.message || "No se pudo publicar productos aptos" });
       }
     });
