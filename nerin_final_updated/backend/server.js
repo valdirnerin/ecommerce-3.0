@@ -12508,14 +12508,15 @@ async function requestHandler(req, res) {
     const sample = [];
     let totalCatalogProducts = 0;
     let eligibleCount = 0;
-    const { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, detectProductType } = require('./utils/merchantFeed');
+    let allRows = [];
+    const { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, detectProductType, buildMerchantFeedAudit } = require('./utils/merchantFeed');
     let dbConn;
     try {
       await productsSqliteRepo.ensureProductsDbOnce();
       dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
       const totalRows = await sqliteAll(dbConn, 'SELECT COUNT(*) AS c FROM products');
       totalCatalogProducts = Number(totalRows?.[0]?.c || 0);
-      const allRows = await sqliteAll(dbConn, 'SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,precio_minorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?', [emittedLimit + emittedOffset + 2000, 0]);
+      allRows = await sqliteAll(dbConn, 'SELECT rowid,id,sku,slug,public_slug,name,title,description,brand,stock,price,price_minorista,precio_minorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?', [emittedLimit + emittedOffset + 2000, 0]);
       for (const row of allRows) {
         let raw = {};
         try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
@@ -12559,7 +12560,13 @@ async function requestHandler(req, res) {
     console.info(`[merchant-feed] skipped_bad_slug=${stats.missingSlug}`);
     console.info(`[merchant-feed] durationMs=${durationMs}`);
     if (pathname === '/merchant-feed-debug.json') {
-      return sendJson(res, 200, { totalCatalogProducts, eligibleCount, emittedLimit, emittedCount: stats.emitted, skipped: { missingImage: stats.missingImage, missingPrice: stats.missingPrice, missingSlug: stats.missingSlug, privateOrHidden: stats.privateOrHidden, nonSellable: stats.nonSellable }, sample });
+      const audit = buildMerchantFeedAudit(allRows || [], {
+        limit: emittedLimit,
+        offset: emittedOffset,
+        preorderDays,
+        baseUrl,
+      });
+      return sendJson(res, 200, audit);
     }
     res.writeHead(200, { 'Content-Type': 'text/tab-separated-values; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     res.end(`${rows.join('\n')}\n`);
