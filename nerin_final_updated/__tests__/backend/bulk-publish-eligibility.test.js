@@ -16,11 +16,27 @@ const validProduct = (overrides = {}) => ({
   ...overrides,
 });
 
+const catalogImportMetadata = (overrides = {}) => ({
+  importSource: "catalog_csv",
+  supplierPartNumber: "GH82-12345A",
+  csvStockQuantity: 0,
+  supplierImport: {
+    source: "parts_csv",
+    supplierPartNumber: "GH82-12345A",
+    csvStatus: "Available",
+    csvCanBeOrdered: true,
+    csvStockQuantity: 0,
+    csvMaximumQuantityInOrder: 10,
+    ...overrides.supplierImport,
+  },
+  ...overrides,
+});
+
 describe("bulk publish eligibility", () => {
   test("private and hidden block by default", () => {
-    expect(resolveBulkPublishEligibility(validProduct({ visibility: "private" })).reasons).toContain("private");
-    expect(resolveBulkPublishEligibility(validProduct({ status: "hidden" })).reasons).toContain("hidden");
-    expect(resolveBulkPublishEligibility(validProduct({ hidden: true })).reasons).toContain("hidden");
+    expect(resolveBulkPublishEligibility(validProduct({ visibility: "private" })).reasons).toContain("private_visibility");
+    expect(resolveBulkPublishEligibility(validProduct({ status: "hidden" })).reasons).toContain("hidden_visibility");
+    expect(resolveBulkPublishEligibility(validProduct({ hidden: true })).reasons).toContain("hidden_visibility");
   });
 
   test("private and hidden can be eligible when includePrivateHidden=true", () => {
@@ -34,16 +50,71 @@ describe("bulk publish eligibility", () => {
     ["missing_price", { price: 0, price_minorista: 0, precio_minorista: 0, precio_final: 0 }],
     ["deleted", { deleted: true }],
     ["archived", { archived: true }],
-    ["disabled", { enabled: false }],
-    ["disabled", { enabled: 0 }],
     ["draft", { status: "draft" }],
     ["vip_only", { vip_only: true }],
     ["wholesale_only", { wholesale_only: true }],
-  ])("%s always blocks", (reason, overrides) => {
-    const result = resolveBulkPublishEligibility(validProduct({ visibility: "private", ...overrides }), {
+  ])("%s remains an absolute blocker", (reason, overrides) => {
+    const result = resolveBulkPublishEligibility(validProduct({
+      visibility: "private",
+      metadata: catalogImportMetadata(),
+      enabled: false,
+      ...overrides,
+    }), {
       includePrivateHidden: true,
+      includeDisabledImportCandidates: true,
     });
     expect(result.reasons).toContain(reason);
+    expect(result.eligible).toBe(false);
+  });
+
+  test.each([
+    ["disabled_enabled_false", { enabled: false }],
+    ["disabled_enabled_zero", { enabled: 0 }],
+    ["disabled_field_true", { disabled: true }],
+    ["disabled_status", { status: "disabled" }],
+    ["disabled_visibility", { visibility: "disabled" }],
+    [
+      "disabled_catalog_import_not_orderable",
+      {
+        enabled: false,
+        metadata: catalogImportMetadata({
+          supplierImport: { csvCanBeOrdered: false, csvStockQuantity: 5 },
+          csvStockQuantity: 5,
+        }),
+      },
+    ],
+    [
+      "disabled_stock_import_zero",
+      {
+        enabled: false,
+        stock: 0,
+        metadata: catalogImportMetadata(),
+      },
+    ],
+  ])("classifies %s explicitly", (reason, overrides) => {
+    const result = resolveBulkPublishEligibility(validProduct(overrides));
+    expect(result.diagnostics.disabledReasons).toContain(reason);
+    expect(result.reasons).toContain(reason);
+    expect(result.eligible).toBe(false);
+  });
+
+  test("disabled import and stock candidates require the advanced flag", () => {
+    const product = validProduct({ enabled: false, stock: 0, metadata: catalogImportMetadata() });
+
+    const defaultResult = resolveBulkPublishEligibility(product);
+    expect(defaultResult.reasons).toEqual(expect.arrayContaining(["disabled_enabled_false", "disabled_stock_import_zero"]));
+    expect(defaultResult.eligible).toBe(false);
+
+    const advancedResult = resolveBulkPublishEligibility(product, { includeDisabledImportCandidates: true });
+    expect(advancedResult.reasons).toEqual([]);
+    expect(advancedResult.eligible).toBe(true);
+  });
+
+  test("generic disabled reasons stay hard-blocked even with disabled import flag", () => {
+    const product = validProduct({ disabled: true, stock: 0, metadata: catalogImportMetadata() });
+    const result = resolveBulkPublishEligibility(product, { includeDisabledImportCandidates: true });
+
+    expect(result.reasons).toContain("disabled_field_true");
     expect(result.eligible).toBe(false);
   });
 
@@ -61,23 +132,35 @@ describe("bulk publish eligibility", () => {
     ]));
   });
 
-  test("preview summary separates public candidates from private/hidden candidates", () => {
+  test("preview summary separates strict, private hidden, disabled import and hard-blocked candidates", () => {
     const summary = summarizeBulkPublishProducts(
       [
-        validProduct({ id: "public-candidate" }),
+        validProduct({ id: "public-candidate", image: "battery.jpg" }),
         validProduct({ id: "private-candidate", visibility: "private" }),
+        validProduct({ id: "disabled-import-candidate", enabled: false, stock: 0, metadata: catalogImportMetadata() }),
         validProduct({ id: "blocked-candidate", price: 0 }),
       ],
-      { includePrivateHidden: true, totalCatalogProducts: 3, publicProductsCount: 1 },
+      { includePrivateHidden: true, includeDisabledImportCandidates: true, totalCatalogProducts: 4, publicProductsCount: 1 },
     );
 
-    expect(summary.totalCatalogProducts).toBe(3);
+    expect(summary.totalCatalogProducts).toBe(4);
     expect(summary.publicProductsCount).toBe(1);
-    expect(summary.scannedRows).toBe(3);
-    expect(summary.eligiblePublicCandidates).toBe(1);
+    expect(summary.scannedRows).toBe(4);
+    expect(summary.searchMatchedCount).toBe(4);
+    expect(summary.withNameCount).toBe(4);
+    expect(summary.withIdentifierCount).toBe(4);
+    expect(summary.withPriceCount).toBe(3);
+    expect(summary.withImageCount).toBe(1);
+    expect(summary.strictEligibleCount).toBe(1);
+    expect(summary.eligiblePublicCandidates).toBe(2);
     expect(summary.eligiblePrivateHiddenCandidates).toBe(1);
+    expect(summary.eligibleDisabledImportCandidates).toBe(1);
+    expect(summary.privateHiddenCount).toBe(1);
+    expect(summary.advancedPublishableCount).toBe(2);
+    expect(summary.hardBlockedCount).toBe(1);
     expect(summary.blockedCount).toBe(1);
     expect(summary.reasons.missing_price).toBe(1);
+    expect(summary.disabledBreakdown.disabled_stock_import_zero).toBe(1);
   });
 
   test("publish patch does not change price or stock", () => {

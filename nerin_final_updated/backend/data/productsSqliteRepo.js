@@ -615,20 +615,118 @@ function isTruthyFlag(value) {
   return text === "true" || text === "1" || text === "yes" || text === "si";
 }
 
+function isFalsyFlag(value) {
+  if (value === false || value === 0) return true;
+  const text = normalizeQueryText(value);
+  return text === "false" || text === "0" || text === "no";
+}
+
+function getProductMetadata(product = {}) {
+  return product?.metadata && typeof product.metadata === "object" ? product.metadata : {};
+}
+
+function getSupplierImportMetadata(product = {}) {
+  const metadata = getProductMetadata(product);
+  return metadata?.supplierImport && typeof metadata.supplierImport === "object" ? metadata.supplierImport : {};
+}
+
+function getBulkDisabledReasons(product = {}, signals = {}) {
+  const reasons = [];
+  const metadata = getProductMetadata(product);
+  const supplierImport = getSupplierImportMetadata(product);
+  const enabledValue = getField(product, ["enabled"]);
+  const disabledValue = getField(product, ["disabled", "deshabilitado"]);
+
+  if (enabledValue === false || normalizeQueryText(enabledValue) === "false") reasons.push("disabled_enabled_false");
+  if (enabledValue === 0 || enabledValue === "0") reasons.push("disabled_enabled_zero");
+  if (isTruthyFlag(disabledValue)) reasons.push("disabled_field_true");
+  if (signals.status === "disabled") reasons.push("disabled_status");
+  if (signals.visibility === "disabled") reasons.push("disabled_visibility");
+
+  const isCatalogImport =
+    normalizeQueryText(metadata.importSource) === "catalog_csv" ||
+    normalizeQueryText(supplierImport.source) === "parts_csv" ||
+    Boolean(supplierImport.externalId || supplierImport.supplierPartNumber || metadata.supplierPartNumber);
+  const canBeOrdered = supplierImport.csvCanBeOrdered ?? supplierImport.canBeOrdered;
+  const csvStatus = normalizeQueryText(supplierImport.csvStatus || supplierImport.status || "");
+  const maxOrder = firstNumber([supplierImport.csvMaximumQuantityInOrder, supplierImport.maximumQuantityInOrder]);
+  const notOrderable =
+    isCatalogImport &&
+    (isFalsyFlag(canBeOrdered) ||
+      (csvStatus && csvStatus !== "available") ||
+      (Number.isFinite(maxOrder) && maxOrder <= 0));
+  if (notOrderable) reasons.push("disabled_catalog_import_not_orderable");
+
+  const stockSource = normalizeQueryText(product.stockSource || metadata.stockSource || "");
+  const hasStockImport =
+    Boolean(stockSource) ||
+    Boolean(product.stockUpdatedAt || metadata.stockUpdatedAt) ||
+    Object.prototype.hasOwnProperty.call(metadata, "stockQuantity") ||
+    Object.prototype.hasOwnProperty.call(metadata, "csvStockQuantity") ||
+    Object.prototype.hasOwnProperty.call(supplierImport, "csvStockQuantity");
+  const importedStock = firstNumber([
+    product.stockQuantity,
+    metadata.stockQuantity,
+    metadata.csvStockQuantity,
+    supplierImport.csvStockQuantity,
+    product.remote_stock,
+    product.stock,
+  ]);
+  if ((hasStockImport || isCatalogImport) && Number.isFinite(importedStock) && importedStock <= 0) {
+    reasons.push("disabled_stock_import_zero");
+  }
+
+  return Array.from(new Set(reasons));
+}
+
+function getBulkPrivateHiddenReasons(product = {}, signals = {}) {
+  const reasons = [];
+  if (signals.visibility === "hidden" || signals.status === "hidden" || isTruthyFlag(getField(product, ["hidden", "oculto"]))) {
+    reasons.push("hidden_visibility");
+  }
+  if (signals.visibility === "private" || signals.status === "private" || isTruthyFlag(getField(product, ["private", "privado"]))) {
+    reasons.push("private_visibility");
+  }
+  return Array.from(new Set(reasons));
+}
+
+function hasAbsoluteBulkBlocker(reasons = []) {
+  return reasons.some((reason) => [
+    "missing_name",
+    "missing_identifier",
+    "missing_price",
+    "deleted",
+    "archived",
+    "draft",
+    "vip_only",
+    "wholesale_only",
+  ].includes(reason));
+}
+
+function isDisabledImportCandidate(disabledReasons = []) {
+  if (!disabledReasons.length) return false;
+  const importReasons = new Set(["disabled_catalog_import_not_orderable", "disabled_stock_import_zero"]);
+  const hardReasons = new Set(["disabled_field_true", "disabled_status", "disabled_visibility"]);
+  const hasImportReason = disabledReasons.some((reason) => importReasons.has(reason));
+  const hasHardReason = disabledReasons.some((reason) => hardReasons.has(reason));
+  return hasImportReason && !hasHardReason;
+}
+
 function resolveBulkPublishEligibility(product = {}, options = {}) {
   const reasons = [];
   const warnings = [];
   const updates = {};
   const includePrivateHidden = options?.includePrivateHidden === true;
+  const includeDisabledImportCandidates = options?.includeDisabledImportCandidates === true;
   const computed = computeProductPublicState(product);
   const signals = computed?.signals || {};
   const deletedFlag = signals.deleted || isTruthyFlag(getField(product, ["deleted", "eliminado"]));
   const archivedFlag = signals.archived || isTruthyFlag(getField(product, ["archived", "archive", "archivado"]));
-  const disabledFlag = signals.enabledFalse || isTruthyFlag(getField(product, ["disabled", "deshabilitado"])) || getField(product, ["enabled"]) === 0 || getField(product, ["enabled"]) === "0" || normalizeQueryText(getField(product, ["enabled"]) || "") === "false";
   const vipOnlyFlag = signals.vipOnly || isTruthyFlag(getField(product, ["vip_only", "vipOnly", "vip only"]));
   const wholesaleOnlyFlag = signals.wholesaleOnly || isTruthyFlag(getField(product, ["wholesaleOnly", "wholesale_only", "wholesale only"]));
-  const hiddenFlag = signals.visibility === "hidden" || signals.status === "hidden" || isTruthyFlag(getField(product, ["hidden", "oculto"]));
-  const privateFlag = signals.visibility === "private" || signals.status === "private" || isTruthyFlag(getField(product, ["private", "privado"]));
+  const privateHiddenReasons = getBulkPrivateHiddenReasons(product, signals);
+  const disabledReasons = getBulkDisabledReasons(product, signals);
+  const disabledImportCandidate = isDisabledImportCandidate(disabledReasons);
 
   const hasName = !signals.missingName;
   const hasIdentifier = !signals.missingIdentifier;
@@ -636,19 +734,18 @@ function resolveBulkPublishEligibility(product = {}, options = {}) {
     getField(product, ["price", "precio", "price_minorista", "precio_minorista", "precio_final", "finalPrice", "salePrice"]),
   ]);
   const hasValidPrice = Number.isFinite(priceValue) && priceValue > 0;
+  const hasImage = hasBulkImage(product);
 
   if (!hasName) reasons.push("missing_name");
   if (!hasIdentifier) reasons.push("missing_identifier");
   if (!hasValidPrice) reasons.push("missing_price");
   if (deletedFlag) reasons.push("deleted");
   if (archivedFlag) reasons.push("archived");
-  if (disabledFlag) reasons.push("disabled");
   if (vipOnlyFlag) reasons.push("vip_only");
   if (wholesaleOnlyFlag) reasons.push("wholesale_only");
-  if (!includePrivateHidden && hiddenFlag) reasons.push("hidden");
-  if (!includePrivateHidden && privateFlag) reasons.push("private");
+  if (!includePrivateHidden) reasons.push(...privateHiddenReasons);
+  if (!(includeDisabledImportCandidates && disabledImportCandidate)) reasons.push(...disabledReasons);
   if (signals.visibility === "draft" || signals.status === "draft") reasons.push("draft");
-  if (signals.visibility === "disabled" || signals.status === "disabled") reasons.push("disabled");
   if (signals.visibility === "deleted" || signals.status === "deleted") reasons.push("deleted");
   if (signals.visibility === "archived" || signals.status === "archived") reasons.push("archived");
 
@@ -666,7 +763,28 @@ function resolveBulkPublishEligibility(product = {}, options = {}) {
     warnings.push("stock_zero_remote_assumed");
     warnings.push("remote_delivery_estimated");
   }
-  return { eligible: reasons.length === 0, reasons: Array.from(new Set(reasons)), warnings: Array.from(new Set(warnings)), updates };
+  const uniqueReasons = Array.from(new Set(reasons));
+  const hasAbsoluteBlocker = hasAbsoluteBulkBlocker(uniqueReasons);
+  const privateHiddenCandidate = privateHiddenReasons.length > 0;
+  const strictEligible = !hasAbsoluteBlocker && privateHiddenReasons.length === 0 && disabledReasons.length === 0;
+  const advancedPublishable = !hasAbsoluteBlocker && (privateHiddenCandidate || disabledImportCandidate) && !uniqueReasons.some((reason) => ["disabled_field_true", "disabled_status", "disabled_visibility"].includes(reason));
+  return {
+    eligible: uniqueReasons.length === 0,
+    reasons: uniqueReasons,
+    warnings: Array.from(new Set(warnings)),
+    updates,
+    diagnostics: {
+      hasName,
+      hasIdentifier,
+      hasValidPrice,
+      hasImage,
+      privateHiddenReasons,
+      disabledReasons,
+      disabledImportCandidate,
+      strictEligible,
+      advancedPublishable,
+    },
+  };
 }
 
 function parseBulkBooleanFilter(value) {
@@ -765,10 +883,21 @@ function createBulkPublishSummary({ totalCatalogProducts = 0, publicProductsCoun
     publicProductsCount: Number(publicProductsCount || 0),
     scannedRows: 0,
     totalScanned: 0,
+    searchMatchedCount: 0,
+    withNameCount: 0,
+    withIdentifierCount: 0,
+    withPriceCount: 0,
+    withImageCount: 0,
+    strictEligibleCount: 0,
     eligiblePublicCandidates: 0,
     eligiblePrivateHiddenCandidates: 0,
+    eligibleDisabledImportCandidates: 0,
+    hardBlockedCount: 0,
+    privateHiddenCount: 0,
+    advancedPublishableCount: 0,
     eligibleCount: 0,
     blockedCount: 0,
+    disabledBreakdown: {},
     warningCount: 0,
     reasons: {},
     warnings: {},
@@ -780,8 +909,29 @@ function createBulkPublishSummary({ totalCatalogProducts = 0, publicProductsCoun
   };
 }
 
-function recordBulkPublishEvaluation(summary, product, result) {
+function recordBulkPublishEvaluation(summary, product, result, options = {}) {
   const identifier = product.id || product.sku || product.code || product.public_slug || product.slug || `row:${product.rowid}`;
+  const diagnostics = result.diagnostics || {};
+  const privateHiddenCandidate = isPrivateHiddenProduct(product);
+  summary.searchMatchedCount += 1;
+  if (diagnostics.hasName) summary.withNameCount += 1;
+  if (diagnostics.hasIdentifier) summary.withIdentifierCount += 1;
+  if (diagnostics.hasValidPrice) summary.withPriceCount += 1;
+  if (diagnostics.hasImage) summary.withImageCount += 1;
+  if (diagnostics.strictEligible) summary.strictEligibleCount += 1;
+  if (privateHiddenCandidate) summary.privateHiddenCount += 1;
+  (diagnostics.disabledReasons || []).forEach((reason) => incCounter(summary.disabledBreakdown, reason));
+  const hasAbsoluteBlocker = hasAbsoluteBulkBlocker(result.reasons || []);
+  const hasHardDisabledReason = (diagnostics.disabledReasons || []).some((reason) => ["disabled_field_true", "disabled_status", "disabled_visibility"].includes(reason));
+  const advancedPublishable = diagnostics.advancedPublishable === true || (!hasAbsoluteBlocker && !hasHardDisabledReason && (privateHiddenCandidate || diagnostics.disabledImportCandidate === true));
+  const disabledImportPublishableWithCurrentOptions =
+    diagnostics.disabledImportCandidate === true &&
+    !hasAbsoluteBlocker &&
+    !hasHardDisabledReason &&
+    (!privateHiddenCandidate || options.includePrivateHidden === true);
+  if (disabledImportPublishableWithCurrentOptions) summary.eligibleDisabledImportCandidates += 1;
+  if (advancedPublishable) summary.advancedPublishableCount += 1;
+  if (!result.eligible && !advancedPublishable) summary.hardBlockedCount += 1;
   result.reasons.forEach((reason) => {
     incCounter(summary.reasons, reason);
     incCounter(summary.reasonCounts, reason);
@@ -811,13 +961,13 @@ function recordBulkPublishEvaluation(summary, product, result) {
   }
 }
 
-function summarizeBulkPublishProducts(products = [], { includePrivateHidden = false, totalCatalogProducts = products.length, publicProductsCount = 0 } = {}) {
+function summarizeBulkPublishProducts(products = [], { includePrivateHidden = false, includeDisabledImportCandidates = false, totalCatalogProducts = products.length, publicProductsCount = 0 } = {}) {
   const summary = createBulkPublishSummary({ totalCatalogProducts, publicProductsCount });
   for (const product of products) {
     summary.scannedRows += 1;
     summary.totalScanned = summary.scannedRows;
-    const result = resolveBulkPublishEligibility(product, { includePrivateHidden });
-    recordBulkPublishEvaluation(summary, product, result);
+    const result = resolveBulkPublishEligibility(product, { includePrivateHidden, includeDisabledImportCandidates });
+    recordBulkPublishEvaluation(summary, product, result, { includePrivateHidden });
   }
   return summary;
 }
@@ -2304,7 +2454,7 @@ async function bulkPublication({ action = "publish", scope = "private_products",
   return { ok: true, beforePublicCount, afterPublicCount, updatedRows, skipped, examplesUpdated, dryRun: Boolean(dryRun) };
 }
 
-async function scanBulkPublishCandidates({ filters = {}, limit = 500, includePrivateHidden = false, onEligible = null } = {}) {
+async function scanBulkPublishCandidates({ filters = {}, limit = 500, includePrivateHidden = false, includeDisabledImportCandidates = false, onEligible = null } = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
   const safeLimit = Math.max(1, Math.min(50000, Number(limit) || 500));
@@ -2338,8 +2488,8 @@ async function scanBulkPublishCandidates({ filters = {}, limit = 500, includePri
 
       summary.scannedRows += 1;
       summary.totalScanned = summary.scannedRows;
-      const result = resolveBulkPublishEligibility(product, { includePrivateHidden });
-      recordBulkPublishEvaluation(summary, product, result);
+      const result = resolveBulkPublishEligibility(product, { includePrivateHidden, includeDisabledImportCandidates });
+      recordBulkPublishEvaluation(summary, product, result, { includePrivateHidden });
 
       if (result.eligible && typeof onEligible === "function" && summary.eligibleCount <= safeLimit) {
         await onEligible(product, result, summary.eligibleCount);
@@ -2354,19 +2504,42 @@ async function scanBulkPublishCandidates({ filters = {}, limit = 500, includePri
   return summary;
 }
 
-async function previewBulkPublish({ filters = {}, limit = 500, includePrivateHidden = false } = {}) {
-  return scanBulkPublishCandidates({ filters, limit, includePrivateHidden: includePrivateHidden === true });
+async function previewBulkPublish({ filters = {}, limit = 500, includePrivateHidden = false, includeDisabledImportCandidates = false } = {}) {
+  return scanBulkPublishCandidates({
+    filters,
+    limit,
+    includePrivateHidden: includePrivateHidden === true,
+    includeDisabledImportCandidates: includeDisabledImportCandidates === true,
+  });
 }
 
-async function bulkPublishEligible({ dryRun = false, filters = {}, limit = 500, publishMode = "eligible_only", includePrivateHidden = false, confirmPrivateHiddenPublish = false } = {}) {
+async function bulkPublishEligible({
+  dryRun = false,
+  filters = {},
+  limit = 500,
+  publishMode = "eligible_only",
+  includePrivateHidden = false,
+  confirmPrivateHiddenPublish = false,
+  includeDisabledImportCandidates = false,
+  confirmDisabledImportPublish = false,
+} = {}) {
   if (publishMode !== "eligible_only") throw new Error("publishMode must be eligible_only");
   let updatedCount = 0;
 
   if (includePrivateHidden === true && confirmPrivateHiddenPublish !== true && dryRun !== true) {
-    const preview = await previewBulkPublish({ filters, limit, includePrivateHidden: true });
+    const preview = await previewBulkPublish({ filters, limit, includePrivateHidden: true, includeDisabledImportCandidates: includeDisabledImportCandidates === true });
     if (Number(preview.eligiblePrivateHiddenCandidates || 0) > 0) {
       const error = new Error("confirmPrivateHiddenPublish is required when includePrivateHidden=true");
       error.code = "PRIVATE_HIDDEN_CONFIRMATION_REQUIRED";
+      throw error;
+    }
+  }
+
+  if (includeDisabledImportCandidates === true && confirmDisabledImportPublish !== true && dryRun !== true) {
+    const preview = await previewBulkPublish({ filters, limit, includePrivateHidden: includePrivateHidden === true, includeDisabledImportCandidates: true });
+    if (Number(preview.eligibleDisabledImportCandidates || 0) > 0) {
+      const error = new Error("confirmDisabledImportPublish is required when includeDisabledImportCandidates=true");
+      error.code = "DISABLED_IMPORT_CONFIRMATION_REQUIRED";
       throw error;
     }
   }
@@ -2375,6 +2548,7 @@ async function bulkPublishEligible({ dryRun = false, filters = {}, limit = 500, 
     filters,
     limit,
     includePrivateHidden: includePrivateHidden === true,
+    includeDisabledImportCandidates: includeDisabledImportCandidates === true,
     async onEligible(product, result) {
       const identifier = product.id || product.sku || product.code || product.public_slug || product.slug;
       if (!identifier) return;
@@ -2383,7 +2557,15 @@ async function bulkPublishEligible({ dryRun = false, filters = {}, limit = 500, 
       updatedCount += 1;
     },
   });
-  return { ok: true, dryRun: Boolean(dryRun), publishMode, includePrivateHidden: includePrivateHidden === true, ...summary, updatedCount };
+  return {
+    ok: true,
+    dryRun: Boolean(dryRun),
+    publishMode,
+    includePrivateHidden: includePrivateHidden === true,
+    includeDisabledImportCandidates: includeDisabledImportCandidates === true,
+    ...summary,
+    updatedCount,
+  };
 }
 
 async function getCatalogFieldAudit({ sampleSize = 300 } = {}) {
