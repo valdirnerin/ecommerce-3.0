@@ -12516,7 +12516,31 @@ async function requestHandler(req, res) {
       dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
       const totalRows = await sqliteAll(dbConn, 'SELECT COUNT(*) AS c FROM products');
       totalCatalogProducts = Number(totalRows?.[0]?.c || 0);
-      allRows = await sqliteAll(dbConn, 'SELECT rowid,id,sku,slug,public_slug,name,title,description,brand,stock,price,price_minorista,precio_minorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?', [emittedLimit + emittedOffset + 2000, 0]);
+      const productColumns = await sqliteAll(dbConn, 'PRAGMA table_info(products)');
+      const availableColumns = new Set((productColumns || []).map((col) => String(col?.name || '').trim()).filter(Boolean));
+      const preferredColumns = [
+        'id','sku','slug','public_slug','name','title','description','brand','stock','price','price_minorista','precio_minorista','precio_final','image','raw_json','status','visibility','enabled','deleted','archived','vip_only','wholesale_only','is_public','part_number','mpn','category'
+      ];
+      const fallbackExpressions = {
+        public_slug: "json_extract(raw_json, '$.public_slug') AS public_slug",
+        slug: "json_extract(raw_json, '$.slug') AS slug",
+        status: "json_extract(raw_json, '$.status') AS status",
+        visibility: "json_extract(raw_json, '$.visibility') AS visibility",
+        enabled: "json_extract(raw_json, '$.enabled') AS enabled",
+        is_public: "json_extract(raw_json, '$.is_public') AS is_public",
+      };
+      const selectedColumns = ['rowid'];
+      for (const col of preferredColumns) {
+        if (availableColumns.has(col)) {
+          selectedColumns.push(col);
+        } else if (fallbackExpressions[col]) {
+          selectedColumns.push(fallbackExpressions[col]);
+        } else {
+          selectedColumns.push(`NULL AS ${col}`);
+        }
+      }
+      const selectSql = `SELECT ${selectedColumns.join(',')} FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`;
+      allRows = await sqliteAll(dbConn, selectSql, [emittedLimit + emittedOffset + 2000, 0]);
       for (const row of allRows) {
         let raw = {};
         try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
@@ -12548,6 +12572,22 @@ async function requestHandler(req, res) {
       }
     } catch (error) {
       if (dbConn) { try { dbConn.close(); } catch {} }
+      if (pathname === '/merchant-feed-debug.json') {
+        console.error('[merchant-feed-debug] error', {
+          message: error?.message,
+          code: error?.code,
+          stack: error?.stack,
+        });
+        return sendJson(res, 500, {
+          ok: false,
+          error: 'No se pudo generar merchant feed',
+          debugError: {
+            message: error?.message || null,
+            code: error?.code || null,
+            stackFirstLine: String(error?.stack || '').split('\n')[0] || null,
+          },
+        });
+      }
       console.error('[merchant-feed] error', { message: error?.message, code: error?.code, stack: error?.stack });
       return sendJson(res, 500, { error: 'No se pudo generar merchant feed' });
     }
