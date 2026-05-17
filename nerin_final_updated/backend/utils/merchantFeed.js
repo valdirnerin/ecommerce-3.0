@@ -57,6 +57,32 @@ function isValidFeedUrl(v) {
   return /^https?:\/\//i.test(v);
 }
 
+function normalizeMerchantImageUrl(value, baseUrl = 'https://nerinparts.com.ar') {
+  const raw = String(value || '').trim();
+  if (!raw) return { valid: false, reason: 'empty', normalized: '' };
+  if (/^data:image/i.test(raw)) return { valid: false, reason: 'dataImage', normalized: '' };
+  if (/^blob:/i.test(raw)) return { valid: false, reason: 'blobUrl', normalized: '' };
+  if (/^javascript:/i.test(raw)) return { valid: false, reason: 'javascriptUrl', normalized: '' };
+  if (/^base64[,;]/i.test(raw)) return { valid: false, reason: 'base64Placeholder', normalized: '' };
+
+  const candidate = /^https?:\/\//i.test(raw)
+    ? raw
+    : `${String(baseUrl || 'https://nerinparts.com.ar').replace(/\/+$/, '')}/${raw.replace(/^\/+/, '')}`;
+
+  const attempts = [candidate, encodeURI(candidate)];
+  for (const attempt of attempts) {
+    try {
+      const parsed = new URL(attempt);
+      if (!/^https?:$/i.test(parsed.protocol)) continue;
+      if (!parsed.hostname || !parsed.hostname.includes('.')) continue;
+      return { valid: true, reason: null, normalized: parsed.toString() };
+    } catch {
+      // keep trying
+    }
+  }
+  return { valid: false, reason: 'invalidUrl', normalized: attempts[1] || candidate };
+}
+
 function getSkipTemplate() {
   return {
     notPublic: 0, privateOrHidden: 0, disabled: 0, deleted: 0, archived: 0, draft: 0, vipOnly: 0, wholesaleOnly: 0,
@@ -115,10 +141,29 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     const link = slug ? `${baseUrl}/p/${encodeURIComponent(slug)}` : '';
     if (!link) { skipped.missingLink += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingLink' }); continue; }
 
-    const imageCandidates = [row.image, raw.image, ...(Array.isArray(raw.images) ? raw.images : [])].filter(Boolean);
+    const imageCandidates = [
+      row.image,
+      row.image_url,
+      raw.image,
+      raw.image_url,
+      ...(Array.isArray(raw.images) ? raw.images : []),
+    ].filter(Boolean);
     if (!imageCandidates.length) { skipped.missingImage += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingImage' }); continue; }
-    const imageLink = String(imageCandidates[0]);
-    if (!isValidFeedUrl(imageLink)) { skipped.invalidImageUrl += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidImageUrl' }); continue; }
+    const rawImage = String(imageCandidates[0]);
+    const normalizedImage = normalizeMerchantImageUrl(rawImage, baseUrl);
+    if (!normalizedImage.valid) {
+      skipped.invalidImageUrl += 1;
+      pushSample(samplesSkipped, {
+        id: row.id || identifier,
+        sku: row.sku || raw.sku || null,
+        title,
+        rawImage,
+        normalizedImageAttempt: normalizedImage.normalized,
+        reason: `invalidImageUrl:${normalizedImage.reason}`,
+      });
+      continue;
+    }
+    const imageLink = normalizedImage.normalized;
 
     const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
     if ((row.price == null && raw.price == null && row.precio_final == null && raw.precio_final == null)) { skipped.missingPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingPrice' }); continue; }
@@ -165,4 +210,4 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   };
 }
 
-module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, detectProductType, buildMerchantFeedAudit };
+module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, detectProductType, buildMerchantFeedAudit, normalizeMerchantImageUrl, isValidFeedUrl };

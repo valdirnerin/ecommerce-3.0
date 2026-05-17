@@ -107,4 +107,47 @@ describe('merchant feed audit', () => {
     expect(Array.isArray(audit.samplesEligible)).toBe(true);
     expect(Array.isArray(audit.samplesSkipped)).toBe(true);
   });
+
+  test('acepta URL externa de proveedor con query params', () => {
+    const image = 'https://images.2service.nl/v7/Images/Part/1337/1336958/C1GH82-36387A.jpg?p=p1000x1000&ci_eqs=x&ci_seal=y';
+    const audit = buildMerchantFeedAudit([baseRow({ id: 'gh82', stock: 1, image })]);
+    expect(audit.emittedCount).toBe(1);
+    expect(audit.samplesEligible[0].image_link).toBe(image);
+  });
+
+  test('normaliza URL externa con caracteres especiales', () => {
+    const rawImage = 'https://images.2service.nl/v7/Images/Part/1337/1336958/]C1GH82-36387A.jpg?p=p1000x1000&ci_eqs=x&ci_seal=y';
+    const audit = buildMerchantFeedAudit([baseRow({ id: 'gh82b', image: rawImage })]);
+    expect(audit.emittedCount).toBe(1);
+    expect(audit.samplesEligible[0].image_link).toContain('https://images.2service.nl/');
+  });
+
+  test('convierte ruta relativa propia a dominio público', () => {
+    const audit = buildMerchantFeedAudit([baseRow({ id: 'rel-1', image: '/assets/uploads/products/x.webp' })]);
+    expect(audit.emittedCount).toBe(1);
+    expect(audit.samplesEligible[0].image_link).toBe('https://nerinparts.com.ar/assets/uploads/products/x.webp');
+  });
+
+  test('rechaza data:image, blob y placeholder vacío', () => {
+    const rows = [
+      baseRow({ id: 'bad-data', image: 'data:image/png;base64,aaaa' }),
+      baseRow({ id: 'bad-blob', image: 'blob:https://nerinparts.com.ar/something' }),
+      baseRow({ id: 'bad-empty', image: '   ' }),
+    ];
+    const audit = buildMerchantFeedAudit(rows);
+    expect(audit.skipped.invalidImageUrl).toBe(3);
+    expect(audit.samplesSkipped.some((item) => item.id === 'bad-data' && item.reason.includes('dataImage'))).toBe(true);
+    expect(audit.samplesSkipped.some((item) => item.id === 'bad-blob' && item.reason.includes('blobUrl'))).toBe(true);
+    expect(audit.samplesSkipped.some((item) => item.id === 'bad-empty' && item.reason.includes('empty'))).toBe(true);
+  });
+
+  test('producto público con imagen externa válida y stock/preorder válido aparece en samplesEligible', () => {
+    const audit = buildMerchantFeedAudit([
+      baseRow({ id: 'ok-ext', image: 'https://images.2service.nl/v7/Images/Part/1/img.jpg', stock: 0, raw_json: JSON.stringify({ allow_backorder: true }) }),
+    ]);
+    expect(audit.emittedCount).toBe(1);
+    expect(audit.samplesEligible[0].id).toBe('ok-ext');
+    expect(audit.samplesEligible[0].image_link).toBe('https://images.2service.nl/v7/Images/Part/1/img.jpg');
+    expect(['in_stock', 'preorder']).toContain(audit.samplesEligible[0].availability);
+  });
 });
