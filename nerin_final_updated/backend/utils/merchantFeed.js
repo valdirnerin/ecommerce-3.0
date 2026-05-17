@@ -9,6 +9,9 @@ function safeMerchantText(value, max = 150) {
     ['BaterÃ­a', 'Batería'],
     ['CÃ¡mara', 'Cámara'],
     ['TelÃ©fono', 'Teléfono'],
+    ['CÃ¡maras', 'Cámaras'],
+    ['electrÃ³nicos', 'electrónicos'],
+    ['ReparaciÃ³n', 'Reparación'],
   ];
   let text = String(value || '');
   for (const [bad, good] of mojibakeFixes) text = text.split(bad).join(good);
@@ -106,6 +109,91 @@ function pushSample(bucket, entry, max = 10) {
   if (bucket.length < max) bucket.push(entry);
 }
 
+
+function normalizeComparableUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return String(url || '').trim();
+  }
+}
+
+function detectMerchantProductType(row, raw, title) {
+  const lowerTitle = String(title || '').toLowerCase();
+  let productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
+  if (/display\s*(incl\.?|with|\+)\s*battery/.test(lowerTitle)) productTypeDetected = 'Pantalla / display';
+  if (/adhesive\s*tape\s*display/.test(lowerTitle)) productTypeDetected = 'Adhesivo para pantalla';
+  if (/charging\s*board|charge\s*port|dock\s*connector/.test(lowerTitle)) productTypeDetected = 'Placa / pin de carga';
+  if (/\bbattery\b/.test(lowerTitle) && !/display\s*(incl\.?|with|\+)\s*battery/.test(lowerTitle)) productTypeDetected = 'Batería';
+  return productTypeDetected;
+}
+
+function extractRaw(row) {
+  let raw = {};
+  try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
+  return raw;
+}
+
+function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar' } = {}) {
+  const audit = buildMerchantFeedAudit(rows, { limit, offset, preorderDays, baseUrl });
+  const entries = [];
+  const sanitizedLimit = Math.max(1, Number(limit) || 500);
+  const sanitizedOffset = Math.max(0, Number(offset) || 0);
+  let eligibleCount = 0;
+  for (const row of rows) {
+    const raw = extractRaw(row);
+    if (!isEligibleState(row, raw)) continue;
+    const identifier = String(row.sku || row.id || row.mpn || row.part_number || raw.sku || raw.id || raw.mpn || raw.part_number || '').trim();
+    if (!identifier) continue;
+    const title = safeMerchantText(buildMerchantTitle(row, raw));
+    if (!title) continue;
+    const description = safeMerchantText(row.description || raw.description || `${title} disponible en NERIN Parts.`, 5000);
+    if (!description) continue;
+    const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
+    const link = slug ? `${baseUrl}/p/${encodeURIComponent(slug)}` : '';
+    if (!link || !isValidFeedUrl(link)) continue;
+    const imageCandidates = [row.image,row.image_url,raw.image,raw.image_url,...(Array.isArray(raw.images) ? raw.images : [])].filter(Boolean);
+    if (!imageCandidates.length) continue;
+    const primary = normalizeMerchantImageUrl(String(imageCandidates[0]), baseUrl);
+    if (!primary.valid) continue;
+    const image_link = primary.normalized;
+    const additional = [];
+    const seenImages = new Set([normalizeComparableUrl(image_link)]);
+    for (const img of imageCandidates.slice(1)) {
+      const n = normalizeMerchantImageUrl(String(img), baseUrl);
+      if (!n.valid) continue;
+      const key = normalizeComparableUrl(n.normalized);
+      if (seenImages.has(key)) continue;
+      seenImages.add(key);
+      additional.push(n.normalized);
+      if (additional.length >= 10) break;
+    }
+    const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) continue;
+    const av = computeAvailability(row, raw, preorderDays);
+    if (!VALID_AVAILABILITY.has(av.availability)) continue;
+    if (av.availability === 'preorder' && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}$/)) continue;
+    const productTypeDetected = detectMerchantProductType(row, raw, title);
+    const product_type = safeMerchantText(mapProductTypeToFeed(productTypeDetected));
+    if (!product_type) continue;
+    eligibleCount += 1;
+    if (eligibleCount <= sanitizedOffset || entries.length >= sanitizedLimit) continue;
+    const brand = safeMerchantText(String(row.brand || raw.brand || '').trim(), 70);
+    const mpn = safeMerchantText(String(row.mpn || row.part_number || row.sku || raw.mpn || raw.part_number || raw.sku || '').trim(), 70);
+    const identifier_exists = (brand && mpn) ? 'yes' : 'no';
+    entries.push({
+      id: identifier, title, description, link, image_link,
+      additional_image_link: additional.join(','), availability: av.availability,
+      availability_date: av.availability === 'preorder' ? av.availabilityDate : '',
+      price: `${priceNum.toFixed(2)} ARS`, condition: 'new', brand, mpn, identifier_exists,
+      google_product_category: GOOGLE_CATEGORY, product_type,
+    });
+  }
+  return { entries, audit };
+}
+
 function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar', totalCatalogProducts = null, publicProductsCount = null } = {}) {
   const skipped = getSkipTemplate();
   const samplesEligible = [];
@@ -200,11 +288,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     }); continue; }
     if (!VALID_AVAILABILITY.has(av.availability)) { skipped.invalidAvailability += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailability' }); continue; }
 
-    const lowerTitle = title.toLowerCase();
-    let productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
-    if (/adhesive\s*tape\s*display/.test(lowerTitle)) productTypeDetected = 'Adhesivo para pantalla';
-    if (/charging\s*board|charge\s*port|dock\s*connector/.test(lowerTitle)) productTypeDetected = 'Placa / pin de carga';
-    if (/\bbattery\b/.test(lowerTitle)) productTypeDetected = 'Batería';
+    const productTypeDetected = detectMerchantProductType(row, raw, title);
     const productType = mapProductTypeToFeed(productTypeDetected);
     if (!productType || productType.toLowerCase() === 'pantallas' && /resin\s*pc/i.test(title)) {
       skipped.taxonomyBlocked += 1;
@@ -216,9 +300,10 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     if (eligibleCount <= sanitizedOffset || emittedCount >= sanitizedLimit) continue;
 
     emittedCount += 1;
-    productTypeBreakdown[productType] = (productTypeBreakdown[productType] || 0) + 1;
+    const safeProductType = safeMerchantText(productType);
+    productTypeBreakdown[safeProductType] = (productTypeBreakdown[safeProductType] || 0) + 1;
     availabilityBreakdown[av.availability] = (availabilityBreakdown[av.availability] || 0) + 1;
-    pushSample(samplesEligible, { id: identifier, title, productType, availability: av.availability, availability_date: av.availabilityDate || null, price: `${priceNum.toFixed(2)} ARS`, link, image_link: imageLink, stock: Number(row.stock ?? raw.stock ?? 0) });
+    pushSample(samplesEligible, { id: identifier, title: safeMerchantText(title), productType: safeProductType, availability: av.availability, availability_date: av.availabilityDate || null, price: `${priceNum.toFixed(2)} ARS`, link, image_link: imageLink, stock: Number(row.stock ?? raw.stock ?? 0) });
   }
 
   return {
@@ -237,4 +322,4 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   };
 }
 
-module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, normalizeMerchantImageUrl, isValidFeedUrl };
+module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl };
