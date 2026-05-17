@@ -1,4 +1,4 @@
-const { buildMerchantFeedAudit } = require('../../backend/utils/merchantFeed');
+const { buildMerchantFeedAudit, safeMerchantText } = require('../../backend/utils/merchantFeed');
 
 function baseRow(overrides = {}, raw = {}) {
   return {
@@ -50,12 +50,35 @@ describe('merchant feed audit', () => {
   test('stock > 0 => in_stock', () => {
     const audit = buildMerchantFeedAudit([baseRow({ stock: 5 })]);
     expect(audit.samplesEligible[0].availability).toBe('in_stock');
+    expect(audit.samplesEligible[0].availability_date).toBeNull();
   });
 
   test('stock 0 vendible a pedido => preorder + availability_date', () => {
-    const audit = buildMerchantFeedAudit([baseRow({ stock: 0, raw_json: JSON.stringify({ allow_backorder: true }) })]);
+    const audit = buildMerchantFeedAudit([baseRow({ stock: 0 })]);
     expect(audit.samplesEligible[0].availability).toBe('preorder');
     expect(audit.samplesEligible[0].availability_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+  test('contadores reales pueden ser mayores al lote escaneado', () => {
+    const rows = [baseRow({ id: 'a' }), baseRow({ id: 'b', is_public: 0 })];
+    const audit = buildMerchantFeedAudit(rows, { totalCatalogProducts: 52000, publicProductsCount: 12000, limit: 5, offset: 3 });
+    expect(audit.totalCatalogProducts).toBe(52000);
+    expect(audit.publicProductsCount).toBe(12000);
+    expect(audit.scannedRows).toBe(2);
+    expect(audit.limit).toBe(5);
+    expect(audit.offset).toBe(3);
+  });
+
+  test('producto público stock 0 con imagen externa válida no cae en missingAvailability', () => {
+    const audit = buildMerchantFeedAudit([
+      baseRow({ id: 'pre-ext', stock: 0, image: 'https://images.2service.nl/v7/Images/Part/1/img.jpg' }),
+    ]);
+    expect(audit.skipped.missingAvailability).toBe(0);
+    expect(audit.emittedCount).toBe(1);
+    expect(audit.samplesEligible[0].availability).toBe('preorder');
+  });
+
+  test('safeMerchantText corrige mojibake típico', () => {
+    expect(safeMerchantText('MÃ³dulo Pantalla')).toBe('Módulo Pantalla');
   });
 
   test('taxonomía clasifica casos solicitados', () => {
