@@ -110,6 +110,26 @@ function pushSample(bucket, entry, max = 10) {
 }
 
 
+function normalizeComparableUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return String(url || '').trim();
+  }
+}
+
+function detectMerchantProductType(row, raw, title) {
+  const lowerTitle = String(title || '').toLowerCase();
+  let productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
+  if (/display\s*(incl\.?|with|\+)\s*battery/.test(lowerTitle)) productTypeDetected = 'Pantalla / display';
+  if (/adhesive\s*tape\s*display/.test(lowerTitle)) productTypeDetected = 'Adhesivo para pantalla';
+  if (/charging\s*board|charge\s*port|dock\s*connector/.test(lowerTitle)) productTypeDetected = 'Placa / pin de carga';
+  if (/\bbattery\b/.test(lowerTitle) && !/display\s*(incl\.?|with|\+)\s*battery/.test(lowerTitle)) productTypeDetected = 'Batería';
+  return productTypeDetected;
+}
+
 function extractRaw(row) {
   let raw = {};
   try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
@@ -140,20 +160,22 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
     if (!primary.valid) continue;
     const image_link = primary.normalized;
     const additional = [];
-    for (const img of imageCandidates.slice(1, 11)) {
+    const seenImages = new Set([normalizeComparableUrl(image_link)]);
+    for (const img of imageCandidates.slice(1)) {
       const n = normalizeMerchantImageUrl(String(img), baseUrl);
-      if (n.valid && n.normalized !== image_link && !additional.includes(n.normalized)) additional.push(n.normalized);
+      if (!n.valid) continue;
+      const key = normalizeComparableUrl(n.normalized);
+      if (seenImages.has(key)) continue;
+      seenImages.add(key);
+      additional.push(n.normalized);
+      if (additional.length >= 10) break;
     }
     const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
     if (!Number.isFinite(priceNum) || priceNum <= 0) continue;
     const av = computeAvailability(row, raw, preorderDays);
     if (!VALID_AVAILABILITY.has(av.availability)) continue;
     if (av.availability === 'preorder' && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}$/)) continue;
-    let productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
-    const lowerTitle = title.toLowerCase();
-    if (/adhesive\s*tape\s*display/.test(lowerTitle)) productTypeDetected = 'Adhesivo para pantalla';
-    if (/charging\s*board|charge\s*port|dock\s*connector/.test(lowerTitle)) productTypeDetected = 'Placa / pin de carga';
-    if (/\bbattery\b/.test(lowerTitle)) productTypeDetected = 'Batería';
+    const productTypeDetected = detectMerchantProductType(row, raw, title);
     const product_type = safeMerchantText(mapProductTypeToFeed(productTypeDetected));
     if (!product_type) continue;
     eligibleCount += 1;
@@ -266,11 +288,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     }); continue; }
     if (!VALID_AVAILABILITY.has(av.availability)) { skipped.invalidAvailability += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailability' }); continue; }
 
-    const lowerTitle = title.toLowerCase();
-    let productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
-    if (/adhesive\s*tape\s*display/.test(lowerTitle)) productTypeDetected = 'Adhesivo para pantalla';
-    if (/charging\s*board|charge\s*port|dock\s*connector/.test(lowerTitle)) productTypeDetected = 'Placa / pin de carga';
-    if (/\bbattery\b/.test(lowerTitle)) productTypeDetected = 'Batería';
+    const productTypeDetected = detectMerchantProductType(row, raw, title);
     const productType = mapProductTypeToFeed(productTypeDetected);
     if (!productType || productType.toLowerCase() === 'pantallas' && /resin\s*pc/i.test(title)) {
       skipped.taxonomyBlocked += 1;

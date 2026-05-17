@@ -214,4 +214,45 @@ describe('merchant feed tsv payload', () => {
     expect(byId.comp.product_type).toBe('Componentes electrónicos');
     expect(byId.cam.product_type).toBe('Cámaras y lentes');
   });
+
+
+  test('additional_image_link excluye principal, deduplica y descarta inválidas', () => {
+    const rows = [baseRow({
+      id: 'img-dedupe',
+      image: 'https://img.cdn.com/a.webp',
+      raw_json: JSON.stringify({
+        image: 'https://img.cdn.com/a.webp',
+        images: [
+          'https://img.cdn.com/a.webp',
+          'https://img.cdn.com/a.webp#fragment',
+          'data:image/png;base64,aaaa',
+          'blob:https://img.cdn.com/abc',
+          '   ',
+          'https://img.cdn.com/b.webp',
+          'https://img.cdn.com/b.webp',
+          'https://img.cdn.com/c.webp'
+        ],
+      }),
+    })];
+    const { entries } = buildMerchantFeedEntries(rows);
+    expect(entries[0].additional_image_link).toBe('https://img.cdn.com/b.webp,https://img.cdn.com/c.webp');
+    expect(entries[0].additional_image_link.includes(entries[0].image_link)).toBe(false);
+  });
+
+  test('additional_image_link vacío si solo existe imagen principal', () => {
+    const { entries } = buildMerchantFeedEntries([baseRow({ id: 'single-img', image: 'https://img.cdn.com/main.webp' })]);
+    expect(entries[0].additional_image_link).toBe('');
+  });
+
+  test('display incl battery prioriza Pantallas; battery puro queda Baterias', () => {
+    const rows = [
+      baseRow({ id: 'disp-batt', name: 'Display incl. battery (Original) - Black, Huawei Y5 (2017)' }),
+      baseRow({ id: 'batt-main', name: 'Battery (Original), Apple iPhone 14' }),
+    ];
+    const { entries } = buildMerchantFeedEntries(rows);
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e.product_type]));
+    expect(byId['disp-batt']).toBe('Pantallas');
+    expect(byId['batt-main']).toBe('Baterias');
+  });
+
 });
