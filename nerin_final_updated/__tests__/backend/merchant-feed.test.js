@@ -77,6 +77,18 @@ describe('merchant feed audit', () => {
     expect(audit.samplesEligible[0].availability).toBe('preorder');
   });
 
+
+  test('debug limpia mojibake en breakdown y samples', () => {
+    const rows = [
+      baseRow({ id: 'dbg-1', name: 'CÃ¡mara MÃ³dulo', raw_json: JSON.stringify({ category: 'Componentes electrÃ³nicos' }) }),
+      baseRow({ id: 'dbg-2', is_public: 0 }),
+    ];
+    const audit = buildMerchantFeedAudit(rows);
+    expect(Object.keys(audit.productTypeBreakdown).join(' ')).not.toMatch(/MÃ|electrÃ/);
+    expect(audit.samplesEligible[0].title).not.toContain('MÃ³dulo');
+    expect(audit.samplesEligible[0].productType).not.toContain('electrÃ³nicos');
+  });
+
   test('safeMerchantText corrige mojibake típico', () => {
     expect(safeMerchantText('MÃ³dulo Pantalla')).toBe('Módulo Pantalla');
   });
@@ -187,6 +199,19 @@ describe('merchant feed tsv payload', () => {
     const tsv = buildMerchantFeedEntries(rows, { limit: 50, offset: 0 });
     expect(tsv.audit.eligibleCount).toBe(audit.eligibleCount);
     expect(tsv.entries.length).toBe(audit.emittedCount);
+  });
+
+
+  test('description limpia artifacts de contentReference/oaicite', () => {
+    const rows = [
+      baseRow({
+        id: 'cite-1',
+        description: 'Texto limpio :contentReference[oaicite:1]{index=1} y oaicite y :contentReference[foo]',
+      }),
+    ];
+    const { entries } = buildMerchantFeedEntries(rows);
+    expect(entries[0].description).not.toContain('contentReference');
+    expect(entries[0].description).not.toContain('oaicite');
   });
 
   test('preorder e in_stock availability_date correcto y headers esperados', () => {
