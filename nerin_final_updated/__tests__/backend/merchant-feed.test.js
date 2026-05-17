@@ -75,6 +75,32 @@ describe('merchant feed audit', () => {
     expect(byId.rs).not.toBe('Pantallas');
   });
 
+
+  test('buildMerchantFeedAudit audita filas válidas sin error genérico', () => {
+    const rows = [baseRow({ id: 'ok-1' }), baseRow({ id: 'ok-2', stock: 0, raw_json: JSON.stringify({ allow_backorder: true }) })];
+    const audit = buildMerchantFeedAudit(rows);
+    expect(audit.ok).toBeUndefined();
+    expect(audit.eligibleCount).toBeGreaterThan(0);
+    expect(audit.emittedCount).toBeGreaterThan(0);
+  });
+
+  test('buildMerchantFeedAudit tolera raw_json null, vacío e inválido', () => {
+    const rows = [
+      baseRow({ id: 'n1', raw_json: null }),
+      baseRow({ id: 'n2', raw_json: '' }),
+      baseRow({ id: 'n3', raw_json: '{invalid-json' }),
+    ];
+    expect(() => buildMerchantFeedAudit(rows)).not.toThrow();
+    const audit = buildMerchantFeedAudit(rows);
+    expect(audit.scannedRows).toBe(3);
+  });
+
+  test('buildMerchantFeedAudit tolera campos opcionales ausentes', () => {
+    const rows = [
+      baseRow({ id: 'opt-1', brand: null, mpn: null, part_number: null, description: null }, {}),
+    ];
+    expect(() => buildMerchantFeedAudit(rows)).not.toThrow();
+  });
   test('debug devuelve skipped reasons y samples', () => {
     const audit = buildMerchantFeedAudit([baseRow(), baseRow({ id: 'x', is_public: 0 })]);
     expect(audit).toHaveProperty('skipped');
