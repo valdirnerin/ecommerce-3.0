@@ -1,4 +1,4 @@
-const { buildMerchantFeedAudit, safeMerchantText } = require('../../backend/utils/merchantFeed');
+const { buildMerchantFeedAudit, buildMerchantFeedEntries, safeMerchantText } = require('../../backend/utils/merchantFeed');
 
 function baseRow(overrides = {}, raw = {}) {
   return {
@@ -173,4 +173,86 @@ describe('merchant feed audit', () => {
     expect(audit.samplesEligible[0].image_link).toBe('https://images.2service.nl/v7/Images/Part/1/img.jpg');
     expect(['in_stock', 'preorder']).toContain(audit.samplesEligible[0].availability);
   });
+});
+
+
+describe('merchant feed tsv payload', () => {
+  test('usa misma elegibilidad que debug', () => {
+    const rows = [
+      baseRow({ id: 'ok-1' }),
+      baseRow({ id: 'bad-hidden', raw_json: JSON.stringify({ hidden: true }) }),
+      baseRow({ id: 'bad-no-image', image: null }),
+    ];
+    const audit = buildMerchantFeedAudit(rows, { limit: 50, offset: 0 });
+    const tsv = buildMerchantFeedEntries(rows, { limit: 50, offset: 0 });
+    expect(tsv.audit.eligibleCount).toBe(audit.eligibleCount);
+    expect(tsv.entries.length).toBe(audit.emittedCount);
+  });
+
+  test('preorder e in_stock availability_date correcto y headers esperados', () => {
+    const rows = [baseRow({ id: 'stk', stock: 3 }), baseRow({ id: 'pre', stock: 0 })];
+    const { entries } = buildMerchantFeedEntries(rows);
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+    expect(byId.stk.availability).toBe('in_stock');
+    expect(byId.stk.availability_date).toBe('');
+    expect(byId.pre.availability).toBe('preorder');
+    expect(byId.pre.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Object.keys(entries[0])).toEqual(['id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type']);
+  });
+
+  test('limpia mojibake y no duplica additional_image_link', () => {
+    const rows = [
+      baseRow({ id: 'moji', name: 'MÃ³dulo CÃ¡maras', image: 'https://a.com/x.jpg', raw_json: JSON.stringify({ images: ['https://a.com/x.jpg', 'https://a.com/y.jpg'] }) }),
+      baseRow({ id: 'comp', name: 'Componente electrÃ³nico IC PMIC' }),
+      baseRow({ id: 'cam', name: 'CÃ¡mara trasera iPhone' }),
+    ];
+    const { entries } = buildMerchantFeedEntries(rows);
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
+    expect(byId.moji.title).toContain('Módulo');
+    expect(byId.moji.title).toContain('Cámaras');
+    expect(byId.moji.additional_image_link).toBe('https://a.com/y.jpg');
+    expect(byId.comp.product_type).toBe('Componentes electrónicos');
+    expect(byId.cam.product_type).toBe('Cámaras y lentes');
+  });
+
+
+  test('additional_image_link excluye principal, deduplica y descarta inválidas', () => {
+    const rows = [baseRow({
+      id: 'img-dedupe',
+      image: 'https://img.cdn.com/a.webp',
+      raw_json: JSON.stringify({
+        image: 'https://img.cdn.com/a.webp',
+        images: [
+          'https://img.cdn.com/a.webp',
+          'https://img.cdn.com/a.webp#fragment',
+          'data:image/png;base64,aaaa',
+          'blob:https://img.cdn.com/abc',
+          '   ',
+          'https://img.cdn.com/b.webp',
+          'https://img.cdn.com/b.webp',
+          'https://img.cdn.com/c.webp'
+        ],
+      }),
+    })];
+    const { entries } = buildMerchantFeedEntries(rows);
+    expect(entries[0].additional_image_link).toBe('https://img.cdn.com/b.webp,https://img.cdn.com/c.webp');
+    expect(entries[0].additional_image_link.includes(entries[0].image_link)).toBe(false);
+  });
+
+  test('additional_image_link vacío si solo existe imagen principal', () => {
+    const { entries } = buildMerchantFeedEntries([baseRow({ id: 'single-img', image: 'https://img.cdn.com/main.webp' })]);
+    expect(entries[0].additional_image_link).toBe('');
+  });
+
+  test('display incl battery prioriza Pantallas; battery puro queda Baterias', () => {
+    const rows = [
+      baseRow({ id: 'disp-batt', name: 'Display incl. battery (Original) - Black, Huawei Y5 (2017)' }),
+      baseRow({ id: 'batt-main', name: 'Battery (Original), Apple iPhone 14' }),
+    ];
+    const { entries } = buildMerchantFeedEntries(rows);
+    const byId = Object.fromEntries(entries.map((e) => [e.id, e.product_type]));
+    expect(byId['disp-batt']).toBe('Pantallas');
+    expect(byId['batt-main']).toBe('Baterias');
+  });
+
 });
