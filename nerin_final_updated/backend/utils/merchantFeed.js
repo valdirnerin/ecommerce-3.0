@@ -15,6 +15,9 @@ function safeMerchantText(value, max = 150) {
   ];
   let text = String(value || '');
   for (const [bad, good] of mojibakeFixes) text = text.split(bad).join(good);
+  text = text.replace(/:contentReference\[[^\]]*\]\{[^}]*\}/gi, ' ');
+  text = text.replace(/:contentReference\[[^\]]*\]/gi, ' ');
+  text = text.replace(/\boaicite\b/gi, ' ');
   text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ');
   text = text.replace(/\s+/g, ' ').trim();
   return text.slice(0, max);
@@ -318,7 +321,11 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     productTypeBreakdown,
     availabilityBreakdown,
     samplesEligible,
-    samplesSkipped,
+    samplesSkipped: samplesSkipped.map((sample) => ({
+      ...sample,
+      title: sample.title ? safeMerchantText(sample.title) : sample.title,
+      reason: sample.reason ? safeMerchantText(sample.reason) : sample.reason,
+    })),
   };
 }
 
