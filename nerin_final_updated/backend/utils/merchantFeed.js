@@ -3,9 +3,22 @@ const { detectProductType } = require('./productTaxonomy');
 const GOOGLE_CATEGORY = 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles';
 const VALID_AVAILABILITY = new Set(['in_stock', 'preorder']);
 
-function cleanText(value, max = 150) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
+function safeMerchantText(value, max = 150) {
+  const mojibakeFixes = [
+    ['MÃ³dulo', 'Módulo'],
+    ['BaterÃ­a', 'Batería'],
+    ['CÃ¡mara', 'Cámara'],
+    ['TelÃ©fono', 'Teléfono'],
+  ];
+  let text = String(value || '');
+  for (const [bad, good] of mojibakeFixes) text = text.split(bad).join(good);
+  text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' ');
+  text = text.replace(/\s+/g, ' ').trim();
   return text.slice(0, max);
+}
+
+function cleanText(value, max = 150) {
+  return safeMerchantText(value, max);
 }
 
 function toBool(v) { return v === true || v === 1 || String(v).toLowerCase() === 'true'; }
@@ -31,14 +44,12 @@ function mapProductTypeToFeed(label) {
 }
 
 function buildMerchantTitle(row, raw) {
-  return cleanText(row.name || row.title || raw.name || raw.title || raw.description || '');
+  return safeMerchantText(row.name || row.title || raw.name || raw.title || raw.description || '');
 }
 
 function computeAvailability(row, raw, preorderDays = 30) {
   const stockLocal = Number(row.stock ?? raw.stock ?? 0);
-  const sellableRemote = Number(raw.remote_stock ?? raw.stock_remote ?? raw.available_remote ?? 0) > 0 || toBool(raw.allow_backorder) || toBool(raw.sellable_on_demand) || String(raw.availability || '').toLowerCase() === 'preorder';
   if (stockLocal > 0) return { availability: 'in_stock', availabilityDate: '' };
-  if (!sellableRemote) return { availability: null, availabilityDate: '' };
   const existingDate = String(raw.availability_date || raw.preorder_date || '').trim();
   if (existingDate) return { availability: 'preorder', availabilityDate: existingDate };
   const d = new Date(Date.now() + Number(preorderDays) * 86400000).toISOString().slice(0, 10);
@@ -95,7 +106,7 @@ function pushSample(bucket, entry, max = 10) {
   if (bucket.length < max) bucket.push(entry);
 }
 
-function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar' } = {}) {
+function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar', totalCatalogProducts = null, publicProductsCount = null } = {}) {
   const skipped = getSkipTemplate();
   const samplesEligible = [];
   const samplesSkipped = [];
@@ -104,7 +115,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   const sanitizedLimit = Math.max(1, Number(limit) || 500);
   const sanitizedOffset = Math.max(0, Number(offset) || 0);
 
-  let publicProductsCount = 0;
+  let publicProductsInScan = 0;
   let eligibleCount = 0;
   let emittedCount = 0;
 
@@ -117,7 +128,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
       pushSample(samplesSkipped, { id: row.id || row.sku || null, reason: 'notPublic' });
       continue;
     }
-    publicProductsCount += 1;
+    publicProductsInScan += 1;
 
     const flags = [row.status, row.visibility, raw.status, raw.visibility].filter(Boolean).join(' ').toLowerCase();
     if (toBool(raw.private) || toBool(raw.hidden) || /private|hidden/.test(flags)) { skipped.privateOrHidden += 1; pushSample(samplesSkipped, { id: row.id || row.sku || null, reason: 'privateOrHidden' }); continue; }
@@ -134,7 +145,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     const title = buildMerchantTitle(row, raw);
     if (!title) { skipped.missingTitle += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingTitle' }); continue; }
 
-    const description = cleanText(row.description || raw.description || `${title} disponible en NERIN Parts.`, 5000);
+    const description = safeMerchantText(row.description || raw.description || `${title} disponible en NERIN Parts.`, 5000);
     if (!description) { skipped.missingDescription += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingDescription' }); continue; }
 
     const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
@@ -170,7 +181,23 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     if (!Number.isFinite(priceNum) || priceNum <= 0) { skipped.invalidPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidPrice' }); continue; }
 
     const av = computeAvailability(row, raw, preorderDays);
-    if (!av.availability) { skipped.missingAvailability += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingAvailability' }); continue; }
+    if (!av.availability) { skipped.missingAvailability += 1; pushSample(samplesSkipped, {
+      id: identifier,
+      title,
+      stock: Number(row.stock ?? raw.stock ?? 0),
+      status: row.status ?? raw.status ?? null,
+      visibility: row.visibility ?? raw.visibility ?? null,
+      enabled: row.enabled ?? raw.enabled ?? null,
+      stock_mode: raw.stock_mode ?? null,
+      fulfillment_mode: raw.fulfillment_mode ?? null,
+      rawAvailabilitySignals: {
+        remote_stock: raw.remote_stock ?? raw.stock_remote ?? raw.available_remote ?? null,
+        sellable_on_demand: raw.sellable_on_demand ?? null,
+        allow_backorder: raw.allow_backorder ?? null,
+        availability: raw.availability ?? null,
+      },
+      reason: 'missingAvailability',
+    }); continue; }
     if (!VALID_AVAILABILITY.has(av.availability)) { skipped.invalidAvailability += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailability' }); continue; }
 
     const lowerTitle = title.toLowerCase();
@@ -191,12 +218,12 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     emittedCount += 1;
     productTypeBreakdown[productType] = (productTypeBreakdown[productType] || 0) + 1;
     availabilityBreakdown[av.availability] = (availabilityBreakdown[av.availability] || 0) + 1;
-    pushSample(samplesEligible, { id: identifier, title, productType, availability: av.availability, availability_date: av.availabilityDate || null, price: `${priceNum.toFixed(2)} ARS`, link, image_link: imageLink });
+    pushSample(samplesEligible, { id: identifier, title, productType, availability: av.availability, availability_date: av.availabilityDate || null, price: `${priceNum.toFixed(2)} ARS`, link, image_link: imageLink, stock: Number(row.stock ?? raw.stock ?? 0) });
   }
 
   return {
-    totalCatalogProducts: rows.length,
-    publicProductsCount,
+    totalCatalogProducts: Number.isFinite(Number(totalCatalogProducts)) ? Number(totalCatalogProducts) : rows.length,
+    publicProductsCount: Number.isFinite(Number(publicProductsCount)) ? Number(publicProductsCount) : publicProductsInScan,
     scannedRows: rows.length,
     eligibleCount,
     emittedCount,
@@ -210,4 +237,4 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   };
 }
 
-module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, detectProductType, buildMerchantFeedAudit, normalizeMerchantImageUrl, isValidFeedUrl };
+module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, normalizeMerchantImageUrl, isValidFeedUrl };

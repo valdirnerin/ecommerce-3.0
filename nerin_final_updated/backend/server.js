@@ -12507,6 +12507,7 @@ async function requestHandler(req, res) {
     const stats = { missingImage: 0, missingPrice: 0, missingSlug: 0, privateOrHidden: 0, nonSellable: 0, emitted: 0 };
     const sample = [];
     let totalCatalogProducts = 0;
+    let publicProductsCount = 0;
     let eligibleCount = 0;
     let allRows = [];
     const { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, detectProductType, buildMerchantFeedAudit } = require('./utils/merchantFeed');
@@ -12516,6 +12517,8 @@ async function requestHandler(req, res) {
       dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
       const totalRows = await sqliteAll(dbConn, 'SELECT COUNT(*) AS c FROM products');
       totalCatalogProducts = Number(totalRows?.[0]?.c || 0);
+      const publicRows = await sqliteAll(dbConn, "SELECT COUNT(*) AS c FROM products WHERE (is_public = 1 OR json_extract(raw_json, '$.is_public') = 1 OR lower(json_extract(raw_json, '$.publicable')) = 'true')");
+      publicProductsCount = Number(publicRows?.[0]?.c || 0);
       const productColumns = await sqliteAll(dbConn, 'PRAGMA table_info(products)');
       const availableColumns = new Set((productColumns || []).map((col) => String(col?.name || '').trim()).filter(Boolean));
       const preferredColumns = [
@@ -12605,6 +12608,8 @@ async function requestHandler(req, res) {
         offset: emittedOffset,
         preorderDays,
         baseUrl,
+        totalCatalogProducts,
+        publicProductsCount,
       });
       return sendJson(res, 200, audit);
     }
