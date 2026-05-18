@@ -6950,6 +6950,52 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/search" && req.method === "GET") {
+    try {
+      const q = String(parsedUrl.query?.q || parsedUrl.query?.search || "");
+      const limit = Math.min(96, Math.max(1, Number(parsedUrl.query?.limit || 24)));
+      const offset = Math.max(0, Number(parsedUrl.query?.offset || 0));
+      const page = Math.floor(offset / limit) + 1;
+      const debug = String(parsedUrl.query?.debug || "") === "1";
+      const startedAt = Date.now();
+      const data = await productsSqliteRepo.queryProducts({
+        page,
+        pageSize: limit,
+        search: q,
+        category: parsedUrl.query?.category || "",
+        brand: parsedUrl.query?.brand || "",
+        model: parsedUrl.query?.model || "",
+        stock: parsedUrl.query?.stock || "",
+      });
+      const results = data.items.map((item) => ({
+        id: item.id,
+        title: item.title || item.name,
+        price: item.price_minorista ?? item.price ?? null,
+        brand: item.brand || "",
+        compatibleBrand: (String(item.brand || "").toLowerCase().startsWith("for ") ? String(item.brand).slice(4) : null),
+        productType: item.category || "",
+        availability: Number(item.stock || 0) > 0 ? "in_stock" : "out_of_stock",
+        stock: Number(item.stock || 0),
+        image: item.image || item.thumbnail || "",
+        slug: item.publicSlug || item.slug || "",
+        link: item.url || "",
+      }));
+      return sendJson(res, 200, {
+        results,
+        total: data.totalItems,
+        limit,
+        offset,
+        queryParsed: { normalizedQuery: q },
+        tookMs: Date.now() - startedAt,
+        suggestions: [],
+        facets: {},
+        debug: debug ? { source: "basic", note: "Use /api/catalog/debug-search for row-level details." } : undefined,
+      });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });
+    }
+  }
+
   if (pathname === "/api/admin/products" && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
     registerProductsTraffic("admin");
