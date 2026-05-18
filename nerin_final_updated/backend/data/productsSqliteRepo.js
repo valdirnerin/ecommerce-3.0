@@ -136,13 +136,36 @@ function normalizeQueryText(value) {
 
 
 
+const APPLE_IPHONE_GENERATIONS = new Set(["11", "12", "13", "14", "15", "16", "17"]);
+const APPLE_VARIANT_ORDER = ["pro max", "mini", "plus", "pro", "air"];
+const APPLE_VARIANT_PENALTIES = {
+  base: { pro: -350, mini: -600, "pro max": -700, plus: -500, air: -500 },
+  mini: { base: -500, pro: -700, "pro max": -800, plus: -700, air: -700 },
+  pro: { base: -300, "pro max": -500, mini: -800, plus: -700, air: -700 },
+  "pro max": { pro: -500, base: -700, mini: -900, plus: -800, air: -800 },
+  plus: { base: -500, pro: -700, "pro max": -800, mini: -800, air: -700 },
+  air: { base: -500, pro: -700, "pro max": -800, mini: -800, plus: -700 },
+};
+
 const REPLACEMENT_TYPE_SYNONYMS = [
-  { key: "bateria", terms: ["battery", "bateria"] },
-  { key: "pantalla", terms: ["display", "pantalla"] },
-  { key: "placa carga", terms: ["charging board", "charge port", "dock connector", "placa de carga", "pin de carga"] },
-  { key: "adhesivo", terms: ["adhesive", "tape", "glue", "adhesivo"] },
-  { key: "flex", terms: ["flex cable", "flex"] },
+  { key: "bateria", terms: ["battery", "bateria", "baterias", "bater?a", "bater?as"] },
+  { key: "pantalla", terms: ["display", "pantalla", "pantallas", "modulo", "modulo display", "modulo pantalla", "modulo lcd", "m?dulo", "lcd", "screen"] },
+  { key: "tapa", terms: ["tapa", "tapa trasera", "back glass", "rear cover", "back cover", "vidrio trasero", "carcasa trasera"] },
+  { key: "placa carga", terms: ["charging board", "charge port", "dock connector", "placa de carga", "pin de carga", "puerto de carga"] },
+  { key: "adhesivo", terms: ["adhesive", "tape", "glue", "adhesivo", "pegamento"] },
+  { key: "flex", terms: ["flex cable", "flex", "cable flex"] },
+  { key: "camara", terms: ["camera", "camara", "c?mara", "camara frontal", "camara trasera"] },
 ];
+
+const REPLACEMENT_TYPE_SEARCH_EQUIVALENTS = new Map(
+  REPLACEMENT_TYPE_SYNONYMS.flatMap((entry) =>
+    entry.terms.map((term) => [normalizeQueryText(term), entry.terms.map(normalizeQueryText)]),
+  ),
+);
+
+function uniqueValues(values = []) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
 
 function tokenizeSearch(value = "") {
   return normalizeQueryText(value)
@@ -161,7 +184,7 @@ function inferReplacementType(text = "") {
 
 function extractModelPhrase(text = "") {
   const normalized = normalizeQueryText(text);
-  const patterns = [/iphone\s+\d+\s+pro\s+max/, /iphone\s+\d+\s+pro/, /iphone\s+\d+/, /galaxy\s+s\d+\s+ultra/, /galaxy\s+[as]\d+/, /sm-s\d{3,}/];
+  const patterns = [/iphone\s+\d+\s+pro\s+max/, /iphone\s+\d+\s+mini/, /iphone\s+\d+\s+plus/, /iphone\s+\d+\s+air/, /iphone\s+\d+\s+pro/, /iphone\s+\d+/, /galaxy\s+s\d+\s+ultra/, /galaxy\s+[as]\d+/, /sm-s\d{3,}/];
   for (const pattern of patterns) {
     const matched = normalized.match(pattern);
     if (matched) return matched[0];
@@ -171,61 +194,327 @@ function extractModelPhrase(text = "") {
 
 function extractSkuOrMpn(text = "") {
   const normalized = normalizeQueryText(text);
-  const match = normalized.match(/(?:gh\d{2}-\d{4,}[a-z]?|sm-s\d{3,}|[a-z]{2,}\d{2,}-\d{2,}[a-z]?)/i);
+  const match = normalized.match(/\b(?:gh\d{2}-\d{4,}[a-z]?|sm-s\d{3,}|[a-z]{2,}\d{2,}-\d{2,}[a-z]?)\b/i);
   return match ? match[0].toLowerCase() : "";
+}
+
+function normalizeAppleModelText(value = "") {
+  return normalizeQueryText(value)
+    .replace(/\biphone\s*(1[1-7])\s*(promax)\b/g, "iphone $1 pro max")
+    .replace(/\biphone\s*(1[1-7])\s*(pro|max|mini|plus|air)\b/g, "iphone $1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function toAppleModel(generation, variant = "base") {
+  const safeGeneration = String(generation || "").trim();
+  if (!APPLE_IPHONE_GENERATIONS.has(safeGeneration)) return null;
+  const normalizedVariant = normalizeQueryText(variant || "base").replace(/\s+/g, " ") || "base";
+  const safeVariant = normalizedVariant === "max" ? "pro max" : normalizedVariant;
+  const finalVariant = APPLE_VARIANT_ORDER.includes(safeVariant) ? safeVariant : "base";
+  const exactModel = finalVariant === "base" ? `iphone ${safeGeneration}` : `iphone ${safeGeneration} ${finalVariant}`;
+  return {
+    brand: "apple",
+    family: "iphone",
+    generation: safeGeneration,
+    variant: finalVariant,
+    exactModel,
+  };
+}
+
+function parseAppleModel(text = "") {
+  const models = extractAppleModels(text);
+  return models[0] || null;
+}
+
+function extractAppleModels(text = "") {
+  const normalized = normalizeAppleModelText(text);
+  if (!normalized) return [];
+  const models = [];
+  const regex = /\biphone\s*(11|12|13|14|15|16|17)(?:\s+(pro\s+max|mini|plus|pro|air))?\b/g;
+  let match;
+  while ((match = regex.exec(normalized))) {
+    const model = toAppleModel(match[1], match[2] || "base");
+    if (model && !models.some((entry) => entry.exactModel === model.exactModel)) {
+      models.push(model);
+    }
+  }
+  return models;
+}
+
+function parseRawProductJson(product = {}) {
+  if (!product || typeof product !== "object") return {};
+  if (product.raw_json && typeof product.raw_json === "string") {
+    try {
+      return JSON.parse(product.raw_json || "{}");
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function joinProductFields(product = {}, aliases = []) {
+  const raw = parseRawProductJson(product);
+  return aliases
+    .map((alias) => getField(product, [alias]) ?? getField(raw, [alias]))
+    .filter((value) => value !== undefined && value !== null)
+    .join(" ");
+}
+
+function getProductAppleModelInfo(product = {}) {
+  const primaryText = joinProductFields(product, [
+    "name",
+    "title",
+    "product_title",
+    "model",
+    "catalog_model",
+    "mpn",
+    "MPN",
+    "partNumber",
+    "part_number",
+    "sku",
+    "code",
+  ]);
+  const secondaryText = joinProductFields(product, [
+    "description",
+    "shortDescription",
+    "short_description",
+    "compatibility",
+    "compatibleModels",
+    "compatible_models",
+    "search_text",
+  ]);
+  const primaryModels = extractAppleModels(primaryText);
+  const allModels = uniqueValues([...primaryModels, ...extractAppleModels(secondaryText)].map((model) => model.exactModel))
+    .map((exactModel) => [...primaryModels, ...extractAppleModels(secondaryText)].find((model) => model.exactModel === exactModel))
+    .filter(Boolean);
+  return {
+    productAppleModel: primaryModels[0] || allModels[0] || null,
+    compatibleAppleModels: allModels,
+  };
+}
+
+function inferBrand(text = "") {
+  const normalized = normalizeQueryText(text);
+  if (/\b(apple|iphone)\b/.test(normalized)) return "apple";
+  if (/\b(samsung|galaxy|sm-[a-z0-9]+)\b/.test(normalized)) return "samsung";
+  if (/\b(xiaomi|redmi|poco)\b/.test(normalized)) return "xiaomi";
+  if (/\b(huawei)\b/.test(normalized)) return "huawei";
+  if (/\b(honor)\b/.test(normalized)) return "honor";
+  if (/\b(oneplus|one plus)\b/.test(normalized)) return "oneplus";
+  if (/\b(motorola|moto)\b/.test(normalized)) return "motorola";
+  return "";
+}
+
+function isSameAppleModel(a, b) {
+  return Boolean(a && b && a.exactModel === b.exactModel);
+}
+
+function isAppleVariantMismatch(queryModel, productModel) {
+  return Boolean(
+    queryModel &&
+      productModel &&
+      queryModel.family === "iphone" &&
+      productModel.family === "iphone" &&
+      queryModel.generation === productModel.generation &&
+      queryModel.variant !== productModel.variant,
+  );
+}
+
+function getAppleVariantPenalty(queryModel, productModel) {
+  if (!isAppleVariantMismatch(queryModel, productModel)) return 0;
+  return APPLE_VARIANT_PENALTIES[queryModel.variant]?.[productModel.variant] ?? -700;
+}
+
+function hasExactAppleTitlePhrase(queryModel, titleText = "") {
+  if (!queryModel) return false;
+  const normalized = normalizeAppleModelText(titleText);
+  if (!normalized) return false;
+  const prefix = "(?:apple\\s+)?iphone\\s+";
+  const variant = queryModel.variant === "base" ? "" : `\\s+${queryModel.variant.replace(/\s+/g, "\\s+")}`;
+  const blockedNextVariant =
+    queryModel.variant === "base"
+      ? "(?!\\s+(?:mini|plus|pro|air))"
+      : queryModel.variant === "pro"
+        ? "(?!\\s+max)"
+        : "";
+  const pattern = new RegExp(`\\b${prefix}${queryModel.generation}${variant}${blockedNextVariant}\\b`);
+  return pattern.test(normalized);
+}
+
+function addScoreReason(state, label, value) {
+  if (!value) return;
+  state.score += value;
+  if (state.debug) state.reasons.push({ label, score: value });
 }
 
 function computeSearchIntent(query = "") {
   const normalizedQuery = normalizeQueryText(query);
   const tokens = tokenizeSearch(normalizedQuery);
+  const appleModel = parseAppleModel(normalizedQuery);
   return {
     normalizedQuery,
     tokens,
-    brand: tokens.find((token) => ["iphone", "apple", "samsung", "galaxy", "xiaomi", "motorola"].includes(token)) || "",
+    brand: inferBrand(normalizedQuery) || tokens.find((token) => ["iphone", "apple", "samsung", "galaxy", "xiaomi", "huawei", "honor", "oneplus", "motorola"].includes(token)) || "",
     modelPhrase: extractModelPhrase(normalizedQuery),
+    appleModel,
     replacementType: inferReplacementType(normalizedQuery),
     skuOrMpn: extractSkuOrMpn(normalizedQuery),
     importantTokens: tokens.filter((token) => token.length >= 3),
   };
 }
 
-function scoreProductAgainstIntent(product = {}, intent = {}) {
-  if (!intent?.normalizedQuery) return 0;
+function scoreProductAgainstIntent(product = {}, intent = {}, options = {}) {
+  if (!intent?.normalizedQuery) {
+    return options?.debug ? { score: 0, reasons: [] } : 0;
+  }
   const haystack = normalizeQueryText([
     getField(product, ["id", "sku", "code", "partNumber", "mpn", "ean", "gtin", "supplier_code"]),
     getField(product, ["name", "title", "description", "shortDescription", "short_description"]),
     getField(product, ["brand", "marca"]),
     getField(product, ["model", "modelo"]),
     getField(product, ["category", "categoria", "productType"]),
+    getField(product, ["search_text"]),
   ].join(" "));
-  let score = 0;
-  if (intent.skuOrMpn && haystack.includes(intent.skuOrMpn)) score += 1000;
-  if (intent.modelPhrase && haystack.includes(intent.modelPhrase)) score += 700;
-  if (intent.replacementType && inferReplacementType(haystack) === intent.replacementType) score += 400;
-  if (intent.brand && haystack.includes(intent.brand)) score += 150;
+  const state = { score: 0, reasons: [], debug: Boolean(options?.debug) };
+  const raw = parseRawProductJson(product);
+  const titleText = joinProductFields(product, ["name", "title", "product_title"]);
+  const productBrand = inferBrand([
+    haystack,
+    getField(product, ["brand", "marca"]),
+    getField(raw, ["brand", "marca", "manufacturer"]),
+  ].join(" "));
+  const productType = inferReplacementType(haystack);
+  const { productAppleModel, compatibleAppleModels } = getProductAppleModelInfo(product);
+  const hasCompatibleExactAppleModel = Boolean(
+    intent.appleModel &&
+      compatibleAppleModels.some((model) => isSameAppleModel(intent.appleModel, model)) &&
+      !isSameAppleModel(intent.appleModel, productAppleModel),
+  );
+
+  if (intent.skuOrMpn && haystack.includes(intent.skuOrMpn)) addScoreReason(state, "sku/mpn exacto", 1000);
+  if (intent.modelPhrase && haystack.includes(intent.modelPhrase)) addScoreReason(state, "frase de modelo presente", 250);
+  if (intent.replacementType) {
+    if (productType === intent.replacementType) addScoreReason(state, `tipo ${intent.replacementType}`, 800);
+    else if (productType) addScoreReason(state, `tipo incorrecto ${productType} vs ${intent.replacementType}`, -800);
+  }
+  if (intent.brand) {
+    if (intent.brand === "apple" || intent.tokens?.some((token) => token === "iphone" || token === "apple")) {
+      if (productBrand === "apple" || productAppleModel) addScoreReason(state, "marca apple", 500);
+      else addScoreReason(state, "marca no apple", -700);
+    } else if (productBrand === intent.brand || haystack.includes(intent.brand)) {
+      addScoreReason(state, `marca ${intent.brand}`, 250);
+    }
+  }
+  if (intent.appleModel) {
+    if (productAppleModel?.generation === intent.appleModel.generation || hasCompatibleExactAppleModel) {
+      addScoreReason(state, `generacion iphone ${intent.appleModel.generation}`, 900);
+    } else if (productAppleModel?.generation) {
+      addScoreReason(state, `generacion incorrecta iphone ${productAppleModel.generation}`, -900);
+    }
+
+    if (isSameAppleModel(intent.appleModel, productAppleModel)) {
+      addScoreReason(state, `modelo exacto ${intent.appleModel.exactModel}`, 1500);
+    } else if (hasCompatibleExactAppleModel) {
+      addScoreReason(state, `compatibilidad explicita ${intent.appleModel.exactModel}`, 450);
+    } else if (isAppleVariantMismatch(intent.appleModel, productAppleModel)) {
+      addScoreReason(
+        state,
+        `variante distinta ${productAppleModel.variant} vs ${intent.appleModel.variant}`,
+        getAppleVariantPenalty(intent.appleModel, productAppleModel),
+      );
+    }
+
+    if (hasExactAppleTitlePhrase(intent.appleModel, titleText)) {
+      addScoreReason(state, "frase exacta en titulo", 1000);
+    }
+  }
   const allImportantPresent = intent.importantTokens.length > 0 && intent.importantTokens.every((token) => haystack.includes(token));
-  if (allImportantPresent) score += 200;
-  else if (intent.importantTokens.some((token) => haystack.includes(token))) score += 50;
+  if (allImportantPresent) addScoreReason(state, "tokens importantes presentes", 200);
+  else if (intent.importantTokens.some((token) => haystack.includes(token))) addScoreReason(state, "tokens importantes parciales", 50);
   if (intent.modelPhrase.includes("iphone") && !haystack.includes(intent.modelPhrase)) {
     const target = intent.modelPhrase.match(/iphone\s+(\d+)/);
     const candidate = haystack.match(/iphone\s+(\d+)/);
-    if (target && candidate && target[1] !== candidate[1]) score -= 500;
-    if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) score -= 500;
+    if (target && candidate && target[1] !== candidate[1]) addScoreReason(state, "modelo iphone numericamente distinto", -500);
+    if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) addScoreReason(state, "pro max no solicitado", -500);
   }
-  return score;
+  if (!options?.debug) return state.score;
+  return {
+    score: state.score,
+    reasons: state.reasons,
+    queryModel: intent.appleModel || null,
+    productModel: productAppleModel || null,
+    productVariant: productAppleModel?.variant || null,
+    compatibleAppleModels,
+    productType,
+    productBrand,
+  };
 }
 
 function rankRowsBySearchIntent(rows = [], intent = {}, { preferPositiveScores = false } = {}) {
   if (!Array.isArray(rows) || rows.length === 0 || !intent?.normalizedQuery) return [];
   const ranked = rows.map((row, index) => {
-    const score = scoreProductAgainstIntent(row, intent);
-    return { row, score, index };
+    const debug = scoreProductAgainstIntent(row, intent, { debug: true });
+    return { row, score: debug.score, index, debug };
   });
   ranked.sort((a, b) => b.score - a.score || Number(a.row.rowid || 0) - Number(b.row.rowid || 0) || a.index - b.index);
   if (!preferPositiveScores) return ranked;
   const positives = ranked.filter((entry) => entry.score > 0);
   const nonPositives = ranked.filter((entry) => entry.score <= 0);
   return positives.concat(nonPositives);
+}
+
+function getSearchDebugForRankedEntries(ranked = [], intent = {}, limit = 24) {
+  return ranked.slice(0, Math.max(1, Math.min(100, Number(limit) || 24))).map((entry, position) => ({
+    position: position + 1,
+    id: entry.row?.id || null,
+    sku: entry.row?.sku || null,
+    code: entry.row?.code || null,
+    title: entry.row?.name || entry.row?.title || null,
+    model: entry.row?.model || null,
+    score: entry.score,
+    queryModel: intent.appleModel || null,
+    productModel: entry.debug?.productModel || null,
+    variant: entry.debug?.productVariant || null,
+    compatibleAppleModels: entry.debug?.compatibleAppleModels || [],
+    reasons: entry.debug?.reasons || [],
+  }));
+}
+
+function expandSearchTokenForSynonyms(token = "") {
+  const normalized = normalizeQueryText(token);
+  return uniqueValues(REPLACEMENT_TYPE_SEARCH_EQUIVALENTS.get(normalized) || [normalized]);
+}
+
+function buildFtsQueryFromSearch(normalizedSearch = "") {
+  const tokens = normalizedSearch
+    .replace(/[^a-z0-9\s-]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  return tokens
+    .map((token) => {
+      const equivalents = expandSearchTokenForSynonyms(token)
+        .map((term) => term.replace(/[^a-z0-9\s-]/gi, " ").trim())
+        .filter(Boolean)
+        .flatMap((term) => term.split(/\s+/).filter(Boolean));
+      const unique = uniqueValues(equivalents);
+      if (unique.length <= 1) return `${unique[0] || token}*`;
+      return `(${unique.map((value) => `${value}*`).join(" OR ")})`;
+    })
+    .join(" AND ");
+}
+
+function addLikeSearchConditions(where, params, normalizedSearch = "") {
+  const tokens = normalizedSearch
+    .replace(/[^a-z0-9\s-]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  tokens.forEach((token) => {
+    const equivalents = expandSearchTokenForSynonyms(token);
+    where.push(`(${equivalents.map(() => "search_text LIKE ?").join(" OR ")})`);
+    equivalents.forEach((term) => params.push(`%${term}%`));
+  });
 }
 
 function boolToInt(value, fallback = 0) {
@@ -1732,16 +2021,9 @@ function buildWhereClause({
   if (normalizedSearch) {
     if (ftsEnabled) {
       where.push("rowid IN (SELECT rowid FROM products_fts WHERE products_fts MATCH ?)");
-      const tokens = normalizedSearch
-        .replace(/[^a-z0-9\s]/gi, " ")
-        .split(" ")
-        .filter(Boolean)
-        .map((token) => `${token}*`)
-        .join(" AND ");
-      params.push(tokens || normalizedSearch);
+      params.push(buildFtsQueryFromSearch(normalizedSearch) || normalizedSearch);
     } else {
-      where.push("search_text LIKE ?");
-      params.push(`%${normalizedSearch}%`);
+      addLikeSearchConditions(where, params, normalizedSearch);
     }
   }
 
@@ -1798,6 +2080,7 @@ async function queryBase({
   status = "",
   stock = "",
   priceMax = null,
+  debugSearch = false,
 } = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
@@ -1840,10 +2123,11 @@ async function queryBase({
 
   const selectStartedAt = Date.now();
   let rows = [];
+  let searchDebug = undefined;
   if (!shouldIntentRank) {
     rows = await all(
       db,
-      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency
+      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency, part_number, mpn, search_text, raw_json
         FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
       [...whereClause.params, safePageSize, offset],
     );
@@ -1851,13 +2135,22 @@ async function queryBase({
     const candidateLimit = Math.max(safePageSize, Math.min(SEARCH_RANK_CANDIDATE_LIMIT, totalItems));
     const candidateRows = await all(
       db,
-      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency
+      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency, part_number, mpn, search_text, raw_json
         FROM products ${whereClause.sql} ORDER BY ${orderBy} LIMIT ? OFFSET 0`,
       [...whereClause.params, candidateLimit],
     );
     const intent = computeSearchIntent(normalizedSearch);
     const ranked = rankRowsBySearchIntent(candidateRows, intent, { preferPositiveScores: Boolean(intent.modelPhrase || intent.replacementType || intent.skuOrMpn || intent.importantTokens?.length) });
-    rows = ranked.slice(offset, offset + safePageSize).map((entry) => entry.row);
+    const pageEntries = ranked.slice(offset, offset + safePageSize);
+    rows = pageEntries.map((entry) => entry.row);
+    if (debugSearch) {
+      searchDebug = {
+        query: search,
+        normalizedQuery: normalizedSearch,
+        queryModel: intent.appleModel || null,
+        results: getSearchDebugForRankedEntries(pageEntries, intent, safePageSize),
+      };
+    }
   }
   const selectMs = Date.now() - selectStartedAt;
 
@@ -1879,6 +2172,7 @@ async function queryBase({
     hasPrevPage: safePage > 1,
     source: "sqlite",
     search: search || undefined,
+    searchDebug,
     countMs,
     selectMs,
     parseItemsMs,
@@ -2489,12 +2783,14 @@ async function debugCatalogSearch({ search = "", limit = 20 } = {}) {
   const totalRow = await get(db, `SELECT COUNT(*) AS total FROM products ${whereClause.sql}`, whereClause.params);
   const sampleMatches = await all(
     db,
-    `SELECT id, sku, code, name, title, model, public_slug, search_text
+    `SELECT rowid, id, sku, code, name, title, model, brand, category, public_slug, part_number, mpn, search_text, raw_json
      FROM products ${whereClause.sql}
      ORDER BY rowid ASC
      LIMIT ?`,
-    [...whereClause.params, Math.max(1, Math.min(100, Number(limit) || 20))],
+    [...whereClause.params, Math.max(1, Math.min(SEARCH_RANK_CANDIDATE_LIMIT, Number(limit) || 20))],
   );
+  const intent = computeSearchIntent(search);
+  const ranked = rankRowsBySearchIntent(sampleMatches, intent, { preferPositiveScores: true });
   const normalizedSearch = normalizeQueryText(search || "");
   const sqliteMatchesAny = await get(db, `SELECT COUNT(*) AS total FROM products WHERE search_text LIKE ?`, [`%${normalizedSearch}%`]);
   const sqlitePublicMatches = await get(db, `SELECT COUNT(*) AS total FROM products WHERE is_public = 1 AND search_text LIKE ?`, [`%${normalizedSearch}%`]);
@@ -2506,6 +2802,8 @@ async function debugCatalogSearch({ search = "", limit = 20 } = {}) {
     search,
     totalMatches: Number(totalRow?.total || 0),
     diagnosis,
+    queryModel: intent.appleModel || null,
+    rankedResults: getSearchDebugForRankedEntries(ranked, intent, limit),
     sampleMatches: sampleMatches.map((row) => ({
       id: row.id || null,
       sku: row.sku || null,
@@ -2677,6 +2975,10 @@ module.exports = {
   normalizeProductForAdminList,
   normalizeQueryText,
   computeSearchIntent,
+  parseAppleModel,
+  extractAppleModels,
+  getProductAppleModelInfo,
+  isAppleVariantMismatch,
   scoreProductAgainstIntent,
   rankRowsBySearchIntent,
   PRODUCTS_SQLITE_SCHEMA_VERSION,

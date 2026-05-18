@@ -113,6 +113,9 @@ const FILTER_DEBOUNCE_MS = 350;
 const SHOP_DEBUG =
   new URLSearchParams(window.location.search).get("shopDebug") === "1" ||
   localStorage.getItem("nerinShopDebug") === "1";
+const SEARCH_DEBUG =
+  new URLSearchParams(window.location.search).get("debugSearch") === "1" ||
+  localStorage.getItem("nerinSearchDebug") === "1";
 
 function shopLog(message, payload = undefined) {
   if (!SHOP_DEBUG) return;
@@ -689,6 +692,7 @@ function syncQueryParams(filters) {
   if (filters.stock) params.set("stock", filters.stock);
   if (filters.priceActive && filters.price) params.set("price_max", String(filters.price));
   if (filters.sort && filters.sort !== "relevance") params.set("sort", filters.sort);
+  if (SEARCH_DEBUG) params.set("debugSearch", "1");
   const query = params.toString();
   history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
 }
@@ -863,6 +867,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     price_max: filters.priceActive ? filters.price : "",
     sort: mapSortForBackend(filters.sort),
   };
+  if (SEARCH_DEBUG) requestParams.debugSearch = "1";
   console.info("[shop-products] load", {
     page: currentProductsPage,
     pageSize: productsPageSize,
@@ -896,6 +901,19 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     usingFallback: Boolean(response?.usingFallback),
     source: response?.source || "unknown",
   });
+  if (SEARCH_DEBUG && response?.searchDebug) {
+    console.groupCollapsed("[shop-search-debug]", filters.search || "");
+    console.info("query model", response.searchDebug.queryModel || null);
+    console.table((response.searchDebug.results || []).map((entry) => ({
+      position: entry.position,
+      score: entry.score,
+      title: entry.title,
+      productModel: entry.productModel?.exactModel || "",
+      variant: entry.variant || "",
+      reasons: (entry.reasons || []).map((reason) => `${reason.label} ${reason.score > 0 ? "+" : ""}${reason.score}`).join("; "),
+    })));
+    console.groupEnd();
+  }
   if (requestId !== latestRequestId) {
     shopLog("response:ignored-stale", { requestId, latestRequestId });
     return;
