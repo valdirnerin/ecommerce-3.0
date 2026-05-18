@@ -6901,6 +6901,7 @@ async function requestHandler(req, res) {
         stock: queryParams.stock || "",
         priceMax: queryParams.price_max ?? queryParams.priceMax,
         sort: queryParams.sort || "",
+        debugSearch: queryParams.debugSearch === "1" || queryParams.debug === "1",
       });
       const items = withWholesale
         ? sqliteData.items.map((item) => normalizeProductImages(item))
