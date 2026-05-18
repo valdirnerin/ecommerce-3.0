@@ -1313,7 +1313,7 @@ function renderProduct(product) {
       <span class="shipping-banner__meta">
         ${
           fulfillment.mode === "remote"
-            ? `Stock remoto: entrega estimada en ${leadCopy}. Sujeto a disponibilidad del proveedor.`
+            ? `Producto disponible bajo pedido. Fecha estimada de despacho: ${leadCopy}. Sujeto a disponibilidad del proveedor.`
             : fulfillment.isConfigured
               ? "Stock físico: despacho prioritario en 24 h hábiles con seguimiento en vivo."
               : "Despachamos a diario con empaque blindado y seguimiento en vivo."
