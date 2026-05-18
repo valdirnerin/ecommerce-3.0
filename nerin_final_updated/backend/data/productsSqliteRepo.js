@@ -134,6 +134,27 @@ function normalizeQueryText(value) {
   }
 }
 
+const MOJIBAKE_MAP = [
+  ["Ã³", "o"], ["Ã¡", "a"], ["Ã©", "e"], ["Ã­", "i"], ["Ãº", "u"], ["Ã±", "n"], ["Ã¼", "u"],
+  ["â", "'"], ["â", "\""], ["â", "\""], ["Â", ""],
+];
+
+function normalizeSearchText(value) {
+  let text = String(value || "");
+  for (const [wrong, ok] of MOJIBAKE_MAP) {
+    text = text.split(wrong).join(ok);
+  }
+  text = normalizeQueryText(text)
+    .replace(/[_/\\|]+/g, " ")
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
+}
+
+function tokenWithoutHyphen(token = "") {
+  return String(token || "").replace(/-/g, "");
+}
 
 
 const REPLACEMENT_TYPE_SYNONYMS = [
@@ -145,18 +166,29 @@ const REPLACEMENT_TYPE_SYNONYMS = [
 ];
 
 function tokenizeSearch(value = "") {
-  return normalizeQueryText(value)
+  return normalizeSearchText(value)
     .replace(/[^a-z0-9-]+/g, " ")
     .split(/\s+/)
     .filter(Boolean);
 }
 
+const PRODUCT_TYPE_DICT = {
+  pantalla: ["pantalla","display","modulo","lcd","oled","amoled","screen","touchscreen","tactil"],
+  bateria: ["bateria","battery","pila"],
+  pin_carga: ["pin de carga","puerto de carga","placa de carga","charging board","dock connector","daughterboard","sub board","usb connector","connector usb"],
+  tapa_trasera: ["tapa","tapa trasera","carcasa","back glass","rear cover","battery cover","back cover"],
+  flex: ["flex","flex cable","main flex","cable flex","flex principal"],
+  camara: ["camara","camera","rear camera","front camera","lens","lente"],
+  adhesivo: ["adhesivo","adhesive","tape","sticker","rear cover adhesive","battery adhesive","display adhesive"],
+  bandeja_sim: ["bandeja sim","sim tray","card tray"],
+};
+
 function inferReplacementType(text = "") {
-  const normalized = normalizeQueryText(text);
-  for (const entry of REPLACEMENT_TYPE_SYNONYMS) {
-    if (entry.terms.some((term) => normalized.includes(normalizeQueryText(term)))) return entry.key;
+  const normalized = normalizeSearchText(text);
+  for (const [key, terms] of Object.entries(PRODUCT_TYPE_DICT)) {
+    if (terms.some((term) => normalized.includes(normalizeSearchText(term)))) return key;
   }
-  return "";
+  return REPLACEMENT_TYPE_SYNONYMS.find((entry) => entry.terms.some((term) => normalized.includes(normalizeSearchText(term))))?.key || "";
 }
 
 function extractModelPhrase(text = "") {
@@ -176,12 +208,25 @@ function extractSkuOrMpn(text = "") {
 }
 
 function computeSearchIntent(query = "") {
-  const normalizedQuery = normalizeQueryText(query);
+  const normalizedQuery = normalizeSearchText(query);
   const tokens = tokenizeSearch(normalizedQuery);
+  const exactCodes = tokens.filter((token) => /[a-z]{1,4}\d{2,}(-[a-z0-9]{2,})?/i.test(token));
+  const noHyphenCodes = exactCodes.map(tokenWithoutHyphen);
+  const compatibleIntent = /\b(for|compatible|generico|replacement)\b/.test(normalizedQuery);
+  const originalIntent = /\b(original|oem|service pack|genuine)\b/.test(normalizedQuery);
+  const compatibleBrandIntentMatch = normalizedQuery.match(/\bfor\s+([a-z0-9]+)\b/);
+  const compatibleBrandIntent = compatibleBrandIntentMatch ? compatibleBrandIntentMatch[1] : "";
+  const productTypeIntent = inferReplacementType(normalizedQuery);
   return {
     normalizedQuery,
     tokens,
+    exactCodes,
+    noHyphenCodes,
     brand: tokens.find((token) => ["iphone", "apple", "samsung", "galaxy", "xiaomi", "motorola"].includes(token)) || "",
+    compatibleBrandIntent,
+    compatibleIntent,
+    originalIntent,
+    productTypeIntent,
     modelPhrase: extractModelPhrase(normalizedQuery),
     replacementType: inferReplacementType(normalizedQuery),
     skuOrMpn: extractSkuOrMpn(normalizedQuery),
@@ -191,7 +236,7 @@ function computeSearchIntent(query = "") {
 
 function scoreProductAgainstIntent(product = {}, intent = {}) {
   if (!intent?.normalizedQuery) return 0;
-  const haystack = normalizeQueryText([
+  const haystack = normalizeSearchText([
     getField(product, ["id", "sku", "code", "partNumber", "mpn", "ean", "gtin", "supplier_code"]),
     getField(product, ["name", "title", "description", "shortDescription", "short_description"]),
     getField(product, ["brand", "marca"]),
@@ -199,19 +244,37 @@ function scoreProductAgainstIntent(product = {}, intent = {}) {
     getField(product, ["category", "categoria", "productType"]),
   ].join(" "));
   let score = 0;
-  if (intent.skuOrMpn && haystack.includes(intent.skuOrMpn)) score += 1000;
+  const brandRaw = normalizeSearchText(getField(product, ["brand", "marca"]));
+  const isCompatibleBrand = brandRaw.startsWith("for ");
+  const compatibleBrand = isCompatibleBrand ? brandRaw.replace(/^for\s+/, "") : "";
+  if (intent.skuOrMpn && haystack.includes(intent.skuOrMpn)) score += 1800;
+  for (const code of intent.exactCodes || []) {
+    if (haystack.includes(code)) score += 1500;
+  }
+  for (const code of intent.noHyphenCodes || []) {
+    if (tokenWithoutHyphen(haystack).includes(code)) score += 800;
+  }
   if (intent.modelPhrase && haystack.includes(intent.modelPhrase)) score += 700;
-  if (intent.replacementType && inferReplacementType(haystack) === intent.replacementType) score += 400;
-  if (intent.brand && haystack.includes(intent.brand)) score += 150;
+  if (intent.replacementType && inferReplacementType(haystack) === intent.replacementType) score += 650;
+  if (intent.brand && haystack.includes(intent.brand)) score += isCompatibleBrand ? 220 : 350;
+  if (intent.brand && !haystack.includes(intent.brand) && !compatibleBrand.includes(intent.brand)) score -= 500;
+  if (intent.compatibleBrandIntent && compatibleBrand === intent.compatibleBrandIntent) score += 450;
+  if (intent.compatibleIntent && isCompatibleBrand) score += 500;
+  if (intent.originalIntent && !isCompatibleBrand) score += 500;
+  if (intent.originalIntent && isCompatibleBrand) score -= 700;
   const allImportantPresent = intent.importantTokens.length > 0 && intent.importantTokens.every((token) => haystack.includes(token));
   if (allImportantPresent) score += 200;
   else if (intent.importantTokens.some((token) => haystack.includes(token))) score += 50;
   if (intent.modelPhrase.includes("iphone") && !haystack.includes(intent.modelPhrase)) {
     const target = intent.modelPhrase.match(/iphone\s+(\d+)/);
     const candidate = haystack.match(/iphone\s+(\d+)/);
-    if (target && candidate && target[1] !== candidate[1]) score -= 500;
+    if (target && candidate && target[1] !== candidate[1]) score -= 1000;
     if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) score -= 500;
   }
+  const productType = inferReplacementType(haystack);
+  if (intent.productTypeIntent && productType && intent.productTypeIntent !== productType) score -= 700;
+  const stock = Number(getField(product, ["stock"]));
+  if (Number.isFinite(stock) && stock > 0) score += 120;
   return score;
 }
 
