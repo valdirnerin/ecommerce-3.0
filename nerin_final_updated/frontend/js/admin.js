@@ -1750,6 +1750,7 @@ const bulkPublishWithImage = document.getElementById("bulkPublishWithImage");
 const bulkPublishWithPrice = document.getElementById("bulkPublishWithPrice");
 const bulkPublishRemoteStock = document.getElementById("bulkPublishRemoteStock");
 const bulkPublishIncludePrivateHidden = document.getElementById("bulkPublishIncludePrivateHidden");
+const bulkPublishIncludeDisabledImport = document.getElementById("bulkPublishIncludeDisabledImport");
 const bulkPublishLimit = document.getElementById("bulkPublishLimit");
 const bulkPublishPreviewBtn = document.getElementById("bulkPublishPreviewBtn");
 const bulkPublishRunBtn = document.getElementById("bulkPublishRunBtn");
@@ -3796,7 +3797,9 @@ function getBulkPublishPayload() {
     filters,
     limit: safeLimit,
     includePrivateHidden: Boolean(bulkPublishIncludePrivateHidden?.checked),
+    includeDisabledImportCandidates: Boolean(bulkPublishIncludeDisabledImport?.checked),
     confirmPrivateHiddenPublish: false,
+    confirmDisabledImportPublish: false,
   };
 }
 
@@ -3825,9 +3828,18 @@ function renderBulkPublishSummary(data = {}, mode = "preview") {
     ["Total catálogo", data.totalCatalogProducts || 0],
     ["Públicos actuales", data.publicProductsCount || 0],
     ["Filas escaneadas", data.scannedRows || data.totalScanned || 0],
+    ["Coincidencias búsqueda", data.searchMatchedCount || data.scannedRows || data.totalScanned || 0],
+    ["Con nombre", data.withNameCount || 0],
+    ["Con SKU/código", data.withIdentifierCount || 0],
+    ["Con precio", data.withPriceCount || 0],
+    ["Con imagen", data.withImageCount || 0],
+    ["Aptos estrictos", data.strictEligibleCount || 0],
     ["Aptos públicos", data.eligiblePublicCandidates || 0],
     ["Aptos ocultos/privados", data.eligiblePrivateHiddenCandidates || 0],
+    ["Deshabilitados import/stock", data.eligibleDisabledImportCandidates || 0],
+    ["Publicables avanzados", data.advancedPublishableCount || 0],
     ["Bloqueados", data.blockedCount || 0],
+    ["Bloqueados duros", data.hardBlockedCount || 0],
     ["Warnings", data.warningCount || 0],
   ];
   bulkPublishSummary.innerHTML = `
@@ -3846,6 +3858,7 @@ function renderBulkPublishSummary(data = {}, mode = "preview") {
   };
   bulkPublishDetails.innerHTML = [
     renderMapList("Reasons / motivos de bloqueo", data.reasons || data.reasonCounts || {}),
+    renderMapList("Disabled breakdown", data.disabledBreakdown || {}),
     renderMapList("Warnings / advertencias", data.warnings || data.warningCounts || {}),
     renderSampleList("Samples aptos", data.eligibleSamples || data.samplesEligible || []),
     renderSampleList("Samples bloqueados", data.blockedSamples || data.samplesBlocked || []),
@@ -3897,10 +3910,18 @@ if (bulkPublishRunBtn) {
       if (!confirmedPrivateHidden) return;
       payload.confirmPrivateHiddenPublish = true;
     }
+    if (payload.includeDisabledImportCandidates && Number(lastValidBulkPreview.eligibleDisabledImportCandidates || 0) > 0) {
+      const confirmedDisabledImport = confirm("Vas a hacer públicos productos deshabilitados por importación o stock. Confirmá que querés continuar.");
+      if (!confirmedDisabledImport) return;
+      payload.confirmDisabledImportPublish = true;
+    }
     try {
       setBulkPublishBusy(true, "Simular publicación");
       setBulkStatus("Publicando productos aptos...");
-      const scope = payload.includePrivateHidden ? "filtrados, incluyendo ocultos/privados aptos" : "filtrados";
+      const advancedScopes = [];
+      if (payload.includePrivateHidden) advancedScopes.push("ocultos/privados aptos");
+      if (payload.includeDisabledImportCandidates) advancedScopes.push("deshabilitados por importación/stock aptos");
+      const scope = advancedScopes.length ? `filtrados, incluyendo ${advancedScopes.join(" y ")}` : "filtrados";
       if (!confirm(`Publicar ${lastValidBulkPreview.eligibleCount || 0} productos ${scope}?`)) return;
       console.log("[bulk-publish] payload", payload);
       const res = await apiFetch("/api/admin/products/bulk-publish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });

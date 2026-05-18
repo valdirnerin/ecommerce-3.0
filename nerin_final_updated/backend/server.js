@@ -6693,6 +6693,7 @@ async function requestHandler(req, res) {
           filters: payload?.filters || {},
           limit: payload?.limit || 500,
           includePrivateHidden: payload?.includePrivateHidden === true,
+          includeDisabledImportCandidates: payload?.includeDisabledImportCandidates === true,
         });
         return sendJson(res, 200, { ok: true, ...result });
       } catch (error) {
@@ -6716,6 +6717,8 @@ async function requestHandler(req, res) {
           publishMode: payload?.publishMode || "eligible_only",
           includePrivateHidden: payload?.includePrivateHidden === true,
           confirmPrivateHiddenPublish: payload?.confirmPrivateHiddenPublish === true,
+          includeDisabledImportCandidates: payload?.includeDisabledImportCandidates === true,
+          confirmDisabledImportPublish: payload?.confirmDisabledImportPublish === true,
         });
         return sendJson(res, 200, result);
       } catch (error) {
@@ -6724,6 +6727,13 @@ async function requestHandler(req, res) {
             ok: false,
             code: "PRIVATE_HIDDEN_CONFIRMATION_REQUIRED",
             error: "Confirmacion requerida para publicar productos ocultos o privados",
+          });
+        }
+        if (error?.code === "DISABLED_IMPORT_CONFIRMATION_REQUIRED") {
+          return sendJson(res, 400, {
+            ok: false,
+            code: "DISABLED_IMPORT_CONFIRMATION_REQUIRED",
+            error: "Confirmacion requerida para publicar productos deshabilitados por importacion o stock",
           });
         }
         return sendJson(res, 500, { ok: false, code: "BULK_PUBLISH_FAILED", error: error?.message || "No se pudo publicar productos aptos" });
@@ -6938,6 +6948,52 @@ async function requestHandler(req, res) {
         error: err?.message || "Catálogo SQLite no disponible",
         catalogState,
       });
+    }
+  }
+
+  if (pathname === "/api/search" && req.method === "GET") {
+    try {
+      const q = String(parsedUrl.query?.q || parsedUrl.query?.search || "");
+      const limit = Math.min(96, Math.max(1, Number(parsedUrl.query?.limit || 24)));
+      const offset = Math.max(0, Number(parsedUrl.query?.offset || 0));
+      const page = Math.floor(offset / limit) + 1;
+      const debug = String(parsedUrl.query?.debug || "") === "1";
+      const startedAt = Date.now();
+      const data = await productsSqliteRepo.queryProducts({
+        page,
+        pageSize: limit,
+        search: q,
+        category: parsedUrl.query?.category || "",
+        brand: parsedUrl.query?.brand || "",
+        model: parsedUrl.query?.model || "",
+        stock: parsedUrl.query?.stock || "",
+      });
+      const results = data.items.map((item) => ({
+        id: item.id,
+        title: item.title || item.name,
+        price: item.price_minorista ?? item.price ?? null,
+        brand: item.brand || "",
+        compatibleBrand: (String(item.brand || "").toLowerCase().startsWith("for ") ? String(item.brand).slice(4) : null),
+        productType: item.category || "",
+        availability: Number(item.stock || 0) > 0 ? "in_stock" : "out_of_stock",
+        stock: Number(item.stock || 0),
+        image: item.image || item.thumbnail || "",
+        slug: item.publicSlug || item.slug || "",
+        link: item.url || "",
+      }));
+      return sendJson(res, 200, {
+        results,
+        total: data.totalItems,
+        limit,
+        offset,
+        queryParsed: { normalizedQuery: q },
+        tookMs: Date.now() - startedAt,
+        suggestions: [],
+        facets: {},
+        debug: debug ? { source: "basic", note: "Use /api/catalog/debug-search for row-level details." } : undefined,
+      });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });
     }
   }
 
@@ -12498,46 +12554,83 @@ async function requestHandler(req, res) {
     const stats = { missingImage: 0, missingPrice: 0, missingSlug: 0, privateOrHidden: 0, nonSellable: 0, emitted: 0 };
     const sample = [];
     let totalCatalogProducts = 0;
+    let publicProductsCount = 0;
     let eligibleCount = 0;
-    const { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, detectProductType } = require('./utils/merchantFeed');
+    let allRows = [];
+    const { buildMerchantFeedAudit, buildMerchantFeedEntries } = require('./utils/merchantFeed');
     let dbConn;
     try {
       await productsSqliteRepo.ensureProductsDbOnce();
       dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
       const totalRows = await sqliteAll(dbConn, 'SELECT COUNT(*) AS c FROM products');
       totalCatalogProducts = Number(totalRows?.[0]?.c || 0);
-      const allRows = await sqliteAll(dbConn, 'SELECT rowid,id,sku,slug,public_slug,name,title,brand,stock,price,price_minorista,precio_minorista,precio_final,image,raw_json,status,visibility,enabled,deleted,archived,vip_only,wholesale_only,is_public,part_number,mpn,category FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?', [emittedLimit + emittedOffset + 2000, 0]);
-      for (const row of allRows) {
-        let raw = {};
-        try { raw = JSON.parse(row.raw_json || '{}'); } catch {}
-        if (!isEligibleState(row, raw)) { stats.privateOrHidden += 1; continue; }
-        const identifier = String(row.sku || row.id || raw.sku || raw.id || '').trim();
-        const title = buildMerchantTitle(row, raw);
-        const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
-        const slug = String(row.public_slug || row.slug || raw.public_slug || raw.slug || '').trim();
-        const link = `${baseUrl}/p/${encodeURIComponent(slug)}`;
-        const images = [row.image, raw.image, ...(Array.isArray(raw.images) ? raw.images : [])].filter(Boolean).map((v) => absoluteUrl(v, baseUrl)).filter((v) => isValidFeedUrl(v));
-        if (!slug || !isValidFeedUrl(link)) { stats.missingSlug += 1; continue; }
-        if (!Number.isFinite(priceNum) || priceNum <= 0) { stats.missingPrice += 1; continue; }
-        if (!allowMissingImages && !images.length) { stats.missingImage += 1; continue; }
-        const av = computeAvailability(row, raw, preorderDays);
-        if (!identifier || !title || !av.availability) { stats.nonSellable += 1; continue; }
-        eligibleCount += 1;
-        if (eligibleCount <= emittedOffset) continue;
-        if (stats.emitted >= emittedLimit) continue;
-        const productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
-        const productType = mapProductTypeToFeed(productTypeDetected);
-        const brand = String(row.brand || raw.brand || '').trim();
-        const mpn = String(row.mpn || row.part_number || raw.mpn || identifier).trim();
-        const hasIdentifier = Boolean((raw.gtin && String(raw.gtin).trim()) || (brand && mpn));
-        const additional = images.slice(1, 11).join(',');
-        const description = `${title} disponible en NERIN Parts. Verificá compatibilidad, código de pieza y disponibilidad antes de comprar.`;
-        rows.push([identifier,title,description,link,images[0] || '',additional,av.availability,av.availabilityDate || '',`${priceNum.toFixed(2)} ARS`,classifyCondition(raw, title),brand,mpn,hasIdentifier ? 'yes' : 'no',GOOGLE_CATEGORY,productType].map(toTsvCell).join('	'));
-        stats.emitted += 1;
-        if (sample.length < 10) sample.push({ id: row.id || null, sku: row.sku || null, title, productType, price: priceNum, availability: av.availability, link });
+      const publicRows = await sqliteAll(dbConn, "SELECT COUNT(*) AS c FROM products WHERE (is_public = 1 OR json_extract(raw_json, '$.is_public') = 1 OR lower(json_extract(raw_json, '$.publicable')) = 'true')");
+      publicProductsCount = Number(publicRows?.[0]?.c || 0);
+      const productColumns = await sqliteAll(dbConn, 'PRAGMA table_info(products)');
+      const availableColumns = new Set((productColumns || []).map((col) => String(col?.name || '').trim()).filter(Boolean));
+      const preferredColumns = [
+        'id','sku','slug','public_slug','name','title','description','brand','stock','price','price_minorista','precio_minorista','precio_final','image','raw_json','status','visibility','enabled','deleted','archived','vip_only','wholesale_only','is_public','part_number','mpn','category'
+      ];
+      const fallbackExpressions = {
+        public_slug: "json_extract(raw_json, '$.public_slug') AS public_slug",
+        slug: "json_extract(raw_json, '$.slug') AS slug",
+        status: "json_extract(raw_json, '$.status') AS status",
+        visibility: "json_extract(raw_json, '$.visibility') AS visibility",
+        enabled: "json_extract(raw_json, '$.enabled') AS enabled",
+        is_public: "json_extract(raw_json, '$.is_public') AS is_public",
+      };
+      const selectedColumns = ['rowid'];
+      for (const col of preferredColumns) {
+        if (availableColumns.has(col)) {
+          selectedColumns.push(col);
+        } else if (fallbackExpressions[col]) {
+          selectedColumns.push(fallbackExpressions[col]);
+        } else {
+          selectedColumns.push(`NULL AS ${col}`);
+        }
       }
+      const selectSql = `SELECT ${selectedColumns.join(',')} FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`;
+      allRows = await sqliteAll(dbConn, selectSql, [emittedLimit + emittedOffset + 2000, 0]);
+      const feedPayload = buildMerchantFeedEntries(allRows, {
+        limit: emittedLimit,
+        offset: emittedOffset,
+        preorderDays,
+        baseUrl,
+      });
+      const entries = feedPayload.entries;
+      eligibleCount = feedPayload.audit.eligibleCount;
+      for (const entry of entries) {
+        rows.push([
+          entry.id, entry.title, entry.description, entry.link, entry.image_link, entry.additional_image_link,
+          entry.availability, entry.availability_date, entry.price, entry.condition, entry.brand, entry.mpn,
+          entry.identifier_exists, entry.google_product_category, entry.product_type,
+        ].map(toTsvCell).join('	'));
+        stats.emitted += 1;
+        if (sample.length < 10) sample.push({ id: entry.id, title: entry.title, productType: entry.product_type, price: entry.price, availability: entry.availability, link: entry.link });
+      }
+      stats.missingImage = feedPayload.audit.skipped.missingImage + feedPayload.audit.skipped.invalidImageUrl;
+      stats.missingPrice = feedPayload.audit.skipped.missingPrice + feedPayload.audit.skipped.invalidPrice;
+      stats.missingSlug = feedPayload.audit.skipped.missingLink;
+      stats.privateOrHidden = feedPayload.audit.skipped.privateOrHidden + feedPayload.audit.skipped.notPublic;
+      stats.nonSellable = feedPayload.audit.skipped.missingId + feedPayload.audit.skipped.missingTitle + feedPayload.audit.skipped.missingDescription + feedPayload.audit.skipped.missingAvailability + feedPayload.audit.skipped.invalidAvailability + feedPayload.audit.skipped.taxonomyBlocked;
     } catch (error) {
       if (dbConn) { try { dbConn.close(); } catch {} }
+      if (pathname === '/merchant-feed-debug.json') {
+        console.error('[merchant-feed-debug] error', {
+          message: error?.message,
+          code: error?.code,
+          stack: error?.stack,
+        });
+        return sendJson(res, 500, {
+          ok: false,
+          error: 'No se pudo generar merchant feed',
+          debugError: {
+            message: error?.message || null,
+            code: error?.code || null,
+            stackFirstLine: String(error?.stack || '').split('\n')[0] || null,
+          },
+        });
+      }
       console.error('[merchant-feed] error', { message: error?.message, code: error?.code, stack: error?.stack });
       return sendJson(res, 500, { error: 'No se pudo generar merchant feed' });
     }
@@ -12550,7 +12643,15 @@ async function requestHandler(req, res) {
     console.info(`[merchant-feed] skipped_bad_slug=${stats.missingSlug}`);
     console.info(`[merchant-feed] durationMs=${durationMs}`);
     if (pathname === '/merchant-feed-debug.json') {
-      return sendJson(res, 200, { totalCatalogProducts, eligibleCount, emittedLimit, emittedCount: stats.emitted, skipped: { missingImage: stats.missingImage, missingPrice: stats.missingPrice, missingSlug: stats.missingSlug, privateOrHidden: stats.privateOrHidden, nonSellable: stats.nonSellable }, sample });
+      const audit = buildMerchantFeedAudit(allRows || [], {
+        limit: emittedLimit,
+        offset: emittedOffset,
+        preorderDays,
+        baseUrl,
+        totalCatalogProducts,
+        publicProductsCount,
+      });
+      return sendJson(res, 200, audit);
     }
     res.writeHead(200, { 'Content-Type': 'text/tab-separated-values; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     res.end(`${rows.join('\n')}\n`);
