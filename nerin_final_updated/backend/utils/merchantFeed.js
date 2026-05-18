@@ -1,7 +1,7 @@
 const { detectProductType } = require('./productTaxonomy');
 
 const GOOGLE_CATEGORY = 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles';
-const VALID_AVAILABILITY = new Set(['in_stock', 'preorder']);
+const VALID_AVAILABILITY = new Set(['in_stock', 'preorder', 'backorder']);
 
 function safeMerchantText(value, max = 150) {
   const mojibakeFixes = [
@@ -53,13 +53,42 @@ function buildMerchantTitle(row, raw) {
   return safeMerchantText(row.name || row.title || raw.name || raw.title || raw.description || '');
 }
 
+function formatMerchantAvailabilityDate(value) {
+  const formatted = String(value || '').trim();
+  if (!formatted) return '';
+  if (/^\d{4}-\d{2}-\d{2}T00:00-0300$/.test(formatted)) return formatted;
+  const onlyDateMatch = formatted.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s].*)?$/);
+  if (onlyDateMatch) return `${onlyDateMatch[1]}T00:00-0300`;
+  const parsed = new Date(formatted);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const y = parsed.getUTCFullYear();
+  const m = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}T00:00-0300`;
+}
+
+function estimateMerchantAvailabilityDate(preorderDays = 30) {
+  const days = Math.max(1, Number(preorderDays) || 30);
+  const future = new Date(Date.now() + days * 86400000);
+  const y = future.getUTCFullYear();
+  const m = String(future.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(future.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}T00:00-0300`;
+}
+
 function computeAvailability(row, raw, preorderDays = 30) {
   const stockLocal = Number(row.stock ?? raw.stock ?? 0);
-  if (stockLocal > 0) return { availability: 'in_stock', availabilityDate: '' };
-  const existingDate = String(raw.availability_date || raw.preorder_date || '').trim();
-  if (existingDate) return { availability: 'preorder', availabilityDate: existingDate };
-  const d = new Date(Date.now() + Number(preorderDays) * 86400000).toISOString().slice(0, 10);
-  return { availability: 'preorder', availabilityDate: d };
+  const normalizedAvailability = String(row.availability || raw.availability || '').trim().toLowerCase();
+  const forcedBackorder = normalizedAvailability === 'backorder';
+  const forcedPreorder = normalizedAvailability === 'preorder';
+
+  if (stockLocal > 0 && !forcedPreorder && !forcedBackorder) return { availability: 'in_stock', availabilityDate: '' };
+
+  const existingDateRaw = row.availability_date || raw.availability_date || row.preorder_date || raw.preorder_date || '';
+  const existingDate = formatMerchantAvailabilityDate(existingDateRaw);
+
+  if (forcedBackorder) return { availability: 'backorder', availabilityDate: existingDate || estimateMerchantAvailabilityDate(preorderDays) };
+  return { availability: 'preorder', availabilityDate: existingDate || estimateMerchantAvailabilityDate(preorderDays) };
 }
 
 function isEligibleState(row, raw) {
@@ -104,7 +133,7 @@ function getSkipTemplate() {
   return {
     notPublic: 0, privateOrHidden: 0, disabled: 0, deleted: 0, archived: 0, draft: 0, vipOnly: 0, wholesaleOnly: 0,
     missingId: 0, missingTitle: 0, missingDescription: 0, missingLink: 0, missingImage: 0, invalidImageUrl: 0,
-    missingPrice: 0, invalidPrice: 0, missingAvailability: 0, invalidAvailability: 0, taxonomyBlocked: 0, soft404Risk: 0,
+    missingPrice: 0, invalidPrice: 0, missingAvailability: 0, invalidAvailability: 0, preorderWithoutAvailabilityDate: 0, backorderWithoutAvailabilityDate: 0, invalidAvailabilityDate: 0, taxonomyBlocked: 0, soft404Risk: 0,
   };
 }
 
@@ -177,7 +206,7 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
     if (!Number.isFinite(priceNum) || priceNum <= 0) continue;
     const av = computeAvailability(row, raw, preorderDays);
     if (!VALID_AVAILABILITY.has(av.availability)) continue;
-    if (av.availability === 'preorder' && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}$/)) continue;
+    if ((av.availability === 'preorder' || av.availability === 'backorder') && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}T00:00-0300$/)) continue;
     const productTypeDetected = detectMerchantProductType(row, raw, title);
     const product_type = safeMerchantText(mapProductTypeToFeed(productTypeDetected));
     if (!product_type) continue;
@@ -189,7 +218,7 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
     entries.push({
       id: identifier, title, description, link, image_link,
       additional_image_link: additional.join(','), availability: av.availability,
-      availability_date: av.availability === 'preorder' ? av.availabilityDate : '',
+      availability_date: (av.availability === 'preorder' || av.availability === 'backorder') ? av.availabilityDate : '',
       price: `${priceNum.toFixed(2)} ARS`, condition: 'new', brand, mpn, identifier_exists,
       google_product_category: GOOGLE_CATEGORY, product_type,
     });
@@ -291,6 +320,14 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     }); continue; }
     if (!VALID_AVAILABILITY.has(av.availability)) { skipped.invalidAvailability += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailability' }); continue; }
 
+    if (av.availability === 'preorder' && !av.availabilityDate) { skipped.preorderWithoutAvailabilityDate += 1; pushSample(samplesSkipped, { id: identifier, reason: 'preorderWithoutAvailabilityDate' }); continue; }
+    if (av.availability === 'backorder' && !av.availabilityDate) { skipped.backorderWithoutAvailabilityDate += 1; pushSample(samplesSkipped, { id: identifier, reason: 'backorderWithoutAvailabilityDate' }); continue; }
+    if ((av.availability === 'preorder' || av.availability === 'backorder') && !/^\d{4}-\d{2}-\d{2}T00:00-0300$/.test(String(av.availabilityDate || ''))) {
+      skipped.invalidAvailabilityDate += 1;
+      pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailabilityDate', availability: av.availability, availability_date: av.availabilityDate || null });
+      continue;
+    }
+
     const productTypeDetected = detectMerchantProductType(row, raw, title);
     const productType = mapProductTypeToFeed(productTypeDetected);
     if (!productType || productType.toLowerCase() === 'pantallas' && /resin\s*pc/i.test(title)) {
@@ -321,6 +358,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     productTypeBreakdown,
     availabilityBreakdown,
     samplesEligible,
+    samplesMissingAvailabilityDate: samplesSkipped.filter((sample) => ['preorderWithoutAvailabilityDate', 'backorderWithoutAvailabilityDate', 'invalidAvailabilityDate'].includes(sample.reason)).slice(0, 10),
     samplesSkipped: samplesSkipped.map((sample) => ({
       ...sample,
       title: sample.title ? safeMerchantText(sample.title) : sample.title,

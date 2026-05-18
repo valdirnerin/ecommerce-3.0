@@ -56,7 +56,7 @@ describe('merchant feed audit', () => {
   test('stock 0 vendible a pedido => preorder + availability_date', () => {
     const audit = buildMerchantFeedAudit([baseRow({ stock: 0 })]);
     expect(audit.samplesEligible[0].availability).toBe('preorder');
-    expect(audit.samplesEligible[0].availability_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(audit.samplesEligible[0].availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
   });
   test('contadores reales pueden ser mayores al lote escaneado', () => {
     const rows = [baseRow({ id: 'a' }), baseRow({ id: 'b', is_public: 0 })];
@@ -183,7 +183,7 @@ describe('merchant feed audit', () => {
     expect(audit.emittedCount).toBe(1);
     expect(audit.samplesEligible[0].id).toBe('ok-ext');
     expect(audit.samplesEligible[0].image_link).toBe('https://images.2service.nl/v7/Images/Part/1/img.jpg');
-    expect(['in_stock', 'preorder']).toContain(audit.samplesEligible[0].availability);
+    expect(['in_stock', 'preorder', 'backorder']).toContain(audit.samplesEligible[0].availability);
   });
 });
 
@@ -215,13 +215,15 @@ describe('merchant feed tsv payload', () => {
   });
 
   test('preorder e in_stock availability_date correcto y headers esperados', () => {
-    const rows = [baseRow({ id: 'stk', stock: 3 }), baseRow({ id: 'pre', stock: 0 })];
+    const rows = [baseRow({ id: 'stk', stock: 3 }), baseRow({ id: 'pre', stock: 0 }), baseRow({ id: 'back', stock: 0, raw_json: JSON.stringify({ availability: 'backorder' }) })];
     const { entries } = buildMerchantFeedEntries(rows);
     const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
     expect(byId.stk.availability).toBe('in_stock');
     expect(byId.stk.availability_date).toBe('');
     expect(byId.pre.availability).toBe('preorder');
-    expect(byId.pre.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(byId.pre.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+    expect(byId.back.availability).toBe('backorder');
+    expect(byId.back.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
     expect(Object.keys(entries[0])).toEqual(['id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type']);
   });
 
