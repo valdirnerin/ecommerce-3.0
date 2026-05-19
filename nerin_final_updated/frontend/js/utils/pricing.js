@@ -19,10 +19,11 @@ export function calculateNetNoNationalTaxes(priceFinal, taxRate = resolveNationa
 
 export function formatArs(value) {
   const amount = Number(value);
-  if (!Number.isFinite(amount)) return "$0";
-  return new Intl.NumberFormat("es-AR", {
+  if (!Number.isFinite(amount)) return "$0 ARS";
+  const formatted = new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
     maximumFractionDigits: 0,
   }).format(amount);
+  return `${formatted} ARS`;
 }

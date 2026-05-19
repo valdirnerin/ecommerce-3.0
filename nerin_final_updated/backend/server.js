@@ -77,6 +77,10 @@ const {
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const productsStreamRepo = require("./data/productsStreamRepo");
 const productsSqliteRepo = require("./data/productsSqliteRepo");
+const {
+  resolveProductAvailability,
+  getPublicPriceValue,
+} = require("./utils/productAvailability");
 const { readJsonFile } = require("./utils/jsonFile");
 const {
   appendEvent,
@@ -1369,8 +1373,8 @@ function buildProductMetaDescription(product) {
 
 function formatArs(value) {
   const amount = Number(value);
-  if (Number.isFinite(amount)) return `$${amount.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
-  return "$0";
+  if (Number.isFinite(amount)) return `$${amount.toLocaleString("es-AR", { maximumFractionDigits: 0 })} ARS`;
+  return "$0 ARS";
 }
 
 
@@ -1419,12 +1423,7 @@ function getProductFeedDescription(product) {
 }
 
 function getProductFeedPrice(product) {
-  const priceSource =
-    product?.price_minorista ??
-    product?.price ??
-    product?.price_mayorista ??
-    0;
-  const numeric = Number(priceSource);
+  const numeric = getPublicPriceValue(product);
   const formatted = Number.isFinite(numeric) ? numeric.toFixed(2) : "0.00";
   return `${formatted} ARS`;
 }
@@ -1585,6 +1584,7 @@ function renderProductGallerySsr(product, siteBase) {
 function renderProductInfoSsr(product, siteBase) {
   const heading = buildProductHeading(product);
   const description = buildFeaturePhrase(product);
+  const availabilityInfo = resolveProductAvailability(product);
   const brand = normalizeTextInput(product?.brand);
   const model = normalizeTextInput(product?.model);
   const sku = normalizeTextInput(product?.sku);
@@ -1593,8 +1593,8 @@ function renderProductInfoSsr(product, siteBase) {
   const technology = inferDisplayTechnology(product);
   const frame = inferHasFrame(product);
   const color = inferColor(product);
-  let stockCopy = "";
-  if (stockValue != null) {
+  let stockCopy = availabilityInfo.visibleAvailabilityText || availabilityInfo.availabilityLabel || "";
+  if (!stockCopy && stockValue != null) {
     if (stockValue <= 0) stockCopy = "Sin stock disponible";
     else if (product?.min_stock != null && stockValue < product.min_stock) {
       stockCopy = `Poco stock • ${stockValue} u.`;
@@ -1617,7 +1617,7 @@ function renderProductInfoSsr(product, siteBase) {
   const compatibilityHtml = compatibility
     ? `<p class=\"product-compatibility\">Compatible con ${esc(compatibility)}.</p>`
     : "";
-  const retailPrice = Number(product?.price_minorista);
+  const retailPrice = getPublicPriceValue(product);
   const canAccessWholesalePricing =
     product?.viewerRole === "admin" ||
     product?.viewerRole === "wholesale" ||
@@ -1674,6 +1674,33 @@ function renderProductInfoSsr(product, siteBase) {
       </aside>
     </div>
   `;
+}
+
+function renderMerchantDebugSsr(product, { canonical = "", imageLink = "" } = {}) {
+  const availabilityInfo = resolveProductAvailability(product);
+  const priceValue = getPublicPriceValue(product);
+  const jsonLdAvailability = availabilityInfo.seoAvailability;
+  const payload = {
+    productId: product?.id || product?.sku || null,
+    title: product?.name || product?.title || null,
+    feedAvailability: availabilityInfo.merchantAvailability || null,
+    feedAvailabilityDate: availabilityInfo.availabilityDateFeed || "",
+    visibleAvailabilityText: availabilityInfo.visibleAvailabilityText || availabilityInfo.availabilityLabel || "",
+    jsonLdAvailability,
+    jsonLdAvailabilityStarts: availabilityInfo.availabilityStarts || "",
+    priceFeed: `${Number(priceValue || 0).toFixed(2)} ARS`,
+    priceVisible: `${Number(priceValue || 0).toFixed(2)} ARS`,
+    imageLink: imageLink || null,
+    canonicalUrl: canonical || null,
+    mismatches: {
+      preorderMissingFeedDate: ["preorder", "backorder"].includes(availabilityInfo.merchantAvailability) && !availabilityInfo.availabilityDateFeed,
+      preorderMissingVisibleDate: ["preorder", "backorder"].includes(availabilityInfo.merchantAvailability) && !availabilityInfo.availabilityDateDisplay,
+      preorderMissingJsonLdAvailabilityStarts: jsonLdAvailability === "https://schema.org/PreOrder" && !availabilityInfo.availabilityStarts,
+      priceMismatch: false,
+      currencyMismatch: false,
+    },
+  };
+  return `<section class="merchant-debug" data-debug-merchant="1"><h2>Merchant debug</h2><pre>${esc(JSON.stringify(payload, null, 2))}</pre></section>`;
 }
 
 function injectProductContent(body, galleryHtml, infoHtml) {
@@ -12569,7 +12596,7 @@ async function requestHandler(req, res) {
       const productColumns = await sqliteAll(dbConn, 'PRAGMA table_info(products)');
       const availableColumns = new Set((productColumns || []).map((col) => String(col?.name || '').trim()).filter(Boolean));
       const preferredColumns = [
-        'id','sku','slug','public_slug','name','title','description','brand','stock','price','price_minorista','precio_minorista','precio_final','image','raw_json','status','visibility','enabled','deleted','archived','vip_only','wholesale_only','is_public','part_number','mpn','category'
+        'id','sku','slug','public_slug','name','title','description','brand','stock','remote_stock','stock_remote','available_remote','remote_lead_days','remote_lead_min_days','remote_lead_max_days','stock_mode','fulfillment_mode','availability','availability_date','preorder_date','price','price_minorista','price_mayorista','precio_minorista','precio_mayorista','precio_final','image','image_url','raw_json','status','visibility','enabled','deleted','archived','vip_only','wholesale_only','is_public','part_number','mpn','category'
       ];
       const fallbackExpressions = {
         public_slug: "json_extract(raw_json, '$.public_slug') AS public_slug",
@@ -12926,7 +12953,8 @@ async function requestHandler(req, res) {
     const defaultAlt = name || "Imagen del producto";
     const primaryImage = imageList[0] || null;
     const primaryAlt = normalizedAlts[0] || defaultAlt;
-    const availability = resolveProductAvailability(product).seoAvailability;
+    const availabilityInfo = resolveProductAvailability(product);
+    const availability = availabilityInfo.seoAvailability;
     const brandName =
       typeof product.brand === "string" && product.brand.trim()
         ? product.brand.trim()
@@ -12939,12 +12967,7 @@ async function requestHandler(req, res) {
           : null;
     const descriptionValue =
       typeof desc === "string" && desc.trim() ? desc.trim() : null;
-    const priceSource =
-      product.price_minorista ??
-      product.price ??
-      product.price_mayorista ??
-      0;
-    const numericPrice = Number(priceSource);
+    const numericPrice = getPublicPriceValue(product);
     const formattedPrice = Number.isFinite(numericPrice)
       ? numericPrice.toFixed(2)
       : "0.00";
@@ -12967,6 +12990,7 @@ async function requestHandler(req, res) {
         priceCurrency: "ARS",
         price: formattedPrice,
         availability,
+        ...(availabilityInfo.availabilityStarts ? { availabilityStarts: availabilityInfo.availabilityStarts } : {}),
         itemCondition: "https://schema.org/NewCondition",
       },
     };
@@ -13055,7 +13079,8 @@ async function requestHandler(req, res) {
       .filter(Boolean)
       .join("");
     const galleryHtml = renderProductGallerySsr(product, siteBase);
-    const infoHtml = renderProductInfoSsr(product, siteBase);
+    const debugMerchant = parsedUrl.query?.debugMerchant === "1";
+    const infoHtml = renderProductInfoSsr(product, siteBase) + (debugMerchant ? renderMerchantDebugSsr(product, { canonical, imageLink: primaryImage || "" }) : "");
     const hydratedBody = injectProductContent(templateBody, galleryHtml, infoHtml);
     const html = `<!DOCTYPE html><html lang="es-AR"><head>${head}</head>${hydratedBody}</html>`;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });

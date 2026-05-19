@@ -168,22 +168,6 @@ const APPLE_VARIANT_PENALTIES = {
   air: { base: -500, pro: -700, "pro max": -800, mini: -800, plus: -700 },
 };
 
-const REPLACEMENT_TYPE_SYNONYMS = [
-  { key: "bateria", terms: ["battery", "bateria", "baterias", "bater?a", "bater?as"] },
-  { key: "pantalla", terms: ["display", "pantalla", "pantallas", "modulo", "modulo display", "modulo pantalla", "modulo lcd", "m?dulo", "lcd", "screen"] },
-  { key: "tapa", terms: ["tapa", "tapa trasera", "back glass", "rear cover", "back cover", "vidrio trasero", "carcasa trasera"] },
-  { key: "placa carga", terms: ["charging board", "charge port", "dock connector", "placa de carga", "pin de carga", "puerto de carga"] },
-  { key: "adhesivo", terms: ["adhesive", "tape", "glue", "adhesivo", "pegamento"] },
-  { key: "flex", terms: ["flex cable", "flex", "cable flex"] },
-  { key: "camara", terms: ["camera", "camara", "c?mara", "camara frontal", "camara trasera"] },
-];
-
-const REPLACEMENT_TYPE_SEARCH_EQUIVALENTS = new Map(
-  REPLACEMENT_TYPE_SYNONYMS.flatMap((entry) =>
-    entry.terms.map((term) => [normalizeQueryText(term), entry.terms.map(normalizeQueryText)]),
-  ),
-);
-
 function uniqueValues(values = []) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -196,22 +180,84 @@ function tokenizeSearch(value = "") {
 }
 
 const PRODUCT_TYPE_DICT = {
-  pantalla: ["pantalla","display","modulo","lcd","oled","amoled","screen","touchscreen","tactil"],
-  bateria: ["bateria","battery","pila"],
-  pin_carga: ["pin de carga","puerto de carga","placa de carga","charging board","dock connector","daughterboard","sub board","usb connector","connector usb"],
-  tapa_trasera: ["tapa","tapa trasera","carcasa","back glass","rear cover","battery cover","back cover"],
-  flex: ["flex","flex cable","main flex","cable flex","flex principal"],
-  camara: ["camara","camera","rear camera","front camera","lens","lente"],
-  adhesivo: ["adhesivo","adhesive","tape","sticker","rear cover adhesive","battery adhesive","display adhesive"],
-  bandeja_sim: ["bandeja sim","sim tray","card tray"],
+  display: ["pantalla","pantallas","modulo","modulo pantalla","modulo display","display","screen","lcd","oled","amoled","super amoled","tactil","touch","glass","display incl frame","display excl frame","assembly"],
+  battery: ["bateria","baterias","battery","batteries","pila","accu","acumulador"],
+  charging: ["pin de carga","placa de carga","puerto de carga","centro de carga","conector de carga","charging","charging board","charging connector","charge port","dock connector","usb connector","connector usb","usb board","sub board","daughterboard"],
+  back_cover: ["tapa","tapa trasera","vidrio trasero","carcasa","carcasa trasera","back glass","rear cover","back cover","battery cover","housing"],
+  camera: ["camara","camera","rear camera","front camera","camera lens","lente camara","camara frontal","camara trasera","lens"],
+  flex: ["flex","flex cable","main flex","cable flex","flex principal","interconnection flex"],
+  speaker: ["parlante","speaker","loud speaker","ear speaker","altavoz","auricular interno"],
+  sim_tray: ["bandeja sim","sim tray","charola sim","porta sim","card tray"],
+  adhesive: ["adhesivo","adhesive","adhesive tape","display adhesive","rear cover adhesive","battery adhesive","gasket","seal","pegamento","cinta","cinta adhesiva","sticker","tape"],
+  vibration: ["vibrador","vibration motor","motor vibrador"],
+  sensor: ["sensor","proximity sensor","sensor proximidad","huella","fingerprint"],
+  button: ["boton","power button","volume button","key","slider key"],
+  component: ["ic","chip","componente","componentes electronicos","antenna","antena","board","placa","sub board","daughterboard"],
 };
+
+const PART_INTENT_PRIORITY = [
+  "charging",
+  "adhesive",
+  "battery",
+  "back_cover",
+  "display",
+  "camera",
+  "flex",
+  "speaker",
+  "sim_tray",
+  "vibration",
+  "sensor",
+  "button",
+  "component",
+];
+
+const RELATED_PART_TYPES = {
+  display: new Set(["adhesive"]),
+  adhesive: new Set(["display", "back_cover", "battery"]),
+  charging: new Set(["component", "flex"]),
+  component: new Set(["charging", "sensor", "button"]),
+  speaker: new Set(["flex"]),
+  camera: new Set(["flex"]),
+  back_cover: new Set(["adhesive"]),
+};
+
+const PRODUCT_TYPE_SEARCH_EQUIVALENTS = new Map(
+  Object.values(PRODUCT_TYPE_DICT).flatMap((terms) => {
+    const normalizedTerms = uniqueValues(terms.map(normalizeSearchText));
+    return normalizedTerms.map((term) => [term, normalizedTerms]);
+  }),
+);
+
+const SEARCH_STOPWORDS = new Set(["de", "del", "la", "el", "para", "for", "con", "y"]);
 
 function inferReplacementType(text = "") {
   const normalized = normalizeSearchText(text);
+  const matches = new Set();
   for (const [key, terms] of Object.entries(PRODUCT_TYPE_DICT)) {
-    if (terms.some((term) => normalized.includes(normalizeSearchText(term)))) return key;
+    if (terms.some((term) => normalized.includes(normalizeSearchText(term)))) matches.add(key);
   }
-  return REPLACEMENT_TYPE_SYNONYMS.find((entry) => entry.terms.some((term) => normalized.includes(normalizeSearchText(term))))?.key || "";
+  return PART_INTENT_PRIORITY.find((key) => matches.has(key)) || "";
+}
+
+function getPartTypeSynonyms(partType = "") {
+  return PRODUCT_TYPE_DICT[partType] ? uniqueValues(PRODUCT_TYPE_DICT[partType].map(normalizeSearchText)) : [];
+}
+
+function expandTechnicalQuery(normalizedQuery = "") {
+  const tokens = tokenizeSearch(normalizedQuery);
+  const intentPartType = inferReplacementType(normalizedQuery);
+  const appliedSynonyms = {};
+  const expandedTerms = [...tokens];
+  if (intentPartType) {
+    const synonyms = getPartTypeSynonyms(intentPartType);
+    appliedSynonyms[intentPartType] = synonyms;
+    expandedTerms.push(...synonyms);
+  }
+  return {
+    intentPartType,
+    appliedSynonyms,
+    expandedTerms: uniqueValues(expandedTerms.map(normalizeSearchText).filter(Boolean)),
+  };
 }
 
 function extractModelPhrase(text = "") {
@@ -384,6 +430,7 @@ function addScoreReason(state, label, value) {
 function computeSearchIntent(query = "") {
   const normalizedQuery = normalizeSearchText(query);
   const tokens = tokenizeSearch(normalizedQuery);
+  const technicalExpansion = expandTechnicalQuery(normalizedQuery);
   const appleModel = parseAppleModel(normalizedQuery);
   const exactCodes = tokens.filter((token) => /[a-z]{1,4}\d{2,}(-[a-z0-9]{2,})?/i.test(token));
   const noHyphenCodes = exactCodes.map(tokenWithoutHyphen);
@@ -391,9 +438,13 @@ function computeSearchIntent(query = "") {
   const originalIntent = /\b(original|oem|service pack|genuine)\b/.test(normalizedQuery);
   const compatibleBrandIntentMatch = normalizedQuery.match(/\bfor\s+([a-z0-9]+)\b/);
   const compatibleBrandIntent = compatibleBrandIntentMatch ? compatibleBrandIntentMatch[1] : "";
-  const productTypeIntent = inferReplacementType(normalizedQuery);
+  const productTypeIntent = technicalExpansion.intentPartType;
   return {
+    originalQuery: query,
     normalizedQuery,
+    expandedTerms: technicalExpansion.expandedTerms,
+    appliedSynonyms: technicalExpansion.appliedSynonyms,
+    intentPartType: technicalExpansion.intentPartType,
     tokens,
     exactCodes,
     noHyphenCodes,
@@ -407,7 +458,7 @@ function computeSearchIntent(query = "") {
     productTypeIntent,
     modelPhrase: extractModelPhrase(normalizedQuery),
     appleModel,
-    replacementType: inferReplacementType(normalizedQuery),
+    replacementType: technicalExpansion.intentPartType,
     skuOrMpn: extractSkuOrMpn(normalizedQuery),
     importantTokens: tokens.filter((token) => token.length >= 3),
   };
@@ -452,9 +503,11 @@ function scoreProductAgainstIntent(product = {}, intent = {}, options = {}) {
     if (tokenWithoutHyphen(haystack).includes(code)) addScoreReason(state, `codigo sin guion ${code}`, 800);
   }
   if (intent.modelPhrase && haystack.includes(intent.modelPhrase)) addScoreReason(state, "frase de modelo presente", 250);
-  if (intent.replacementType) {
-    if (productType === intent.replacementType) addScoreReason(state, `tipo ${intent.replacementType}`, 800);
-    else if (productType) addScoreReason(state, `tipo incorrecto ${productType} vs ${intent.replacementType}`, -800);
+  if (intent.intentPartType || intent.replacementType) {
+    const wantedType = intent.intentPartType || intent.replacementType;
+    if (productType === wantedType) addScoreReason(state, `partType ${wantedType}`, 1200);
+    else if (RELATED_PART_TYPES[wantedType]?.has(productType)) addScoreReason(state, `tipo relacionado ${productType} con ${wantedType}`, 300);
+    else if (productType) addScoreReason(state, `tipo incorrecto ${productType} vs ${wantedType}`, -800);
   }
   if (intent.brand) {
     if (intent.brand === "apple" || intent.tokens?.some((token) => token === "iphone" || token === "apple")) {
@@ -504,9 +557,6 @@ function scoreProductAgainstIntent(product = {}, intent = {}, options = {}) {
     if (target && candidate && target[1] !== candidate[1]) addScoreReason(state, "modelo iphone numericamente distinto", -500);
     if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) addScoreReason(state, "pro max no solicitado", -500);
   }
-  if (intent.productTypeIntent && productType && intent.productTypeIntent !== productType) {
-    addScoreReason(state, `tipo distinto de ${intent.productTypeIntent}`, -700);
-  }
   const stock = Number(getField(product, ["stock"]));
   if (Number.isFinite(stock) && stock > 0) addScoreReason(state, "stock disponible", 120);
   if (!options?.debug) return state.score;
@@ -538,6 +588,12 @@ function rankRowsBySearchIntent(rows = [], intent = {}, { preferPositiveScores =
 function getSearchDebugForRankedEntries(ranked = [], intent = {}, limit = 24) {
   return ranked.slice(0, Math.max(1, Math.min(100, Number(limit) || 24))).map((entry, position) => ({
     position: position + 1,
+    queryOriginal: intent.originalQuery || "",
+    queryNormalized: intent.normalizedQuery || "",
+    queryExpanded: intent.expandedTerms || [],
+    appliedSynonyms: intent.appliedSynonyms || {},
+    intentPartType: intent.intentPartType || "",
+    queryBrand: intent.brand || "",
     id: entry.row?.id || null,
     sku: entry.row?.sku || null,
     code: entry.row?.code || null,
@@ -548,23 +604,42 @@ function getSearchDebugForRankedEntries(ranked = [], intent = {}, limit = 24) {
     productModel: entry.debug?.productModel || null,
     variant: entry.debug?.productVariant || null,
     compatibleAppleModels: entry.debug?.compatibleAppleModels || [],
+    productType: entry.debug?.productType || "",
+    productBrand: entry.debug?.productBrand || "",
     reasons: entry.debug?.reasons || [],
   }));
 }
 
 function expandSearchTokenForSynonyms(token = "") {
   const normalized = normalizeQueryText(token);
-  return uniqueValues(REPLACEMENT_TYPE_SEARCH_EQUIVALENTS.get(normalized) || [normalized]);
+  return uniqueValues(PRODUCT_TYPE_SEARCH_EQUIVALENTS.get(normalized) || [normalized]);
+}
+
+function splitSearchTerms(values = []) {
+  return uniqueValues(values
+    .flatMap((term) => normalizeSearchText(term).split(/\s+/))
+    .map((term) => term.trim())
+    .filter((term) => term && !SEARCH_STOPWORDS.has(term)));
+}
+
+function buildSearchTermGroups(normalizedSearch = "") {
+  const intent = computeSearchIntent(normalizedSearch);
+  const tokens = tokenizeSearch(normalizedSearch).filter((token) => !SEARCH_STOPWORDS.has(token));
+  if (!intent.intentPartType) return tokens.map((token) => expandSearchTokenForSynonyms(token));
+  const synonymTerms = getPartTypeSynonyms(intent.intentPartType);
+  const synonymTokenSet = new Set(splitSearchTerms(synonymTerms));
+  const groups = [splitSearchTerms(synonymTerms)];
+  tokens
+    .filter((token) => !synonymTokenSet.has(token))
+    .forEach((token) => groups.push(expandSearchTokenForSynonyms(token)));
+  return groups.filter((group) => group.length);
 }
 
 function buildFtsQueryFromSearch(normalizedSearch = "") {
-  const tokens = normalizedSearch
-    .replace(/[^a-z0-9\s-]/gi, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  return tokens
+  const groups = buildSearchTermGroups(normalizedSearch);
+  return groups
     .map((token) => {
-      const equivalents = expandSearchTokenForSynonyms(token)
+      const equivalents = (Array.isArray(token) ? token : expandSearchTokenForSynonyms(token))
         .map((term) => term.replace(/[^a-z0-9\s-]/gi, " ").trim())
         .filter(Boolean)
         .flatMap((term) => term.split(/\s+/).filter(Boolean));
@@ -576,12 +651,9 @@ function buildFtsQueryFromSearch(normalizedSearch = "") {
 }
 
 function addLikeSearchConditions(where, params, normalizedSearch = "") {
-  const tokens = normalizedSearch
-    .replace(/[^a-z0-9\s-]/gi, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  tokens.forEach((token) => {
-    const equivalents = expandSearchTokenForSynonyms(token);
+  const groups = buildSearchTermGroups(normalizedSearch);
+  groups.forEach((token) => {
+    const equivalents = Array.isArray(token) ? token : expandSearchTokenForSynonyms(token);
     where.push(`(${equivalents.map(() => "search_text LIKE ?").join(" OR ")})`);
     equivalents.forEach((term) => params.push(`%${term}%`));
   });
@@ -2367,6 +2439,10 @@ async function queryBase({
       searchDebug = {
         query: search,
         normalizedQuery: normalizedSearch,
+        expandedQuery: intent.expandedTerms || [],
+        appliedSynonyms: intent.appliedSynonyms || {},
+        intentPartType: intent.intentPartType || "",
+        brand: intent.brand || "",
         queryModel: intent.appleModel || null,
         results: getSearchDebugForRankedEntries(pageEntries, intent, safePageSize),
       };
@@ -3052,6 +3128,11 @@ async function debugCatalogSearch({ search = "", limit = 20 } = {}) {
   else if (Number(totalRow?.total || 0) === 0) diagnosis = "no_matchea_search_text";
   return {
     search,
+    normalizedQuery: intent.normalizedQuery,
+    expandedQuery: intent.expandedTerms || [],
+    appliedSynonyms: intent.appliedSynonyms || {},
+    intentPartType: intent.intentPartType || "",
+    brand: intent.brand || "",
     totalMatches: Number(totalRow?.total || 0),
     diagnosis,
     queryModel: intent.appleModel || null,

@@ -1,4 +1,5 @@
 const { buildMerchantFeedAudit, buildMerchantFeedEntries, safeMerchantText } = require('../../backend/utils/merchantFeed');
+const { resolveProductAvailability } = require('../../backend/utils/productAvailability');
 
 function baseRow(overrides = {}, raw = {}) {
   return {
@@ -57,6 +58,22 @@ describe('merchant feed audit', () => {
     const audit = buildMerchantFeedAudit([baseRow({ stock: 0 })]);
     expect(audit.samplesEligible[0].availability).toBe('preorder');
     expect(audit.samplesEligible[0].availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+  });
+
+  test('preorder comparte fecha entre feed, texto visible y JSON-LD', () => {
+    const availability = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2026-06-16' }), { now: new Date('2026-05-19T12:00:00Z') });
+    expect(availability.merchantAvailability).toBe('preorder');
+    expect(availability.availabilityDateFeed).toBe('2026-06-16T00:00-0300');
+    expect(availability.availabilityStarts).toBe('2026-06-16T00:00:00-03:00');
+    expect(availability.visibleAvailabilityText).toContain('16/06/2026');
+    expect(availability.seoAvailability).toBe('https://schema.org/PreOrder');
+  });
+
+  test('availability_date vencido o mayor a un anio se normaliza a ventana valida', () => {
+    const older = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2026-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
+    const tooFar = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2028-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
+    expect(older.availabilityDateFeed).toBe('2026-05-20T00:00-0300');
+    expect(tooFar.availabilityDateFeed).toBe('2027-05-19T00:00-0300');
   });
   test('contadores reales pueden ser mayores al lote escaneado', () => {
     const rows = [baseRow({ id: 'a' }), baseRow({ id: 'b', is_public: 0 })];

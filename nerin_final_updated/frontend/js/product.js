@@ -85,7 +85,7 @@ function normalizeProductPayload(product) {
 
 function resolveProductPriceContext(product) {
   const retailRaw = Number(
-    product?.price_minorista ?? product?.price ?? product?.precio_minorista ?? product?.precio_final,
+    product?.precio_final ?? product?.price_minorista ?? product?.precio_minorista ?? product?.price,
   );
   const wholesaleRaw = Number(
     product?.price_mayorista ?? product?.price_wholesale ?? product?.precio_mayorista,
@@ -580,7 +580,8 @@ function updateJsonLd(product, images, productUrl) {
   if (!absoluteImages.length && product.image) {
     absoluteImages.push(resolveAbsoluteUrl(product.image));
   }
-  const availability = resolveProductAvailability(product).seoAvailability;
+  const availabilityInfo = resolveProductAvailability(product);
+  const availability = availabilityInfo.seoAvailability;
   const priceSource = resolveProductDisplayPrice(product);
   const numericPrice = Number(priceSource);
   const formattedPrice = Number.isFinite(numericPrice)
@@ -608,6 +609,7 @@ function updateJsonLd(product, images, productUrl) {
       priceCurrency: "ARS",
       price: formattedPrice,
       availability,
+      ...(availabilityInfo.availabilityStarts ? { availabilityStarts: availabilityInfo.availabilityStarts } : {}),
       itemCondition: "https://schema.org/NewCondition",
     },
   };
@@ -1260,7 +1262,7 @@ function renderProduct(product) {
   }
 
   const availability = resolveProductAvailability(product);
-  const stockCopy = availability.availabilityLabel.toUpperCase();
+  const stockCopy = availability.visibleAvailabilityText || availability.availabilityLabel.toUpperCase();
 
   summary.appendChild(meta);
 
