@@ -1,4 +1,9 @@
 const { detectProductType } = require('./productTaxonomy');
+const {
+  resolveProductAvailability,
+  formatMerchantAvailabilityDate,
+  getPublicPriceValue,
+} = require('./productAvailability');
 
 const GOOGLE_CATEGORY = 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles';
 const VALID_AVAILABILITY = new Set(['in_stock', 'preorder', 'backorder']);
@@ -53,42 +58,24 @@ function buildMerchantTitle(row, raw) {
   return safeMerchantText(row.name || row.title || raw.name || raw.title || raw.description || '');
 }
 
-function formatMerchantAvailabilityDate(value) {
-  const formatted = String(value || '').trim();
-  if (!formatted) return '';
-  if (/^\d{4}-\d{2}-\d{2}T00:00-0300$/.test(formatted)) return formatted;
-  const onlyDateMatch = formatted.match(/^(\d{4}-\d{2}-\d{2})(?:[T\s].*)?$/);
-  if (onlyDateMatch) return `${onlyDateMatch[1]}T00:00-0300`;
-  const parsed = new Date(formatted);
-  if (Number.isNaN(parsed.getTime())) return '';
-  const y = parsed.getUTCFullYear();
-  const m = String(parsed.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(parsed.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}T00:00-0300`;
-}
-
-function estimateMerchantAvailabilityDate(preorderDays = 30) {
-  const days = Math.max(1, Number(preorderDays) || 30);
-  const future = new Date(Date.now() + days * 86400000);
-  const y = future.getUTCFullYear();
-  const m = String(future.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(future.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}T00:00-0300`;
+function mergeProductData(row = {}, raw = {}) {
+  const merged = { ...raw };
+  for (const [key, value] of Object.entries(row || {})) {
+    if (value !== undefined && value !== null && value !== '') merged[key] = value;
+  }
+  return merged;
 }
 
 function computeAvailability(row, raw, preorderDays = 30) {
-  const stockLocal = Number(row.stock ?? raw.stock ?? 0);
-  const normalizedAvailability = String(row.availability || raw.availability || '').trim().toLowerCase();
-  const forcedBackorder = normalizedAvailability === 'backorder';
-  const forcedPreorder = normalizedAvailability === 'preorder';
-
-  if (stockLocal > 0 && !forcedPreorder && !forcedBackorder) return { availability: 'in_stock', availabilityDate: '' };
-
-  const existingDateRaw = row.availability_date || raw.availability_date || row.preorder_date || raw.preorder_date || '';
-  const existingDate = formatMerchantAvailabilityDate(existingDateRaw);
-
-  if (forcedBackorder) return { availability: 'backorder', availabilityDate: existingDate || estimateMerchantAvailabilityDate(preorderDays) };
-  return { availability: 'preorder', availabilityDate: existingDate || estimateMerchantAvailabilityDate(preorderDays) };
+  const merged = mergeProductData(row, raw);
+  if (merged.remote_lead_days == null) merged.remote_lead_days = preorderDays;
+  const resolved = resolveProductAvailability(merged);
+  return {
+    availability: resolved.merchantAvailability || resolved.feedAvailability || '',
+    availabilityDate: resolved.availabilityDateFeed || '',
+    visibleAvailabilityText: resolved.visibleAvailabilityText || '',
+    availabilityStarts: resolved.availabilityStarts || '',
+  };
 }
 
 function isEligibleState(row, raw) {
@@ -202,7 +189,7 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
       additional.push(n.normalized);
       if (additional.length >= 10) break;
     }
-    const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
+    const priceNum = getPublicPriceValue(mergeProductData(row, raw));
     if (!Number.isFinite(priceNum) || priceNum <= 0) continue;
     const av = computeAvailability(row, raw, preorderDays);
     if (!VALID_AVAILABILITY.has(av.availability)) continue;
@@ -296,8 +283,8 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     }
     const imageLink = normalizedImage.normalized;
 
-    const priceNum = Number(row.precio_final ?? row.price_minorista ?? row.precio_minorista ?? row.price ?? raw.precio_final ?? raw.price_minorista ?? raw.price);
-    if ((row.price == null && raw.price == null && row.precio_final == null && raw.precio_final == null)) { skipped.missingPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingPrice' }); continue; }
+    const priceNum = getPublicPriceValue(mergeProductData(row, raw));
+    if (!priceNum) { skipped.missingPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingPrice' }); continue; }
     if (!Number.isFinite(priceNum) || priceNum <= 0) { skipped.invalidPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidPrice' }); continue; }
 
     const av = computeAvailability(row, raw, preorderDays);
@@ -367,4 +354,4 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   };
 }
 
-module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl };
+module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, formatMerchantAvailabilityDate, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl };

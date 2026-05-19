@@ -114,6 +114,74 @@ describe('product search ranking intent', () => {
     ])).toContain('Display');
   });
 
+  test('technical Spanish and English synonyms expand without losing iPhone 12 base precision', () => {
+    const products = [
+      { rowid: 1, name: 'Display (Original), Apple iPhone 12 mini', model: 'iPhone 12 mini', brand: 'Apple', category: 'Display' },
+      { rowid: 2, name: 'Display (Original), Apple iPhone 12 Pro Max', model: 'iPhone 12 Pro Max', brand: 'Apple', category: 'Display' },
+      { rowid: 3, name: 'Display (Original), Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Display' },
+      { rowid: 4, name: 'Battery, Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Battery' },
+    ];
+    expect(firstTitle('pantalla iphone 12', products)).toBe('Display (Original), Apple iPhone 12');
+    expect(firstTitle('display iphone 12', products)).toBe('Display (Original), Apple iPhone 12');
+    expect(firstTitle('modulo iphone 12', products)).toBe('Display (Original), Apple iPhone 12');
+  });
+
+  test('battery intent ranks battery above display in Spanish and English', () => {
+    const products = [
+      { rowid: 1, name: 'Display (Original), Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Display' },
+      { rowid: 2, name: 'Battery, Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Battery' },
+    ];
+    expect(firstTitle('bateria iphone 12', products)).toBe('Battery, Apple iPhone 12');
+    expect(firstTitle('battery iphone 12', products)).toBe('Battery, Apple iPhone 12');
+  });
+
+  test('charging Spanish queries rank Samsung A54 charging boards first', () => {
+    const products = [
+      { rowid: 1, name: 'Display Samsung Galaxy A54', model: 'Galaxy A54', brand: 'Samsung', category: 'Display' },
+      { rowid: 2, name: 'Charging board / dock connector Samsung Galaxy A54', model: 'Galaxy A54', brand: 'Samsung', category: 'Charging board' },
+      { rowid: 3, name: 'Back cover Samsung Galaxy A54', model: 'Galaxy A54', brand: 'Samsung', category: 'Back cover' },
+    ];
+    expect(firstTitle('pin de carga samsung a54', products)).toContain('Charging board');
+    expect(firstTitle('placa de carga samsung a54', products)).toContain('Charging board');
+  });
+
+  test('technical part intents rank the requested replacement type first', () => {
+    const products = [
+      { rowid: 1, name: 'Display (Original), Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Display' },
+      { rowid: 2, name: 'Back glass rear cover Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Back cover' },
+      { rowid: 3, name: 'Rear camera Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Camera' },
+      { rowid: 4, name: 'Sim tray Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Sim tray' },
+      { rowid: 5, name: 'Display adhesive tape Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Adhesive' },
+      { rowid: 6, name: 'Loud speaker Apple iPhone 12', model: 'iPhone 12', brand: 'Apple', category: 'Speaker' },
+    ];
+    expect(firstTitle('tapa trasera iphone 12', products)).toContain('Back glass');
+    expect(firstTitle('camara iphone 12', products)).toContain('camera');
+    expect(firstTitle('bandeja sim iphone 12', products)).toContain('Sim tray');
+    expect(firstTitle('adhesivo pantalla iphone 12', products)).toContain('adhesive');
+    expect(firstTitle('parlante iphone 12', products)).toContain('speaker');
+  });
+
+  test('technical synonyms work for Samsung, Xiaomi and Honor models', () => {
+    const products = [
+      { rowid: 1, name: 'Display Samsung Galaxy A54', model: 'Galaxy A54', brand: 'Samsung', category: 'Display' },
+      { rowid: 2, name: 'Battery Xiaomi Redmi Note 14', model: 'Redmi Note 14', brand: 'Xiaomi', category: 'Battery' },
+      { rowid: 3, name: 'Back Glass Rear Cover Honor 200', model: 'Honor 200', brand: 'Honor', category: 'Back cover' },
+      { rowid: 4, name: 'Battery Samsung Galaxy A54', model: 'Galaxy A54', brand: 'Samsung', category: 'Battery' },
+      { rowid: 5, name: 'Display Honor 200', model: 'Honor 200', brand: 'Honor', category: 'Display' },
+    ];
+    expect(firstTitle('pantalla samsung a54', products)).toContain('Display Samsung');
+    expect(firstTitle('bateria xiaomi note 14', products)).toContain('Battery Xiaomi');
+    expect(firstTitle('tapa honor 200', products)).toContain('Back Glass');
+  });
+
+  test('debug intent exposes expanded query, synonyms and part type', () => {
+    const intent = computeSearchIntent('pantalla iphone 12');
+    expect(intent.intentPartType).toBe('display');
+    expect(intent.expandedTerms).toContain('display');
+    expect(intent.expandedTerms).toContain('screen');
+    expect(intent.appliedSynonyms.display).toContain('pantalla');
+  });
+
   test('iphone 15 pro battery ranks 15 pro over other iphones', () => {
     const exact = score('iphone 15 pro battery', { name: 'Bateria iPhone 15 Pro', model: 'iPhone 15 Pro', brand: 'Apple' });
     const iphone17 = score('iphone 15 pro battery', { name: 'Bateria iPhone 17', model: 'iPhone 17', brand: 'Apple' });
