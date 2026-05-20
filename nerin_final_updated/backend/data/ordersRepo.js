@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
-const productsRepo = require('./productsRepo');
 const { DATA_DIR: dataDir } = require('../utils/dataDir');
 const { mapPaymentStatusCode, localizePaymentStatus } = require('../utils/paymentStatus');
 
@@ -946,13 +945,7 @@ async function createOrder({ id, customer_email, items }) {
     };
     orders.push(order);
     await saveAll(orders);
-    for (const it of items || []) {
-      const pid = it.product_id || it.id || it.productId;
-      const qty = Number(it.qty || it.quantity || 0);
-      if (pid && qty) {
-        await productsRepo.adjustStock(pid, -qty, 'order', id);
-      }
-    }
+    await require('./catalogInventoryRepo').applyOrderInventory(order);
     return order;
   }
   await pool.query('BEGIN');
@@ -987,20 +980,13 @@ async function createOrder({ id, customer_email, items }) {
         'INSERT INTO order_items (order_id, product_id, qty, price) VALUES ($1,$2,$3,$4) ON CONFLICT (order_id, product_id) DO NOTHING',
         [id, pid, qty, price]
       );
-      await pool.query(
-        'UPDATE products SET stock = GREATEST(stock - $1, 0), updated_at=now() WHERE id=$2',
-        [qty, pid]
-      );
-      await pool.query(
-        'INSERT INTO stock_movements(product_id, delta, reason, ref_id) VALUES ($1,$2,$3,$4)',
-        [pid, -qty, 'order', id]
-      );
     }
     await pool.query(
-      'UPDATE orders SET inventory_applied=true, customer_email=COALESCE($2, customer_email), total=$3 WHERE id=$1',
+      'UPDATE orders SET customer_email=COALESCE($2, customer_email), total=$3 WHERE id=$1',
       [id, customer_email || null, total]
     );
     await pool.query('COMMIT');
+    await require('./catalogInventoryRepo').applyOrderInventory({ id, customer_email, status: 'approved', total, items });
     return { id, customer_email, status: 'approved', total };
   } catch (e) {
     await pool.query('ROLLBACK');
@@ -1010,14 +996,47 @@ async function createOrder({ id, customer_email, items }) {
 
 async function markInventoryApplied(id) {
   const pool = db.getPool();
-  if (!pool) return; // JSON mode not used
-  await pool.query('UPDATE orders SET inventory_applied = true WHERE id=$1', [id]);
+  const timestamp = new Date().toISOString();
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((order) => orderMatches(order, normalizeKey(id)));
+    if (idx === -1) return null;
+    orders[idx] = {
+      ...orders[idx],
+      inventoryApplied: true,
+      inventory_applied: true,
+      inventory_applied_at: orders[idx].inventory_applied_at || timestamp,
+    };
+    await saveAll(orders);
+    return orders[idx];
+  }
+  const { rows } = await pool.query(
+    'UPDATE orders SET inventory_applied = true WHERE id=$1 OR order_number=$1 OR external_reference=$1 RETURNING *',
+    [id],
+  );
+  return rows[0] ? ensureInvoiceStructure(rows[0]) : null;
 }
 
 async function clearInventoryApplied(id) {
   const pool = db.getPool();
-  if (!pool) return;
-  await pool.query('UPDATE orders SET inventory_applied=false WHERE id=$1', [id]);
+  if (!pool) {
+    const orders = await getAll();
+    const idx = orders.findIndex((order) => orderMatches(order, normalizeKey(id)));
+    if (idx === -1) return null;
+    orders[idx] = {
+      ...orders[idx],
+      inventoryApplied: false,
+      inventory_applied: false,
+      inventory_applied_at: null,
+    };
+    await saveAll(orders);
+    return orders[idx];
+  }
+  const { rows } = await pool.query(
+    'UPDATE orders SET inventory_applied=false WHERE id=$1 OR order_number=$1 OR external_reference=$1 RETURNING *',
+    [id],
+  );
+  return rows[0] ? ensureInvoiceStructure(rows[0]) : null;
 }
 
 async function markEmailSent(orderId, flagName, value = true) {

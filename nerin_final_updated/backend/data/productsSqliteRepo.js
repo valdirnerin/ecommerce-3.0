@@ -2615,6 +2615,119 @@ async function getProductByPublicSlugOrAnyIdentifier(value) {
   }
 }
 
+const INVENTORY_IDENTIFIER_FIELDS = [
+  { field: "id", column: "id" },
+  { field: "sku", column: "sku" },
+  { field: "product_id", column: "id" },
+  { field: "code", column: "code" },
+  { field: "publicSlug", column: "public_slug" },
+  { field: "public_slug", column: "public_slug" },
+  { field: "slug", column: "slug" },
+  { field: "mpn", column: "mpn" },
+  { field: "part_number", column: "part_number" },
+  { field: "ean", column: "ean" },
+  { field: "gtin", column: "gtin" },
+  { field: "supplier_code", column: "supplier_code" },
+];
+
+function parseProductRawJson(row = {}) {
+  try {
+    return JSON.parse(row.raw_json || "{}") || {};
+  } catch {
+    return {};
+  }
+}
+
+async function getInventoryProductByIdentifier(identifier) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const target = String(identifier || "").trim();
+  if (!target) return null;
+  for (const check of INVENTORY_IDENTIFIER_FIELDS) {
+    const row = await get(
+      db,
+      `SELECT rowid, * FROM products WHERE LOWER(COALESCE(${check.column}, '')) = LOWER(?) LIMIT 1`,
+      [target],
+    );
+    if (!row) continue;
+    const raw = parseProductRawJson(row);
+    return {
+      source: "sqlite",
+      foundBy: check.field,
+      rowid: row.rowid,
+      product: {
+        ...buildProductSummary(row),
+        raw,
+      },
+      raw,
+    };
+  }
+  return null;
+}
+
+async function adjustStockForInventory(identifier, delta, { reason = "inventory", orderId = null, timestamp = new Date().toISOString() } = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const target = String(identifier || "").trim();
+  if (!target) {
+    const err = new Error("PRODUCT_IDENTIFIER_REQUIRED");
+    err.code = "PRODUCT_IDENTIFIER_REQUIRED";
+    throw err;
+  }
+  await run(db, "BEGIN IMMEDIATE");
+  try {
+    let resolved = null;
+    for (const check of INVENTORY_IDENTIFIER_FIELDS) {
+      const row = await get(
+        db,
+        `SELECT rowid, * FROM products WHERE LOWER(COALESCE(${check.column}, '')) = LOWER(?) LIMIT 1`,
+        [target],
+      );
+      if (row) {
+        resolved = { row, foundBy: check.field };
+        break;
+      }
+    }
+    if (!resolved) {
+      const err = new Error(`PRODUCT_NOT_FOUND:${target}`);
+      err.code = "PRODUCT_NOT_FOUND";
+      err.identifier = target;
+      throw err;
+    }
+    const raw = parseProductRawJson(resolved.row);
+    const before = Math.trunc(toNumber(resolved.row.stock ?? raw.stock ?? raw.stockQuantity, 0));
+    const numericDelta = Math.trunc(toNumber(delta, 0));
+    const after = Math.max(0, before + numericDelta);
+    raw.stock = after;
+    raw.stockQuantity = after;
+    raw.stockUpdatedAt = timestamp;
+    raw.stockSource = "catalogInventoryRepo";
+    await run(
+      db,
+      "UPDATE products SET stock = ?, raw_json = ? WHERE rowid = ?",
+      [after, JSON.stringify(raw), resolved.row.rowid],
+    );
+    await run(db, "COMMIT");
+    return {
+      source: "sqlite",
+      foundBy: resolved.foundBy,
+      rowid: resolved.row.rowid,
+      productId: resolved.row.id || raw.id || null,
+      sku: resolved.row.sku || raw.sku || null,
+      title: resolved.row.name || resolved.row.title || raw.name || raw.title || null,
+      before,
+      after,
+      delta: numericDelta,
+      reason,
+      orderId,
+      timestamp,
+    };
+  } catch (error) {
+    try { await run(db, "ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
 async function getProductsByIdentifiers(identifiers = []) {
   const list = Array.isArray(identifiers) ? identifiers : [];
   const uniqueTargets = [...new Set(
@@ -3287,6 +3400,8 @@ module.exports = {
   getProductById,
   getProductByCode,
   getProductByPublicSlugOrAnyIdentifier,
+  getInventoryProductByIdentifier,
+  adjustStockForInventory,
   getProductsByIdentifiers,
   getManifestFromDb,
   getCatalogHealth,
