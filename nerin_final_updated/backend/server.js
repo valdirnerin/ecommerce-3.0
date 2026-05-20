@@ -77,6 +77,11 @@ const {
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const productsStreamRepo = require("./data/productsStreamRepo");
 const productsSqliteRepo = require("./data/productsSqliteRepo");
+const catalogInventoryRepo = require("./data/catalogInventoryRepo");
+const {
+  applyInventoryForOrder,
+  revertInventoryForOrder,
+} = require("./services/inventory");
 const {
   resolveProductAvailability,
   getPublicPriceValue,
@@ -2386,26 +2391,25 @@ async function mpWebhookRelay(req, res, parsedUrl) {
           !row.inventoryApplied &&
           !row.inventory_applied
         ) {
-          const products = getProducts();
-          (row.productos || row.items || []).forEach((it) => {
-            const pIdx = products.findIndex(
-              (p) => String(p.id) === String(it.id) || p.sku === it.sku,
-            );
-            if (pIdx !== -1) {
-              products[pIdx].stock =
-                Number(products[pIdx].stock || 0) - Number(it.quantity || 0);
-            }
-          });
-          saveProducts(products);
-          row.inventoryApplied = true;
-          row.inventory_applied = true;
+          const transition = await applyInventoryForOrder(row);
+          if (transition?.applied || transition?.alreadyApplied) {
+            row.inventoryApplied = true;
+            row.inventory_applied = true;
+            row.inventory_applied_at = row.inventory_applied_at || new Date().toISOString();
+          }
           console.log(`inventory applied for ${row.id || row.order_number}`);
         }
         if (
-          normalizedStatus === "rejected" &&
+          normalizedStatus !== "approved" &&
           (row.inventoryApplied || row.inventory_applied)
         ) {
-          // TODO: revertir stock si el pago fue rechazado luego de aprobarse
+          const transition = await revertInventoryForOrder(row);
+          if (transition?.reverted || transition?.alreadyReverted) {
+            row.inventoryApplied = false;
+            row.inventory_applied = false;
+            row.inventory_applied_at = null;
+          }
+          console.log(`inventory reverted for ${row.id || row.order_number}`);
         }
         saveOrders(orders);
         console.log("mp-webhook updated", extRef || prefId, status);
@@ -7109,6 +7113,24 @@ async function requestHandler(req, res) {
     return sendJson(res, 200, storage);
   }
 
+  if (pathname === "/api/admin/inventory/debug" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    const orderId = String(parsedUrl.query?.order || parsedUrl.query?.id || "").trim();
+    if (!orderId) {
+      return sendJson(res, 400, { ok: false, error: "ORDER_ID_REQUIRED" });
+    }
+    try {
+      const payload = await catalogInventoryRepo.debugOrderInventory(orderId);
+      return sendJson(res, 200, { ok: payload.errors.length === 0, ...payload });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        error: error?.message || "inventory_debug_failed",
+        code: error?.code || "INVENTORY_DEBUG_FAILED",
+      });
+    }
+  }
+
   if (pathname === "/api/admin/debug/products-first-page" && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
     try {
@@ -10348,6 +10370,35 @@ async function requestHandler(req, res) {
           next.shippingNote = noteValue;
           next.nota_envio = noteValue;
           next.notas_envio = noteValue;
+        }
+        const prevInventoryApplied =
+          prev.inventoryApplied === true || prev.inventory_applied === true;
+        let inventoryTransition = null;
+        if (incomingStatus != null && nextPaymentCode === "approved" && !prevInventoryApplied) {
+          inventoryTransition = await applyInventoryForOrder({ ...prev, ...next });
+          if (inventoryTransition?.applied || inventoryTransition?.alreadyApplied) {
+            next.inventoryApplied = true;
+            next.inventory_applied = true;
+            next.inventory_applied_at = next.inventory_applied_at || new Date().toISOString();
+          }
+        } else if (incomingStatus != null && nextPaymentCode !== "approved" && prevInventoryApplied) {
+          inventoryTransition = await revertInventoryForOrder({ ...prev, ...next });
+          if (inventoryTransition?.reverted || inventoryTransition?.alreadyReverted) {
+            next.inventoryApplied = false;
+            next.inventory_applied = false;
+            next.inventory_applied_at = null;
+          }
+        }
+        if (inventoryTransition) {
+          next.inventory_transition = {
+            source: inventoryTransition.source || "sqlite",
+            applied: Boolean(inventoryTransition.applied),
+            reverted: Boolean(inventoryTransition.reverted),
+            alreadyApplied: Boolean(inventoryTransition.alreadyApplied),
+            alreadyReverted: Boolean(inventoryTransition.alreadyReverted),
+            movementCount: Array.isArray(inventoryTransition.movements) ? inventoryTransition.movements.length : 0,
+            at: new Date().toISOString(),
+          };
         }
         orders[index] = next;
         saveOrders(orders);

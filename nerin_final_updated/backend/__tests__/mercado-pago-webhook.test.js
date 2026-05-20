@@ -22,10 +22,11 @@ jest.mock('../services/inventory', () => ({
   revertInventoryForOrder: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('../services/emailNotifications', () => ({
-  sendOrderConfirmed: jest.fn().mockResolvedValue(undefined),
-  sendPaymentPending: jest.fn().mockResolvedValue(undefined),
-  sendPaymentRejected: jest.fn().mockResolvedValue(undefined),
+jest.mock('../services/emailService', () => ({
+  sendPaymentApprovedEmail: jest.fn().mockResolvedValue({ ok: true }),
+  sendPaymentPending: jest.fn().mockResolvedValue({ ok: true }),
+  sendPaymentRejected: jest.fn().mockResolvedValue({ ok: true }),
+  sendAdminSalePaidNotificationEmail: jest.fn().mockResolvedValue({ ok: true }),
 }));
 
 process.env.MP_ACCESS_TOKEN = 'test-token';
@@ -38,7 +39,7 @@ const ordersRepo = require('../data/ordersRepo');
 const { createServer } = require('../server');
 const { processNotification } = require('../routes/mercadoPago');
 const inventory = require('../services/inventory');
-const emailNotifications = require('../services/emailNotifications');
+const emailService = require('../services/emailService');
 
 describe('Mercado Pago webhook', () => {
   beforeEach(() => {
@@ -106,11 +107,10 @@ describe('Mercado Pago webhook', () => {
       })
     );
     expect(inventory.applyInventoryForOrder).toHaveBeenCalled();
-    expect(emailNotifications.sendOrderConfirmed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: 'cliente@example.com',
-        order: expect.objectContaining({ id: 'ORDER-1' }),
-      }),
+    expect(emailService.sendPaymentApprovedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'ORDER-1' }),
+      expect.objectContaining({ email: 'cliente@example.com' }),
+      expect.objectContaining({ emailType: 'payment_approved' }),
     );
     expect(ordersRepo.markEmailSent).toHaveBeenCalledWith(
       'ORDER-1',
@@ -151,7 +151,7 @@ describe('Mercado Pago webhook', () => {
       })
     );
     expect(inventory.applyInventoryForOrder).toHaveBeenCalled();
-    expect(emailNotifications.sendOrderConfirmed).toHaveBeenCalled();
+    expect(emailService.sendPaymentApprovedEmail).toHaveBeenCalled();
     expect(ordersRepo.markEmailSent).toHaveBeenCalledWith(
       'ORDER-1',
       'confirmedSent',
@@ -199,8 +199,65 @@ describe('Mercado Pago webhook', () => {
       }),
     ).resolves.toBe('ok');
 
-    expect(emailNotifications.sendOrderConfirmed).not.toHaveBeenCalled();
+    expect(emailService.sendPaymentApprovedEmail).not.toHaveBeenCalled();
     expect(ordersRepo.markEmailSent).not.toHaveBeenCalled();
+    expect(inventory.applyInventoryForOrder).not.toHaveBeenCalled();
+  });
+
+  test('payment pending does not apply inventory', async () => {
+    const pendingOrder = {
+      id: 'ORDER-PENDING',
+      items: [{ id: 'SKU', qty: 1, price: 1000 }],
+      totals: { grand_total: 1000 },
+      payment_status_code: 'pending',
+      status: 'pending',
+      inventoryApplied: false,
+      inventory_applied: false,
+      customer_email: 'cliente@example.com',
+      customer: { email: 'cliente@example.com' },
+    };
+    ordersRepo.findByPaymentIdentifiers.mockResolvedValueOnce(pendingOrder);
+    ordersRepo.getNormalizedItems.mockReturnValueOnce(pendingOrder.items);
+    ordersRepo.upsertByPayment.mockResolvedValueOnce({
+      ...pendingOrder,
+      payment_status_code: 'pending',
+      payment_status: 'pendiente',
+      status: 'pending',
+      inventoryApplied: false,
+      inventory_applied: false,
+    });
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: '321',
+        status: 'pending',
+        transaction_amount: 1000,
+        currency_id: 'ARS',
+        external_reference: 'ORDER-PENDING',
+        preference_id: 'PREF-PENDING',
+        metadata: {},
+      }),
+    });
+
+    await expect(
+      processNotification({
+        body: { type: 'payment', action: 'payment.updated', data: { id: '321' } },
+        query: {},
+      }),
+    ).resolves.toBe('ok');
+
+    expect(inventory.applyInventoryForOrder).not.toHaveBeenCalled();
+    expect(inventory.revertInventoryForOrder).not.toHaveBeenCalled();
+    expect(ordersRepo.upsertByPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_id: '321',
+        patch: expect.objectContaining({
+          payment_status_code: 'pending',
+          payment_status: 'pendiente',
+          estado_pago: 'pendiente',
+        }),
+      }),
+    );
   });
 
   test('records confirmation email using order_number when id is missing', async () => {
@@ -247,7 +304,7 @@ describe('Mercado Pago webhook', () => {
       }),
     ).resolves.toBe('ok');
 
-    expect(emailNotifications.sendOrderConfirmed).toHaveBeenCalled();
+    expect(emailService.sendPaymentApprovedEmail).toHaveBeenCalled();
     expect(ordersRepo.markEmailSent).toHaveBeenCalledWith(
       'NRN-140925-1005',
       'confirmedSent',
@@ -307,8 +364,8 @@ describe('Mercado Pago webhook', () => {
         }),
       })
     );
-    expect(emailNotifications.sendOrderConfirmed).not.toHaveBeenCalled();
-    expect(emailNotifications.sendPaymentRejected).not.toHaveBeenCalled();
+    expect(emailService.sendPaymentApprovedEmail).not.toHaveBeenCalled();
+    expect(emailService.sendPaymentRejected).not.toHaveBeenCalled();
   });
 
   test('payment approved transitioning to charged_back reverts inventory once', async () => {
@@ -363,8 +420,8 @@ describe('Mercado Pago webhook', () => {
         }),
       })
     );
-    expect(emailNotifications.sendOrderConfirmed).not.toHaveBeenCalled();
-    expect(emailNotifications.sendPaymentRejected).not.toHaveBeenCalled();
+    expect(emailService.sendPaymentApprovedEmail).not.toHaveBeenCalled();
+    expect(emailService.sendPaymentRejected).not.toHaveBeenCalled();
   });
 
   test('refund revierte stock si la orden previa está "pagado" (ES) sin code', async () => {
