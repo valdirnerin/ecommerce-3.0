@@ -75,6 +75,7 @@ const {
   validateServiceReview,
 } = require("./utils/reviewValidation");
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
+const { buildMockAndreaniQuote } = require("./services/andreaniService");
 const productsStreamRepo = require("./data/productsStreamRepo");
 const productsSqliteRepo = require("./data/productsSqliteRepo");
 const catalogInventoryRepo = require("./data/catalogInventoryRepo");
@@ -83,6 +84,7 @@ const {
   revertInventoryForOrder,
 } = require("./services/inventory");
 const {
+  buildAvailabilityPresentation,
   resolveProductAvailability,
   getPublicPriceValue,
 } = require("./utils/productAvailability");
@@ -1586,10 +1588,67 @@ function renderProductGallerySsr(product, siteBase) {
   return `<div class=\"product-gallery product-gallery--ssr\">${items}</div>`;
 }
 
+function renderAvailabilityPresentationSsr(presentation = {}) {
+  const trustItems = Array.isArray(presentation.trustItems) ? presentation.trustItems : [];
+  const trustHtml = trustItems.map((item) => `<li>${esc(item)}</li>`).join("");
+  const deliveryHtml = presentation.isPreorderOrBackorder && presentation.merchantDate && presentation.merchantDateDisplay
+    ? `Fecha estimada de despacho: <time datetime=\"${esc(presentation.merchantDate)}\">${esc(presentation.merchantDateDisplay)}</time>`
+    : esc(presentation.deliveryLabel || "");
+  const note = presentation.isPreorderOrBackorder
+    ? `<p class=\"availability-panel__note\">Este repuesto se gestiona bajo pedido. Te mantenemos informado durante el proceso.</p>`
+    : "";
+  return `
+    <section class=\"availability-panel availability-panel--${esc(presentation.cssModifier || "")}\" aria-label=\"Disponibilidad del producto\">
+      <span class=\"availability-panel__badge\">${esc(presentation.primaryLabel || "")}</span>
+      <div class=\"availability-panel__copy\">
+        <strong>${esc(presentation.secondaryLabel || "")}</strong>
+        ${deliveryHtml ? `<p class=\"availability-panel__delivery\">${deliveryHtml}</p>` : ""}
+        ${note}
+      </div>
+      ${trustHtml ? `<ul class=\"availability-trust-list\">${trustHtml}</ul>` : ""}
+    </section>
+  `;
+}
+
+function renderAndreaniShippingSsr(presentation = {}) {
+  if (presentation.isStockReal) {
+    return `
+      <section class=\"andreani-quote andreani-quote--in-stock\" aria-label=\"Opciones de envio Andreani\">
+        <h3>Calcula tu envio Andreani</h3>
+        <div class=\"andreani-quote__form\">
+          <input type=\"text\" inputmode=\"numeric\" placeholder=\"Codigo postal\" aria-label=\"Codigo postal\">
+          <button type=\"button\" class=\"button secondary\">Ver opciones</button>
+        </div>
+        <div class=\"andreani-quote__options\"><span>Andreani a domicilio</span><span>Andreani a sucursal</span></div>
+        <p class=\"andreani-quote__note\">La cotizacion final se confirma en el checkout.</p>
+      </section>
+    `;
+  }
+  if (presentation.isPreorderOrBackorder) {
+    return `
+      <section class=\"andreani-quote andreani-quote--preorder\" aria-label=\"Opciones de envio Andreani\">
+        <h3>Envio Andreani cuando el repuesto este listo</h3>
+        <div class=\"andreani-quote__steps\">
+          <p>Primero gestionamos el ingreso del repuesto.</p>
+          ${presentation.deliveryLabel ? `<p>${esc(presentation.deliveryLabel)}</p>` : ""}
+          <p>Cuando el producto este listo, se despacha por Andreani al domicilio o sucursal elegida.</p>
+        </div>
+      </section>
+    `;
+  }
+  return `
+    <section class=\"andreani-quote andreani-quote--out-of-stock\" aria-label=\"Opciones de envio Andreani\">
+      <h3>Envio a coordinar</h3>
+      <p class=\"andreani-quote__note\">Consultanos disponibilidad antes de coordinar envio.</p>
+    </section>
+  `;
+}
+
 function renderProductInfoSsr(product, siteBase) {
   const heading = buildProductHeading(product);
   const description = buildFeaturePhrase(product);
   const availabilityInfo = resolveProductAvailability(product);
+  const availabilityPresentation = buildAvailabilityPresentation(product);
   const brand = normalizeTextInput(product?.brand);
   const model = normalizeTextInput(product?.model);
   const sku = normalizeTextInput(product?.sku);
@@ -1598,7 +1657,7 @@ function renderProductInfoSsr(product, siteBase) {
   const technology = inferDisplayTechnology(product);
   const frame = inferHasFrame(product);
   const color = inferColor(product);
-  let stockCopy = availabilityInfo.visibleAvailabilityText || availabilityInfo.availabilityLabel || "";
+  let stockCopy = availabilityPresentation.primaryLabel || availabilityInfo.availabilityLabel || "";
   if (!stockCopy && stockValue != null) {
     if (stockValue <= 0) stockCopy = "Sin stock disponible";
     else if (product?.min_stock != null && stockValue < product.min_stock) {
@@ -1652,7 +1711,7 @@ function renderProductInfoSsr(product, siteBase) {
   return `
     <header class=\"product-summary\">
       <h1>${esc(heading)}</h1>
-      ${stockCopy ? `<span class=\"product-stock-badge\">${esc(stockCopy)}</span>` : ""}
+      ${stockCopy ? `<span class=\"product-stock-badge product-stock-badge--${esc(availabilityPresentation.cssModifier || "")}\">${esc(stockCopy)}</span>` : ""}
       ${infoItems ? `<ul class=\"product-meta-list\">${infoItems}</ul>` : ""}
     </header>
     <div class=\"product-info-panels\">
@@ -1672,7 +1731,9 @@ function renderProductInfoSsr(product, siteBase) {
       </section>
       <aside class=\"product-pricing-panel\" aria-label=\"Acciones de compra\">
         <h2>Comprar este repuesto</h2>
-        ${stockCopy ? `<p class=\"product-stock-info\">${esc(stockCopy)}</p>` : ""}
+        ${renderAvailabilityPresentationSsr(availabilityPresentation)}
+        ${renderAndreaniShippingSsr(availabilityPresentation)}
+        <div class=\"quiet-trust-banner\">Seguimos operando normalmente. Estamos mejorando la experiencia de compra. Ante cualquier duda de compatibilidad o stock, escribinos por WhatsApp.</div>
         ${priceBlock}
         <p class=\"product-promo\">Consultá por instalación y descuentos para servicios técnicos.</p>
         ${backLink}
@@ -7026,6 +7087,11 @@ async function requestHandler(req, res) {
     } catch (error) {
       return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });
     }
+  }
+
+  if (pathname === "/api/shipping/quote" && req.method === "POST") {
+    await parseBody(req);
+    return sendJson(res, 200, buildMockAndreaniQuote(req.body || {}));
   }
 
   if (pathname === "/api/admin/products" && req.method === "GET") {

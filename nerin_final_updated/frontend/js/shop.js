@@ -1,6 +1,7 @@
 import { fetchProductsPage, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
+import { buildAvailabilityPresentation } from "./availability.js";
 import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
 
 console.info("[shop-products] shop.js loaded", {
@@ -519,8 +520,9 @@ function createChip(label) {
 }
 
 function createProductCard(product) {
+  const availabilityPresentation = buildAvailabilityPresentation(product);
   const card = document.createElement("article");
-  card.className = "product-card";
+  card.className = `product-card product-card--${availabilityPresentation.cssModifier}`;
   card.setAttribute("role", "listitem");
 
   const img = document.createElement("img");
@@ -547,18 +549,25 @@ function createProductCard(product) {
   title.textContent = product.name || "Producto";
   card.appendChild(title);
 
-  const availability = document.createElement("p");
-  availability.className = "description";
+  const availability = document.createElement("div");
+  availability.className = `catalog-availability catalog-availability--${availabilityPresentation.cssModifier}`;
   const status = getStockStatus(product);
   const fulfillmentMode = getFulfillmentMode(product);
-  if (fulfillmentMode === "remote") {
-    availability.textContent =
-      status === "out"
-        ? "Stock remoto (a pedido)"
-        : `Stock remoto: ${resolveStockQuantity(product) || 0} unidades`;
-  } else if (status === "out") availability.textContent = "Sin stock";
-  else if (status === "low") availability.textContent = `Pocas unidades (${product.stock})`;
-  else availability.textContent = `Stock: ${resolveStockQuantity(product) || 0} unidades`;
+  const statusLabel = document.createElement("span");
+  statusLabel.className = "catalog-availability__badge";
+  statusLabel.textContent = availabilityPresentation.isStockReal
+    ? "Stock real"
+    : availabilityPresentation.isPreorderOrBackorder
+      ? "A pedido"
+      : "Sin stock";
+  const statusCopy = document.createElement("span");
+  statusCopy.className = "catalog-availability__copy";
+  statusCopy.textContent = availabilityPresentation.isStockReal
+    ? "Listo para enviar"
+    : availabilityPresentation.isPreorderOrBackorder
+      ? availabilityPresentation.secondaryLabel
+      : "Consultar";
+  availability.append(statusLabel, statusCopy);
   card.appendChild(availability);
 
   if (fulfillmentMode === "remote") {
@@ -637,9 +646,13 @@ function createProductCard(product) {
   const addBtn = document.createElement("button");
   addBtn.type = "button";
   addBtn.className = "button";
-  addBtn.textContent = "Agregar";
+  addBtn.textContent = availabilityPresentation.isOutOfStock ? "Consultar" : "Agregar";
   addBtn.addEventListener("click", (event) => {
     event.stopPropagation();
+    if (availabilityPresentation.isOutOfStock) {
+      window.location.href = buildProductUrl(product);
+      return;
+    }
     addToCart(product);
   });
 

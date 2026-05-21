@@ -105,6 +105,13 @@ function getPublicPriceValue(product = {}) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
+function formatLeadRange(minDays, maxDays) {
+  const min = Math.max(1, Number(minDays) || 20);
+  const max = Math.max(min, Number(maxDays) || 30);
+  if (min === max) return `${min} dia${min === 1 ? "" : "s"}`;
+  return `${min} a ${max} dias`;
+}
+
 export function resolveProductAvailability(product = {}, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const stockLocal = toFiniteNumber(product.stock ?? product.available_stock ?? product.inventory ?? product.stock_total, 0);
@@ -121,20 +128,19 @@ export function resolveProductAvailability(product = {}, options = {}) {
   const hasRemoteSignal = /stock remoto|a pedido|bajo pedido|encargo|preorder|backorder/.test(textSignals);
   const forcedRemote = ["preorder", "backorder"].includes(explicitAvailability);
   const isRemote = forcedRemote || explicitMode === "remote" || explicitMode === "remoto" || remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal;
-  const priceValue = getPublicPriceValue(product);
-  const hasRemoteStock = isRemote && (remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal || forcedRemote || priceValue > 0);
+  const hasRemoteStock = isRemote && (remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal || forcedRemote);
 
   if (hasLocalStock && !forcedRemote) return {
     stockLocal, hasLocalStock, isRemote, hasRemoteStock, isSellable: true,
-    availabilityLabel: "En stock", visibleAvailabilityText: "En stock",
+    availabilityLabel: "En stock real", visibleAvailabilityText: "En stock real",
     availabilityBadge: "in_stock", merchantAvailability: "in_stock", feedAvailability: "in_stock",
-    deliveryLabel: "Entrega rapida", checkoutAllowed: true,
+    deliveryLabel: "Listo para enviar desde CABA", checkoutAllowed: true,
     seoAvailability: "https://schema.org/InStock", schemaAvailability: "https://schema.org/InStock",
     availabilityDate: "", availabilityDateFeed: "", availabilityStarts: "", availabilityDateDisplay: "",
     leadMinDays: minLead, leadMaxDays: maxLead,
   };
 
-  if (hasRemoteStock || (priceValue > 0 && explicitAvailability !== "out_of_stock")) {
+  if (hasRemoteStock) {
     const leadStart = minLead > 0 ? minLead : 20;
     const leadEnd = maxLead > 0 ? maxLead : Math.max(leadStart, 30);
     const availabilityDate = resolveAvailabilityDate(product, leadEnd, now);
@@ -143,9 +149,9 @@ export function resolveProductAvailability(product = {}, options = {}) {
     return {
       stockLocal, hasLocalStock: false, isRemote: true, hasRemoteStock: true, isSellable: true,
       availabilityLabel: "Disponible a pedido",
-      visibleAvailabilityText: `Producto a pedido. Fecha estimada de disponibilidad: ${availabilityDateDisplay}`,
+      visibleAvailabilityText: `Disponible a pedido. Fecha estimada de despacho: ${availabilityDateDisplay}`,
       availabilityBadge: "remote_available", merchantAvailability, feedAvailability: merchantAvailability,
-      deliveryLabel: `Disponible para envio estimado: ${availabilityDateDisplay}`,
+      deliveryLabel: `Fecha estimada de despacho: ${availabilityDateDisplay}`,
       checkoutAllowed: true, seoAvailability: "https://schema.org/PreOrder", schemaAvailability: "https://schema.org/PreOrder",
       availabilityDate, availabilityDateFeed: formatMerchantAvailabilityDate(availabilityDate),
       availabilityStarts: formatSchemaAvailabilityStarts(availabilityDate), availabilityDateDisplay,
@@ -161,5 +167,64 @@ export function resolveProductAvailability(product = {}, options = {}) {
     seoAvailability: "https://schema.org/OutOfStock", schemaAvailability: "https://schema.org/OutOfStock",
     availabilityDate: "", availabilityDateFeed: "", availabilityStarts: "", availabilityDateDisplay: "",
     leadMinDays: 0, leadMaxDays: 0,
+  };
+}
+
+export function buildAvailabilityPresentation(product = {}, options = {}) {
+  const resolved = resolveProductAvailability(product, options);
+  const merchantDate = resolved.availabilityStarts || "";
+  const merchantDateDisplay = resolved.availabilityDateDisplay || "";
+
+  if (resolved.merchantAvailability === "in_stock") {
+    return {
+      statusKey: "in_stock",
+      primaryLabel: "En stock real",
+      secondaryLabel: "Listo para enviar desde CABA",
+      deliveryLabel: "Despacho rapido",
+      merchantDate: "",
+      merchantDateDisplay: "",
+      technicalDateLabel: "",
+      trustItems: ["Factura A/B", "Garantia tecnica", "Soporte especializado", "Envio por Andreani / retiro coordinado"],
+      cssModifier: "in-stock",
+      isStockReal: true,
+      isPreorderOrBackorder: false,
+      isOutOfStock: false,
+      availability: resolved,
+    };
+  }
+
+  if (["preorder", "backorder"].includes(resolved.merchantAvailability)) {
+    const leadCopy = formatLeadRange(resolved.leadMinDays, resolved.leadMaxDays);
+    return {
+      statusKey: resolved.merchantAvailability,
+      primaryLabel: "Disponible a pedido",
+      secondaryLabel: `Entrega estimada: ${leadCopy}`,
+      deliveryLabel: merchantDateDisplay ? `Fecha estimada de despacho: ${merchantDateDisplay}` : "",
+      merchantDate,
+      merchantDateDisplay,
+      technicalDateLabel: merchantDateDisplay ? `Fecha estimada de despacho: ${merchantDateDisplay}` : "",
+      trustItems: ["Importacion bajo pedido", "Seguimiento del estado", "Soporte por WhatsApp"],
+      cssModifier: "preorder",
+      isStockReal: false,
+      isPreorderOrBackorder: true,
+      isOutOfStock: false,
+      availability: resolved,
+    };
+  }
+
+  return {
+    statusKey: "out_of_stock",
+    primaryLabel: "Sin stock",
+    secondaryLabel: "Consultanos disponibilidad",
+    deliveryLabel: "",
+    merchantDate: "",
+    merchantDateDisplay: "",
+    technicalDateLabel: "",
+    trustItems: ["Podemos ayudarte a buscar una alternativa"],
+    cssModifier: "out-of-stock",
+    isStockReal: false,
+    isPreorderOrBackorder: false,
+    isOutOfStock: true,
+    availability: resolved,
   };
 }
