@@ -558,7 +558,16 @@ function scoreProductAgainstIntent(product = {}, intent = {}, options = {}) {
     if (intent.modelPhrase.includes("pro") && !intent.modelPhrase.includes("pro max") && haystack.includes(`${intent.modelPhrase} max`)) addScoreReason(state, "pro max no solicitado", -500);
   }
   const stock = Number(getField(product, ["stock"]));
-  if (Number.isFinite(stock) && stock > 0) addScoreReason(state, "stock disponible", 120);
+  const availabilityText = normalizeSearchText(
+    [
+      getField(product, ["availability", "disponibilidad", "estado_stock"]),
+      getField(product, ["stock_mode", "stockMode", "fulfillment_mode", "fulfillmentMode"]),
+      getField(raw, ["availability", "disponibilidad", "estado_stock", "stock_mode", "fulfillment_mode"]),
+    ].join(" "),
+  );
+  if (Number.isFinite(stock) && stock > 0) addScoreReason(state, "stock real disponible", 500);
+  else if (/preorder|backorder|pedido|remote|remoto/.test(availabilityText)) addScoreReason(state, "producto a pedido debajo de stock real", -120);
+  else addScoreReason(state, "sin stock debajo de alternativas disponibles", -300);
   if (!options?.debug) return state.score;
   return {
     score: state.score,

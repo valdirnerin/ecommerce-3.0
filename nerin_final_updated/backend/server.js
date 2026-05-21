@@ -88,6 +88,12 @@ const {
   resolveProductAvailability,
   getPublicPriceValue,
 } = require("./utils/productAvailability");
+const {
+  computeOrganicSeoPriority,
+  getPartLabel: getOrganicPartLabel,
+  isBrandDoubtful,
+  matchesOrganicPage,
+} = require("./utils/organicSeo");
 const { readJsonFile } = require("./utils/jsonFile");
 const {
   appendEvent,
@@ -1843,6 +1849,293 @@ function renderShopListing(products, siteBase) {
   const count = valid.length;
   const summary = count === 1 ? "producto disponible." : "productos listados.";
   return { cards, count, summary };
+}
+
+const ORGANIC_SEO_PAGE_CONFIG = {
+  "/stock-real": {
+    key: "stock-real",
+    title: "Repuestos en stock real | NERIN Parts",
+    h1: "Repuestos para celulares en stock real",
+    description: "Repuestos listos para enviar desde CABA. Factura A/B, garantia tecnica y soporte para verificar compatibilidad antes de comprar.",
+    intro: "Repuestos listos para enviar desde CABA. Factura A/B, garantia tecnica y soporte para verificar compatibilidad antes de comprar.",
+    canonicalPath: "/stock-real",
+    priority: "0.9",
+  },
+  "/pantallas-en-stock": {
+    key: "pantallas-en-stock",
+    title: "Pantallas para celulares en stock | NERIN Parts",
+    h1: "Pantallas para celulares en stock",
+    description: "Pantallas y modulos de display con stock real en CABA. Verificamos compatibilidad, factura A/B y garantia tecnica.",
+    intro: "Pantallas, displays y modulos listos para enviar, con soporte para confirmar modelo y version antes de comprar.",
+    canonicalPath: "/pantallas-en-stock",
+    priority: "0.85",
+  },
+  "/baterias-en-stock": {
+    key: "baterias-en-stock",
+    title: "Baterias para celulares en stock | NERIN Parts",
+    h1: "Baterias para celulares en stock",
+    description: "Baterias para celulares con stock real, factura A/B y soporte tecnico para verificar compatibilidad.",
+    intro: "Baterias disponibles para despacho desde CABA, con asesoria tecnica para validar compatibilidad.",
+    canonicalPath: "/baterias-en-stock",
+    priority: "0.82",
+  },
+  "/repuestos-samsung": {
+    key: "repuestos-samsung",
+    title: "Repuestos Samsung en Argentina | NERIN Parts",
+    h1: "Repuestos Samsung en Argentina",
+    description: "Repuestos Samsung con stock real en Argentina. Pantallas, baterias, tapas, pines de carga y soporte especializado.",
+    intro: "Catalogo Samsung priorizado por stock real, precio valido, imagen y compatibilidad clara.",
+    canonicalPath: "/repuestos-samsung",
+    priority: "0.82",
+  },
+  "/repuestos-iphone": {
+    key: "repuestos-iphone",
+    title: "Repuestos iPhone en Argentina | NERIN Parts",
+    h1: "Repuestos iPhone en Argentina",
+    description: "Repuestos iPhone con stock real en Argentina. Displays, baterias, tapas y soporte para validar compatibilidad.",
+    intro: "Repuestos para iPhone priorizados por stock real, compatibilidad clara, factura y garantia tecnica.",
+    canonicalPath: "/repuestos-iphone",
+    priority: "0.82",
+  },
+};
+
+function parseSqliteProductRow(row = {}) {
+  let raw = {};
+  try {
+    raw = row.raw_json ? JSON.parse(row.raw_json) : {};
+  } catch {
+    raw = {};
+  }
+  const merged = { ...raw };
+  for (const [key, value] of Object.entries(row || {})) {
+    if (key === "raw_json" || key === "rowid") continue;
+    if (value !== undefined && value !== null && value !== "") merged[key] = value;
+  }
+  if (row.public_slug && !merged.publicSlug) merged.publicSlug = row.public_slug;
+  return normalizeProductImages(merged);
+}
+
+function getOrganicProductSelectSql(where = "is_public = 1", orderBy = "stock DESC, rowid ASC") {
+  return `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, status, visibility, stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, part_number, mpn, raw_json FROM products WHERE ${where} ORDER BY ${orderBy}`;
+}
+
+async function fetchOrganicProducts({ limit = 300, stockRealOnly = false } = {}) {
+  await productsSqliteRepo.ensureProductsDbOnce();
+  let dbConn;
+  try {
+    dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
+    const where = stockRealOnly ? "is_public = 1 AND stock > 0" : "is_public = 1";
+    const rows = await sqliteAll(dbConn, `${getOrganicProductSelectSql(where)} LIMIT ?`, [Math.max(1, Number(limit) || 300)]);
+    return rows.map(parseSqliteProductRow);
+  } finally {
+    if (dbConn) {
+      try { dbConn.close(); } catch {}
+    }
+  }
+}
+
+function sortOrganicProducts(products = []) {
+  return [...products].sort((a, b) => {
+    const seoA = computeOrganicSeoPriority(a);
+    const seoB = computeOrganicSeoPriority(b);
+    const stockA = Number(a.stock || 0);
+    const stockB = Number(b.stock || 0);
+    return seoB.priorityScore - seoA.priorityScore || stockB - stockA || String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" });
+  });
+}
+
+async function getOrganicProductsForPage(pageKey, limit = 48) {
+  const candidates = await fetchOrganicProducts({ limit: 800, stockRealOnly: true });
+  return sortOrganicProducts(candidates.filter((product) => matchesOrganicPage(product, pageKey))).slice(0, limit);
+}
+
+function buildOrganicProductCard(product, siteBase) {
+  const seo = computeOrganicSeoPriority(product);
+  const url = absoluteUrl(buildProductUrl(product), siteBase) || buildProductUrl(product);
+  const { imageList } = buildProductImages(product, siteBase);
+  const image = imageList[0] || absoluteUrl("/assets/hero.png", siteBase) || "/assets/hero.png";
+  const price = getPublicPriceValue(product);
+  const part = getOrganicPartLabel(seo.partTypeKey);
+  return `
+    <article class="organic-product-card" role="listitem">
+      <a class="organic-product-card__media" href="${esc(url)}">
+        <img loading="lazy" src="${esc(image)}" alt="${esc(product.name || seo.seoTitle || "Repuesto NERIN")}">
+      </a>
+      <div class="organic-product-card__body">
+        <span class="organic-product-card__badge">Stock real</span>
+        <p class="organic-product-card__eyebrow">${esc([seo.brand, seo.model, part].filter(Boolean).join(" · "))}</p>
+        <h2><a href="${esc(url)}">${esc(product.name || seo.seoTitle || "Repuesto")}</a></h2>
+        <p>${esc(seo.seoDescription)}</p>
+        <div class="organic-product-card__footer">
+          ${price > 0 ? `<strong>${esc(formatArs(price))}</strong>` : ""}
+          <a href="${esc(url)}">Ver producto</a>
+        </div>
+      </div>
+    </article>`;
+}
+
+function buildOrganicItemListSchema(products = [], siteBase, pageUrl) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    url: pageUrl,
+    numberOfItems: products.length,
+    itemListElement: products.map((product, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      url: absoluteUrl(buildProductUrl(product), siteBase),
+      name: product.name || product.title || `Producto ${index + 1}`,
+    })),
+  };
+}
+
+function buildOrganicBreadcrumbSchema(config, siteBase, pageUrl) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Inicio", item: absoluteUrl("/", siteBase) },
+      { "@type": "ListItem", position: 2, name: config.h1, item: pageUrl },
+    ],
+  };
+}
+
+function renderSeoDebugBlock(payload = {}) {
+  return `<section class="seo-debug" data-debug-seo="1"><h2>SEO debug</h2><pre>${esc(JSON.stringify(payload, null, 2))}</pre></section>`;
+}
+
+function renderOrganicSeoPage(config, products, siteBase, { debugSeo = false, includedInSitemap = true } = {}) {
+  const canonical = absoluteUrl(config.canonicalPath, siteBase);
+  const cards = products.map((product) => buildOrganicProductCard(product, siteBase)).join("");
+  const itemList = buildOrganicItemListSchema(products, siteBase, canonical);
+  const breadcrumbs = buildOrganicBreadcrumbSchema(config, siteBase, canonical);
+  const debug = debugSeo
+    ? renderSeoDebugBlock({
+        title: config.title,
+        metaDescription: config.description,
+        canonical,
+        h1: config.h1,
+        structuredData: ["BreadcrumbList", "ItemList"],
+        stock_status: "stock_real_only",
+        isOrganicPriority: true,
+        targetKeywords: products.slice(0, 8).flatMap((product) => computeOrganicSeoPriority(product).targetKeywords).slice(0, 20),
+        blockersSeo: [],
+        includedInSitemap,
+      })
+    : "";
+  return `<!doctype html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${esc(config.title)}</title>
+  <meta name="description" content="${esc(config.description)}">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="${esc(canonical)}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${esc(config.title)}">
+  <meta property="og:description" content="${esc(config.description)}">
+  <meta property="og:url" content="${esc(canonical)}">
+  <link rel="stylesheet" href="/style.css?v=organic-seo">
+  <script type="application/ld+json" id="organic-itemlist">${safeJsonForScript(itemList)}</script>
+  <script type="application/ld+json" id="organic-breadcrumbs">${safeJsonForScript(breadcrumbs)}</script>
+</head>
+<body>
+  <header class="organic-header">
+    <a class="organic-header__brand" href="/">NERIN Parts</a>
+    <nav aria-label="Categorias organicas">
+      <a href="/stock-real">Stock real</a>
+      <a href="/pantallas-en-stock">Pantallas</a>
+      <a href="/baterias-en-stock">Baterias</a>
+      <a href="/repuestos-samsung">Samsung</a>
+      <a href="/repuestos-iphone">iPhone</a>
+    </nav>
+  </header>
+  <main class="organic-page">
+    <nav class="organic-breadcrumb" aria-label="Breadcrumb"><a href="/">Inicio</a><span>/</span><span>${esc(config.h1)}</span></nav>
+    <section class="organic-hero">
+      <p class="eyebrow">Stock real · Envio desde CABA · Factura A/B</p>
+      <h1>${esc(config.h1)}</h1>
+      <p>${esc(config.intro)}</p>
+      <div class="organic-hero__trust">
+        <span>Listo para enviar desde CABA</span>
+        <span>Garantia tecnica</span>
+        <span>Soporte por WhatsApp</span>
+        <span>Verificacion de compatibilidad</span>
+      </div>
+    </section>
+    <section class="organic-grid" aria-label="Productos en stock real" role="list">
+      ${cards}
+    </section>
+    <section class="organic-conversion">
+      <h2>Compra con compatibilidad verificada</h2>
+      <p>Antes de comprar, podemos confirmar modelo, version y codigo de pieza para reducir cambios y demoras.</p>
+      <div>
+        <a class="button primary" href="/shop.html?stock=in-stock">Comprar ahora</a>
+        <a class="button secondary" href="https://wa.me/5491130341550?text=Hola%20NERIN%2C%20quiero%20consultar%20compatibilidad" target="_blank" rel="noopener">Consultar compatibilidad por WhatsApp</a>
+      </div>
+    </section>
+    ${debug}
+  </main>
+</body>
+</html>`;
+}
+
+async function buildOrganicSitemapEntries(siteBase, generatedAt) {
+  const entries = [];
+  for (const config of Object.values(ORGANIC_SEO_PAGE_CONFIG)) {
+    const products = await getOrganicProductsForPage(config.key, 1);
+    if (!products.length) continue;
+    entries.push({
+      loc: absoluteUrl(config.canonicalPath, siteBase),
+      lastmod: generatedAt,
+      changefreq: "daily",
+      priority: config.priority || "0.8",
+    });
+  }
+  return entries;
+}
+
+async function buildFreeListingsPriorityReport({ limit = 100 } = {}) {
+  const products = await fetchOrganicProducts({ limit: 5000, stockRealOnly: false });
+  const summary = {
+    totalPublicProducts: products.length,
+    freeListingsEligibleProducts: 0,
+    eligibleInStockProducts: 0,
+    blockedMissingImage: 0,
+    blockedMissingPrice: 0,
+    blockedMissingSlug: 0,
+    doubtfulBrandProducts: 0,
+    topOrganicPriorityProducts: [],
+  };
+  const top = [];
+  for (const product of products) {
+    const seo = computeOrganicSeoPriority(product);
+    if (seo.blockers.includes("missing_image")) summary.blockedMissingImage += 1;
+    if (seo.blockers.includes("missing_price")) summary.blockedMissingPrice += 1;
+    if (seo.blockers.includes("missing_slug")) summary.blockedMissingSlug += 1;
+    if (isBrandDoubtful(product)) summary.doubtfulBrandProducts += 1;
+    const merchantReady = !seo.blockers.includes("missing_image") && !seo.blockers.includes("missing_price") && !seo.blockers.includes("missing_slug") && !seo.blockers.includes("not_public");
+    if (merchantReady) summary.freeListingsEligibleProducts += 1;
+    if (merchantReady && seo.isStockReal) summary.eligibleInStockProducts += 1;
+    if (seo.isOrganicPriority) {
+      top.push({
+        id: product.id || product.sku || null,
+        sku: product.sku || "",
+        title: product.name || product.title || "",
+        slug: product.publicSlug || product.public_slug || product.slug || "",
+        stock: Number(product.stock || 0),
+        price: getPublicPriceValue(product),
+        priorityScore: seo.priorityScore,
+        targetKeywords: seo.targetKeywords,
+        reasons: seo.reasons,
+      });
+    }
+  }
+  summary.topOrganicPriorityProducts = top
+    .sort((a, b) => b.priorityScore - a.priorityScore || b.stock - a.stock)
+    .slice(0, Math.max(1, Math.min(100, Number(limit) || 100)));
+  return summary;
 }
 
 function replaceBasePlaceholders(html, siteBase) {
@@ -6875,6 +7168,24 @@ async function requestHandler(req, res) {
         ok: false,
         source: "sqlite",
         error: error?.message || "performance test unavailable",
+      });
+    }
+  }
+
+  if (pathname === "/api/catalog/free-listings-priority" && req.method === "GET") {
+    try {
+      const limit = Math.max(1, Math.min(100, Number(parsedUrl.query?.limit || 100) || 100));
+      const report = await buildFreeListingsPriorityReport({ limit });
+      return sendJson(res, 200, {
+        ok: true,
+        source: "sqlite",
+        ...report,
+      });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        source: "sqlite",
+        error: error?.message || "No se pudo calcular prioridad de free listings",
       });
     }
   }
@@ -12887,6 +13198,8 @@ async function requestHandler(req, res) {
     const siteBase = getPublicBaseUrl(cfg);
     const products = loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
     const plan = buildSitemapPlan(siteBase, products);
+    const organicEntries = await buildOrganicSitemapEntries(plan.siteBase, toIsoString(new Date()));
+    plan.staticEntries = [...plan.staticEntries, ...organicEntries];
     const productCount = plan.productEntries.length;
     const needsIndex = productCount > 45000;
     if (pathname === "/sitemap.xml") {
@@ -12916,6 +13229,26 @@ async function requestHandler(req, res) {
     const xml = buildSitemapPartXml(plan.siteBase, plan.productSitemaps[idx]);
     res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
     res.end(xml);
+    return;
+  }
+
+  if (ORGANIC_SEO_PAGE_CONFIG[pathname] && req.method === "GET") {
+    const cfg = getConfig();
+    const siteBase = getPublicBaseUrl(cfg);
+    const config = ORGANIC_SEO_PAGE_CONFIG[pathname];
+    const products = await getOrganicProductsForPage(config.key, 48);
+    if (!products.length) {
+      const html = `<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="robots" content="noindex,follow"><title>${esc(config.h1)} | Sin productos disponibles</title></head><body><main><h1>${esc(config.h1)}</h1><p>No hay productos en stock real para esta pagina en este momento.</p></main></body></html>`;
+      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(html);
+      return;
+    }
+    const html = renderOrganicSeoPage(config, products, siteBase, {
+      debugSeo: parsedUrl.query?.debugSeo === "1",
+      includedInSitemap: true,
+    });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=600" });
+    res.end(html);
     return;
   }
 
@@ -13088,8 +13421,9 @@ async function requestHandler(req, res) {
     const formattedPrice = Number.isFinite(numericPrice)
       ? numericPrice.toFixed(2)
       : "0.00";
-    const seoTitle = productSeo.title || buildProductSeoTitle(product);
-    const description = productSeo.description || buildProductMetaDescription(product);
+    const organicSeo = computeOrganicSeoPriority(product);
+    const seoTitle = organicSeo.seoTitle || productSeo.title || buildProductSeoTitle(product);
+    const description = organicSeo.seoDescription || productSeo.description || buildProductMetaDescription(product);
     const h1 = buildProductHeading(product);
     const ld = {
       "@context": "https://schema.org",
@@ -13197,7 +13531,22 @@ async function requestHandler(req, res) {
       .join("");
     const galleryHtml = renderProductGallerySsr(product, siteBase);
     const debugMerchant = parsedUrl.query?.debugMerchant === "1";
-    const infoHtml = renderProductInfoSsr(product, siteBase) + (debugMerchant ? renderMerchantDebugSsr(product, { canonical, imageLink: primaryImage || "" }) : "");
+    const debugSeo = parsedUrl.query?.debugSeo === "1";
+    const seoDebugHtml = debugSeo
+      ? renderSeoDebugBlock({
+          title,
+          metaDescription,
+          canonical,
+          h1,
+          structuredData: ["Product", "Offer", "BreadcrumbList"],
+          stock_status: availabilityInfo.merchantAvailability,
+          isOrganicPriority: organicSeo.isOrganicPriority,
+          targetKeywords: organicSeo.targetKeywords,
+          blockersSeo: organicSeo.blockers,
+          includedInSitemap: Boolean(product?.publicSlug || product?.public_slug || product?.slug),
+        })
+      : "";
+    const infoHtml = renderProductInfoSsr(product, siteBase) + (debugMerchant ? renderMerchantDebugSsr(product, { canonical, imageLink: primaryImage || "" }) : "") + seoDebugHtml;
     const hydratedBody = injectProductContent(templateBody, galleryHtml, infoHtml);
     const html = `<!DOCTYPE html><html lang="es-AR"><head>${head}</head>${hydratedBody}</html>`;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
