@@ -901,6 +901,53 @@ body.cart-indicator-visible .toastify {
   font-weight: 800;
 }
 
+.catalog-availability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin: 0 0 0.55rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  color: #111827;
+}
+
+.catalog-availability__badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.catalog-availability__copy {
+  font-size: 0.78rem;
+  color: #475569;
+  text-align: right;
+}
+
+.catalog-availability--in-stock {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.catalog-availability--preorder {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.catalog-availability--out-of-stock {
+  border-color: #e5e7eb;
+  background: #f9fafb;
+}
+
+.product-card--preorder .product-delivery-promise,
+.product-card--preorder .product-fulfillment-note,
+.product-card--preorder .product-legal-banner {
+  display: none;
+}
+
 .price {
   font-size: 1rem;
   font-weight: 600;
@@ -5005,6 +5052,150 @@ footer .legal {
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
   display: grid;
   gap: 1rem;
+}
+
+.product-purchase-card > .product-shipping-banner,
+.product-purchase-card > .product-fulfillment-trust {
+  display: none;
+}
+
+.availability-panel,
+.andreani-quote,
+.quiet-trust-banner {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: #fff;
+  padding: 0.9rem 1rem;
+}
+
+.availability-panel {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.availability-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.38rem 0.68rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.availability-panel--in-stock .availability-panel__badge {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.availability-panel--preorder .availability-panel__badge {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.availability-panel--out-of-stock .availability-panel__badge {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.availability-panel__copy {
+  display: grid;
+  gap: 0.28rem;
+  color: #0f172a;
+}
+
+.availability-panel__copy strong {
+  font-size: 0.98rem;
+}
+
+.availability-panel__delivery,
+.availability-panel__note,
+.andreani-quote__note,
+.andreani-quote__steps p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.availability-panel__delivery time {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.availability-trust-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0;
+}
+
+.availability-trust-list li {
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.andreani-quote {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.andreani-quote h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  color: #0f172a;
+}
+
+.andreani-quote__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.55rem;
+}
+
+.andreani-quote__form input {
+  width: 100%;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  padding: 0.72rem 0.8rem;
+  font: inherit;
+}
+
+.andreani-quote__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.andreani-quote__options span {
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.andreani-quote__steps {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.quiet-trust-banner {
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 
 .product-shipping-banner {

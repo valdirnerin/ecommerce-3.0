@@ -6,7 +6,7 @@ const {
 } = require('./productAvailability');
 
 const GOOGLE_CATEGORY = 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles';
-const VALID_AVAILABILITY = new Set(['in_stock', 'preorder', 'backorder']);
+const VALID_AVAILABILITY = new Set(['in_stock', 'preorder', 'backorder', 'out_of_stock']);
 
 function safeMerchantText(value, max = 150) {
   const mojibakeFixes = [
@@ -68,7 +68,14 @@ function mergeProductData(row = {}, raw = {}) {
 
 function computeAvailability(row, raw, preorderDays = 30) {
   const merged = mergeProductData(row, raw);
-  if (merged.remote_lead_days == null) merged.remote_lead_days = preorderDays;
+  const explicitAvailability = String(merged.availability || merged.disponibilidad || merged.estado_stock || '').toLowerCase();
+  const explicitMode = String(merged.stock_mode || merged.fulfillment_mode || '').toLowerCase();
+  const hasRemoteSignal =
+    /preorder|backorder|a_pedido|pedido|remote|remoto/.test(explicitAvailability) ||
+    /remote|remoto/.test(explicitMode) ||
+    Number(merged.remote_stock || merged.stock_remote || merged.available_remote || 0) > 0 ||
+    Number(merged.remote_lead_days || merged.remote_lead_min_days || merged.remote_lead_max_days || 0) > 0;
+  if (hasRemoteSignal && merged.remote_lead_days == null) merged.remote_lead_days = preorderDays;
   const resolved = resolveProductAvailability(merged);
   return {
     availability: resolved.merchantAvailability || resolved.feedAvailability || '',

@@ -12,7 +12,7 @@ import {
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { buildCartItemFromProduct, readCart, writeCart, getProductIdentifier } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
-import { resolveProductAvailability } from "./availability.js";
+import { buildAvailabilityPresentation, resolveProductAvailability } from "./availability.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -1095,6 +1095,130 @@ function createQuantityControl(product) {
   };
 }
 
+function createAvailabilityPanel(presentation) {
+  const panel = document.createElement("section");
+  panel.className = `availability-panel availability-panel--${presentation.cssModifier}`;
+  panel.setAttribute("aria-label", "Disponibilidad del producto");
+
+  const badge = document.createElement("span");
+  badge.className = "availability-panel__badge";
+  badge.textContent = presentation.primaryLabel;
+
+  const copy = document.createElement("div");
+  copy.className = "availability-panel__copy";
+  const primary = document.createElement("strong");
+  primary.textContent = presentation.secondaryLabel;
+  copy.appendChild(primary);
+
+  if (presentation.deliveryLabel) {
+    const delivery = document.createElement("p");
+    delivery.className = "availability-panel__delivery";
+    if (presentation.isPreorderOrBackorder && presentation.merchantDate && presentation.merchantDateDisplay) {
+      delivery.append("Fecha estimada de despacho: ");
+      const time = document.createElement("time");
+      time.dateTime = presentation.merchantDate;
+      time.textContent = presentation.merchantDateDisplay;
+      delivery.appendChild(time);
+    } else {
+      delivery.textContent = presentation.deliveryLabel;
+    }
+    copy.appendChild(delivery);
+  }
+
+  if (presentation.isPreorderOrBackorder) {
+    const note = document.createElement("p");
+    note.className = "availability-panel__note";
+    note.textContent = "Este repuesto se gestiona bajo pedido. Te mantenemos informado durante el proceso.";
+    copy.appendChild(note);
+  }
+
+  panel.append(badge, copy);
+  return panel;
+}
+
+function createTrustList(items = []) {
+  const list = document.createElement("ul");
+  list.className = "availability-trust-list";
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = item;
+    list.appendChild(li);
+  });
+  return list;
+}
+
+function createAndreaniShippingBlock(presentation) {
+  const block = document.createElement("section");
+  block.className = `andreani-quote andreani-quote--${presentation.cssModifier}`;
+  block.setAttribute("aria-label", "Opciones de envio Andreani");
+
+  const title = document.createElement("h3");
+  title.textContent = presentation.isStockReal
+    ? "Calcula tu envio Andreani"
+    : presentation.isPreorderOrBackorder
+      ? "Envio Andreani cuando el repuesto este listo"
+      : "Envio a coordinar";
+  block.appendChild(title);
+
+  if (presentation.isStockReal) {
+    const form = document.createElement("div");
+    form.className = "andreani-quote__form";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.inputMode = "numeric";
+    input.placeholder = "Codigo postal";
+    input.setAttribute("aria-label", "Codigo postal");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button secondary";
+    button.textContent = "Ver opciones";
+    form.append(input, button);
+
+    const options = document.createElement("div");
+    options.className = "andreani-quote__options";
+    ["Andreani a domicilio", "Andreani a sucursal"].forEach((label) => {
+      const item = document.createElement("span");
+      item.textContent = label;
+      options.appendChild(item);
+    });
+
+    const note = document.createElement("p");
+    note.className = "andreani-quote__note";
+    note.textContent = "La cotizacion final se confirma en el checkout.";
+    block.append(form, options, note);
+    return block;
+  }
+
+  if (presentation.isPreorderOrBackorder) {
+    const steps = document.createElement("div");
+    steps.className = "andreani-quote__steps";
+    [
+      "Primero gestionamos el ingreso del repuesto.",
+      presentation.deliveryLabel,
+      "Cuando el producto este listo, se despacha por Andreani al domicilio o sucursal elegida.",
+    ].filter(Boolean).forEach((text) => {
+      const p = document.createElement("p");
+      p.textContent = text;
+      steps.appendChild(p);
+    });
+    block.appendChild(steps);
+    return block;
+  }
+
+  const note = document.createElement("p");
+  note.className = "andreani-quote__note";
+  note.textContent = "Consultanos disponibilidad antes de coordinar envio.";
+  block.appendChild(note);
+  return block;
+}
+
+function createQuietTrustBanner() {
+  const banner = document.createElement("aside");
+  banner.className = "quiet-trust-banner";
+  banner.textContent = "Seguimos operando normalmente. Estamos mejorando la experiencia de compra. Ante cualquier duda de compatibilidad o stock, escribinos por WhatsApp.";
+  return banner;
+}
+
 
 
 function addToCart(product, { quantity = 1, sku = "", image = "" } = {}) {
@@ -1262,7 +1386,8 @@ function renderProduct(product) {
   }
 
   const availability = resolveProductAvailability(product);
-  const stockCopy = availability.visibleAvailabilityText || availability.availabilityLabel.toUpperCase();
+  const availabilityPresentation = buildAvailabilityPresentation(product);
+  const stockCopy = availabilityPresentation.primaryLabel || availability.availabilityLabel;
 
   summary.appendChild(meta);
 
@@ -1291,14 +1416,18 @@ function renderProduct(product) {
   if (stockCopy) {
     const stockBadge = document.createElement("span");
     stockBadge.className = "product-stock-badge";
-    if (availability.availabilityBadge === "out_of_stock") stockBadge.classList.add("product-stock-badge--out");
-    else if (availability.availabilityBadge === "remote_available") stockBadge.classList.add("product-stock-badge--low");
+    if (availabilityPresentation.isOutOfStock) stockBadge.classList.add("product-stock-badge--out");
+    else if (availabilityPresentation.isPreorderOrBackorder) stockBadge.classList.add("product-stock-badge--low");
     else stockBadge.classList.add("product-stock-badge--in");
     stockBadge.textContent = stockCopy;
     purchaseHeader.appendChild(stockBadge);
   }
 
   purchaseCard.appendChild(purchaseHeader);
+  purchaseCard.appendChild(createAvailabilityPanel(availabilityPresentation));
+  purchaseCard.appendChild(createTrustList(availabilityPresentation.trustItems));
+  purchaseCard.appendChild(createAndreaniShippingBlock(availabilityPresentation));
+  purchaseCard.appendChild(createQuietTrustBanner());
 
   const shippingBanner = document.createElement("div");
   shippingBanner.className = "product-shipping-banner";
@@ -1396,6 +1525,7 @@ function renderProduct(product) {
   const addBtn = document.createElement("button");
   addBtn.type = "button";
   addBtn.className = "button primary product-buy-main-cta";
+  addBtn.disabled = !availability.checkoutAllowed;
 
   const priceLabel = document.createElement("p");
   priceLabel.className = "product-detail-unit-price";
@@ -1554,6 +1684,7 @@ function renderProduct(product) {
   const stickyBtn = document.createElement("button");
   stickyBtn.type = "button";
   stickyBtn.className = "button primary product-buy-main-cta";
+  stickyBtn.disabled = !availability.checkoutAllowed;
   stickyBtn.addEventListener("click", handleAddToCart);
   stickyCta.append(stickyPrice, stickyBtn);
   if (detailSection) {
@@ -1589,7 +1720,8 @@ function renderProduct(product) {
 
   const setCtaLabels = () => {
     const isMobile = window.matchMedia("(max-width: 768px)").matches;
-    const label = "COMPRAR AHORA";
+    void isMobile;
+    const label = availability.checkoutAllowed ? "COMPRAR AHORA" : "CONSULTAR DISPONIBILIDAD";
     addBtn.textContent = label;
     stickyBtn.textContent = label;
   };
