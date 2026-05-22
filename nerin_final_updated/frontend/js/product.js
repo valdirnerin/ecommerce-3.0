@@ -1,10 +1,6 @@
 import { apiFetch, isWholesale } from "./api.js";
 import { applySeoDefaults, stripBrandSuffix } from "./seo-helpers.js";
-import {
-  normalizeContentId,
-  trackPixel,
-  trackPixelOnce,
-} from "./meta-pixel.js";
+import { normalizeContentId } from "./meta-pixel.js";
 import {
   createComparisonQualityTable,
   removeQualitySelector,
@@ -13,6 +9,7 @@ import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { buildCartItemFromProduct, readCart, writeCart, getProductIdentifier } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 import { buildAvailabilityPresentation, resolveProductAvailability } from "./availability.js";
+import { trackAddToCart, trackStockRealAddToCart, trackStockRealProductView, trackViewItem } from "./analytics.js";
 
 const detailSection = document.getElementById("productDetail");
 const galleryContainer = document.getElementById("gallery");
@@ -1263,6 +1260,8 @@ function addToCart(product, { quantity = 1, sku = "", image = "" } = {}) {
 
   console.log("[product-detail:cart:before-save]", cart);
   writeCart(cart);
+  trackAddToCart(product, qty);
+  trackStockRealAddToCart(product, qty);
   return true;
 }
 
@@ -1300,20 +1299,8 @@ function renderProduct(product) {
   syncBrowserUrl(metaInfo.relativeUrl);
   updateJsonLd(product, images, metaInfo.productUrl);
   updateBreadcrumbJsonLd(product, metaInfo.productUrl);
-  const priceSource = resolveProductDisplayPrice(product);
-  const numericPrice = Number(priceSource) || 0;
-  if (skuValue) {
-    trackPixelOnce(
-      "ViewContent",
-      {
-        content_type: "product",
-        content_ids: [skuValue],
-        value: numericPrice,
-        currency: "ARS",
-      },
-      skuValue,
-    );
-  }
+  trackViewItem(product);
+  trackStockRealProductView(product);
   if (typeof window.NERIN_TRACK_EVENT === "function") {
     window.NERIN_TRACK_EVENT("product_view", {
       productId: product.id != null ? String(product.id) : undefined,
@@ -1575,16 +1562,6 @@ function renderProduct(product) {
     setTimeout(() => {
       setCtaLabels();
     }, 1500);
-    if (skuValue) {
-      const unitPrice = resolveProductDisplayPrice(product);
-      trackPixel("AddToCart", {
-        content_type: "product",
-        content_ids: [skuValue],
-        contents: [{ id: skuValue, quantity: qty }],
-        value: unitPrice * qty,
-        currency: "ARS",
-      });
-    }
   });
 
   const legalNote = document.createElement("p");

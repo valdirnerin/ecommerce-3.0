@@ -1,5 +1,5 @@
 import { apiFetch } from "./api.js";
-import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
+import { trackPurchase, trackStockRealPurchase } from "./analytics.js";
 
 const receipt = document.getElementById('card');
 
@@ -62,7 +62,7 @@ function mapData(data = {}, fallbackId) {
   const email =
     order.cliente?.email || order.buyer?.email || order.email || null;
   const fecha = new Date(order.created_at || order.fecha || Date.now());
-  return { nrn, items, status, total, tracking, email, fecha };
+  return { nrn, items, status, total, tracking, email, fecha, order, payment };
 }
 
 const currency = new Intl.NumberFormat('es-AR', {
@@ -203,21 +203,18 @@ async function init() {
   render(info);
   persist(info);
   if (info.status === "aprobado") {
-    const { contents, value } = buildPixelContents(info.items || []);
-    const contentIds = contents.map((item) => item.id);
-    if (contentIds.length) {
-      trackPixelOnce(
-        "Purchase",
-        {
-          contents,
-          content_type: "product",
-          content_ids: contentIds,
-          value: Number(info.total || value || 0),
-          currency: "ARS",
-        },
-        `${info.nrn || ""}:${contentIds.join("|")}`,
-      );
-    }
+    trackPurchase({
+      transaction_id: info.nrn,
+      value: Number(info.total || 0),
+      payment_type: info.payment?.payment_type_id || info.payment?.method || "mercado_pago",
+      items: info.items || [],
+      order: info.order,
+      payment: info.payment,
+    });
+    trackStockRealPurchase({
+      transaction_id: info.nrn,
+      items: info.items || [],
+    });
   }
   localStorage.removeItem('mp_last_pref');
   localStorage.removeItem('mp_last_nrn');

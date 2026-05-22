@@ -12,8 +12,8 @@
 import { isWholesale, fetchProducts } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes, formatArs } from "./utils/pricing.js";
-import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 import { readCart, writeCart } from "./cart-utils.js";
+import { trackBeginCheckout, trackRemoveFromCart, trackViewCart, trackWhatsappClick } from "./analytics.js";
 
 // Referencias a los elementos del DOM
 const itemsContainer = document.getElementById("cartItems");
@@ -57,6 +57,7 @@ function getStoredCart() {
 // Renderizar el carrito completo
 async function renderCart() {
   const cart = getStoredCart();
+  trackViewCart(cart);
   itemsContainer.innerHTML = "";
   itemsContainer.classList.toggle("cart-items--empty", cart.length === 0);
   let subtotal = 0;
@@ -206,6 +207,7 @@ async function renderCart() {
     removeBtn.className = "remove-item-btn";
     removeBtn.textContent = "Eliminar";
     removeBtn.addEventListener("click", () => {
+      trackRemoveFromCart(cart[index], cart[index]?.quantity || 1);
       cart.splice(index, 1);
       writeCart(cart);
       renderCart();
@@ -253,6 +255,11 @@ async function renderCart() {
       message += `- ${item.name} x${item.quantity} ($${price.toLocaleString("es-AR")} c/u)%0A`;
     });
     message += `%0ATotal: $${subtotal.toLocaleString("es-AR")}`;
+    trackWhatsappClick({
+      source: "cart",
+      cart_value: subtotal,
+      items: cart.map((item) => ({ product_id: item.id, sku: item.sku, product_name: item.name })),
+    });
     window.open(
       `https://api.whatsapp.com/send?phone=${phone}&text=${message}`,
       "_blank",
@@ -260,21 +267,7 @@ async function renderCart() {
   };
 
   payBtn.onclick = () => {
-    const { contents, value } = buildPixelContents(cart);
-    const contentIds = contents.map((item) => item.id);
-    if (contentIds.length) {
-      trackPixelOnce(
-        "InitiateCheckout",
-        {
-          content_type: "product",
-          content_ids: contentIds,
-          contents,
-          value,
-          currency: "ARS",
-        },
-        contentIds.join("|"),
-      );
-    }
+    trackBeginCheckout(cart);
     // Siempre redirigimos al flujo de checkout para que el usuario revise sus datos
     window.location.href = "/checkout-steps.html";
   };

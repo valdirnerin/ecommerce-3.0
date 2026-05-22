@@ -1,7 +1,7 @@
 import { apiFetch } from "./api.js";
-import { buildPixelContents, trackPixelOnce } from "./meta-pixel.js";
 import { calculateNetNoNationalTaxes, formatArs } from "./utils/pricing.js";
 import { readCart } from "./cart-utils.js";
+import { trackAddPaymentInfo, trackAddShippingInfo, trackBeginCheckout, trackPurchase, trackStockRealPurchase } from "./analytics.js";
 
 const API_BASE_URL = ''; // dejamos vacío para usar rutas relativas
 const step1 = document.getElementById('step1');
@@ -51,21 +51,8 @@ function applyRolePricingToCart() {
   }
 }
 applyRolePricingToCart();
-const { contents: checkoutContents, value: checkoutValue } = buildPixelContents(cart);
-const checkoutIds = checkoutContents.map((item) => item.id).filter(Boolean);
-if (checkoutIds.length) {
-  trackPixelOnce(
-    "InitiateCheckout",
-    {
-      content_type: "product",
-      content_ids: checkoutIds,
-      contents: checkoutContents,
-      value: checkoutValue,
-      currency: "ARS",
-    },
-    checkoutIds.join("|"),
-  );
-}
+const checkoutValue = cart.reduce((total, item) => total + Number(item.price || 0) * Number(item.quantity || 0), 0);
+trackBeginCheckout(cart);
 if (typeof window.NERIN_TRACK_EVENT === "function") {
   window.NERIN_TRACK_EVENT("checkout_start", {
     step: "Checkout",
@@ -299,6 +286,14 @@ formEnvio.addEventListener('submit', (ev) => {
   buildResumen();
   step2.style.display = 'none';
   step3.style.display = 'block';
+  trackAddShippingInfo(cart, {
+    method: envio.metodo,
+    shipping_tier: envio.metodoLabel || envio.metodo,
+    provincia: envio.provincia,
+    localidad: envio.localidad,
+    cp: envio.cp,
+    cost: envio.costo || 0,
+  });
   updateMetodoInfo();
 });
 
@@ -425,13 +420,16 @@ function updateMetodoInfo() {
   if (metodoInfo) metodoInfo.innerHTML = html;
   renderProtectionNote(metodo);
   toggleCashValidation();
-  if (typeof window.NERIN_TRACK_EVENT === "function" && metodo !== lastTrackedPaymentMethod) {
-    window.NERIN_TRACK_EVENT("checkout_payment", {
-      step: "Pago",
-      metadata: {
-        method: metodo,
-      },
-    });
+  if (metodo !== lastTrackedPaymentMethod) {
+    trackAddPaymentInfo(cart, { payment_type: metodo, method: metodo });
+    if (typeof window.NERIN_TRACK_EVENT === "function") {
+      window.NERIN_TRACK_EVENT("checkout_payment", {
+        step: "Pago",
+        metadata: {
+          method: metodo,
+        },
+      });
+    }
     lastTrackedPaymentMethod = metodo;
   }
 }
@@ -585,6 +583,21 @@ async function submitOfflineOrder(paymentMethod) {
         metadata: {
           paymentMethod,
         },
+      });
+    }
+    const finalStatus = String(data.status || data.payment_status || data.paymentStatus || '').toLowerCase();
+    const isFinalPurchase = ['approved', 'aprobado', 'paid', 'pagado', 'completed', 'completado'].includes(finalStatus);
+    if (isFinalPurchase) {
+      trackPurchase({
+        transaction_id: orderId,
+        value: totalValue,
+        shipping: envio.costo || 0,
+        payment_type: paymentMethod,
+        items: cart,
+      });
+      trackStockRealPurchase({
+        transaction_id: orderId,
+        items: cart,
       });
     }
     localStorage.setItem('nerinUserInfo', JSON.stringify(customer));
