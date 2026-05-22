@@ -3,7 +3,7 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const serverPath = path.join(root, "backend/server.js");
-const marker = "async function requestHandler(req, res) {\n";
+const markerRegex = /async function requestHandler\(req, res\) \{\r?\n/;
 const flag = "[sitemap-hotfix-large-catalog]";
 
 let text = fs.readFileSync(serverPath, "utf8");
@@ -13,7 +13,7 @@ if (text.includes(flag)) {
   process.exit(0);
 }
 
-if (!text.includes(marker)) {
+if (!markerRegex.test(text)) {
   console.warn("[sitemap-hotfix] marker not found; server.js was not changed");
   process.exit(0);
 }
@@ -36,12 +36,21 @@ const snippet = String.raw`async function requestHandler(req, res) {
       const base = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
       const generatedAt = toIsoString(new Date());
       const pageSize = 45000;
-      const staticEntries = ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((pathSegment) => ({
+      const baseStaticEntries = ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((pathSegment) => ({
         loc: absoluteUrl(pathSegment, base),
         lastmod: generatedAt,
         changefreq: pathSegment === "/" || pathSegment === "/shop.html" || pathSegment === "/shop" ? "daily" : "monthly",
         priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" || pathSegment === "/shop" ? "0.9" : "0.5",
       }));
+      let organicEntries = [];
+      if (typeof buildOrganicSitemapEntries === "function") {
+        try {
+          organicEntries = await buildOrganicSitemapEntries(base, generatedAt);
+        } catch (organicError) {
+          console.warn("[sitemap:organic-skip]", organicError?.message || organicError);
+        }
+      }
+      const staticEntries = [...baseStaticEntries, ...organicEntries];
       const toProductEntry = (product) => {
         try {
           const slug = product?.publicSlug || product?.public_slug || product?.slug;
@@ -110,6 +119,6 @@ const snippet = String.raw`async function requestHandler(req, res) {
   }
 `;
 
-text = text.replace(marker, snippet);
+text = text.replace(markerRegex, snippet);
 fs.writeFileSync(serverPath, text, "utf8");
 console.log("[sitemap-hotfix] updated backend/server.js");

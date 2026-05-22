@@ -67,8 +67,7 @@ function filterShopProductsForSsr(products = [], { search = "", category = "", b
       return haystack.includes(cleanSearch);
     });
 }
-
-function replaceBasePlaceholders`;
+`;
 
 const seoHelpers = String.raw`function buildShopSeoState({ siteBase, search = "", category = "", brand = "", count = 0, products = [] } = {}) {
   const normalizedBase = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
@@ -220,18 +219,22 @@ const shopRoute = String.raw`  // SSR del catalogo
 patch("backend/server.js", (text) => {
   let next = text;
   next = next.replace(/\n\s*"Disallow: \/\*\?\*",/g, "");
-  next = replaceRequired(
-    next,
-    /function renderShopListing\(products, siteBase\) \{[\s\S]*?\n\}\n\nfunction replaceBasePlaceholders/,
-    shopHelpers,
-    "shop listing helpers",
-  );
-  next = replaceRequired(
-    next,
-    /function replaceBasePlaceholders/,
-    seoHelpers,
-    "shop seo helpers",
-  );
+  if (!next.includes("function filterShopProductsForSsr(")) {
+    next = replaceRequired(
+      next,
+      /function renderShopListing\(products, siteBase\) \{[\s\S]*?return \{ cards, count, summary \};\n\}/,
+      shopHelpers.trimEnd(),
+      "shop listing helpers",
+    );
+  }
+  if (!next.includes("function buildShopSeoState(")) {
+    next = replaceRequired(
+      next,
+      /function replaceBasePlaceholders/,
+      seoHelpers,
+      "shop seo helpers",
+    );
+  }
   next = replaceRequired(
     next,
     /  \/\/ SSR del cat[^\n]*\n  if \(\n    \(pathname === "\/shop\.html"[\s\S]*?\n  \/\/ Servir componentes/,
