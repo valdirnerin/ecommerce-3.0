@@ -948,6 +948,237 @@ body.cart-indicator-visible .toastify {
   display: none;
 }
 
+.organic-header {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid #e6e8ee;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 18px clamp(18px, 5vw, 64px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.organic-header__brand {
+  color: #111827;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
+.organic-header nav,
+.organic-seo-links__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.organic-header nav a,
+.organic-seo-links__grid a {
+  border: 1px solid #d9dde6;
+  border-radius: 999px;
+  color: #1f2937;
+  font-size: 0.92rem;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+.organic-page {
+  background: #ffffff;
+  color: #111827;
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 34px clamp(18px, 5vw, 64px) 72px;
+}
+
+.organic-breadcrumb {
+  align-items: center;
+  color: #6b7280;
+  display: flex;
+  font-size: 0.92rem;
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.organic-breadcrumb a {
+  color: #374151;
+  text-decoration: none;
+}
+
+.organic-hero {
+  border-bottom: 1px solid #eceff4;
+  margin-bottom: 28px;
+  padding-bottom: 28px;
+}
+
+.organic-hero h1 {
+  color: #111827;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  letter-spacing: 0;
+  line-height: 1.05;
+  margin: 8px 0 12px;
+  max-width: 820px;
+}
+
+.organic-hero p {
+  color: #4b5563;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  max-width: 820px;
+}
+
+.organic-hero__trust {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.organic-hero__trust span {
+  background: #f7f8fb;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  color: #334155;
+  font-size: 0.92rem;
+  padding: 8px 12px;
+}
+
+.organic-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.organic-product-card {
+  border: 1px solid #e4e7ee;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.organic-product-card__media {
+  aspect-ratio: 4 / 3;
+  background: #f8fafc;
+  display: block;
+}
+
+.organic-product-card__media img {
+  height: 100%;
+  object-fit: contain;
+  padding: 18px;
+  width: 100%;
+}
+
+.organic-product-card__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.organic-product-card__badge {
+  align-self: flex-start;
+  background: #eaf7ef;
+  border: 1px solid #b9e4c8;
+  border-radius: 999px;
+  color: #166534;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 5px 9px;
+  text-transform: uppercase;
+}
+
+.organic-product-card__eyebrow {
+  color: #64748b;
+  font-size: 0.86rem;
+  margin: 0;
+}
+
+.organic-product-card h2 {
+  font-size: 1.02rem;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.organic-product-card h2 a {
+  color: #111827;
+  text-decoration: none;
+}
+
+.organic-product-card p {
+  color: #4b5563;
+  font-size: 0.94rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.organic-product-card__footer {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: auto;
+}
+
+.organic-product-card__footer a {
+  color: #111827;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.organic-conversion,
+.organic-seo-links {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-top: 28px;
+  padding: 22px;
+}
+
+.organic-conversion h2,
+.organic-seo-links h2 {
+  color: #111827;
+  font-size: 1.25rem;
+  margin: 0 0 8px;
+}
+
+.organic-conversion p,
+.organic-seo-links p {
+  color: #4b5563;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+
+.seo-debug {
+  background: #111827;
+  border-radius: 8px;
+  color: #f9fafb;
+  margin-top: 28px;
+  overflow: auto;
+  padding: 18px;
+}
+
+.seo-debug pre {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .organic-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .organic-product-card__footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .price {
   font-size: 1rem;
   font-weight: 600;
