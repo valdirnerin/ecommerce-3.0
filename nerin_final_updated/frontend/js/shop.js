@@ -82,6 +82,9 @@ const brandFilter = document.getElementById("brandFilter");
 const modelFilter = document.getElementById("modelFilter");
 const categoryFilter = document.getElementById("categoryFilter");
 const stockFilter = document.getElementById("stockFilter");
+const qualityFilter = document.getElementById("qualityFilter");
+const colorFilter = document.getElementById("colorFilter");
+const frameFilter = document.getElementById("frameFilter");
 const priceRange = document.getElementById("priceRange");
 const priceRangeValue = document.getElementById("priceRangeValue");
 const sortSelect = document.getElementById("sortSelect");
@@ -376,6 +379,41 @@ function populateSelect(select, values) {
   select.value = values.includes(current) ? current : "";
 }
 
+function populateSelectFromFacet(select, facetValues = [], fallbackLabel = "") {
+  if (!select) return;
+  const current = select.value;
+  while (select.options.length > 1) select.remove(1);
+  facetValues.forEach((item) => {
+    const value = item?.value ?? "";
+    if (value === "") return;
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = `${item?.label || value}${Number.isFinite(Number(item?.count)) ? ` (${item.count})` : ""}`;
+    select.appendChild(option);
+  });
+  if (fallbackLabel && select.options[0]) select.options[0].textContent = fallbackLabel;
+  select.value = Array.from(select.options).some((option) => option.value === current) ? current : "";
+  select.parentElement?.classList.toggle("filter-block--empty", facetValues.length === 0 && !current);
+}
+
+function applyFacets(facets = {}) {
+  populateSelectFromFacet(categoryFilter, facets.part_type || [], "Todos los tipos");
+  populateSelectFromFacet(brandFilter, facets.device_brand || [], "Todas las marcas");
+  populateSelectFromFacet(modelFilter, facets.model_base || [], "Todos los modelos");
+  populateSelectFromFacet(qualityFilter, facets.quality_tier || [], "Todas las calidades");
+  populateSelectFromFacet(colorFilter, facets.color || [], "Todos los colores");
+  populateSelectFromFacet(frameFilter, facets.has_frame || [], "Con o sin marco");
+  if (priceRange && facets.price_range && !priceFilterTouched) {
+    const max = Number(facets.price_range.max || 0);
+    if (Number.isFinite(max) && max > 0) {
+      const normalizedMax = Math.max(1000, Math.ceil(max / 500) * 500);
+      priceRange.max = String(normalizedMax);
+      priceRange.value = String(normalizedMax);
+      updatePriceRangeDisplay();
+    }
+  }
+}
+
 function populateFilters(products) {
   const localeCompare = (a, b) => a.localeCompare(b, "es", { sensitivity: "base" });
   const brands = new Map();
@@ -440,6 +478,9 @@ function resetAllFilters() {
   if (modelFilter) modelFilter.value = "";
   if (categoryFilter) categoryFilter.value = "";
   if (stockFilter) stockFilter.value = "";
+  if (qualityFilter) qualityFilter.value = "";
+  if (colorFilter) colorFilter.value = "";
+  if (frameFilter) frameFilter.value = "";
   if (sortSelect) sortSelect.value = "relevance";
   if (priceRange) {
     priceRange.value = priceRange.max;
@@ -709,6 +750,9 @@ function syncQueryParams(filters) {
   if (filters.model) params.set("model", filters.model);
   if (filters.category) params.set("category", filters.category);
   if (filters.stock) params.set("stock", filters.stock);
+  if (filters.quality) params.set("quality_tier", filters.quality);
+  if (filters.color) params.set("color", filters.color);
+  if (filters.hasFrame) params.set("has_frame", filters.hasFrame);
   if (filters.priceActive && filters.price) params.set("price_max", String(filters.price));
   if (filters.sort && filters.sort !== "relevance") params.set("sort", filters.sort);
   if (SEARCH_DEBUG) params.set("debugSearch", "1");
@@ -724,13 +768,16 @@ function updateActiveFilters(filters) {
     ["Marca", filters.brand],
     ["Modelo", filters.model],
     ["Tipo", filters.category],
+    ["Calidad", filters.quality],
+    ["Color", filters.color],
+    ["Marco", filters.hasFrame === "true" || filters.hasFrame === "1" ? "Con marco" : filters.hasFrame === "false" || filters.hasFrame === "0" ? "Sin marco" : ""],
     ["Stock",
-      filters.stock === "in-stock"
-        ? "Solo con stock"
-        : filters.stock === "physical"
-          ? "Stock físico"
-          : filters.stock === "remote"
-            ? "Stock remoto"
+      filters.stock === "in_stock"
+        ? "Stock real"
+        : filters.stock === "preorder"
+          ? "A pedido"
+          : filters.stock === "out_of_stock"
+            ? "Sin stock"
             : ""],
     ["Precio ≤", filters.priceActive ? formatCurrency(filters.price) : ""],
   ];
@@ -748,11 +795,14 @@ function getCurrentFilters() {
   const model = modelFilter?.value || "";
   const category = categoryFilter?.value || "";
   const stock = stockFilter?.value || "";
+  const quality = qualityFilter?.value || "";
+  const color = colorFilter?.value || "";
+  const hasFrame = frameFilter?.value || "";
   const sort = sortSelect?.value || "relevance";
   const price = Number(priceRange?.value) || 0;
   const priceMax = Number(priceRange?.max) || 0;
   const priceActive = priceFilterTouched && priceMax > 0 && price < priceMax;
-  return { search, brand, model, category, stock, sort, price, priceActive };
+  return { search, brand, model, category, stock, quality, color, hasFrame, sort, price, priceActive };
 }
 
 function mapSortForBackend(sortValue) {
@@ -761,6 +811,7 @@ function mapSortForBackend(sortValue) {
     price_desc: "price_desc",
     name_asc: "name_asc",
     name_desc: "name_desc",
+    stock_real: "stock_real",
     stock_desc: "stock_desc",
     stock_asc: "stock_asc",
     "price-asc": "price_asc",
@@ -882,7 +933,14 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     category: filters.category,
     brand: filters.brand,
     model: filters.model,
+    part_type: filters.category,
+    device_brand: filters.brand,
+    model_base: filters.model,
     stock: filters.stock,
+    stock_status: filters.stock,
+    quality_tier: filters.quality,
+    color: filters.color,
+    has_frame: filters.hasFrame,
     price_max: filters.priceActive ? filters.price : "",
     sort: mapSortForBackend(filters.sort),
   };
@@ -954,7 +1012,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     shopLog("response:ignored-fallback-after-real", { requestId });
     return;
   }
-  if (response?.source !== "sqlite") {
+  if (response?.source !== "sqlite" && response?.source !== "sqlite_search_index") {
     console.warn("[shop-products] backend did not use sqlite", response?.source);
   }
 
@@ -962,7 +1020,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     .map(normalizeStorefrontProduct)
     .map(sanitizePublicProduct)
     .filter(Boolean);
-  const filteredItems = normalizedItems.filter((product) => matchesStockFilter(product, filters.stock));
+  const filteredItems = normalizedItems;
   console.log("[catalog:first-product]", normalizedItems?.[0]);
   console.log("[catalog:first-product-keys]", normalizedItems?.[0] ? Object.keys(normalizedItems[0]) : null);
 
@@ -988,17 +1046,11 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
       : null;
 
   totalFilteredItems = publicProductsTotalItems ?? allProducts.length;
-  if (filters.stock) {
-    totalFilteredItems = allProducts.length;
-    publicProductsTotalItems = null;
-    publicProductsTotalPages = null;
-    publicProductsHasNextPage = false;
-    publicProductsHasPrevPage = currentProductsPage > 1;
-  }
+  applyFacets(response.facets || {});
   productGrid.innerHTML = "";
   console.info("[shop-products] render start");
   if (!allProducts.length) {
-    productGrid.innerHTML = "<p>No encontramos productos para esos filtros.</p>";
+    productGrid.innerHTML = '<p>No encontramos exactamente ese repuesto. Probá buscar por modelo, código o escribinos por WhatsApp.</p>';
   } else {
     allProducts.forEach((product) => productGrid.appendChild(createProductCard(product)));
   }
@@ -1069,9 +1121,12 @@ function applyInitialFilters() {
   updateModelOptions(brandFilter?.value || "");
   if (modelFilter && params.get("model")) modelFilter.value = params.get("model");
   if (categoryFilter && params.get("category")) categoryFilter.value = params.get("category");
+  if (qualityFilter && params.get("quality_tier")) qualityFilter.value = params.get("quality_tier");
+  if (colorFilter && params.get("color")) colorFilter.value = params.get("color");
+  if (frameFilter && params.get("has_frame")) frameFilter.value = params.get("has_frame");
   if (stockFilter) {
     const stockParam = params.get("stock");
-    if (["in-stock", "physical", "remote"].includes(stockParam)) {
+    if (["in_stock", "preorder", "out_of_stock", "in-stock", "physical", "remote"].includes(stockParam)) {
       stockFilter.value = stockParam;
     }
   }
@@ -1166,6 +1221,12 @@ async function initShop() {
     stockFilter?.addEventListener("change", () => {
       currentProductsPage = 1;
       safelyRenderProducts({ page: 1 });
+    });
+    [qualityFilter, colorFilter, frameFilter].forEach((select) => {
+      select?.addEventListener("change", () => {
+        currentProductsPage = 1;
+        safelyRenderProducts({ page: 1 });
+      });
     });
     sortSelect?.addEventListener("change", () => {
       currentProductsPage = 1;

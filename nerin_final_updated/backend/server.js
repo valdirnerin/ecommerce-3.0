@@ -7259,6 +7259,13 @@ async function requestHandler(req, res) {
         category: queryParams.category || "",
         brand: queryParams.brand || "",
         model: queryParams.model || "",
+        partType: queryParams.part_type || queryParams.partType || "",
+        deviceBrand: queryParams.device_brand || queryParams.deviceBrand || "",
+        modelBase: queryParams.model_base || queryParams.modelBase || "",
+        qualityTier: queryParams.quality_tier || queryParams.qualityTier || "",
+        color: queryParams.color || "",
+        hasFrame: queryParams.has_frame ?? queryParams.hasFrame ?? "",
+        stockStatus: queryParams.stock_status || queryParams.stockStatus || "",
         stock: queryParams.stock || "",
         priceMax: queryParams.price_max ?? queryParams.priceMax,
         sort: queryParams.sort || "",
@@ -7327,7 +7334,15 @@ async function requestHandler(req, res) {
         category: parsedUrl.query?.category || "",
         brand: parsedUrl.query?.brand || "",
         model: parsedUrl.query?.model || "",
+        partType: parsedUrl.query?.part_type || parsedUrl.query?.partType || "",
+        deviceBrand: parsedUrl.query?.device_brand || parsedUrl.query?.deviceBrand || "",
+        modelBase: parsedUrl.query?.model_base || parsedUrl.query?.modelBase || "",
+        qualityTier: parsedUrl.query?.quality_tier || parsedUrl.query?.qualityTier || "",
+        color: parsedUrl.query?.color || "",
+        hasFrame: parsedUrl.query?.has_frame ?? parsedUrl.query?.hasFrame ?? "",
+        stockStatus: parsedUrl.query?.stock_status || parsedUrl.query?.stockStatus || "",
         stock: parsedUrl.query?.stock || "",
+        debugSearch: debug,
       });
       const results = data.items.map((item) => ({
         id: item.id,
@@ -7350,8 +7365,8 @@ async function requestHandler(req, res) {
         queryParsed: { normalizedQuery: q },
         tookMs: Date.now() - startedAt,
         suggestions: [],
-        facets: {},
-        debug: debug ? { source: "basic", note: "Use /api/catalog/debug-search for row-level details." } : undefined,
+        facets: data.facets || {},
+        debug: debug ? data.searchDebug : undefined,
       });
     } catch (error) {
       return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });

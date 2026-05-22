@@ -4,14 +4,20 @@ const path = require("path");
 const sqlite3 = require("sqlite3");
 const productsStreamRepo = require("./productsStreamRepo");
 const { dataPath } = require("../utils/dataDir");
+const {
+  PART_LABELS,
+  classifyCatalogProduct,
+  normalizeText: normalizeCatalogText,
+  parseCatalogQuery,
+} = require("../utils/catalogClassifier");
 
 const PRODUCTS_JSON_PATH = dataPath("products.json");
 const SQLITE_PATH = dataPath("products.sqlite");
 const MANIFEST_PATH = dataPath("products.manifest.json");
 const OVERRIDES_PATH = dataPath("products.overrides.json");
 const COUNT_CACHE_TTL_MS = 60_000;
-const PRODUCTS_SQLITE_SCHEMA_VERSION = 5;
-const CATALOG_MAPPING_VERSION = 2;
+const PRODUCTS_SQLITE_SCHEMA_VERSION = 6;
+const CATALOG_MAPPING_VERSION = 3;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
 
@@ -1002,6 +1008,68 @@ async function createSchema(db) {
     await run(db, sql);
   }
 
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS product_search_index (
+      product_id TEXT,
+      product_rowid INTEGER,
+      public_slug TEXT,
+      title TEXT,
+      normalized_title TEXT,
+      sku TEXT,
+      mpn TEXT,
+      part_number TEXT,
+      brand TEXT,
+      device_brand TEXT,
+      compatible_brand TEXT,
+      official_brand TEXT,
+      is_compatible_for_brand INTEGER,
+      part_type TEXT,
+      model_family TEXT,
+      model_base TEXT,
+      model_generation TEXT,
+      model_variant TEXT,
+      network_variant TEXT,
+      quality_tier TEXT,
+      has_frame INTEGER,
+      color TEXT,
+      stock INTEGER,
+      stock_status TEXT,
+      is_stock_real INTEGER,
+      price REAL,
+      has_image INTEGER,
+      is_public INTEGER,
+      classification_confidence REAL,
+      search_blob TEXT,
+      filters_blob TEXT,
+      updated_at TEXT
+    )`,
+  );
+
+  const searchIndexSql = [
+    "CREATE INDEX IF NOT EXISTS idx_search_product_id ON product_search_index(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_search_product_rowid ON product_search_index(product_rowid)",
+    "CREATE INDEX IF NOT EXISTS idx_search_public_slug ON product_search_index(public_slug)",
+    "CREATE INDEX IF NOT EXISTS idx_search_sku ON product_search_index(sku)",
+    "CREATE INDEX IF NOT EXISTS idx_search_mpn ON product_search_index(mpn)",
+    "CREATE INDEX IF NOT EXISTS idx_search_part_type ON product_search_index(part_type)",
+    "CREATE INDEX IF NOT EXISTS idx_search_device_brand ON product_search_index(device_brand)",
+    "CREATE INDEX IF NOT EXISTS idx_search_model_base ON product_search_index(model_base)",
+    "CREATE INDEX IF NOT EXISTS idx_search_model_variant ON product_search_index(model_variant)",
+    "CREATE INDEX IF NOT EXISTS idx_search_network_variant ON product_search_index(network_variant)",
+    "CREATE INDEX IF NOT EXISTS idx_search_quality_tier ON product_search_index(quality_tier)",
+    "CREATE INDEX IF NOT EXISTS idx_search_color ON product_search_index(color)",
+    "CREATE INDEX IF NOT EXISTS idx_search_has_frame ON product_search_index(has_frame)",
+    "CREATE INDEX IF NOT EXISTS idx_search_stock_status ON product_search_index(stock_status)",
+    "CREATE INDEX IF NOT EXISTS idx_search_is_stock_real ON product_search_index(is_stock_real)",
+    "CREATE INDEX IF NOT EXISTS idx_search_price ON product_search_index(price)",
+    "CREATE INDEX IF NOT EXISTS idx_search_is_public ON product_search_index(is_public)",
+  ];
+
+  for (const sql of searchIndexSql) {
+    await run(db, sql);
+  }
+
   await detectFtsAvailability(db);
 }
 
@@ -1587,6 +1655,186 @@ function mapProductRow(product = {}, options = {}) {
   };
 }
 
+function serializeSearchFilters(classification = {}) {
+  return JSON.stringify({
+    part_type: classification.part_type || "",
+    device_brand: classification.device_brand || "",
+    model_base: classification.model_base || "",
+    model_variant: classification.model_variant || "",
+    network_variant: classification.network_variant || "",
+    quality_tier: classification.quality_tier || "",
+    color: classification.color || "",
+    has_frame: classification.has_frame,
+    stock_status: classification.stock_status || "",
+    is_stock_real: Boolean(classification.is_stock_real),
+    compatible_brand: classification.compatible_brand || "",
+    official_brand: classification.official_brand || "",
+    blockers: classification.blockers || [],
+    reasons: classification.classification_reasons || [],
+  });
+}
+
+function buildSearchIndexEntry(row = {}, rawProduct = {}) {
+  const product = {
+    ...rawProduct,
+    id: rawProduct.id ?? row.id,
+    sku: rawProduct.sku ?? row.sku,
+    code: rawProduct.code ?? row.code,
+    publicSlug: rawProduct.publicSlug ?? rawProduct.public_slug ?? row.public_slug,
+    public_slug: rawProduct.public_slug ?? rawProduct.publicSlug ?? row.public_slug,
+    slug: rawProduct.slug ?? row.slug,
+    name: rawProduct.name ?? row.name,
+    title: rawProduct.title ?? row.title,
+    brand: rawProduct.brand ?? row.brand,
+    model: rawProduct.model ?? row.model,
+    category: rawProduct.category ?? row.category,
+    stock: rawProduct.stock ?? row.stock,
+    price: rawProduct.price ?? row.price,
+    price_minorista: rawProduct.price_minorista ?? row.price_minorista,
+    mpn: rawProduct.mpn ?? row.mpn,
+    partNumber: rawProduct.partNumber ?? row.part_number,
+    part_number: rawProduct.part_number ?? row.part_number,
+  };
+  const classification = classifyCatalogProduct(product);
+  const title = firstText([row.name, row.title, product.name, product.title]) || "Producto";
+  const price = toFiniteNumberOrNull(row.price) ?? toFiniteNumberOrNull(row.price_minorista);
+  const image = firstText([row.image, product.image, product.thumbnail, Array.isArray(product.images) ? product.images[0] : ""]);
+  const blobTerms = uniqueValues([
+    row.search_text,
+    title,
+    row.brand,
+    row.model,
+    row.category,
+    row.sku,
+    row.code,
+    row.mpn,
+    row.part_number,
+    classification.normalized_title,
+    classification.part_type,
+    PART_LABELS[classification.part_type],
+    classification.device_brand,
+    classification.compatible_brand,
+    classification.official_brand,
+    classification.model_family,
+    classification.model_base,
+    classification.model_generation,
+    classification.model_variant,
+    classification.network_variant,
+    classification.quality_tier,
+    ...(classification.quality_signals || []),
+    classification.color,
+    classification.frame_status,
+    ...(classification.searchable_terms || []),
+    ...(classification.synonyms || []),
+  ].map(normalizeCatalogText).filter(Boolean));
+  return {
+    product_id: firstText([row.id, row.sku, row.code, classification.product_id]),
+    product_rowid: Number(row.rowid || 0),
+    public_slug: row.public_slug || row.slug || "",
+    title,
+    normalized_title: classification.normalized_title || normalizeCatalogText(title),
+    sku: row.sku || row.code || "",
+    mpn: row.mpn || row.part_number || "",
+    part_number: row.part_number || "",
+    brand: row.brand || "",
+    device_brand: classification.device_brand || "",
+    compatible_brand: classification.compatible_brand || "",
+    official_brand: classification.official_brand || "",
+    is_compatible_for_brand: classification.is_compatible_for_brand ? 1 : 0,
+    part_type: classification.part_type || "",
+    model_family: classification.model_family || "",
+    model_base: classification.model_base || "",
+    model_generation: classification.model_generation || "",
+    model_variant: classification.model_variant || "",
+    network_variant: classification.network_variant || "",
+    quality_tier: classification.quality_tier || "",
+    has_frame: classification.has_frame === true ? 1 : classification.has_frame === false ? 0 : null,
+    color: classification.color || "",
+    stock: Math.trunc(toNumber(row.stock, 0)),
+    stock_status: classification.stock_status || "",
+    is_stock_real: classification.is_stock_real ? 1 : 0,
+    price,
+    has_image: image ? 1 : 0,
+    is_public: Number(row.is_public || 0) === 1 ? 1 : 0,
+    classification_confidence: Number(classification.classification_confidence || 0),
+    search_blob: blobTerms.join(" "),
+    filters_blob: serializeSearchFilters(classification),
+    updated_at: new Date().toISOString(),
+    classification,
+  };
+}
+
+async function rebuildProductSearchIndex(db) {
+  await run(db, "DELETE FROM product_search_index");
+  const insertSql = `INSERT INTO product_search_index (
+    product_id, product_rowid, public_slug, title, normalized_title, sku, mpn, part_number, brand,
+    device_brand, compatible_brand, official_brand, is_compatible_for_brand, part_type,
+    model_family, model_base, model_generation, model_variant, network_variant, quality_tier,
+    has_frame, color, stock, stock_status, is_stock_real, price, has_image, is_public,
+    classification_confidence, search_blob, filters_blob, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const pageSize = 1000;
+  let offset = 0;
+  let indexed = 0;
+  while (true) {
+    const rows = await all(
+      db,
+      `SELECT rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, stock, price, price_minorista, part_number, mpn, search_text, is_public, raw_json
+       FROM products ORDER BY rowid LIMIT ? OFFSET ?`,
+      [pageSize, offset],
+    );
+    if (!rows.length) break;
+    await withTransaction(db, async () => {
+      for (const row of rows) {
+        let raw = {};
+        try {
+          raw = row.raw_json ? JSON.parse(row.raw_json) : {};
+        } catch {
+          raw = {};
+        }
+        const item = buildSearchIndexEntry(row, raw);
+        await run(db, insertSql, [
+          item.product_id,
+          item.product_rowid,
+          item.public_slug,
+          item.title,
+          item.normalized_title,
+          item.sku,
+          item.mpn,
+          item.part_number,
+          item.brand,
+          item.device_brand,
+          item.compatible_brand,
+          item.official_brand,
+          item.is_compatible_for_brand,
+          item.part_type,
+          item.model_family,
+          item.model_base,
+          item.model_generation,
+          item.model_variant,
+          item.network_variant,
+          item.quality_tier,
+          item.has_frame,
+          item.color,
+          item.stock,
+          item.stock_status,
+          item.is_stock_real,
+          item.price,
+          item.has_image,
+          item.is_public,
+          item.classification_confidence,
+          item.search_blob,
+          item.filters_blob,
+          item.updated_at,
+        ]);
+      }
+    });
+    indexed += rows.length;
+    offset += rows.length;
+  }
+  return indexed;
+}
+
 function parseImageLikeField(value) {
   if (!value) return [];
   if (Array.isArray(value)) {
@@ -1967,6 +2215,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
           SELECT rowid, id, sku, code, slug, name, title, brand, model, category, search_text FROM products`,
         );
       }
+      const searchIndexCount = await rebuildProductSearchIndex(tmpDb);
 
       await new Promise((resolve, reject) => {
         tmpDb.close((error) => {
@@ -1994,6 +2243,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
         mappingVersion: CATALOG_MAPPING_VERSION,
         productCount: count,
         publicProductCount: publicCount,
+        searchIndexCount,
         productsJsonSizeBytes: Number(productsStats.size || 0),
         productsJsonMtimeMs: Number(productsStats.mtimeMs || 0),
         sqliteBuiltAt: new Date().toISOString(),
@@ -2365,6 +2615,319 @@ function buildProductSummary(row = {}) {
     slug: firstText([row.slug, publicSlug]) || "",
     url: `/p/${encodeURIComponent(publicSlug || fallbackId)}`,
     source: "sqlite",
+    part_type: row.part_type || "",
+    device_brand: row.device_brand || "",
+    compatible_brand: row.compatible_brand || "",
+    official_brand: row.official_brand || "",
+    is_compatible_for_brand: Boolean(row.is_compatible_for_brand),
+    model_family: row.model_family || "",
+    model_base: row.model_base || row.model || "",
+    model_variant: row.model_variant || "",
+    network_variant: row.network_variant || "",
+    quality_tier: row.quality_tier || "",
+    has_frame: row.has_frame === 1 ? true : row.has_frame === 0 ? false : null,
+    color: row.color || "",
+    stock_status: row.stock_status || "",
+    is_stock_real: Boolean(row.is_stock_real),
+    classification_confidence: toFiniteNumberOrNull(row.classification_confidence),
+  };
+}
+
+function normalizeFacetValue(value = "") {
+  return normalizeCatalogText(value);
+}
+
+function buildSearchIndexWhere({
+  search = "",
+  isPublicOnly = false,
+  category = "",
+  brand = "",
+  model = "",
+  stock = "",
+  priceMax = null,
+  partType = "",
+  deviceBrand = "",
+  modelBase = "",
+  qualityTier = "",
+  color = "",
+  hasFrame = "",
+  stockStatus = "",
+} = {}) {
+  const intent = parseCatalogQuery(search || "");
+  const where = [];
+  const params = [];
+  if (isPublicOnly) where.push("si.is_public = 1");
+  const requestedPartType = normalizeFacetValue(partType || category || "");
+  if (requestedPartType) {
+    where.push("si.part_type = ?");
+    params.push(requestedPartType);
+  }
+  const requestedBrand = normalizeFacetValue(deviceBrand || brand || "");
+  if (requestedBrand) {
+    where.push("(lower(si.device_brand) = lower(?) OR lower(si.compatible_brand) = lower(?))");
+    params.push(requestedBrand, requestedBrand);
+  }
+  const requestedModel = normalizeFacetValue(modelBase || model || "");
+  if (requestedModel) {
+    where.push("lower(si.model_base) = lower(?)");
+    params.push(requestedModel);
+  }
+  const requestedQuality = normalizeFacetValue(qualityTier || "");
+  if (requestedQuality) {
+    where.push("si.quality_tier = ?");
+    params.push(requestedQuality);
+  }
+  const requestedColor = normalizeFacetValue(color || "");
+  if (requestedColor) {
+    where.push("si.color = ?");
+    params.push(requestedColor);
+  }
+  if (hasFrame !== "" && hasFrame !== null && hasFrame !== undefined) {
+    const frameValue = String(hasFrame) === "true" || String(hasFrame) === "1" ? 1 : String(hasFrame) === "false" || String(hasFrame) === "0" ? 0 : null;
+    if (frameValue !== null) {
+      where.push("si.has_frame = ?");
+      params.push(frameValue);
+    }
+  }
+  const requestedStock = normalizeFacetValue(stockStatus || stock || "");
+  if (requestedStock === "in_stock" || requestedStock === "stock-real" || requestedStock === "in-stock" || requestedStock === "physical") {
+    where.push("si.is_stock_real = 1");
+  } else if (requestedStock === "preorder" || requestedStock === "backorder" || requestedStock === "remote") {
+    where.push("si.stock_status = 'preorder'");
+  } else if (requestedStock === "out_of_stock" || requestedStock === "out" || requestedStock === "sin-stock") {
+    where.push("si.stock_status = 'out_of_stock'");
+  }
+  const numericPriceMax = Number(priceMax);
+  if (Number.isFinite(numericPriceMax) && numericPriceMax > 0) {
+    where.push("si.price <= ?");
+    params.push(numericPriceMax);
+  }
+  const searchTerms = uniqueValues([
+    intent.model_code,
+    intent.part_type,
+    intent.device_brand,
+    intent.model_base,
+    intent.network_variant,
+    intent.quality_tier,
+    intent.color,
+    ...(intent.tokens || []).filter((token) => token.length >= 2 && !SEARCH_STOPWORDS.has(token)),
+  ].map(normalizeFacetValue).filter(Boolean));
+  if (intent.normalized_query) {
+    const strictTerms = searchTerms.filter((term) => !["display", "pantalla", "modulo", "battery", "bateria"].includes(term)).slice(0, 8);
+    for (const term of strictTerms) {
+      where.push("si.search_blob LIKE ?");
+      params.push(`%${term}%`);
+    }
+  }
+  return {
+    sql: where.length ? `WHERE ${where.join(" AND ")}` : "",
+    params,
+    intent,
+  };
+}
+
+function addStructuredReason(entry, label, score) {
+  if (!score) return;
+  entry.score += score;
+  entry.reasons.push({ label, score });
+}
+
+function scoreSearchIndexRow(row = {}, intent = {}) {
+  const entry = { score: 0, reasons: [] };
+  const blob = normalizeFacetValue(row.search_blob || "");
+  const rowModel = normalizeFacetValue(row.model_base || "");
+  const queryModel = normalizeFacetValue(intent.model_base || "");
+  const rowVariant = normalizeFacetValue(row.model_variant || "base") || "base";
+  const queryVariant = normalizeFacetValue(intent.model_variant || "");
+  const rowNetwork = normalizeFacetValue(row.network_variant || "");
+  const queryNetwork = normalizeFacetValue(intent.network_variant || "");
+  if (intent.model_code && blob.includes(normalizeFacetValue(intent.model_code))) addStructuredReason(entry, "SKU/MPN/model code exacto", 800);
+  if (queryModel && rowModel === queryModel) addStructuredReason(entry, "modelo exacto estructurado", 3000);
+  else if (intent.model_generation && row.model_generation === intent.model_generation && row.model_family === intent.model_family) addStructuredReason(entry, "generacion/familia modelo", 900);
+  else if (queryModel && rowModel && rowModel !== queryModel) addStructuredReason(entry, "modelo parecido pero no exacto", -1000);
+  if (queryVariant) {
+    if (rowVariant === queryVariant) addStructuredReason(entry, "variante exacta", 2500);
+    else addStructuredReason(entry, `variante incorrecta ${rowVariant} vs ${queryVariant}`, -2500);
+  } else if (queryModel && rowModel !== queryModel && /iphone\s+\d+/.test(queryModel) && /iphone\s+\d+/.test(rowModel)) {
+    addStructuredReason(entry, "variante iphone no solicitada", -1800);
+  }
+  if (queryNetwork) {
+    if (rowNetwork === queryNetwork) addStructuredReason(entry, "red exacta", 1200);
+    else if (rowNetwork) addStructuredReason(entry, `red incorrecta ${rowNetwork} vs ${queryNetwork}`, -1500);
+  }
+  if (intent.part_type) {
+    if (row.part_type === intent.part_type) addStructuredReason(entry, `tipo exacto ${intent.part_type}`, 2200);
+    else if (row.part_type) addStructuredReason(entry, `tipo incorrecto ${row.part_type}`, -2200);
+  }
+  if (intent.device_brand) {
+    if (normalizeFacetValue(row.device_brand) === normalizeFacetValue(intent.device_brand) || normalizeFacetValue(row.compatible_brand) === normalizeFacetValue(intent.device_brand)) {
+      addStructuredReason(entry, `marca/dispositivo ${intent.device_brand}`, 1200);
+    } else if (row.device_brand) {
+      addStructuredReason(entry, `marca incorrecta ${row.device_brand}`, -800);
+    }
+  }
+  if (intent.quality_tier) {
+    if (row.quality_tier === intent.quality_tier) addStructuredReason(entry, "calidad pedida coincide", 700);
+    else if (row.quality_tier) addStructuredReason(entry, "calidad distinta", -250);
+  }
+  if (intent.color) {
+    if (row.color === intent.color) addStructuredReason(entry, "color pedido coincide", 500);
+    else if (row.color) addStructuredReason(entry, "color distinto", -250);
+  }
+  if (intent.has_frame !== null && intent.has_frame !== undefined && intent.has_frame !== "") {
+    const wantedFrame = intent.has_frame === true ? 1 : 0;
+    if (Number(row.has_frame) === wantedFrame) addStructuredReason(entry, "frame pedido coincide", 500);
+    else if (row.has_frame !== null && row.has_frame !== undefined) addStructuredReason(entry, "frame distinto", -300);
+  }
+  if (Number(row.is_stock_real) === 1) addStructuredReason(entry, "stock real", 1800);
+  else if (row.stock_status === "preorder") addStructuredReason(entry, "a pedido debajo de stock real", -900);
+  else addStructuredReason(entry, "sin stock", -1500);
+  if (Number(row.has_image) === 1) addStructuredReason(entry, "imagen valida", 400);
+  else addStructuredReason(entry, "sin imagen", -700);
+  if (Number(row.price) > 0) addStructuredReason(entry, "precio valido", 400);
+  else addStructuredReason(entry, "sin precio", -700);
+  for (const token of intent.tokens || []) {
+    if (token.length >= 3 && blob.includes(token)) addStructuredReason(entry, `token ${token}`, 20);
+  }
+  return entry;
+}
+
+function facetLabel(group, value) {
+  if (group === "part_type") return PART_LABELS[value] || value;
+  if (group === "has_frame") return Number(value) === 1 ? "Con marco" : "Sin marco";
+  if (group === "stock_status") {
+    if (value === "in_stock") return "Stock real";
+    if (value === "preorder") return "A pedido";
+    if (value === "out_of_stock") return "Sin stock";
+  }
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+    .replace(/\bIPhone\b/g, "iPhone")
+    .replace(/\bIphone\b/g, "iPhone")
+    .replace(/\bMacbook\b/g, "MacBook");
+}
+
+async function buildSearchFacets(db, whereClause) {
+  const groups = ["part_type", "device_brand", "model_base", "quality_tier", "color", "has_frame", "stock_status"];
+  const facets = {};
+  for (const group of groups) {
+    const prefix = whereClause.sql ? `${whereClause.sql} AND` : "WHERE";
+    const rows = await all(
+      db,
+      `SELECT ${group} AS value, COUNT(*) AS count FROM product_search_index si ${prefix} ${group} IS NOT NULL AND ${group} != '' GROUP BY ${group} ORDER BY count DESC, value ASC LIMIT ${group === "model_base" ? 40 : 20}`,
+      whereClause.params,
+    );
+    facets[group] = rows.map((row) => ({ value: String(row.value), label: facetLabel(group, row.value), count: Number(row.count || 0) }));
+  }
+  const priceRow = await get(db, `SELECT MIN(price) AS min, MAX(price) AS max FROM product_search_index si ${whereClause.sql}`, whereClause.params);
+  facets.price_range = {
+    min: Number(priceRow?.min || 0),
+    max: Number(priceRow?.max || 0),
+  };
+  return facets;
+}
+
+async function querySearchIndex(params = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const safePage = Math.max(1, Number(params.page) || 1);
+  const safePageSize = Math.max(1, Number(params.pageSize) || 24);
+  const offset = (safePage - 1) * safePageSize;
+  const whereClause = buildSearchIndexWhere(params);
+  const countStartedAt = Date.now();
+  const totalRow = await get(db, `SELECT COUNT(*) AS totalItems FROM product_search_index si ${whereClause.sql}`, whereClause.params);
+  const totalItems = Number(totalRow?.totalItems || 0);
+  const countMs = Date.now() - countStartedAt;
+  const selectStartedAt = Date.now();
+  const hasSearch = Boolean(normalizeFacetValue(params.search || ""));
+  const candidateLimit = hasSearch ? Math.max(safePageSize, Math.min(SEARCH_RANK_CANDIDATE_LIMIT, totalItems || SEARCH_RANK_CANDIDATE_LIMIT)) : safePageSize;
+  const candidateOffset = hasSearch ? 0 : offset;
+  const orderBy =
+    params.sort === "price_asc" ? "si.price ASC, si.title ASC" :
+    params.sort === "price_desc" ? "si.price DESC, si.title ASC" :
+    params.sort === "name_desc" ? "si.title DESC" :
+    params.sort === "name_asc" ? "si.title ASC" :
+    params.sort === "stock_real" ? "si.is_stock_real DESC, si.title ASC" :
+    "si.is_stock_real DESC, si.classification_confidence DESC, si.title ASC";
+  const candidates = await all(
+    db,
+    `SELECT si.*, p.rowid, p.id, p.code, p.slug, p.image, p.name, p.category, p.status, p.visibility, p.price_minorista, p.price_mayorista, p.precio_minorista, p.precio_mayorista, p.precio_final, p.precio_sin_impuestos, p.cost, p.currency, p.raw_json
+     FROM product_search_index si
+     JOIN products p ON p.rowid = si.product_rowid
+     ${whereClause.sql}
+     ORDER BY ${orderBy}
+     LIMIT ? OFFSET ?`,
+    [...whereClause.params, candidateLimit, candidateOffset],
+  );
+  let ranked = candidates.map((row, index) => ({ row, index, ...scoreSearchIndexRow(row, whereClause.intent) }));
+  if (hasSearch && (!params.sort || String(params.sort) === "relevance")) {
+    ranked.sort((a, b) => b.score - a.score || Number(b.row.is_stock_real || 0) - Number(a.row.is_stock_real || 0) || a.index - b.index);
+  }
+  const pageEntries = hasSearch ? ranked.slice(offset, offset + safePageSize) : ranked;
+  const rows = pageEntries.map((entry) => entry.row);
+  const items = rows.map((row) => buildProductSummary(row));
+  const facets = await buildSearchFacets(db, whereClause);
+  const selectMs = Date.now() - selectStartedAt;
+  const searchDebug = params.debugSearch ? {
+    engine: "product_search_index",
+    queryOriginal: params.search || "",
+    queryNormalized: whereClause.intent.normalized_query || "",
+    intent: whereClause.intent,
+    inferredFilters: {
+      part_type: whereClause.intent.part_type || "",
+      device_brand: whereClause.intent.device_brand || "",
+      model_base: whereClause.intent.model_base || "",
+      model_variant: whereClause.intent.model_variant || "",
+      network_variant: whereClause.intent.network_variant || "",
+      quality_tier: whereClause.intent.quality_tier || "",
+      color: whereClause.intent.color || "",
+      has_frame: whereClause.intent.has_frame,
+    },
+    tokensUsed: whereClause.intent.tokens || [],
+    results: pageEntries.slice(0, 20).map((entry, position) => ({
+      position: position + 1,
+      score: entry.score,
+      reasons: entry.reasons,
+      penalties: entry.reasons.filter((reason) => reason.score < 0),
+      title: entry.row.title,
+      product_id: entry.row.product_id,
+      sku: entry.row.sku,
+      structured: {
+        part_type: entry.row.part_type,
+        device_brand: entry.row.device_brand,
+        compatible_brand: entry.row.compatible_brand,
+        official_brand: entry.row.official_brand,
+        is_compatible_for_brand: Boolean(entry.row.is_compatible_for_brand),
+        model_base: entry.row.model_base,
+        model_variant: entry.row.model_variant,
+        network_variant: entry.row.network_variant,
+        quality_tier: entry.row.quality_tier,
+        color: entry.row.color,
+        has_frame: entry.row.has_frame,
+        stock_status: entry.row.stock_status,
+        is_stock_real: Boolean(entry.row.is_stock_real),
+      },
+    })),
+  } : undefined;
+  const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
+  return {
+    rows,
+    items,
+    page: safePage,
+    pageSize: safePageSize,
+    totalItems,
+    totalPages,
+    hasNextPage: safePage < totalPages,
+    hasPrevPage: safePage > 1,
+    source: "sqlite_search_index",
+    search: params.search || undefined,
+    facets,
+    searchDebug,
+    countMs,
+    selectMs,
+    parseItemsMs: 0,
+    totalDurationMs: countMs + selectMs,
   };
 }
 
@@ -2488,12 +3051,12 @@ async function queryBase({
 async function queryProducts(params = {}) {
   let result;
   try {
-    result = await queryBase({ ...params, isPublicOnly: true });
+    result = await querySearchIndex({ ...params, isPublicOnly: true });
   } catch (error) {
     if (isSqliteCorruptionError(error)) {
       markSqliteCorruption(error, { phase: "query_products", reason: "sqlite_corrupt" });
       await repairCorruptSqlite({ reason: "query_products_corrupt" });
-      result = await queryBase({ ...params, isPublicOnly: true });
+      result = await querySearchIndex({ ...params, isPublicOnly: true });
     } else {
       throw error;
     }

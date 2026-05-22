@@ -227,9 +227,29 @@
             <label for="stockFilter">Disponibilidad</label>
             <select id="stockFilter">
               <option value="">Todo el catálogo</option>
-              <option value="in-stock">Solo con stock</option>
-              <option value="physical">Stock físico inmediato</option>
-              <option value="remote">Stock remoto (a pedido)</option>
+              <option value="in_stock">Stock real</option>
+              <option value="preorder">A pedido</option>
+              <option value="out_of_stock">Sin stock</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="qualityFilter">Calidad</label>
+            <select id="qualityFilter">
+              <option value="">Todas las calidades</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="colorFilter">Color</label>
+            <select id="colorFilter">
+              <option value="">Todos los colores</option>
+            </select>
+          </div>
+          <div class="filter-block">
+            <label for="frameFilter">Marco</label>
+            <select id="frameFilter">
+              <option value="">Con o sin marco</option>
+              <option value="true">Con marco</option>
+              <option value="false">Sin marco</option>
             </select>
           </div>
           <div class="filter-block">
@@ -254,6 +274,7 @@
               <label for="sortSelect" class="visually-hidden">Ordenar</label>
               <select id="sortSelect">
                 <option value="relevance">Orden recomendado</option>
+                <option value="stock_real">Stock real primero</option>
                 <option value="price_asc">Precio: menor a mayor</option>
                 <option value="price_desc">Precio: mayor a menor</option>
                 <option value="name_asc">Nombre: A → Z</option>
