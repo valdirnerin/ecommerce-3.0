@@ -1,5 +1,413 @@
 import { apiFetch } from "./api.js";
 
+const ANALYTICS_CURRENCY = "ARS";
+const PURCHASE_DEDUPE_PREFIX = "nerin.analytics.purchase.";
+const RECENT_EVENT_LIMIT = 80;
+
+const hasWindow = () => typeof window !== "undefined";
+const safeNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+const cleanText = (value) => String(value ?? "").trim();
+const lower = (value) => cleanText(value).toLowerCase();
+const firstValue = (...values) => values.find((value) => value !== undefined && value !== null && cleanText(value) !== "");
+
+function getConfigValue(...keys) {
+  if (!hasWindow()) return "";
+  const config = window.NERIN_CONFIG || window.__NERIN_CONFIG__ || {};
+  for (const key of keys) {
+    if (config[key]) return config[key];
+  }
+  return "";
+}
+
+function stockQty(product = {}) {
+  return safeNumber(firstValue(product.stock, product.stock_qty, product.stockQty, product.quantity, product.available_stock), 0);
+}
+
+function hasStockQuantity(product = {}) {
+  return firstValue(product.stock, product.stock_qty, product.stockQty, product.available_stock) !== undefined;
+}
+
+function normalizeAvailability(product = {}) {
+  const raw = lower(firstValue(product.availability, product.stock_status, product.stockStatus, product.status, ""));
+  if (raw.includes("preorder")) return "preorder";
+  if (raw.includes("backorder") || raw.includes("pedido") || raw.includes("remote")) return "backorder";
+  if (raw.includes("out_of_stock") || raw.includes("sin stock") || raw.includes("unavailable")) return "out_of_stock";
+  if (raw.includes("in_stock") || raw.includes("stock")) return "in_stock";
+  return stockQty(product) > 0 ? "in_stock" : "out_of_stock";
+}
+
+function isPreorderProduct(product = {}) {
+  const availability = normalizeAvailability(product);
+  return availability === "preorder" || availability === "backorder" || Boolean(product.allow_backorder || product.allowBackorder || product.remote_stock || product.remoteStock);
+}
+
+function isStockRealProduct(product = {}) {
+  const availability = normalizeAvailability(product);
+  return availability === "in_stock" && !isPreorderProduct(product) && (stockQty(product) > 0 || !hasStockQuantity(product));
+}
+
+function productPrice(product = {}) {
+  return safeNumber(firstValue(product.price, product.final_price, product.finalPrice, product.sale_price, product.salePrice), 0);
+}
+
+function productId(product = {}) {
+  return cleanText(firstValue(product.id, product.product_id, product.productId, product.sku, product.code, product.mpn, product.slug, product.publicSlug));
+}
+
+function productName(product = {}) {
+  return cleanText(firstValue(product.title, product.name, product.product_name, product.productName, product.description, productId(product), "Producto NERIN"));
+}
+
+function productBrand(product = {}) {
+  return cleanText(firstValue(product.brand, product.marca, product.manufacturer, product.vendor, "NERIN Parts"));
+}
+
+function productCategory(product = {}) {
+  return cleanText(firstValue(product.category, product.categoria, product.product_type, product.productType, product.part_type, product.partType, "Repuestos"));
+}
+
+function productVariant(product = {}) {
+  return cleanText(firstValue(product.variant, product.model, product.modelo, product.compatibility, product.compatibilidad, product.exactModel, ""));
+}
+
+export function normalizeAnalyticsItem(product = {}, quantity = 1) {
+  const availability = normalizeAvailability(product);
+  const item = {
+    item_id: productId(product),
+    item_name: productName(product),
+    item_brand: productBrand(product),
+    item_category: productCategory(product),
+    item_variant: productVariant(product),
+    price: productPrice(product),
+    quantity: Math.max(1, safeNumber(quantity || product.quantity || product.qty, 1)),
+    currency: ANALYTICS_CURRENCY,
+    sku: cleanText(firstValue(product.sku, product.code, product.product_sku, "")),
+    mpn: cleanText(firstValue(product.mpn, product.MPN, "")),
+    public_slug: cleanText(firstValue(product.publicSlug, product.public_slug, product.slug, "")),
+    stock_status: availability,
+    stock_qty: stockQty(product),
+    is_stock_real: isStockRealProduct(product),
+    is_preorder: isPreorderProduct(product),
+    availability,
+  };
+  if (!item.item_id) item.item_id = item.sku || item.mpn || item.public_slug || item.item_name;
+  return item;
+}
+
+function normalizeItems(items = []) {
+  const source = Array.isArray(items) ? items : [items];
+  return source.filter(Boolean).map((item) => normalizeAnalyticsItem(item, item.quantity || item.qty || 1)).filter((item) => item.item_id && item.item_name);
+}
+
+function cartValue(cart = []) {
+  return normalizeItems(cart).reduce((sum, item) => sum + safeNumber(item.price) * safeNumber(item.quantity, 1), 0);
+}
+
+function debugEnabled() {
+  if (!hasWindow()) return false;
+  const params = new URLSearchParams(window.location.search || "");
+  return params.get("debugAnalytics") === "1" || window.NERIN_ANALYTICS_DEBUG?.enabled === true || window.localStorage?.getItem("NERIN_ANALYTICS_DEBUG") === "1";
+}
+
+function ensureDebugState() {
+  if (!hasWindow()) return null;
+  if (!window.NERIN_ANALYTICS_DEBUG || !Array.isArray(window.NERIN_ANALYTICS_DEBUG.events)) {
+    window.NERIN_ANALYTICS_DEBUG = {
+      enabled: debugEnabled(),
+      events: [],
+      hasGtag: typeof window.gtag === "function",
+      hasFbq: typeof window.fbq === "function",
+      hasDataLayer: Array.isArray(window.dataLayer),
+    };
+  }
+  return window.NERIN_ANALYTICS_DEBUG;
+}
+
+function recordDebug(name, payload, status = "sent") {
+  if (!hasWindow()) return;
+  const state = ensureDebugState();
+  if (!state) return;
+  const event = {
+    name,
+    status,
+    payload,
+    page_path: window.location?.pathname || "",
+    sent_at: new Date().toISOString(),
+    hasGtag: typeof window.gtag === "function",
+    hasFbq: typeof window.fbq === "function",
+    hasDataLayer: Array.isArray(window.dataLayer),
+  };
+  state.events.push(event);
+  state.events.splice(0, Math.max(0, state.events.length - RECENT_EVENT_LIMIT));
+  state.lastEvent = event;
+  state.enabled = debugEnabled();
+  state.hasGtag = event.hasGtag;
+  state.hasFbq = event.hasFbq;
+  state.hasDataLayer = event.hasDataLayer;
+  if (state.enabled) {
+    renderDebugPanel(state);
+    console.info("[NERIN analytics]", name, payload);
+  }
+}
+
+function renderDebugPanel(state) {
+  if (!hasWindow() || !state?.enabled || !document?.body) return;
+  let panel = document.getElementById("nerin-analytics-debug-panel");
+  if (!panel) {
+    panel = document.createElement("aside");
+    panel.id = "nerin-analytics-debug-panel";
+    panel.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483647;width:min(420px,calc(100vw - 32px));max-height:55vh;overflow:auto;background:#111827;color:#f9fafb;border:1px solid rgba(255,255,255,.18);border-radius:14px;box-shadow:0 18px 45px rgba(0,0,0,.25);font:12px/1.4 system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;padding:12px;";
+    document.body.appendChild(panel);
+  }
+  const rows = state.events.slice(-10).reverse().map((event) => `<li><strong>${escapeHtml(event.name)}</strong> <span>${escapeHtml(event.status)}</span><pre>${escapeHtml(JSON.stringify(event.payload, null, 2)).slice(0, 1600)}</pre></li>`).join("");
+  panel.innerHTML = `<strong>NERIN_ANALYTICS_DEBUG</strong><p>gtag: ${state.hasGtag ? "si" : "no"} · fbq: ${state.hasFbq ? "si" : "no"} · dataLayer: ${state.hasDataLayer ? "si" : "no"}</p><ol style="padding-left:18px;margin:0;display:grid;gap:8px">${rows}</ol>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" }[ch]));
+}
+
+function loadOptionalTags() {
+  if (!hasWindow() || !document?.head) return;
+  const ga4Id = getConfigValue("GA4_MEASUREMENT_ID", "ga4MeasurementId", "ga4_measurement_id");
+  if (ga4Id && typeof window.gtag !== "function" && !document.getElementById("nerin-ga4-loader")) {
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function gtag(){ window.dataLayer.push(arguments); };
+    window.gtag("js", new Date());
+    window.gtag("config", ga4Id);
+    const script = document.createElement("script");
+    script.id = "nerin-ga4-loader";
+    script.async = true;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(ga4Id)}`;
+    document.head.appendChild(script);
+  }
+  const metaPixelId = getConfigValue("META_PIXEL_ID", "metaPixelId", "meta_pixel_id");
+  if (metaPixelId && typeof window.fbq !== "function" && !document.getElementById("nerin-meta-pixel-loader")) {
+    const fbq = function fbq(){ fbq.callMethod ? fbq.callMethod.apply(fbq, arguments) : fbq.queue.push(arguments); };
+    fbq.push = fbq;
+    fbq.loaded = true;
+    fbq.version = "2.0";
+    fbq.queue = [];
+    window.fbq = fbq;
+    window._fbq = fbq;
+    fbq("init", metaPixelId);
+    fbq("track", "PageView");
+    const script = document.createElement("script");
+    script.id = "nerin-meta-pixel-loader";
+    script.async = true;
+    script.src = "https://connect.facebook.net/en_US/fbevents.js";
+    document.head.appendChild(script);
+  }
+}
+
+function metaPayload(payload = {}) {
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  return {
+    content_ids: items.map((item) => item.item_id).filter(Boolean),
+    contents: items.map((item) => ({ id: item.item_id, quantity: item.quantity, item_price: item.price })),
+    content_type: "product",
+    value: safeNumber(payload.value),
+    currency: ANALYTICS_CURRENCY,
+  };
+}
+
+function emitAnalyticsEvent(name, payload = {}, options = {}) {
+  if (!hasWindow()) return false;
+  loadOptionalTags();
+  const eventPayload = { ...payload };
+  if (!eventPayload.currency && ["add_to_cart", "view_cart", "begin_checkout", "add_shipping_info", "add_payment_info", "purchase"].includes(name)) {
+    eventPayload.currency = ANALYTICS_CURRENCY;
+  }
+  window.dataLayer = window.dataLayer || [];
+  if (typeof window.gtag === "function") {
+    window.gtag("event", name, eventPayload);
+  } else {
+    if (eventPayload.items) window.dataLayer.push({ ecommerce: null });
+    window.dataLayer.push({ event: name, ...eventPayload });
+  }
+  if (options.metaEvent && typeof window.fbq === "function") window.fbq("track", options.metaEvent, options.metaPayload || metaPayload(eventPayload));
+  recordDebug(name, eventPayload);
+  return true;
+}
+
+export function trackViewItem(product = {}) {
+  const item = normalizeAnalyticsItem(product, 1);
+  return emitAnalyticsEvent("view_item", { currency: ANALYTICS_CURRENCY, value: item.price, items: [item] }, { metaEvent: "ViewContent" });
+}
+
+export function trackViewItemList(products = [], context = {}) {
+  const items = normalizeItems(products);
+  if (!items.length) return false;
+  return emitAnalyticsEvent("view_item_list", {
+    item_list_id: cleanText(context.item_list_id || context.source || context.page_path || "catalog"),
+    item_list_name: cleanText(context.item_list_name || context.source || "Catalogo"),
+    context,
+    items,
+  });
+}
+
+export function trackSelectItem(product = {}, context = {}) {
+  const item = normalizeAnalyticsItem(product, 1);
+  return emitAnalyticsEvent("select_item", {
+    item_list_id: cleanText(context.item_list_id || context.source || "catalog"),
+    item_list_name: cleanText(context.item_list_name || context.source || "Catalogo"),
+    context,
+    items: [item],
+  });
+}
+
+export function trackSearch(query = "", resultCount = 0, context = {}) {
+  const searchTerm = cleanText(query);
+  if (!searchTerm) return false;
+  return emitAnalyticsEvent("search", {
+    search_term: searchTerm,
+    result_count: safeNumber(resultCount),
+    context,
+  });
+}
+
+export function trackAddToCart(product = {}, quantity = 1) {
+  const item = normalizeAnalyticsItem(product, quantity);
+  return emitAnalyticsEvent("add_to_cart", { currency: ANALYTICS_CURRENCY, value: item.price * item.quantity, items: [item] }, { metaEvent: "AddToCart" });
+}
+
+export function trackRemoveFromCart(product = {}, quantity = 1) {
+  const item = normalizeAnalyticsItem(product, quantity);
+  return emitAnalyticsEvent("remove_from_cart", { currency: ANALYTICS_CURRENCY, value: item.price * item.quantity, items: [item] });
+}
+
+export function trackViewCart(cart = []) {
+  const items = normalizeItems(cart);
+  return emitAnalyticsEvent("view_cart", { currency: ANALYTICS_CURRENCY, value: cartValue(cart), items });
+}
+
+export function trackBeginCheckout(cart = []) {
+  const items = normalizeItems(cart);
+  return emitAnalyticsEvent("begin_checkout", { currency: ANALYTICS_CURRENCY, value: cartValue(cart), items }, { metaEvent: "InitiateCheckout" });
+}
+
+export function trackAddShippingInfo(cart = [], shippingInfo = {}) {
+  const items = normalizeItems(cart);
+  return emitAnalyticsEvent("add_shipping_info", {
+    currency: ANALYTICS_CURRENCY,
+    value: cartValue(cart),
+    shipping_tier: cleanText(firstValue(shippingInfo.shipping_tier, shippingInfo.method, shippingInfo.tipo, shippingInfo.carrier, "pending")),
+    shipping_info: shippingInfo,
+    items,
+  });
+}
+
+export function trackAddPaymentInfo(cart = [], paymentInfo = {}) {
+  const items = normalizeItems(cart);
+  return emitAnalyticsEvent("add_payment_info", {
+    currency: ANALYTICS_CURRENCY,
+    value: cartValue(cart),
+    payment_type: cleanText(firstValue(paymentInfo.payment_type, paymentInfo.method, paymentInfo.metodo, paymentInfo.type, "pending")),
+    payment_info: paymentInfo,
+    items,
+  });
+}
+
+function orderItems(order = {}) {
+  return normalizeItems(firstValue(order.items, order.cart, order.order?.items, order.order?.cart, []));
+}
+
+function orderTransactionId(order = {}) {
+  return cleanText(firstValue(order.transaction_id, order.transactionId, order.orderId, order.order_id, order.id, order.nrn, order.order?.id, order.order?.orderId));
+}
+
+function orderValue(order = {}, items = []) {
+  return safeNumber(firstValue(order.value, order.total, order.amount, order.totalAmount, order.order?.total, order.order?.amount), items.reduce((sum, item) => sum + item.price * item.quantity, 0));
+}
+
+function storageHas(key) {
+  try {
+    return window.localStorage?.getItem(key) === "1" || window.sessionStorage?.getItem(key) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function storageSet(key) {
+  try { window.localStorage?.setItem(key, "1"); } catch (_) {}
+  try { window.sessionStorage?.setItem(key, "1"); } catch (_) {}
+}
+
+export function trackPurchase(order = {}) {
+  if (!hasWindow()) return false;
+  const transactionId = orderTransactionId(order);
+  if (!transactionId) {
+    recordDebug("purchase", { error: "missing transaction_id", order }, "skipped");
+    return false;
+  }
+  const dedupeKey = `${PURCHASE_DEDUPE_PREFIX}${transactionId}`;
+  if (storageHas(dedupeKey)) {
+    recordDebug("purchase", { transaction_id: transactionId, reason: "deduplicated" }, "skipped");
+    return false;
+  }
+  const items = orderItems(order);
+  const payload = {
+    transaction_id: transactionId,
+    value: orderValue(order, items),
+    currency: ANALYTICS_CURRENCY,
+    shipping: safeNumber(firstValue(order.shipping, order.shipping_total, order.envio?.costo, order.order?.shipping), 0),
+    tax: safeNumber(firstValue(order.tax, order.tax_total, order.order?.tax), 0),
+    payment_type: cleanText(firstValue(order.payment_type, order.paymentType, order.method, order.payment?.type, order.payment?.method, "")),
+    items,
+  };
+  const sent = emitAnalyticsEvent("purchase", payload, { metaEvent: "Purchase" });
+  if (sent) storageSet(dedupeKey);
+  return sent;
+}
+
+export function trackWhatsappClick(context = {}) {
+  return emitAnalyticsEvent("whatsapp_click", {
+    source: cleanText(context.source || "unknown"),
+    product_id: cleanText(firstValue(context.product_id, context.productId, context.id, "")),
+    sku: cleanText(context.sku || ""),
+    product_name: cleanText(firstValue(context.product_name, context.productName, context.title, context.name, "")),
+    stock_status: cleanText(context.stock_status || ""),
+    is_stock_real: Boolean(context.is_stock_real),
+    page_path: hasWindow() ? window.location.pathname : "",
+    context,
+  }, { metaEvent: "Contact", metaPayload: { content_name: context.product_name || context.productName || context.source || "WhatsApp", currency: ANALYTICS_CURRENCY } });
+}
+
+export function trackStockRealProductView(product = {}) {
+  if (!isStockRealProduct(product)) return false;
+  return emitAnalyticsEvent("stock_real_product_view", { currency: ANALYTICS_CURRENCY, value: productPrice(product), items: [normalizeAnalyticsItem(product, 1)] });
+}
+
+export function trackStockRealAddToCart(product = {}, quantity = 1) {
+  if (!isStockRealProduct(product)) return false;
+  const item = normalizeAnalyticsItem(product, quantity);
+  return emitAnalyticsEvent("stock_real_add_to_cart", { currency: ANALYTICS_CURRENCY, value: item.price * item.quantity, items: [item] });
+}
+
+export function trackStockRealPurchase(order = {}) {
+  const transactionId = orderTransactionId(order);
+  const items = orderItems(order).filter((item) => item.is_stock_real);
+  if (!items.length || !transactionId) return false;
+  const dedupeKey = `${PURCHASE_DEDUPE_PREFIX}stock_real.${transactionId}`;
+  if (storageHas(dedupeKey)) {
+    recordDebug("stock_real_purchase", { transaction_id: transactionId, reason: "deduplicated" }, "skipped");
+    return false;
+  }
+  const sent = emitAnalyticsEvent("stock_real_purchase", {
+    transaction_id: transactionId,
+    value: items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    currency: ANALYTICS_CURRENCY,
+    items,
+  });
+  if (sent) storageSet(dedupeKey);
+  return sent;
+}
+
+if (hasWindow()) ensureDebugState();
+
 const LIVE_MS = 8000;
 const DETAIL_MS = 120000;
 const state = { range: "7d", from: "", to: "" };

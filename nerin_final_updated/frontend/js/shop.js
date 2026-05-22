@@ -3,6 +3,7 @@ import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
 import { buildAvailabilityPresentation } from "./availability.js";
 import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
+import { trackAddToCart, trackSearch, trackSelectItem, trackStockRealAddToCart, trackViewItemList } from "./analytics.js";
 
 console.info("[shop-products] shop.js loaded", {
   version: "sqlite-public-debug-v3",
@@ -480,6 +481,8 @@ function addToCart(product) {
     cart.push({ ...cartItem, url, name: product.name, price: display.active, quantity: 1, image: getPrimaryImage(product) || PLACEHOLDER_IMAGE });
   }
   writeCart(cart);
+  trackAddToCart(product, 1);
+  trackStockRealAddToCart(product, 1);
   if (window.updateNav) window.updateNav();
   console.log("[shop:add-to-cart:indicator-available]", {
     showCartIndicator: typeof window.showCartIndicator,
@@ -650,6 +653,7 @@ function createProductCard(product) {
   addBtn.addEventListener("click", (event) => {
     event.stopPropagation();
     if (availabilityPresentation.isOutOfStock) {
+      trackSelectItem(product, { source: "shop_card_consult", page_path: window.location.pathname });
       window.location.href = buildProductUrl(product);
       return;
     }
@@ -662,6 +666,7 @@ function createProductCard(product) {
   detailBtn.textContent = "Ver detalle";
   detailBtn.addEventListener("click", (event) => {
     event.stopPropagation();
+    trackSelectItem(product, { source: "shop_card_detail", page_path: window.location.pathname });
     window.location.href = buildProductUrl(product);
   });
 
@@ -669,6 +674,7 @@ function createProductCard(product) {
   card.appendChild(actions);
 
   card.addEventListener("click", () => {
+    trackSelectItem(product, { source: "shop_card", page_path: window.location.pathname });
     window.location.href = buildProductUrl(product);
   });
 
@@ -995,6 +1001,26 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     productGrid.innerHTML = "<p>No encontramos productos para esos filtros.</p>";
   } else {
     allProducts.forEach((product) => productGrid.appendChild(createProductCard(product)));
+  }
+  trackViewItemList(allProducts, {
+    source: "shop",
+    page_path: window.location.pathname,
+    search: filters.search,
+    stock_filter: filters.stock,
+    category: filters.category,
+    brand: filters.brand,
+    model: filters.model,
+    page: currentProductsPage,
+  });
+  if (filters.search) {
+    trackSearch(filters.search, totalFilteredItems || allProducts.length, {
+      source: "shop",
+      page_path: window.location.pathname,
+      stock_filter: filters.stock,
+      category: filters.category,
+      brand: filters.brand,
+      model: filters.model,
+    });
   }
   console.info("[shop-products] render done");
   renderPublicProductsPagination();

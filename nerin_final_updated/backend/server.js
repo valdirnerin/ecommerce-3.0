@@ -2077,6 +2077,7 @@ function renderOrganicSeoPage(config, products, siteBase, { debugSeo = false, in
     </section>
     ${debug}
   </main>
+  <script type="module" src="/js/analytics-autotrack.js?v=ecommerce-organic-funnel"></script>
 </body>
 </html>`;
 }
