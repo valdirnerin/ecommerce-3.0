@@ -94,6 +94,10 @@ const {
   isBrandDoubtful,
   matchesOrganicPage,
 } = require("./utils/organicSeo");
+const {
+  getOrganicSeoPageConfig,
+  listOrganicSeoPages,
+} = require("./utils/organicSeoPages");
 const { readJsonFile } = require("./utils/jsonFile");
 const {
   appendEvent,
@@ -1851,54 +1855,6 @@ function renderShopListing(products, siteBase) {
   return { cards, count, summary };
 }
 
-const ORGANIC_SEO_PAGE_CONFIG = {
-  "/stock-real": {
-    key: "stock-real",
-    title: "Repuestos en stock real | NERIN Parts",
-    h1: "Repuestos para celulares en stock real",
-    description: "Repuestos listos para enviar desde CABA. Factura A/B, garantia tecnica y soporte para verificar compatibilidad antes de comprar.",
-    intro: "Repuestos listos para enviar desde CABA. Factura A/B, garantia tecnica y soporte para verificar compatibilidad antes de comprar.",
-    canonicalPath: "/stock-real",
-    priority: "0.9",
-  },
-  "/pantallas-en-stock": {
-    key: "pantallas-en-stock",
-    title: "Pantallas para celulares en stock | NERIN Parts",
-    h1: "Pantallas para celulares en stock",
-    description: "Pantallas y modulos de display con stock real en CABA. Verificamos compatibilidad, factura A/B y garantia tecnica.",
-    intro: "Pantallas, displays y modulos listos para enviar, con soporte para confirmar modelo y version antes de comprar.",
-    canonicalPath: "/pantallas-en-stock",
-    priority: "0.85",
-  },
-  "/baterias-en-stock": {
-    key: "baterias-en-stock",
-    title: "Baterias para celulares en stock | NERIN Parts",
-    h1: "Baterias para celulares en stock",
-    description: "Baterias para celulares con stock real, factura A/B y soporte tecnico para verificar compatibilidad.",
-    intro: "Baterias disponibles para despacho desde CABA, con asesoria tecnica para validar compatibilidad.",
-    canonicalPath: "/baterias-en-stock",
-    priority: "0.82",
-  },
-  "/repuestos-samsung": {
-    key: "repuestos-samsung",
-    title: "Repuestos Samsung en Argentina | NERIN Parts",
-    h1: "Repuestos Samsung en Argentina",
-    description: "Repuestos Samsung con stock real en Argentina. Pantallas, baterias, tapas, pines de carga y soporte especializado.",
-    intro: "Catalogo Samsung priorizado por stock real, precio valido, imagen y compatibilidad clara.",
-    canonicalPath: "/repuestos-samsung",
-    priority: "0.82",
-  },
-  "/repuestos-iphone": {
-    key: "repuestos-iphone",
-    title: "Repuestos iPhone en Argentina | NERIN Parts",
-    h1: "Repuestos iPhone en Argentina",
-    description: "Repuestos iPhone con stock real en Argentina. Displays, baterias, tapas y soporte para validar compatibilidad.",
-    intro: "Repuestos para iPhone priorizados por stock real, compatibilidad clara, factura y garantia tecnica.",
-    canonicalPath: "/repuestos-iphone",
-    priority: "0.82",
-  },
-};
-
 function parseSqliteProductRow(row = {}) {
   let raw = {};
   try {
@@ -2084,7 +2040,8 @@ function renderOrganicSeoPage(config, products, siteBase, { debugSeo = false, in
 
 async function buildOrganicSitemapEntries(siteBase, generatedAt) {
   const entries = [];
-  for (const config of Object.values(ORGANIC_SEO_PAGE_CONFIG)) {
+  for (const config of listOrganicSeoPages()) {
+    if (!config?.canonicalPath || !config?.key) continue;
     const products = await getOrganicProductsForPage(config.key, 1);
     if (!products.length) continue;
     entries.push({
@@ -13233,10 +13190,17 @@ async function requestHandler(req, res) {
     return;
   }
 
-  if (ORGANIC_SEO_PAGE_CONFIG[pathname] && req.method === "GET") {
+  const organicPageConfig = getOrganicSeoPageConfig(pathname);
+  if (organicPageConfig && req.method === "GET") {
     const cfg = getConfig();
     const siteBase = getPublicBaseUrl(cfg);
-    const config = ORGANIC_SEO_PAGE_CONFIG[pathname];
+    const config = organicPageConfig;
+    if (!config?.key || !config?.h1) {
+      const html = '<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="robots" content="noindex,follow"><title>Pagina no disponible</title></head><body><main><h1>Pagina no disponible</h1></main></body></html>';
+      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(html);
+      return;
+    }
     const products = await getOrganicProductsForPage(config.key, 48);
     if (!products.length) {
       const html = `<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="robots" content="noindex,follow"><title>${esc(config.h1)} | Sin productos disponibles</title></head><body><main><h1>${esc(config.h1)}</h1><p>No hay productos en stock real para esta pagina en este momento.</p></main></body></html>`;
