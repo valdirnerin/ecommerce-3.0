@@ -1,0 +1,7 @@
+id,sku,title,public_slug,part_type,device_brand,model_base,model_variant,quality_tier,color,has_frame,stock_status,confidence,blockers
+"1","LCD-IPH12","Pantalla iPhone 12","pantalla-iphone-12","display","Apple","iPhone 12","base","original","","1","in_stock","0.68","missing_color"
+"2","LCD-SAM-S21","Pantalla Samsung S21","pantalla-samsung-s21","display","Samsung","Galaxy S21","base","","","","in_stock","0.6","missing_quality|missing_color"
+"a16-amoled","SM-A165-DS","Pantalla Samsung Galaxy A16 4G SM-A165 original negra con marco AMOLED","pantalla-samsung-galaxy-a16-4g-sm-a165-original-negra-con-marco-amoled","display","Samsung","Galaxy A16 4G","base","original","black","1","in_stock","0.76",""
+"3","LCD-XIA-MI11","Pantalla Xiaomi Mi 11","pantalla-xiaomi-mi-11","display","Xiaomi","Xiaomi 11","base","","","","in_stock","0.625","missing_quality|missing_color"
+"4","BAT-IPH12","Batería iPhone 12","bateria-iphone-12","battery","Apple","iPhone 12","base","","","","in_stock","0.626","missing_quality|missing_color"
+"5","EAR-IPH11","Auricular iPhone 11","auricular-iphone-11","speaker","Apple","iPhone 11","base","","","","in_stock","0.58","missing_quality|missing_color"
