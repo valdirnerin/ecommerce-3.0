@@ -64,6 +64,21 @@ async function main() {
     const brandCounts = await all(db, "SELECT device_brand AS value, COUNT(*) AS count FROM product_search_index WHERE is_public = 1 AND device_brand != '' GROUP BY device_brand ORDER BY count DESC LIMIT 20");
     const modelCounts = await all(db, "SELECT model_base AS value, COUNT(*) AS count FROM product_search_index WHERE is_public = 1 AND model_base != '' GROUP BY model_base ORDER BY count DESC LIMIT 20");
     const partCounts = await all(db, "SELECT part_type AS value, COUNT(*) AS count FROM product_search_index WHERE is_public = 1 AND part_type != '' GROUP BY part_type ORDER BY count DESC LIMIT 20");
+    const pixelDetected = (await all(db, "SELECT COUNT(*) AS count FROM product_search_index WHERE is_public = 1 AND device_brand = 'Google' AND model_family = 'Pixel'"))[0]?.count || 0;
+    const pixelMissingModel = (await all(db, "SELECT COUNT(*) AS count FROM product_search_index WHERE is_public = 1 AND (normalized_title LIKE '%pixel%' OR search_blob LIKE '%pixel%') AND (model_base = '' OR model_base IS NULL)"))[0]?.count || 0;
+    const topUndetectedBrandTokens = await all(db, `SELECT title, sku FROM product_search_index WHERE is_public = 1 AND (device_brand = '' OR device_brand IS NULL) ORDER BY classification_confidence ASC, title ASC LIMIT 20`);
+    const likelyPartTypeErrors = await all(db, `SELECT product_id, sku, title, part_type, model_base, classification_confidence
+      FROM product_search_index
+      WHERE is_public = 1 AND (
+        (part_type = 'display' AND (search_blob LIKE '%adhesive%' OR search_blob LIKE '%bracket%' OR search_blob LIKE '%lens%'))
+        OR (part_type = 'camera' AND search_blob LIKE '%lens%')
+        OR (part_type = 'component' AND search_blob LIKE '%antenna%')
+      )
+      ORDER BY title ASC LIMIT 30`);
+    const officialBrandErrors = await all(db, `SELECT product_id, sku, title, device_brand, compatible_brand, official_brand
+      FROM product_search_index
+      WHERE is_public = 1 AND is_compatible_for_brand = 1 AND official_brand != ''
+      ORDER BY title ASC LIMIT 30`);
     const examples = await all(db, `SELECT part_type, product_id, sku, title, device_brand, model_base, quality_tier, color, classification_confidence
       FROM product_search_index WHERE is_public = 1 AND part_type != ''
       ORDER BY part_type, classification_confidence DESC LIMIT 120`);
@@ -109,6 +124,11 @@ async function main() {
       commonBrands: topCounts(brandCounts, "value"),
       commonModels: topCounts(modelCounts, "value"),
       commonPartTypes: topCounts(partCounts, "value"),
+      googlePixelDetected: Number(pixelDetected),
+      googlePixelMissingModel: Number(pixelMissingModel),
+      topUndetectedBrandTokens,
+      likelyPartTypeErrors,
+      officialBrandCompatibilityErrors: officialBrandErrors,
       probableErrors: missing.slice(0, 12).map((row) => ({ id: row.product_id, sku: row.sku, title: row.title, confidence: row.classification_confidence })),
       examplesByCategory: examples.slice(0, 30),
       csvExport: path.relative(root, csvPath).replace(/\\/g, "/"),

@@ -17,7 +17,7 @@ const MANIFEST_PATH = dataPath("products.manifest.json");
 const OVERRIDES_PATH = dataPath("products.overrides.json");
 const COUNT_CACHE_TTL_MS = 60_000;
 const PRODUCTS_SQLITE_SCHEMA_VERSION = 6;
-const CATALOG_MAPPING_VERSION = 3;
+const CATALOG_MAPPING_VERSION = 4;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
 
@@ -2587,6 +2587,12 @@ function buildWhereClause({
 function buildProductSummary(row = {}) {
   const publicSlug = firstText([row.public_slug, row.slug]) || "";
   const fallbackId = String(row.id || row.sku || row.code || "producto");
+  let filters = {};
+  try {
+    filters = JSON.parse(row.filters_blob || "{}") || {};
+  } catch {
+    filters = {};
+  }
   return {
     id: firstText([row.id]) || "",
     sku: firstText([row.sku]) || "",
@@ -2630,6 +2636,8 @@ function buildProductSummary(row = {}) {
     stock_status: row.stock_status || "",
     is_stock_real: Boolean(row.is_stock_real),
     classification_confidence: toFiniteNumberOrNull(row.classification_confidence),
+    classification_blockers: Array.isArray(filters.blockers) ? filters.blockers : [],
+    classification_reasons: Array.isArray(filters.reasons) ? filters.reasons : [],
   };
 }
 
@@ -2652,15 +2660,55 @@ function buildSearchIndexWhere({
   color = "",
   hasFrame = "",
   stockStatus = "",
+  visibility = "",
+  status = "",
+  missingImage = "",
+  missingPrice = "",
+  lowConfidence = "",
+  missingModel = "",
+  missingBrand = "",
+  missingPartType = "",
 } = {}) {
   const intent = parseCatalogQuery(search || "");
   const where = [];
   const params = [];
   if (isPublicOnly) where.push("si.is_public = 1");
-  const requestedPartType = normalizeFacetValue(partType || category || "");
+  const requestedVisibility = normalizeFacetValue(visibility || "");
+  if (requestedVisibility) {
+    if (requestedVisibility === "public") where.push("si.is_public = 1");
+    else if (requestedVisibility === "private" || requestedVisibility === "hidden") {
+      where.push("(si.is_public = 0 OR lower(p.visibility) = lower(?))");
+      params.push(requestedVisibility);
+    } else {
+      where.push("lower(p.visibility) = lower(?)");
+      params.push(requestedVisibility);
+    }
+  }
+  const requestedStatus = normalizeFacetValue(status || "");
+  if (requestedStatus) {
+    where.push("lower(p.status) = lower(?)");
+    params.push(requestedStatus);
+  }
+  if (String(missingImage) === "1" || String(missingImage) === "true") where.push("si.has_image = 0");
+  if (String(missingPrice) === "1" || String(missingPrice) === "true") where.push("(si.price IS NULL OR si.price <= 0)");
+  if (String(lowConfidence) === "1" || String(lowConfidence) === "true") where.push("si.classification_confidence < 0.55");
+  if (String(missingModel) === "1" || String(missingModel) === "true") where.push("(si.model_base IS NULL OR si.model_base = '')");
+  if (String(missingBrand) === "1" || String(missingBrand) === "true") where.push("(si.device_brand IS NULL OR si.device_brand = '')");
+  if (String(missingPartType) === "1" || String(missingPartType) === "true") where.push("(si.part_type IS NULL OR si.part_type = '')");
+  const requestedPartType = normalizeFacetValue(partType || "");
   if (requestedPartType) {
     where.push("si.part_type = ?");
     params.push(requestedPartType);
+  }
+  const requestedCategory = normalizeFacetValue(category || "");
+  if (requestedCategory && !requestedPartType) {
+    if (PART_LABELS[requestedCategory]) {
+      where.push("si.part_type = ?");
+      params.push(requestedCategory);
+    } else {
+      where.push("lower(p.category) = lower(?)");
+      params.push(category);
+    }
   }
   const requestedBrand = normalizeFacetValue(deviceBrand || brand || "");
   if (requestedBrand) {
@@ -2692,6 +2740,8 @@ function buildSearchIndexWhere({
   const requestedStock = normalizeFacetValue(stockStatus || stock || "");
   if (requestedStock === "in_stock" || requestedStock === "stock-real" || requestedStock === "in-stock" || requestedStock === "physical") {
     where.push("si.is_stock_real = 1");
+  } else if (requestedStock === "low") {
+    where.push("si.stock > 0 AND si.stock <= 5");
   } else if (requestedStock === "preorder" || requestedStock === "backorder" || requestedStock === "remote") {
     where.push("si.stock_status = 'preorder'");
   } else if (requestedStock === "out_of_stock" || requestedStock === "out" || requestedStock === "sin-stock") {
@@ -2741,6 +2791,9 @@ function scoreSearchIndexRow(row = {}, intent = {}) {
   const queryVariant = normalizeFacetValue(intent.model_variant || "");
   const rowNetwork = normalizeFacetValue(row.network_variant || "");
   const queryNetwork = normalizeFacetValue(intent.network_variant || "");
+  const queryText = normalizeFacetValue(intent.normalized_query || intent.original_query || "");
+  const identifiers = [row.sku, row.mpn, row.part_number, row.product_id, row.public_slug, row.id, row.code].map(normalizeFacetValue).filter(Boolean);
+  if (queryText && identifiers.includes(queryText)) addStructuredReason(entry, "SKU/MPN/slug exacto", 2600);
   if (intent.model_code && blob.includes(normalizeFacetValue(intent.model_code))) addStructuredReason(entry, "SKU/MPN/model code exacto", 800);
   if (queryModel && rowModel === queryModel) addStructuredReason(entry, "modelo exacto estructurado", 3000);
   else if (intent.model_generation && row.model_generation === intent.model_generation && row.model_family === intent.model_family) addStructuredReason(entry, "generacion/familia modelo", 900);
@@ -2808,19 +2861,46 @@ function facetLabel(group, value) {
     .replace(/\bMacbook\b/g, "MacBook");
 }
 
-async function buildSearchFacets(db, whereClause) {
+async function buildSearchFacets(db, whereClause, options = {}) {
   const groups = ["part_type", "device_brand", "model_base", "quality_tier", "color", "has_frame", "stock_status"];
   const facets = {};
   for (const group of groups) {
     const prefix = whereClause.sql ? `${whereClause.sql} AND` : "WHERE";
     const rows = await all(
       db,
-      `SELECT ${group} AS value, COUNT(*) AS count FROM product_search_index si ${prefix} ${group} IS NOT NULL AND ${group} != '' GROUP BY ${group} ORDER BY count DESC, value ASC LIMIT ${group === "model_base" ? 40 : 20}`,
+      `SELECT si.${group} AS value, COUNT(*) AS count FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid ${prefix} si.${group} IS NOT NULL AND si.${group} != '' GROUP BY si.${group} ORDER BY count DESC, value ASC LIMIT ${group === "model_base" ? 40 : 20}`,
       whereClause.params,
     );
     facets[group] = rows.map((row) => ({ value: String(row.value), label: facetLabel(group, row.value), count: Number(row.count || 0) }));
   }
-  const priceRow = await get(db, `SELECT MIN(price) AS min, MAX(price) AS max FROM product_search_index si ${whereClause.sql}`, whereClause.params);
+  if (options.adminMode) {
+    const adminGroups = [
+      { key: "visibility", expr: "COALESCE(NULLIF(p.visibility, ''), CASE WHEN si.is_public = 1 THEN 'public' ELSE 'private' END)" },
+      { key: "status", expr: "COALESCE(NULLIF(p.status, ''), 'unknown')" },
+    ];
+    for (const group of adminGroups) {
+      const rows = await all(
+        db,
+        `SELECT ${group.expr} AS value, COUNT(*) AS count FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid ${whereClause.sql} GROUP BY value ORDER BY count DESC, value ASC LIMIT 20`,
+        whereClause.params,
+      );
+      facets[group.key] = rows.map((row) => ({ value: String(row.value), label: facetLabel(group.key, row.value), count: Number(row.count || 0) }));
+    }
+    const issueRows = await all(
+      db,
+      `SELECT
+        SUM(CASE WHEN si.has_image = 0 THEN 1 ELSE 0 END) AS missing_image,
+        SUM(CASE WHEN si.price IS NULL OR si.price <= 0 THEN 1 ELSE 0 END) AS missing_price,
+        SUM(CASE WHEN si.classification_confidence < 0.55 THEN 1 ELSE 0 END) AS low_confidence,
+        SUM(CASE WHEN si.model_base IS NULL OR si.model_base = '' THEN 1 ELSE 0 END) AS missing_model,
+        SUM(CASE WHEN si.device_brand IS NULL OR si.device_brand = '' THEN 1 ELSE 0 END) AS missing_brand,
+        SUM(CASE WHEN si.part_type IS NULL OR si.part_type = '' THEN 1 ELSE 0 END) AS missing_part_type
+       FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid ${whereClause.sql}`,
+      whereClause.params,
+    );
+    facets.issues = issueRows[0] || {};
+  }
+  const priceRow = await get(db, `SELECT MIN(si.price) AS min, MAX(si.price) AS max FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid ${whereClause.sql}`, whereClause.params);
   facets.price_range = {
     min: Number(priceRow?.min || 0),
     max: Number(priceRow?.max || 0),
@@ -2836,7 +2916,7 @@ async function querySearchIndex(params = {}) {
   const offset = (safePage - 1) * safePageSize;
   const whereClause = buildSearchIndexWhere(params);
   const countStartedAt = Date.now();
-  const totalRow = await get(db, `SELECT COUNT(*) AS totalItems FROM product_search_index si ${whereClause.sql}`, whereClause.params);
+  const totalRow = await get(db, `SELECT COUNT(*) AS totalItems FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid ${whereClause.sql}`, whereClause.params);
   const totalItems = Number(totalRow?.totalItems || 0);
   const countMs = Date.now() - countStartedAt;
   const selectStartedAt = Date.now();
@@ -2844,6 +2924,8 @@ async function querySearchIndex(params = {}) {
   const candidateLimit = hasSearch ? Math.max(safePageSize, Math.min(SEARCH_RANK_CANDIDATE_LIMIT, totalItems || SEARCH_RANK_CANDIDATE_LIMIT)) : safePageSize;
   const candidateOffset = hasSearch ? 0 : offset;
   const orderBy =
+    params.sort === "recent" ? "si.product_rowid DESC" :
+    params.sort === "stock" || params.sort === "stock_desc" ? "si.stock DESC, si.title ASC" :
     params.sort === "price_asc" ? "si.price ASC, si.title ASC" :
     params.sort === "price_desc" ? "si.price DESC, si.title ASC" :
     params.sort === "name_desc" ? "si.title DESC" :
@@ -2867,10 +2949,10 @@ async function querySearchIndex(params = {}) {
   const pageEntries = hasSearch ? ranked.slice(offset, offset + safePageSize) : ranked;
   const rows = pageEntries.map((entry) => entry.row);
   const items = rows.map((row) => buildProductSummary(row));
-  const facets = await buildSearchFacets(db, whereClause);
+  const facets = await buildSearchFacets(db, whereClause, { adminMode: Boolean(params.adminMode) });
   const selectMs = Date.now() - selectStartedAt;
   const searchDebug = params.debugSearch ? {
-    engine: "product_search_index",
+    engine: params.adminMode ? "product_search_index_admin" : "product_search_index",
     queryOriginal: params.search || "",
     queryNormalized: whereClause.intent.normalized_query || "",
     intent: whereClause.intent,
@@ -2920,7 +3002,7 @@ async function querySearchIndex(params = {}) {
     totalPages,
     hasNextPage: safePage < totalPages,
     hasPrevPage: safePage > 1,
-    source: "sqlite_search_index",
+    source: params.adminMode ? "sqlite_search_index_admin" : "sqlite_search_index",
     search: params.search || undefined,
     facets,
     searchDebug,
@@ -3079,12 +3161,12 @@ async function queryProducts(params = {}) {
 async function queryAdminProducts(params = {}) {
   let result;
   try {
-    result = await queryBase({ ...params, isPublicOnly: false });
+    result = await querySearchIndex({ ...params, isPublicOnly: false, adminMode: true });
   } catch (error) {
     if (isSqliteCorruptionError(error)) {
       markSqliteCorruption(error, { phase: "query_admin_products", reason: "sqlite_corrupt" });
       await repairCorruptSqlite({ reason: "query_admin_products_corrupt" });
-      result = await queryBase({ ...params, isPublicOnly: false });
+      result = await querySearchIndex({ ...params, isPublicOnly: false, adminMode: true });
     } else {
       throw error;
     }
