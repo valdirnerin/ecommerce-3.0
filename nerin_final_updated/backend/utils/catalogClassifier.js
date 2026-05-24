@@ -41,40 +41,75 @@ function unique(values = []) {
 }
 
 const PART_TYPE_DICTIONARY = Object.freeze({
-  charging_board: ["pin de carga", "placa de carga", "puerto de carga", "centro de carga", "conector de carga", "charging board", "charging connector", "charge port", "dock connector", "usb connector", "usb board", "sub board", "daughterboard"],
+  display_adhesive: ["display adhesive tape", "display adhesive", "adhesivo pantalla", "adhesivo de pantalla", "lcd adhesive", "screen adhesive"],
+  back_cover_adhesive: ["rear cover adhesive", "back cover adhesive", "back glass adhesive", "adhesivo tapa", "adhesivo tapa trasera"],
+  battery_adhesive: ["battery adhesive", "battery adhesive tape", "adhesivo bateria", "adhesivo de bateria"],
+  camera_lens: ["camera lens", "camera glass", "lens glass", "lente camara", "lente de camara", "cristal camara", "vidrio camara"],
+  rear_camera: ["rear camera", "main camera", "camara trasera", "camara principal"],
+  front_camera: ["front camera", "selfie camera", "camara frontal", "camara selfie"],
+  charging_board: ["pin de carga", "placa de carga", "centro de carga", "charging board", "usb board", "sub board", "daughterboard"],
+  charging_port: ["puerto de carga", "conector de carga", "charging port", "charging connector", "charge port", "dock connector", "usb connector"],
   sim_tray: ["keyset simcard tray", "bandeja sim", "sim tray", "charola sim", "porta sim", "simcard tray", "card tray"],
-  back_cover: ["tapa trasera", "vidrio trasero", "back glass", "rear cover", "back cover", "battery cover", "housing", "tapa", "carcasa"],
-  adhesive: ["adhesivo pantalla", "display adhesive", "adhesive tape", "rear cover adhesive", "battery adhesive", "adhesivo", "adhesive", "gasket", "seal", "pegamento", "cinta adhesiva", "cinta"],
+  antenna: ["gps antenna", "wifi antenna", "nfc antenna", "antenna", "antena"],
+  bracket: ["bracket display", "display bracket", "camera bracket", "bracket", "soporte"],
+  fingerprint_sensor: ["fingerprint sensor", "sensor huella", "huella digital"],
+  sensor: ["proximity sensor", "light sensor", "sensor proximidad", "sensor"],
+  microphone: ["microphone", "mic", "microfono"],
+  vibrator: ["vibration motor", "motor vibrador", "vibrador"],
+  earpiece: ["ear speaker", "earpiece", "auricular interno", "speaker receiver"],
+  loudspeaker: ["loud speaker", "loudspeaker", "bottom speaker", "parlante", "altavoz"],
+  back_cover: ["tapa trasera", "vidrio trasero", "back glass", "rear cover", "back cover", "battery cover", "tapa"],
+  housing: ["housing", "carcasa", "middle frame housing", "back housing"],
+  frame: ["middle frame", "lcd frame", "display frame", "marco", "frame"],
+  adhesive: ["adhesive tape", "adhesivo", "adhesive", "gasket", "seal", "pegamento", "cinta adhesiva", "cinta"],
+  camera: ["camera", "camara"],
   display: ["display incl frame", "display excl frame", "hard oled", "soft oled", "super amoled", "pantalla", "modulo", "modulo pantalla", "display", "screen", "lcd", "oled", "amoled", "tactil", "touch", "glass", "assembly"],
   battery: ["high capacity", "bateria", "battery", "bateria", "baterias", "pila", "accu", "acumulador"],
-  camera: ["rear camera", "front camera", "camera lens", "lente camara", "camara", "camera", "lens"],
   flex: ["flex cable rear camera", "interconnection flex", "main flex", "cable flex", "flex principal", "flex cable", "flex"],
   speaker: ["loud speaker", "ear speaker", "parlante", "speaker", "loudspeaker", "altavoz", "auricular interno"],
   button: ["power button", "volume button", "slider key", "keyset", "boton", "button", "key"],
-  antenna: ["gps antenna", "antenna", "antena"],
-  bracket: ["bracket", "soporte"],
-  component: ["daughterboard", "sub board", "board", "pcb", "ic", "chip", "componente", "component"],
+  motherboard_component: ["motherboard component", "logic board component", "mainboard component", "componentes electronicos", "ic", "chip", "componente"],
+  component: ["board", "pcb", "component"],
 });
 
 const PART_LABELS = Object.freeze({
   display: "Pantallas",
+  display_adhesive: "Adhesivo de pantalla",
+  back_cover_adhesive: "Adhesivo de tapa",
+  battery_adhesive: "Adhesivo de bateria",
   battery: "Baterias",
   charging_board: "Pin de carga",
+  charging_port: "Puerto de carga",
   back_cover: "Tapas",
+  housing: "Carcasas",
+  frame: "Marcos",
   camera: "Camaras",
+  camera_lens: "Lente de camara",
+  rear_camera: "Camara trasera",
+  front_camera: "Camara frontal",
   flex: "Flex",
   speaker: "Parlantes",
+  earpiece: "Auricular interno",
+  loudspeaker: "Parlante",
   sim_tray: "Bandeja SIM",
   adhesive: "Adhesivos",
   button: "Botones",
+  vibrator: "Vibradores",
+  microphone: "Microfonos",
   antenna: "Antenas",
   bracket: "Soportes",
+  sensor: "Sensores",
+  fingerprint_sensor: "Sensor de huella",
+  motherboard_component: "Componentes de placa",
   component: "Componentes",
 });
 
 const BRAND_PATTERNS = [
   { value: "Apple", aliases: ["apple", "iphone", "ipad", "macbook"] },
   { value: "Samsung", aliases: ["samsung", "galaxy", "sm-"] },
+  { value: "Google", aliases: ["google", "pixel"] },
+  { value: "Nothing", aliases: ["nothing", "nothing phone", "cmf phone"] },
+  { value: "Asus", aliases: ["asus", "zenfone", "rog phone"] },
   { value: "Xiaomi", aliases: ["xiaomi", "redmi", "poco"] },
   { value: "Motorola", aliases: ["motorola", "moto"] },
   { value: "Huawei", aliases: ["huawei"] },
@@ -85,10 +120,21 @@ const BRAND_PATTERNS = [
   { value: "Vivo", aliases: ["vivo"] },
   { value: "Nokia", aliases: ["nokia"] },
   { value: "Sony", aliases: ["sony"] },
+  { value: "TCL", aliases: ["tcl"] },
+  { value: "ZTE", aliases: ["zte", "nubia"] },
+  { value: "Lenovo", aliases: ["lenovo"] },
+  { value: "LG", aliases: ["lg"] },
+  { value: "Meizu", aliases: ["meizu"] },
+  { value: "HTC", aliases: ["htc"] },
+  { value: "Fairphone", aliases: ["fairphone"] },
+  { value: "Tecno", aliases: ["tecno"] },
+  { value: "Infinix", aliases: ["infinix"] },
+  { value: "Alcatel", aliases: ["alcatel"] },
+  { value: "Microsoft", aliases: ["microsoft", "surface"] },
   { value: "Apple Watch", aliases: ["apple watch", "watch"] },
 ];
 
-const VARIANT_TERMS = ["pro max", "pro", "mini", "plus", "ultra", "lite", "air", "base"];
+const VARIANT_TERMS = ["pro max", "pro xl", "pro", "mini", "plus", "ultra", "lite", "air", "fold", "tablet", "base", "a"];
 const NETWORK_VARIANTS = ["5g", "4g"];
 
 const QUALITY_RULES = [
@@ -148,7 +194,9 @@ function detectPartType(text) {
 
 function detectBrand(text, rawBrand = "") {
   const normalizedBrand = normalizeText(rawBrand);
-  const forMatch = text.match(/\bfor\s+(apple|iphone|samsung|galaxy|xiaomi|redmi|poco|huawei|honor|oneplus|oppo|realme|vivo|nokia|sony|motorola|moto)\b/);
+  const forBrand = BRAND_PATTERNS.find((brand) =>
+    brand.aliases.some((alias) => includesPhrase(text, `for ${alias}`) || includesPhrase(text, `compatible for ${alias}`)),
+  );
   let detected = null;
   for (const brand of BRAND_PATTERNS) {
     if (brand.aliases.some((alias) => includesPhrase(text, alias) || normalizedBrand === normalizeText(alias))) {
@@ -156,14 +204,12 @@ function detectBrand(text, rawBrand = "") {
       break;
     }
   }
-  if (!detected && forMatch) {
-    detected = BRAND_PATTERNS.find((brand) => brand.aliases.some((alias) => normalizeText(alias) === forMatch[1] || forMatch[1] === "iphone" && brand.value === "Apple"));
-  }
+  if (!detected && forBrand) detected = forBrand;
   const brandName = detected?.value || "";
-  const isCompatible = Boolean(forMatch || /^\s*for\s+/i.test(String(rawBrand || "")) || includesPhrase(text, "compatible"));
+  const isCompatible = Boolean(forBrand || /^\s*for\s+/i.test(String(rawBrand || "")) || includesPhrase(text, "compatible"));
   return {
     device_brand: brandName,
-    device_brand_confidence: brandName ? (forMatch ? 0.88 : 0.78) : 0,
+    device_brand_confidence: brandName ? (forBrand ? 0.88 : 0.78) : 0,
     compatible_brand: isCompatible ? brandName : "",
     official_brand: !isCompatible && brandName && /\b(original|service pack|genuine|oem)\b/.test(text) ? brandName : "",
     is_compatible_for_brand: isCompatible && Boolean(brandName),
@@ -174,31 +220,181 @@ function titleCaseModel(value = "") {
   return cleanDisplay(value)
     .replace(/\biphone\b/ig, "iPhone")
     .replace(/\bmacbook\b/ig, "MacBook")
+    .replace(/\bipad\b/ig, "iPad")
+    .replace(/\bpixel\b/ig, "Pixel")
+    .replace(/\bnothing\b/ig, "Nothing")
+    .replace(/\bcmf\b/ig, "CMF")
+    .replace(/\bzenfone\b/ig, "Zenfone")
+    .replace(/\brog\b/ig, "ROG")
     .replace(/\bgalaxy\b/ig, "Galaxy")
     .replace(/\bredmi\b/ig, "Redmi")
     .replace(/\bpoco\b/ig, "Poco")
     .replace(/\bhonor\b/ig, "Honor")
     .replace(/\bhuawei\b/ig, "Huawei")
     .replace(/\bsamsung\b/ig, "Samsung")
+    .replace(/\bsurface\b/ig, "Surface")
     .replace(/\b([a-z])/g, (m) => m.toUpperCase())
     .replace(/\bIPhone\b/g, "iPhone")
     .replace(/\bMacbook\b/g, "MacBook")
-    .replace(/(\d)([a-z])\b/g, (_, n, ch) => `${n}${ch.toUpperCase()}`);
+    .replace(/\bIPad\b/g, "iPad")
+    .replace(/\bXl\b/g, "XL")
+    .replace(/(\d)([a-z])\b/g, (_, n, ch) => `${n}${ch.toUpperCase()}`)
+    .replace(/\bPixel\s+(\d+)A\b/g, "Pixel $1a")
+    .replace(/\bNothing\s+Phone\s+(\d+)A\b/g, "Nothing Phone $1a");
 }
 
 function normalizeVariant(value = "") {
   const text = normalizeText(value);
   if (includesPhrase(text, "pro max")) return "pro max";
+  if (includesPhrase(text, "pro xl")) return "pro xl";
   for (const variant of VARIANT_TERMS) {
-    if (variant !== "base" && includesPhrase(text, variant)) return variant;
+    if (variant !== "base" && variant !== "a" && includesPhrase(text, variant)) return variant;
   }
   return "base";
 }
 
 function detectModel(text, brand = "") {
+  let match = text.match(/\bpixel\s+(fold|tablet)\b/);
+  if (match) {
+    const variant = normalizeText(match[1]);
+    return {
+      model_family: "Pixel",
+      model_base: titleCaseModel(`Pixel ${variant}`),
+      model_generation: variant,
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+  match = text.match(/\bpixel\s+(\d{1,2})(a)?(?:\s+(pro\s+xl|pro|xl))?\b/);
+  if (match) {
+    const generation = match[1];
+    const variant = match[2] ? "a" : match[3] ? normalizeVariant(match[3]) : "base";
+    const suffix = variant === "base" ? "" : variant === "a" ? "a" : ` ${variant}`;
+    return {
+      model_family: "Pixel",
+      model_base: titleCaseModel(`Pixel ${generation}${suffix}`),
+      model_generation: generation,
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\bnothing\s+phone\s+(\d)(a)?\b/);
+  if (match) {
+    const generation = match[1];
+    const variant = match[2] ? "a" : "base";
+    return {
+      model_family: "Nothing Phone",
+      model_base: titleCaseModel(`Nothing Phone ${generation}${variant === "a" ? "a" : ""}`),
+      model_generation: generation,
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+  match = text.match(/\bcmf\s+phone\s+(\d)\b/);
+  if (match) {
+    return {
+      model_family: "CMF Phone",
+      model_base: titleCaseModel(`CMF Phone ${match[1]}`),
+      model_generation: match[1],
+      model_variant: "base",
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\b(zenfone|rog\s+phone)\s+(\d{1,2})\b/);
+  if (match) {
+    const family = normalizeText(match[1]) === "zenfone" ? "Zenfone" : "ROG Phone";
+    return {
+      model_family: family,
+      model_base: titleCaseModel(`${family} ${match[2]}`),
+      model_generation: match[2],
+      model_variant: "base",
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\bipad\s+(pro|air|mini)?\s*(\d{1,2}(?:\s*9)?|se)?\s*(\d{4})?\b/);
+  if (match && includesPhrase(text, "ipad")) {
+    const variant = normalizeText(match[1] || "base");
+    const sizeOrGen = cleanDisplay(match[2] || "");
+    const year = cleanDisplay(match[3] || "");
+    const base = `iPad ${variant === "base" ? "" : variant} ${sizeOrGen} ${year}`.trim();
+    return {
+      model_family: "iPad",
+      model_base: titleCaseModel(base),
+      model_generation: year || sizeOrGen || variant,
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\bgalaxy\s+tab\s+([as])\s*(\d{1,2})?(?:\s+(fe|plus|ultra))?\b/);
+  if (match) {
+    const series = String(match[1] || "").toUpperCase();
+    const generation = match[2] || "";
+    const variant = normalizeVariant(match[3] || "base");
+    return {
+      model_family: "Galaxy Tab",
+      model_base: titleCaseModel(`Galaxy Tab ${series}${generation}${variant === "base" ? "" : ` ${variant}`}`),
+      model_generation: `${series}${generation}`,
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\b(?:samsung\s+)?(?:galaxy\s+)?xcover\s*(\d{1,2})(?:\s+(pro))?\b/);
+  if (match) {
+    const variant = normalizeVariant(match[2] || "base");
+    return {
+      model_family: "Galaxy",
+      model_base: titleCaseModel(`Galaxy XCover${match[1]}${variant === "base" ? "" : ` ${variant}`}`),
+      model_generation: match[1],
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\bapple\s+watch\s+(?:series\s+)?(\d{1,2}|se|ultra)(?:\s+(\d{1,2}))?\b/);
+  if (match) {
+    const generation = match[1] === "ultra" && match[2] ? `${match[1]} ${match[2]}` : match[1];
+    return {
+      model_family: "Apple Watch",
+      model_base: titleCaseModel(`Apple Watch ${generation}`),
+      model_generation: generation,
+      model_variant: normalizeText(match[1]),
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\bgalaxy\s+watch\s+(\d{1,2})(?:\s+(classic|pro))?\b/);
+  if (match) {
+    const variant = normalizeVariant(match[2] || "base");
+    return {
+      model_family: "Galaxy Watch",
+      model_base: titleCaseModel(`Galaxy Watch ${match[1]}${variant === "base" ? "" : ` ${variant}`}`),
+      model_generation: match[1],
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+
+  match = text.match(/\bsurface\s+(pro|go|book|laptop)?\s*(\d{1,2})?\b/);
+  if (match && includesPhrase(text, "surface")) {
+    const variant = normalizeText(match[1] || "base");
+    const generation = match[2] || variant;
+    return {
+      model_family: "Surface",
+      model_base: titleCaseModel(`Surface ${variant === "base" ? "" : variant} ${match[2] || ""}`.trim()),
+      model_generation: generation,
+      model_variant: variant,
+      network_variant: "",
+    };
+  }
+
   const rules = [
     { family: "iphone", regex: /\biphone\s+(\d{1,2}s?)(?:\s+(pro\s+max|pro|max|mini|plus|air))?\b/ },
-    { family: "macbook", regex: /\bmacbook\s+(air|pro)?\s*(\d{2})?\s*(\d{4})?\b/ },
+    { family: "macbook", regex: /\bmacbook\s+(air|pro)?\s*(\d{2})?\s*(\d{4})?(?:\s+(a\d{4}))?\b/ },
     { family: "galaxy", regex: /\b(?:samsung\s+)?(?:galaxy\s+)?((?:a|s|m|note|z)\d{1,3})(?:\s+(ultra|plus|lite))?(?:\s+(5g|4g))?\b/ },
     { family: "redmi", regex: /\b(?:xiaomi\s+)?(?:redmi\s+)?(?:note\s+)?(\d{1,2})(?:\s+(pro|max|plus))?(?:\s+(5g|4g))?\b/ },
     { family: "honor", regex: /\bhonor\s+([a-z0-9]+(?:\s*[a-z0-9]+){0,2})(?:\s+(lite|pro|plus|air|5g|4g))?\b/ },

@@ -360,13 +360,44 @@
               <input
                 type="search"
                 id="productSearch"
-                placeholder="SKU, nombre, modelo o tag"
+                placeholder="SKU, MPN, pixel 7 display, modelo o tag"
                 autocomplete="off"
               />
             </label>
             <label class="filter-field">
+              <span>Modo</span>
+              <select id="productStructuredSearch">
+                <option value="1">Búsqueda técnica estructurada</option>
+                <option value="">Búsqueda normal</option>
+              </select>
+            </label>
+            <label class="filter-field">
               <span>Categoría</span>
               <select id="productFilterCategory">
+                <option value="">Todas</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Tipo detectado</span>
+              <select id="productFilterPartType">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Marca detectada</span>
+              <select id="productFilterDeviceBrand">
+                <option value="">Todas</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Modelo detectado</span>
+              <select id="productFilterModelBase">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Calidad</span>
+              <select id="productFilterQuality">
                 <option value="">Todas</option>
               </select>
             </label>
@@ -377,6 +408,18 @@
                 <option value="public">Público</option>
                 <option value="private">Privado</option>
                 <option value="draft">Borrador</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>Auditoría</span>
+              <select id="productFilterIssue">
+                <option value="">Sin filtro</option>
+                <option value="low_confidence">Baja confianza</option>
+                <option value="missing_model">Sin modelo detectado</option>
+                <option value="missing_brand">Sin marca detectada</option>
+                <option value="missing_part_type">Sin tipo detectado</option>
+                <option value="missing_image">Sin imagen</option>
+                <option value="missing_price">Sin precio</option>
               </select>
             </label>
             <label class="filter-field">
@@ -397,6 +440,7 @@
                 <option value="price_asc">Precio (min. ↑)</option>
               </select>
             </label>
+            <button class="button secondary" id="productClearFilters" type="button">Limpiar filtros</button>
           </div>
         </div>
         <div class="table-wrapper">
@@ -411,6 +455,8 @@
                 <th>Categoría</th>
                 <th>Subcategoría</th>
                 <th>Explorador</th>
+                <th>Clasificación</th>
+                <th>Confianza</th>
                 <th>Tags</th>
                 <th>Stock</th>
                 <th>Mín. Stock</th>

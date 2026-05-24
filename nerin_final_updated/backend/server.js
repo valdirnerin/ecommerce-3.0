@@ -7378,7 +7378,7 @@ async function requestHandler(req, res) {
     return sendJson(res, 200, buildMockAndreaniQuote(req.body || {}));
   }
 
-  if (pathname === "/api/admin/products" && req.method === "GET") {
+  if ((pathname === "/api/admin/products" || pathname === "/api/admin/products/search") && req.method === "GET") {
     if (!requireAdmin(req, res)) return;
     registerProductsTraffic("admin");
     try {
@@ -7400,6 +7400,11 @@ async function requestHandler(req, res) {
           visibility: queryParams.visibility || "",
           status: queryParams.status || "",
           stock: queryParams.stockStatus || queryParams.stock || "",
+          partType: queryParams.part_type || queryParams.partType || "",
+          deviceBrand: queryParams.device_brand || queryParams.deviceBrand || "",
+          modelBase: queryParams.model_base || queryParams.modelBase || "",
+          lowConfidence: queryParams.low_confidence || queryParams.lowConfidence || "",
+          missingModel: queryParams.missing_model || queryParams.missingModel || "",
         },
       });
       const sqliteData = await productsSqliteRepo.queryAdminProducts({
@@ -7408,15 +7413,30 @@ async function requestHandler(req, res) {
         search: queryParams.search || queryParams.q || "",
         category: queryParams.category || "",
         brand: queryParams.brand || "",
+        model: queryParams.model || "",
+        partType: queryParams.part_type || queryParams.partType || "",
+        deviceBrand: queryParams.device_brand || queryParams.deviceBrand || "",
+        modelBase: queryParams.model_base || queryParams.modelBase || "",
+        qualityTier: queryParams.quality_tier || queryParams.qualityTier || "",
+        color: queryParams.color || "",
+        hasFrame: queryParams.has_frame ?? queryParams.hasFrame ?? "",
         visibility: queryParams.visibility || "",
         status: queryParams.status || "",
         stock: queryParams.stockStatus || queryParams.stock || "",
+        stockStatus: queryParams.stock_status || queryParams.stockStatus || "",
+        missingImage: queryParams.missing_image || queryParams.missingImage || "",
+        missingPrice: queryParams.missing_price || queryParams.missingPrice || "",
+        lowConfidence: queryParams.low_confidence || queryParams.lowConfidence || "",
+        missingModel: queryParams.missing_model || queryParams.missingModel || "",
+        missingBrand: queryParams.missing_brand || queryParams.missingBrand || "",
+        missingPartType: queryParams.missing_part_type || queryParams.missingPartType || "",
+        debugSearch: queryParams.debug === "1" || queryParams.debugSearch === "1",
         sort: queryParams.sort || "",
       });
       const responsePayload = {
         ...sqliteData,
         items: sqliteData.items.map((item) => normalizeProductImages(item)),
-        source: "sqlite",
+        source: sqliteData.source || "sqlite_search_index_admin",
       };
       const durationMs = Date.now() - startedAt;
       console.info("[admin-products:respond]", {
@@ -7447,6 +7467,51 @@ async function requestHandler(req, res) {
         source: "sqlite",
         error: err?.message || "Catálogo SQLite no disponible",
         catalogState,
+      });
+    }
+  }
+
+  if (pathname === "/api/admin/catalog-classification/debug" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const query = String(parsedUrl.query?.query || parsedUrl.query?.q || "").trim();
+      const data = await productsSqliteRepo.queryAdminProducts({
+        page: 1,
+        pageSize: 20,
+        search: query,
+        debugSearch: true,
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        query,
+        source: data.source,
+        totalItems: data.totalItems,
+        facets: data.facets,
+        debug: data.searchDebug,
+        examples: data.items.map((item) => ({
+          id: item.id,
+          sku: item.sku,
+          title: item.title || item.name,
+          part_type: item.part_type,
+          device_brand: item.device_brand,
+          compatible_brand: item.compatible_brand,
+          official_brand: item.official_brand,
+          is_compatible_for_brand: item.is_compatible_for_brand,
+          model_family: item.model_family,
+          model_base: item.model_base,
+          model_variant: item.model_variant,
+          quality_tier: item.quality_tier,
+          color: item.color,
+          stock_status: item.stock_status,
+          classification_confidence: item.classification_confidence,
+          blockers: item.classification_blockers || [],
+        })),
+      }, { "Cache-Control": "no-store, no-cache, must-revalidate" });
+    } catch (error) {
+      return sendJson(res, 500, {
+        ok: false,
+        error: error?.message || "classification_debug_failed",
+        catalogState: productsSqliteRepo.catalogStateSnapshot(),
       });
     }
   }

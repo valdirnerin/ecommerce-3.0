@@ -1711,10 +1711,17 @@ if (wholesaleRefreshBtn) {
 const productsTableBody = document.querySelector("#productsTable tbody");
 const productsSummaryEl = document.getElementById("productsSummary");
 const productSearchInput = document.getElementById("productSearch");
+const productStructuredSearch = document.getElementById("productStructuredSearch");
 const productFilterCategory = document.getElementById("productFilterCategory");
+const productFilterPartType = document.getElementById("productFilterPartType");
+const productFilterDeviceBrand = document.getElementById("productFilterDeviceBrand");
+const productFilterModelBase = document.getElementById("productFilterModelBase");
+const productFilterQuality = document.getElementById("productFilterQuality");
 const productFilterVisibility = document.getElementById("productFilterVisibility");
 const productFilterStock = document.getElementById("productFilterStock");
+const productFilterIssue = document.getElementById("productFilterIssue");
 const productSortSelect = document.getElementById("productSort");
+const productClearFilters = document.getElementById("productClearFilters");
 const productCategorySelect = document.getElementById("productCategory");
 const productSubcategorySelect = document.getElementById("productSubcategory");
 const productCatalogBrandInput = document.getElementById("productCatalogBrand");
@@ -1805,8 +1812,14 @@ let productFilters = {
   query: "",
   category: "",
   brand: "",
+  partType: "",
+  deviceBrand: "",
+  modelBase: "",
+  qualityTier: "",
   visibility: "",
   stock: "",
+  issue: "",
+  structuredSearch: "1",
   sort: "recent",
 };
 let productsPage = 1;
@@ -1818,6 +1831,7 @@ let productsTotalPages = null;
 let productsLoadErrorMessage = "";
 let adminProductsAbortController = null;
 let adminProductsRequestSeq = 0;
+let adminProductsFacets = {};
 
 let isApplyingAutoSeo = false;
 let isApplyingAutoTags = false;
@@ -1980,6 +1994,28 @@ function syncProductTaxonomies(products) {
   }
 }
 
+function populateAdminFacetSelect(selectEl, values = [], fallbackLabel = "Todos") {
+  if (!selectEl) return;
+  const previous = selectEl.value;
+  const options = [`<option value="">${escapeHtml(fallbackLabel)}</option>`];
+  (Array.isArray(values) ? values : []).forEach((item) => {
+    const value = item?.value == null ? "" : String(item.value);
+    if (!value) return;
+    const count = Number.isFinite(Number(item?.count)) ? ` (${Number(item.count)})` : "";
+    options.push(`<option value="${escapeHtml(value)}">${escapeHtml(item?.label || value)}${count}</option>`);
+  });
+  selectEl.innerHTML = options.join("");
+  selectEl.value = Array.from(selectEl.options).some((option) => option.value === previous) ? previous : "";
+}
+
+function applyAdminFacets(facets = {}) {
+  adminProductsFacets = facets && typeof facets === "object" ? facets : {};
+  populateAdminFacetSelect(productFilterPartType, adminProductsFacets.part_type || [], "Todos");
+  populateAdminFacetSelect(productFilterDeviceBrand, adminProductsFacets.device_brand || [], "Todas");
+  populateAdminFacetSelect(productFilterModelBase, adminProductsFacets.model_base || [], "Todos");
+  populateAdminFacetSelect(productFilterQuality, adminProductsFacets.quality_tier || [], "Todas");
+}
+
 function describeActiveFilters() {
   const active = [];
   if (productFilters.query) {
@@ -1988,6 +2024,10 @@ function describeActiveFilters() {
   if (productFilters.category) {
     active.push(`Categoría: ${escapeHtml(productFilters.category)}`);
   }
+  if (productFilters.partType) active.push(`Tipo: ${escapeHtml(productFilters.partType)}`);
+  if (productFilters.deviceBrand) active.push(`Marca detectada: ${escapeHtml(productFilters.deviceBrand)}`);
+  if (productFilters.modelBase) active.push(`Modelo detectado: ${escapeHtml(productFilters.modelBase)}`);
+  if (productFilters.qualityTier) active.push(`Calidad: ${escapeHtml(productFilters.qualityTier)}`);
   if (productFilters.visibility) {
     const label =
       productFilters.visibility === "public"
@@ -2002,6 +2042,7 @@ function describeActiveFilters() {
   } else if (productFilters.stock === "out") {
     active.push("Solo sin stock");
   }
+  if (productFilters.issue) active.push(`Auditoría: ${escapeHtml(productFilters.issue)}`);
   return active.length ? active.join(" • ") : "Sin filtros activos";
 }
 
@@ -2128,6 +2169,23 @@ function buildProductRow(product) {
   const explorerCellAttr = hasManualExplorer ? "" : ' data-mode="auto"';
   const safeExplorer = escapeHtml(compactText(explorerText, 64));
   const safeTags = escapeHtml(compactText(tagsPreview, 72));
+  const classificationBadges = [
+    product.part_type,
+    product.device_brand,
+    product.model_base,
+    product.quality_tier,
+    product.stock_status,
+  ]
+    .filter(Boolean)
+    .map((value) => `<span class="badge">${escapeHtml(compactText(value, 28))}</span>`)
+    .join(" ");
+  const blockers = Array.isArray(product.classification_blockers) ? product.classification_blockers : [];
+  const confidence = Number(product.classification_confidence);
+  const confidenceText = Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : "";
+  const confidenceCell = [
+    confidenceText ? `<strong>${escapeHtml(confidenceText)}</strong>` : "",
+    blockers.length ? `<small>${escapeHtml(blockers.join(", "))}</small>` : "",
+  ].filter(Boolean).join("<br>");
 
   tr.innerHTML = `
     <td><input type="checkbox" class="select-product" /></td>
@@ -2138,6 +2196,8 @@ function buildProductRow(product) {
     <td class="product-cell" title="${escapeHtml(product.category || "")}">${safeCategory}</td>
     <td class="product-cell" title="${escapeHtml(product.subcategory || "")}">${safeSubcategory}</td>
     <td class="product-cell"${explorerCellAttr} title="${escapeHtml(explorerText)}">${safeExplorer}</td>
+    <td class="product-cell" title="${escapeHtml([product.part_type, product.device_brand, product.model_base, product.quality_tier, product.stock_status].filter(Boolean).join(" | "))}">${classificationBadges || "-"}</td>
+    <td class="product-cell" title="${escapeHtml(blockers.join(", "))}">${confidenceCell || "-"}</td>
     <td class="product-cell" title="${escapeHtml(tagsArray.join(", "))}">${safeTags}</td>
     <td><input type="number" class="inline-edit inline-edit--compact" data-field="stock" min="0" value="${product.stock ?? 0}" />${stockBadge}</td>
     <td>${product.min_stock ?? ""}</td>
@@ -2164,7 +2224,7 @@ function renderProductsTable() {
     const message = productsCache.length
       ? "No hay productos que coincidan con los filtros actuales."
       : "No hay productos";
-    productsTableBody.innerHTML = `<tr><td colspan="15">${message}</td></tr>`;
+    productsTableBody.innerHTML = `<tr><td colspan="17">${message}</td></tr>`;
   } else {
     const fragment = document.createDocumentFragment();
     rows.forEach((product) => {
@@ -2239,6 +2299,42 @@ if (productFilterCategory) {
     updateProductFilters({ category: productFilterCategory.value });
   });
 }
+[
+  [productStructuredSearch, "structuredSearch"],
+  [productFilterPartType, "partType"],
+  [productFilterDeviceBrand, "deviceBrand"],
+  [productFilterModelBase, "modelBase"],
+  [productFilterQuality, "qualityTier"],
+  [productFilterIssue, "issue"],
+].forEach(([select, key]) => {
+  select?.addEventListener("change", () => {
+    updateProductFilters({ [key]: select.value });
+  });
+});
+productClearFilters?.addEventListener("click", () => {
+  productFilters = {
+    query: "",
+    category: "",
+    brand: "",
+    partType: "",
+    deviceBrand: "",
+    modelBase: "",
+    qualityTier: "",
+    visibility: "",
+    stock: "",
+    issue: "",
+    structuredSearch: "1",
+    sort: "recent",
+  };
+  if (productSearchInput) productSearchInput.value = "";
+  [productFilterCategory, productFilterPartType, productFilterDeviceBrand, productFilterModelBase, productFilterQuality, productFilterVisibility, productFilterStock, productFilterIssue].forEach((select) => {
+    if (select) select.value = "";
+  });
+  if (productStructuredSearch) productStructuredSearch.value = "1";
+  if (productSortSelect) productSortSelect.value = "recent";
+  productsPage = 1;
+  void loadProducts().catch((error) => console.error("[admin-products] clear filters failed", error));
+});
 if (productFilterVisibility) {
   productFilterVisibility.addEventListener("change", () => {
     updateProductFilters({ visibility: productFilterVisibility.value });
@@ -3494,22 +3590,34 @@ async function loadProducts(options = {}) {
       search: productFilters.query || "",
       filters: {
         category: productFilters.category || "",
+        partType: productFilters.partType || "",
+        deviceBrand: productFilters.deviceBrand || "",
+        modelBase: productFilters.modelBase || "",
+        qualityTier: productFilters.qualityTier || "",
         visibility: productFilters.visibility || "",
         stock: productFilters.stock || "",
+        issue: productFilters.issue || "",
+        structuredSearch: productFilters.structuredSearch || "",
         sort: productFilters.sort || "recent",
       },
     });
     productsTableBody.innerHTML =
-      `<tr><td colspan="15">${productFilters.query ? "Buscando…" : "Cargando productos…"}</td></tr>`;
+      `<tr><td colspan="17">${productFilters.query ? "Buscando…" : "Cargando productos…"}</td></tr>`;
     const query = new URLSearchParams({
       page: String(productsPage),
       pageSize: String(productsPageSize),
       search: productFilters.query || "",
+      structuredSearch: productFilters.structuredSearch || "1",
       category: productFilters.category || "",
+      part_type: productFilters.partType || "",
+      device_brand: productFilters.deviceBrand || "",
+      model_base: productFilters.modelBase || "",
+      quality_tier: productFilters.qualityTier || "",
       visibility: productFilters.visibility || "",
       stockStatus: productFilters.stock || "",
       sort: productFilters.sort || "recent",
     });
+    if (productFilters.issue) query.set(productFilters.issue, "1");
     const res = await apiFetch(`/api/admin/products?${query.toString()}`, {
       headers: getAdminHeaders(),
       signal: adminProductsAbortController.signal,
@@ -3553,6 +3661,7 @@ async function loadProducts(options = {}) {
       Number.isFinite(Number(data.totalPages))
         ? Number(data.totalPages)
         : null;
+    applyAdminFacets(data.facets || {});
     syncProductTaxonomies(productsCache);
     renderProductsTable();
     updateProductsPaginationControls();
@@ -3610,7 +3719,7 @@ async function loadProducts(options = {}) {
     }
     productsLoadErrorMessage = `Error cargando productos: ${err.message || "No se pudieron cargar los productos."}${details}`;
     productsTableBody.innerHTML =
-      `<tr><td colspan="15">${escapeHtml(productsLoadErrorMessage)}</td></tr>`;
+      `<tr><td colspan="17">${escapeHtml(productsLoadErrorMessage)}</td></tr>`;
     updateProductSummary([]);
   }
 }
