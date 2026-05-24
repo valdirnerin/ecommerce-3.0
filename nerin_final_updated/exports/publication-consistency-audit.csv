@@ -1,0 +1,1 @@
+rowid,id,sku,code,title,visibility,status,enabled,sqlite_is_public,computed_is_public,index_is_public,admin_visibility_bucket,public_slug,index_public_slug,blockers,reasons

@@ -3643,6 +3643,13 @@ async function loadProducts(options = {}) {
     if (requestSeq !== adminProductsRequestSeq) return;
     productsLoadErrorMessage = "";
     productsCache = Array.isArray(data.items) ? data.items : [];
+    if (productFilters.visibility === "private") {
+      const publicLeak = productsCache.find((item) => item?.is_public === true || item?.visibility === "public");
+      if (publicLeak) {
+        console.warn("[admin-products] filtro privados devolvio producto publico", publicLeak);
+        if (window.showToast) showToast("Atencion: el filtro privados recibio un producto publico. Revisar publication-debug.");
+      }
+    }
     productsPage = Number(data.page || productsPage);
     productsPageSize = Number(data.pageSize || productsPageSize);
     productsHasNextPage = data.hasNextPage === true;
@@ -4039,6 +4046,11 @@ if (bulkPublishRunBtn) {
       if (!res.ok) throw new Error(data?.error || "No se pudo publicar en masa");
       renderBulkPublishSummary(data, "publish");
       const warningsCount = Number(data.warningCount || 0);
+      const notVisibleCount = Array.isArray(data.sampleNotVisibleInPublicApi) ? data.sampleNotVisibleInPublicApi.length : 0;
+      const sampleUpdated = Array.isArray(data.sampleUpdated) ? data.sampleUpdated : [];
+      if (notVisibleCount > 0) console.warn("[bulk-publish] productos no visibles despues de publicar", data.sampleNotVisibleInPublicApi);
+      if (sampleUpdated.length > 0) console.info("[bulk-publish] sampleUpdated", sampleUpdated.slice(0, 5));
+      lastValidBulkPreview = null;
       setBulkStatus(`Publicación completada. updatedCount: ${data.updatedCount || 0}, eligibleCount: ${data.eligibleCount || 0}, blockedCount: ${data.blockedCount || 0}, warnings: ${warningsCount}.`, "is-success");
       loadProducts();
     } catch (error) {
