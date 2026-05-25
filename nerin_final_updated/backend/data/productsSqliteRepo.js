@@ -17,9 +17,16 @@ const MANIFEST_PATH = dataPath("products.manifest.json");
 const OVERRIDES_PATH = dataPath("products.overrides.json");
 const COUNT_CACHE_TTL_MS = 60_000;
 const PRODUCTS_SQLITE_SCHEMA_VERSION = 6;
-const CATALOG_MAPPING_VERSION = 4;
+const CATALOG_MAPPING_VERSION = 5;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
+const SEARCH_INDEX_INSERT_SQL = `INSERT INTO product_search_index (
+  product_id, product_rowid, public_slug, title, normalized_title, sku, mpn, part_number, brand,
+  device_brand, compatible_brand, official_brand, is_compatible_for_brand, part_type,
+  model_family, model_base, model_generation, model_variant, network_variant, quality_tier,
+  has_frame, color, stock, stock_status, is_stock_real, price, has_image, is_public,
+  classification_confidence, search_blob, filters_blob, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 const REJECTED_STATE_VALUES = new Set([
   "hidden",
@@ -29,6 +36,13 @@ const REJECTED_STATE_VALUES = new Set([
   "archived",
   "deleted",
 ]);
+const PUBLIC_VISIBILITY_VALUES = new Set(["public", "published", "visible"]);
+const PRIVATE_STATE_VALUES = new Set(["private", "privado"]);
+const HIDDEN_STATE_VALUES = new Set(["hidden", "oculto"]);
+const DRAFT_STATE_VALUES = new Set(["draft", "borrador"]);
+const DISABLED_STATE_VALUES = new Set(["disabled", "deshabilitado", "inactive", "inactivo"]);
+const ARCHIVED_STATE_VALUES = new Set(["archived", "archivado"]);
+const DELETED_STATE_VALUES = new Set(["deleted", "eliminado"]);
 const PUBLIC_DESCRIPTION_FALLBACK =
   "Producto disponible para cotización. Consultanos por compatibilidad, stock y condiciones.";
 
@@ -1073,7 +1087,107 @@ async function createSchema(db) {
   await detectFtsAvailability(db);
 }
 
+function computePublicationState(product = {}) {
+  if (!product || typeof product !== "object") {
+    return {
+      visibility: "",
+      status: "",
+      enabled: false,
+      is_public: false,
+      isPublic: false,
+      public_slug: "",
+      public_blockers: ["invalid_product"],
+      admin_visibility_bucket: "invalid",
+      reason: "invalid_product",
+      signals: { missingName: true, missingIdentifier: true },
+    };
+  }
+
+  const visibility = normalizeQueryText(getField(product, ["visibility", "visibilidad"]) || "");
+  const status = normalizeQueryText(getField(product, ["status", "estado"]) || "");
+  const enabledValue = getField(product, ["enabled"]);
+  const deletedValue = getField(product, ["deleted"]);
+  const archivedValue = getField(product, ["archived"]);
+  const vipOnlyValue = getField(product, ["vip_only", "vip only", "vipOnly"]);
+  const wholesaleOnlyValue = getField(product, ["wholesaleOnly", "wholesale_only", "wholesale only"]);
+
+  const hasName = Boolean(toNullableText(getField(product, ["name", "title", "productName", "Product Name", "Item Name", "nombre", "Name", "model", "description", "descripcion", "Descripcion", "shortDescription", "short_description", "Short Description"])));
+  const hasIdentifier = Boolean(toNullableText(getField(product, ["id", "sku", "SKU", "code", "Code", "codigo", "partNumber", "Part Number", "mpn", "MPN", "ean", "EAN", "gtin", "GTIN", "supplierCode", "Supplier Code", "Supplier Part Number"])));
+  const rawPublicFlag = getField(product, ["is_public", "isPublic", "public", "published", "visible"]);
+  const explicitPublicFlag = rawPublicFlag === true || rawPublicFlag === 1 || isTruthyFlag(rawPublicFlag);
+  const publicSlug = firstText([
+    getField(product, ["public_slug", "publicSlug"]),
+    getField(product, ["slug"]),
+    hasName || hasIdentifier ? buildPublicSlug(product) : "",
+  ]);
+
+  const signals = {
+    visibility,
+    status,
+    enabledFalse: enabledValue === false,
+    deleted: deletedValue === true,
+    archived: archivedValue === true,
+    vipOnly: vipOnlyValue === true,
+    wholesaleOnly: wholesaleOnlyValue === true,
+    missingName: !hasName,
+    missingIdentifier: !hasIdentifier,
+    missingPublicSlug: !publicSlug,
+    explicitPublicVisibility: PUBLIC_VISIBILITY_VALUES.has(visibility),
+    explicitPublicFlag,
+  };
+
+  const blockers = [];
+  if (signals.enabledFalse) blockers.push("enabled_false");
+  if (signals.deleted || DELETED_STATE_VALUES.has(visibility) || DELETED_STATE_VALUES.has(status)) blockers.push("deleted");
+  if (signals.archived || ARCHIVED_STATE_VALUES.has(visibility) || ARCHIVED_STATE_VALUES.has(status)) blockers.push("archived");
+  if (signals.vipOnly) blockers.push("vip_only");
+  if (signals.wholesaleOnly) blockers.push("wholesale_only");
+  if (PRIVATE_STATE_VALUES.has(visibility) || PRIVATE_STATE_VALUES.has(status)) blockers.push("private");
+  if (HIDDEN_STATE_VALUES.has(visibility) || HIDDEN_STATE_VALUES.has(status)) blockers.push("hidden");
+  if (DRAFT_STATE_VALUES.has(visibility) || DRAFT_STATE_VALUES.has(status)) blockers.push("draft");
+  if (DISABLED_STATE_VALUES.has(visibility) || DISABLED_STATE_VALUES.has(status)) blockers.push("disabled");
+  if (!hasName) blockers.push("missing_name");
+  if (!hasIdentifier) blockers.push("missing_identifier");
+  if (!publicSlug) blockers.push("missing_public_slug");
+  if (!PUBLIC_VISIBILITY_VALUES.has(visibility) && !explicitPublicFlag) blockers.push("not_public_visibility");
+
+  let bucket = "not_public";
+  if (blockers.includes("deleted")) bucket = "deleted";
+  else if (blockers.includes("archived")) bucket = "archived";
+  else if (blockers.includes("disabled")) bucket = "disabled";
+  else if (blockers.includes("draft")) bucket = "draft";
+  else if (blockers.includes("hidden")) bucket = "hidden";
+  else if (blockers.includes("private")) bucket = "private";
+
+  const isPublic = blockers.length === 0;
+  if (isPublic) bucket = "public";
+
+  return {
+    visibility,
+    status,
+    enabled: enabledValue !== false,
+    is_public: isPublic,
+    isPublic,
+    public_slug: publicSlug || "",
+    public_blockers: blockers,
+    admin_visibility_bucket: bucket,
+    reason: isPublic ? "public" : blockers[0] || "not_public",
+    signals,
+  };
+}
+
 function computeProductPublicState(product = {}) {
+  const state = computePublicationState(product);
+  return {
+    isPublic: state.is_public,
+    reason: state.reason,
+    signals: state.signals,
+    visibility: state.visibility,
+    status: state.status,
+    public_slug: state.public_slug,
+    public_blockers: state.public_blockers,
+    admin_visibility_bucket: state.admin_visibility_bucket,
+  };
   if (!product || typeof product !== "object") {
     return { isPublic: false, reason: "invalid_product", signals: { missingName: true, missingIdentifier: true } };
   }
@@ -1764,15 +1878,45 @@ function buildSearchIndexEntry(row = {}, rawProduct = {}) {
   };
 }
 
+function getSearchIndexInsertParams(item = {}) {
+  return [
+    item.product_id,
+    item.product_rowid,
+    item.public_slug,
+    item.title,
+    item.normalized_title,
+    item.sku,
+    item.mpn,
+    item.part_number,
+    item.brand,
+    item.device_brand,
+    item.compatible_brand,
+    item.official_brand,
+    item.is_compatible_for_brand,
+    item.part_type,
+    item.model_family,
+    item.model_base,
+    item.model_generation,
+    item.model_variant,
+    item.network_variant,
+    item.quality_tier,
+    item.has_frame,
+    item.color,
+    item.stock,
+    item.stock_status,
+    item.is_stock_real,
+    item.price,
+    item.has_image,
+    item.is_public,
+    item.classification_confidence,
+    item.search_blob,
+    item.filters_blob,
+    item.updated_at,
+  ];
+}
+
 async function rebuildProductSearchIndex(db) {
   await run(db, "DELETE FROM product_search_index");
-  const insertSql = `INSERT INTO product_search_index (
-    product_id, product_rowid, public_slug, title, normalized_title, sku, mpn, part_number, brand,
-    device_brand, compatible_brand, official_brand, is_compatible_for_brand, part_type,
-    model_family, model_base, model_generation, model_variant, network_variant, quality_tier,
-    has_frame, color, stock, stock_status, is_stock_real, price, has_image, is_public,
-    classification_confidence, search_blob, filters_blob, updated_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
   const pageSize = 1000;
   let offset = 0;
   let indexed = 0;
@@ -1793,40 +1937,7 @@ async function rebuildProductSearchIndex(db) {
           raw = {};
         }
         const item = buildSearchIndexEntry(row, raw);
-        await run(db, insertSql, [
-          item.product_id,
-          item.product_rowid,
-          item.public_slug,
-          item.title,
-          item.normalized_title,
-          item.sku,
-          item.mpn,
-          item.part_number,
-          item.brand,
-          item.device_brand,
-          item.compatible_brand,
-          item.official_brand,
-          item.is_compatible_for_brand,
-          item.part_type,
-          item.model_family,
-          item.model_base,
-          item.model_generation,
-          item.model_variant,
-          item.network_variant,
-          item.quality_tier,
-          item.has_frame,
-          item.color,
-          item.stock,
-          item.stock_status,
-          item.is_stock_real,
-          item.price,
-          item.has_image,
-          item.is_public,
-          item.classification_confidence,
-          item.search_blob,
-          item.filters_blob,
-          item.updated_at,
-        ]);
+        await run(db, SEARCH_INDEX_INSERT_SQL, getSearchIndexInsertParams(item));
       }
     });
     indexed += rows.length;
@@ -1940,19 +2051,59 @@ function normalizeProductForAdminList(product = {}, meta = {}) {
   return normalizeProductForPublic(product, meta);
 }
 
+async function findProductRowByIdentifier(db, identifier, select = "rowid, *") {
+  const target = String(identifier || "").trim();
+  if (!target) return null;
+  return get(
+    db,
+    `SELECT ${select}
+     FROM products
+     WHERE rowid = ? OR id = ? OR public_slug = ? OR slug = ? OR sku = ? OR code = ? OR mpn = ? OR part_number = ?
+     LIMIT 1`,
+    [target, target, target, target, target, target, target, target],
+  );
+}
+
+async function reindexProduct(identifier, options = {}) {
+  await ensureDbReadyForRequest();
+  const db = options.db || await openDb();
+  const row = await findProductRowByIdentifier(
+    db,
+    identifier,
+    "rowid, id, sku, code, slug, public_slug, image, name, title, brand, model, category, stock, price, price_minorista, part_number, mpn, search_text, is_public, raw_json",
+  );
+  if (!row) {
+    return { ok: false, found: false, identifier: String(identifier || "") };
+  }
+  let raw = {};
+  try {
+    raw = row.raw_json ? JSON.parse(row.raw_json) : {};
+  } catch {
+    raw = {};
+  }
+  const item = buildSearchIndexEntry(row, raw);
+  await run(db, "DELETE FROM product_search_index WHERE product_rowid = ?", [row.rowid]);
+  await run(db, SEARCH_INDEX_INSERT_SQL, getSearchIndexInsertParams(item));
+  countCache.clear();
+  return {
+    ok: true,
+    found: true,
+    identifier: String(identifier || ""),
+    product_rowid: row.rowid,
+    product_id: item.product_id,
+    public_slug: item.public_slug,
+    is_public: Boolean(item.is_public),
+    indexUpdated: true,
+    classification: item.classification,
+  };
+}
+
 async function updateProductByIdentifier(identifier, patch = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
   const target = String(identifier || "").trim();
   if (!target) throw new Error("identifier requerido");
-  const row = await get(
-    db,
-    `SELECT rowid, raw_json
-     FROM products
-     WHERE id = ? OR public_slug = ? OR slug = ? OR sku = ? OR code = ?
-     LIMIT 1`,
-    [target, target, target, target, target],
-  );
+  const row = await findProductRowByIdentifier(db, target, "rowid, raw_json");
   if (!row) return null;
   const current = JSON.parse(row.raw_json || "{}");
   const patchVisibility = normalizeQueryText(patch?.visibility);
@@ -1965,7 +2116,18 @@ async function updateProductByIdentifier(identifier, patch = {}) {
     patch?.is_public === true ||
     patch?.published === true ||
     patch?.visible === true;
-  const mergedPatch = shouldForceEnabledTrue ? { ...patch, enabled: true } : patch;
+  let mergedPatch = shouldForceEnabledTrue ? { ...patch, enabled: true } : { ...patch };
+  if (patchVisibility === "public" || patchVisibility === "visible" || patch?.is_public === true || patch?.published === true || patch?.visible === true) {
+    mergedPatch = { ...mergedPatch, visibility: "public", status: "active", enabled: true, is_public: true };
+  } else if (patchVisibility === "private") {
+    mergedPatch = { ...mergedPatch, visibility: "private", status: "private", is_public: false };
+  } else if (patchVisibility === "hidden") {
+    mergedPatch = { ...mergedPatch, visibility: "hidden", status: "hidden", is_public: false };
+  } else if (patchVisibility === "draft") {
+    mergedPatch = { ...mergedPatch, visibility: "draft", status: "draft", is_public: false };
+  } else if (patchVisibility === "disabled" || patchStatus === "disabled") {
+    mergedPatch = { ...mergedPatch, visibility: patchVisibility || "disabled", status: "disabled", enabled: false, is_public: false };
+  }
   const merged = { ...current, ...mergedPatch };
   const mapped = mapProductRow(merged, { rowNumber: row.rowid });
   const changedFields = Object.keys(mergedPatch || {}).filter((field) => current[field] !== mergedPatch[field]);
@@ -2024,6 +2186,7 @@ async function updateProductByIdentifier(identifier, patch = {}) {
       row.rowid,
     ],
   );
+  const indexResult = await reindexProduct(row.rowid, { db });
   countCache.clear();
   await saveProductOverride(target, merged, shouldForceEnabledTrue ? "admin_publish" : "admin_update");
   console.log("[products-admin-publication-change]", {
@@ -2040,8 +2203,60 @@ async function updateProductByIdentifier(identifier, patch = {}) {
     reasonBefore,
     reasonAfter,
     changedFields,
+    indexUpdated: Boolean(indexResult?.indexUpdated),
   });
   return normalizeProductForAdminList(merged, { rowid: row.rowid, public_slug: mapped.public_slug });
+}
+
+async function setProductVisibility(identifier, nextVisibility, options = {}) {
+  await ensureDbReadyForRequest();
+  const db = await openDb();
+  const target = String(identifier || "").trim();
+  const visibility = normalizeQueryText(nextVisibility || "");
+  if (!target) throw new Error("identifier requerido");
+  if (!visibility) throw new Error("nextVisibility requerido");
+  const beforeRow = await findProductRowByIdentifier(db, target, "rowid, raw_json");
+  if (!beforeRow) return null;
+  let beforeRaw = {};
+  try {
+    beforeRaw = JSON.parse(beforeRow.raw_json || "{}");
+  } catch {
+    beforeRaw = {};
+  }
+  const before = computePublicationState(beforeRaw);
+  const patch = { visibility };
+  if (visibility === "public" || visibility === "visible" || visibility === "published") {
+    Object.assign(patch, { visibility: "public", status: "active", enabled: true, is_public: true });
+  } else if (visibility === "private") {
+    Object.assign(patch, { visibility: "private", status: "private", is_public: false });
+  } else if (visibility === "hidden") {
+    Object.assign(patch, { visibility: "hidden", status: "hidden", is_public: false });
+  } else if (visibility === "draft") {
+    Object.assign(patch, { visibility: "draft", status: "draft", is_public: false });
+  } else if (visibility === "disabled") {
+    Object.assign(patch, { visibility: "disabled", status: "disabled", enabled: false, is_public: false });
+  }
+
+  const updated = await updateProductByIdentifier(target, patch);
+  const debug = await debugPublicationByIdentifier(target);
+  return {
+    ok: Boolean(updated),
+    identifier: target,
+    reason: options.reason || "set_visibility",
+    before: {
+      visibility: before.visibility,
+      status: before.status,
+      enabled: before.enabled,
+      is_public: before.is_public,
+      admin_visibility_bucket: before.admin_visibility_bucket,
+      public_blockers: before.public_blockers,
+    },
+    after: debug?.computePublicationState || debug?.computed || null,
+    indexUpdated: Boolean(debug?.index?.found),
+    publicApiVisible: Boolean(debug?.appearsInPublicApi),
+    adminVisibleAs: debug?.computePublicationState?.admin_visibility_bucket || debug?.computed?.admin_visibility_bucket || null,
+    debug,
+  };
 }
 
 async function loadProductOverrides() {
@@ -2614,6 +2829,7 @@ function buildProductSummary(row = {}) {
     stock: Math.trunc(toNumber(row.stock, 0)),
     status: row.status || "",
     visibility: row.visibility || "",
+    is_public: Number(row.is_public || 0) === 1,
     image: row.image || "",
     thumbnail: row.image || "",
     publicSlug,
@@ -2643,6 +2859,19 @@ function buildProductSummary(row = {}) {
 
 function normalizeFacetValue(value = "") {
   return normalizeCatalogText(value);
+}
+
+function adminVisibilityBucketSql() {
+  return `CASE
+    WHEN si.is_public = 1 THEN 'public'
+    WHEN lower(COALESCE(p.visibility, '')) = 'private' OR lower(COALESCE(p.status, '')) = 'private' THEN 'private'
+    WHEN lower(COALESCE(p.visibility, '')) = 'hidden' OR lower(COALESCE(p.status, '')) = 'hidden' THEN 'hidden'
+    WHEN lower(COALESCE(p.visibility, '')) = 'draft' OR lower(COALESCE(p.status, '')) = 'draft' THEN 'draft'
+    WHEN lower(COALESCE(p.visibility, '')) = 'archived' OR lower(COALESCE(p.status, '')) = 'archived' OR COALESCE(p.archived, 0) = 1 THEN 'archived'
+    WHEN lower(COALESCE(p.visibility, '')) = 'deleted' OR lower(COALESCE(p.status, '')) = 'deleted' OR COALESCE(p.deleted, 0) = 1 THEN 'deleted'
+    WHEN lower(COALESCE(p.visibility, '')) = 'disabled' OR lower(COALESCE(p.status, '')) = 'disabled' OR COALESCE(p.enabled, 1) = 0 THEN 'disabled'
+    ELSE 'not_public'
+  END`;
 }
 
 function buildSearchIndexWhere({
@@ -2676,10 +2905,14 @@ function buildSearchIndexWhere({
   const requestedVisibility = normalizeFacetValue(visibility || "");
   if (requestedVisibility) {
     if (requestedVisibility === "public") where.push("si.is_public = 1");
-    else if (requestedVisibility === "private" || requestedVisibility === "hidden") {
-      where.push("(si.is_public = 0 OR lower(p.visibility) = lower(?))");
-      params.push(requestedVisibility);
-    } else {
+    else if (requestedVisibility === "private") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'private'`);
+    else if (requestedVisibility === "hidden") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'hidden'`);
+    else if (requestedVisibility === "draft") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'draft'`);
+    else if (requestedVisibility === "disabled") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'disabled'`);
+    else if (requestedVisibility === "archived") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'archived'`);
+    else if (requestedVisibility === "deleted") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'deleted'`);
+    else if (requestedVisibility === "not_public") where.push("si.is_public != 1");
+    else if (requestedVisibility !== "all") {
       where.push("lower(p.visibility) = lower(?)");
       params.push(requestedVisibility);
     }
@@ -2875,7 +3108,7 @@ async function buildSearchFacets(db, whereClause, options = {}) {
   }
   if (options.adminMode) {
     const adminGroups = [
-      { key: "visibility", expr: "COALESCE(NULLIF(p.visibility, ''), CASE WHEN si.is_public = 1 THEN 'public' ELSE 'private' END)" },
+      { key: "visibility", expr: adminVisibilityBucketSql() },
       { key: "status", expr: "COALESCE(NULLIF(p.status, ''), 'unknown')" },
     ];
     for (const group of adminGroups) {
@@ -3619,6 +3852,8 @@ async function repairPublicFlags() {
       updatedRows += Number(changes?.changes || 0);
     }
     await run(db, "COMMIT");
+    await rebuildProductSearchIndex(db);
+    countCache.clear();
   } catch (error) {
     await run(db, "ROLLBACK");
     throw error;
@@ -3643,16 +3878,11 @@ async function bulkPublication({ action = "publish", scope = "private_products",
       skipped += 1;
       continue;
     }
-    const patch = { visibility: "public", status: "active", enabled: true };
+    const patch = { visibility: "public", status: "active", enabled: true, is_public: true };
     const merged = { ...raw, ...patch };
     const mapped = mapProductRow(merged, { rowNumber: row.rowid });
     if (!dryRun) {
-      await run(
-        db,
-        `UPDATE products SET visibility=?, status=?, enabled=?, is_public=?, search_text=?, public_slug=?, raw_json=? WHERE rowid=?`,
-        [mapped.visibility, mapped.status, mapped.enabled, mapped.is_public, mapped.search_text, mapped.public_slug, mapped.raw_json, row.rowid],
-      );
-      await saveProductOverride(row.id || row.sku || row.code, merged, "admin_bulk_publish");
+      await setProductVisibility(row.id || row.sku || row.code || row.public_slug || row.slug || row.rowid, "public", { reason: "admin_bulk_publish_legacy" });
     }
     updatedRows += 1;
     if (examplesUpdated.length < 10) examplesUpdated.push({ identifier: row.id || row.sku || row.code, reasonBefore: computed.reason, reasonAfter: computeProductPublicState(merged).reason });
@@ -3732,6 +3962,10 @@ async function bulkPublishEligible({
 } = {}) {
   if (publishMode !== "eligible_only") throw new Error("publishMode must be eligible_only");
   let updatedCount = 0;
+  const failedItems = [];
+  const sampleUpdated = [];
+  const sampleStillPrivate = [];
+  const sampleNotVisibleInPublicApi = [];
 
   if (includePrivateHidden === true && confirmPrivateHiddenPublish !== true && dryRun !== true) {
     const preview = await previewBulkPublish({ filters, limit, includePrivateHidden: true, includeDisabledImportCandidates: includeDisabledImportCandidates === true });
@@ -3759,9 +3993,30 @@ async function bulkPublishEligible({
     async onEligible(product, result) {
       const identifier = product.id || product.sku || product.code || product.public_slug || product.slug;
       if (!identifier) return;
-      const patch = buildBulkPublishPatch(product, result);
-      if (!dryRun) await updateProductByIdentifier(identifier, patch);
-      updatedCount += 1;
+      if (dryRun) {
+        updatedCount += 1;
+        return;
+      }
+      try {
+        const publication = await setProductVisibility(identifier, "public", { reason: "bulk_publish" });
+        const isPublic = publication?.after?.is_public === true || publication?.debug?.computePublicationState?.is_public === true;
+        const publicVisible = publication?.publicApiVisible === true || publication?.debug?.appearsInPublicApi === true;
+        if (isPublic && publicVisible) {
+          updatedCount += 1;
+          if (sampleUpdated.length < 10) sampleUpdated.push({
+            identifier,
+            title: product.name || product.title || null,
+            publicSlug: publication?.debug?.sqlite?.public_slug || null,
+            indexUpdated: Boolean(publication?.indexUpdated),
+          });
+        } else {
+          if (!isPublic && sampleStillPrivate.length < 10) sampleStillPrivate.push({ identifier, reason: publication?.after?.reason || publication?.debug?.computePublicationState?.reason || "not_public" });
+          if (!publicVisible && sampleNotVisibleInPublicApi.length < 10) sampleNotVisibleInPublicApi.push({ identifier, indexUpdated: Boolean(publication?.indexUpdated) });
+          failedItems.push({ identifier, reason: "post_publish_verification_failed", publication });
+        }
+      } catch (error) {
+        failedItems.push({ identifier, reason: error?.message || "publish_failed" });
+      }
     },
   });
   return {
@@ -3772,6 +4027,11 @@ async function bulkPublishEligible({
     includeDisabledImportCandidates: includeDisabledImportCandidates === true,
     ...summary,
     updatedCount,
+    failedItems,
+    sampleUpdated,
+    sampleStillPrivate,
+    sampleNotVisibleInPublicApi,
+    verificationOk: failedItems.length === 0,
   };
 }
 
@@ -3933,19 +4193,44 @@ async function debugPublicationByIdentifier(identifier = "") {
   let raw = {};
   try { raw = JSON.parse(row.raw_json || "{}"); } catch {}
   const computed = computeProductPublicState(raw);
+  const publicationState = computePublicationState(raw);
   const normalizedSearch = normalizeQueryText(term);
+  const indexRow = await get(db, `SELECT product_id, product_rowid, public_slug, title, sku, mpn, part_number, device_brand, part_type, model_base, stock_status, price, is_public, updated_at
+    FROM product_search_index
+    WHERE product_rowid = ? OR LOWER(COALESCE(product_id,'')) = LOWER(?) OR LOWER(COALESCE(sku,'')) = LOWER(?) OR LOWER(COALESCE(public_slug,'')) = LOWER(?) OR LOWER(COALESCE(mpn,'')) = LOWER(?)
+    LIMIT 1`, [row.rowid, term, term, term, term]);
+  const publicApiRow = await get(db, `SELECT si.product_rowid
+    FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid
+    WHERE si.product_rowid = ? AND si.is_public = 1
+    LIMIT 1`, [row.rowid]);
+  const adminPublicRow = await get(db, `SELECT si.product_rowid
+    FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid
+    WHERE si.product_rowid = ? AND si.is_public = 1
+    LIMIT 1`, [row.rowid]);
+  const adminPrivateRow = await get(db, `SELECT si.product_rowid
+    FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid
+    WHERE si.product_rowid = ? AND si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'private'
+    LIMIT 1`, [row.rowid]);
   return {
     identifier: term, found: true, foundBy: "sqlite",
     raw: {
       id: raw.id || null, sku: raw.sku || raw.SKU || null, code: raw.code || raw.Code || null, name: raw.name || raw.Name || null, title: raw.title || raw.Title || null, model: raw.model || null,
       description: raw.description || raw.descripcion || null, shortDescription: raw.shortDescription || raw.short_description || null,
-      visibility: raw.visibility || raw.visibilidad || null, status: raw.status || raw.estado || null, enabled: raw.enabled, deleted: raw.deleted, archived: raw.archived, vip_only: raw.vip_only ?? raw.vipOnly, wholesaleOnly: raw.wholesaleOnly ?? raw.wholesale_only,
+      visibility: raw.visibility || raw.visibilidad || null, status: raw.status || raw.estado || null, enabled: raw.enabled, is_public: raw.is_public ?? raw.isPublic,
+      deleted: raw.deleted, archived: raw.archived, vip_only: raw.vip_only ?? raw.vipOnly, wholesaleOnly: raw.wholesaleOnly ?? raw.wholesale_only,
     },
     sqlite: {
       rowid: row.rowid, id: row.id, sku: row.sku, code: row.code, name: row.name, title: row.title, model: row.model, public_slug: row.public_slug, visibility: row.visibility, status: row.status, enabled: row.enabled, deleted: row.deleted, archived: row.archived, vip_only: row.vip_only, wholesale_only: row.wholesale_only, is_public: row.is_public, search_text: row.search_text,
     },
     computed,
+    computePublicationState: publicationState,
+    index: indexRow ? { found: true, ...indexRow } : { found: false },
+    appearsInPublicApi: Boolean(publicApiRow),
+    appearsInAdminPublicFilter: Boolean(adminPublicRow),
+    appearsInAdminPrivateFilter: Boolean(adminPrivateRow),
+    blockers: publicationState.public_blockers,
     wouldAppearInPublicQuery: Number(row.is_public || 0) === 1,
+    indexPublicMatchesSqlite: indexRow ? Number(indexRow.is_public || 0) === Number(row.is_public || 0) : false,
     wouldMatchSearch: String(row.search_text || "").includes(normalizedSearch),
   };
 }
@@ -4071,7 +4356,10 @@ module.exports = {
   buildBulkPublishPatch,
   previewBulkPublish,
   bulkPublishEligible,
+  computePublicationState,
   computeProductPublicState,
+  setProductVisibility,
+  reindexProduct,
   updateProductByIdentifier,
   normalizeProductForPublic,
   normalizeProductForAdminList,

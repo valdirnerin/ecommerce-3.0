@@ -7063,6 +7063,9 @@ async function requestHandler(req, res) {
           includeDisabledImportCandidates: payload?.includeDisabledImportCandidates === true,
           confirmDisabledImportPublish: payload?.confirmDisabledImportPublish === true,
         });
+        if (result?.verificationOk === false) {
+          return sendJson(res, 409, { ...result, ok: false, code: "BULK_PUBLISH_VERIFICATION_FAILED" });
+        }
         return sendJson(res, 200, result);
       } catch (error) {
         if (error?.code === "PRIVATE_HIDDEN_CONFIRMATION_REQUIRED") {
@@ -7083,6 +7086,33 @@ async function requestHandler(req, res) {
       }
     });
     return;
+  }
+
+  const adminProductReindexMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/reindex$/);
+  if (adminProductReindexMatch && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const identifier = decodeURIComponent(adminProductReindexMatch[1] || "");
+      const result = await productsSqliteRepo.reindexProduct(identifier);
+      if (!result?.found) return sendJson(res, 404, { ok: false, error: "Producto no encontrado", identifier });
+      invalidateCatalogCaches("admin_product_reindex");
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, code: "PRODUCT_REINDEX_FAILED", error: error?.message || "No se pudo reindexar el producto" });
+    }
+  }
+
+  const adminProductPublicationDebugMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/publication-debug$/);
+  if (adminProductPublicationDebugMatch && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const identifier = decodeURIComponent(adminProductPublicationDebugMatch[1] || "");
+      const result = await productsSqliteRepo.debugPublicationByIdentifier(identifier);
+      if (!result?.found) return sendJson(res, 404, { ok: false, error: "Producto no encontrado", identifier });
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, code: "PUBLICATION_DEBUG_FAILED", error: error?.message || "No se pudo auditar publicacion" });
+    }
   }
 
   if (pathname === "/api/catalog/performance-test" && req.method === "GET") {
@@ -11181,8 +11211,9 @@ async function requestHandler(req, res) {
         if (!updated) {
           return sendJson(res, 404, { error: "Producto no encontrado" });
         }
+        let publicationDebug = null;
         if (isPublishAction) {
-          const publicationDebug = await productsSqliteRepo.debugPublicationByIdentifier(id);
+          publicationDebug = await productsSqliteRepo.debugPublicationByIdentifier(id);
           if (publicationDebug?.found && publicationDebug?.computed?.isPublic === false && publicationDebug?.computed?.reason === "enabled_false") {
             return sendJson(res, 409, {
               error: "No se pudo publicar el producto porque quedó enabled=false",
@@ -11191,7 +11222,7 @@ async function requestHandler(req, res) {
           }
         }
         invalidateCatalogCaches("admin_product_update");
-        return sendJson(res, 200, { success: true, product: normalizeProductImages(updated), source: "sqlite" });
+        return sendJson(res, 200, { success: true, product: normalizeProductImages(updated), source: "sqlite", debugPublication: publicationDebug });
       } catch (err) {
         console.error("products-update-error", err);
         if (err?.code === "MEMORY_GUARD_BLOCKED") {
