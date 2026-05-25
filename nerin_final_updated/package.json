@@ -10,6 +10,7 @@
     "catalog:enrich-csv": "node scripts/enrichCatalogCsv.js",
     "inspect:products": "node scripts/inspect-products-file.js",
     "rebuild:products-manifest": "node scripts/rebuildProductsManifest.js",
+    "test:render-startup": "node scripts/test-render-startup-nonblocking.js",
     "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
   },
   "dependencies": {

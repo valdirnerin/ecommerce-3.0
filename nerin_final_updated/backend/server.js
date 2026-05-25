@@ -5821,6 +5821,33 @@ function sendJson(res, statusCode, data, extraHeaders = {}) {
   res.end(json);
 }
 
+function buildCatalogInitializingPayload(error = null) {
+  return {
+    ok: false,
+    error: "CATALOG_INITIALIZING",
+    code: "CATALOG_INITIALIZING",
+    message: "Catalogo inicializando, reintentar en unos segundos",
+    source: "sqlite",
+    catalogState: error?.catalogState || productsSqliteRepo.catalogStateSnapshot(),
+  };
+}
+
+function sendCatalogError(res, error) {
+  if (error?.code === "CATALOG_INITIALIZING") {
+    return sendJson(res, 503, buildCatalogInitializingPayload(error), {
+      "Cache-Control": "no-store",
+      "Retry-After": "5",
+    });
+  }
+  return sendJson(res, 500, {
+    ok: false,
+    code: error?.code || "CATALOG_SQLITE_FAILED",
+    source: "sqlite",
+    error: error?.message || "Catalogo SQLite no disponible",
+    catalogState: error?.catalogState || productsSqliteRepo.catalogStateSnapshot(),
+  });
+}
+
 function extractSlugFromCheckoutUrl(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -6802,6 +6829,45 @@ async function requestHandler(req, res) {
     return res.end();
   }
 
+  if ((pathname === "/health" || pathname === "/api/health") && req.method === "GET") {
+    return sendJson(res, 200, {
+      ok: true,
+      status: "ok",
+      build: BUILD_ID,
+      catalog: productsSqliteRepo.catalogStateSnapshot(),
+      ts: Date.now(),
+    }, { "Cache-Control": "no-store" });
+  }
+
+  if (pathname === "/api/catalog/status" && req.method === "GET") {
+    try {
+      const health = await productsSqliteRepo.getCatalogHealth();
+      return sendJson(res, 200, {
+        ok: true,
+        ready: Boolean(health.ready),
+        initializing: Boolean(health.initializing),
+        rebuilding: Boolean(health.rebuilding),
+        progress: Number(health.progress || 0),
+        processed: Number(health.processed || 0),
+        total: Number(health.total || health.productCount || 0),
+        lastError: health.lastError || null,
+        startedAt: health.startedAt || health.lastRebuildStartedAt || null,
+        finishedAt: health.finishedAt || health.lastRebuildFinishedAt || null,
+        mappingVersion: Number(health.mappingVersion || health.catalogMappingVersion || 0),
+        schemaVersion: Number(health.schemaVersion || health.sqliteSchemaVersion || 0),
+        productCount: Number(health.productCount || 0),
+        publicCount: Number(health.publicProductCount || 0),
+        freshnessReason: health.freshnessReason || null,
+      }, { "Cache-Control": "no-store" });
+    } catch (error) {
+      return sendJson(res, 200, {
+        ok: true,
+        ...productsSqliteRepo.catalogStateSnapshot(),
+        lastError: error?.message || "catalog_status_unavailable",
+      }, { "Cache-Control": "no-store" });
+    }
+  }
+
   if (pathname && pathname.startsWith("/calc-api")) {
     if (hasExternalCalcApi && calcApiProxy) {
       return calcApiProxy(req, res, (proxyError) => {
@@ -7328,6 +7394,7 @@ async function requestHandler(req, res) {
         "Cache-Control": "no-store, no-cache, must-revalidate",
       });
     } catch (err) {
+      return sendCatalogError(res, err);
       const code = err?.code || "CATALOG_SQLITE_FAILED";
       const catalogState = err?.catalogState || productsSqliteRepo.catalogStateSnapshot();
       if (code === "CATALOG_INITIALIZING") {
@@ -7399,6 +7466,7 @@ async function requestHandler(req, res) {
         debug: debug ? data.searchDebug : undefined,
       });
     } catch (error) {
+      if (error?.code === "CATALOG_INITIALIZING") return sendCatalogError(res, error);
       return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });
     }
   }
@@ -13744,31 +13812,10 @@ function createServer() {
 module.exports = { createServer };
 
 if (require.main === module) {
-  (async () => {
-    let startupRepairAttempted = false;
-    try {
-      console.log("[products-db] startup ensure start");
-      await productsSqliteRepo.ensureProductsDbOnce();
-      console.log("[products-db] startup ensure done");
-    } catch (error) {
-      if (
-        !startupRepairAttempted &&
-        productsSqliteRepo.isSqliteCorruptionError(error)
-      ) {
-        startupRepairAttempted = true;
-        console.warn("[products-db] corrupt at startup; repairing");
-        try {
-          await productsSqliteRepo.repairCorruptSqlite({ reason: "startup_corrupt_repair" });
-        } catch (repairError) {
-          console.error("[products-db] repair failed", repairError?.message || repairError);
-        }
-      } else {
-        console.error(`[products-db] startup ensure failed reason=${error?.message || error}`);
-      }
-    }
-    const server = createServer();
-    server.listen(APP_PORT, () => {
-      console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
-    });
-  })();
+  const server = createServer();
+  server.listen(APP_PORT, () => {
+    console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
+    console.log(`[products-db] startup background ensure scheduled after listen port=${APP_PORT}`);
+    productsSqliteRepo.ensureProductsDbInBackground("startup-after-listen");
+  });
 }

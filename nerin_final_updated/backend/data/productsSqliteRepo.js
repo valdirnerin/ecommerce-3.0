@@ -1,6 +1,7 @@
 const fs = require("fs");
 const fsp = fs.promises;
 const path = require("path");
+const crypto = require("crypto");
 const sqlite3 = require("sqlite3");
 const productsStreamRepo = require("./productsStreamRepo");
 const { dataPath } = require("../utils/dataDir");
@@ -20,6 +21,12 @@ const PRODUCTS_SQLITE_SCHEMA_VERSION = 6;
 const CATALOG_MAPPING_VERSION = 5;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
+const DEBUG_PRICE_MAPPING =
+  String(process.env.DEBUG_PRICE_MAPPING || "").trim().toLowerCase() === "true";
+const TEST_REBUILD_DELAY_MS =
+  process.env.NODE_ENV === "test"
+    ? Math.max(0, Number(process.env.CATALOG_REBUILD_TEST_DELAY_MS || 0) || 0)
+    : 0;
 const SEARCH_INDEX_INSERT_SQL = `INSERT INTO product_search_index (
   product_id, product_rowid, public_slug, title, normalized_title, sku, mpn, part_number, brand,
   device_brand, compatible_brand, official_brand, is_compatible_for_brand, part_type,
@@ -57,6 +64,9 @@ const catalogState = {
   ready: false,
   initializing: false,
   rebuilding: false,
+  progress: 0,
+  total: 0,
+  processed: 0,
   corruptDetected: false,
   lastError: null,
   lastErrorAt: null,
@@ -64,10 +74,59 @@ const catalogState = {
   lastRebuildStartedAt: null,
   lastRebuildFinishedAt: null,
   lastRebuildDurationMs: null,
+  startedAt: null,
+  finishedAt: null,
+  mappingVersion: CATALOG_MAPPING_VERSION,
+  schemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
 };
 
 function catalogStateSnapshot() {
   return { ...catalogState };
+}
+
+function updateCatalogProgress(processed, total = catalogState.total) {
+  const safeProcessed = Math.max(0, Number(processed || 0));
+  const safeTotal = Math.max(0, Number(total || 0));
+  catalogState.processed = safeProcessed;
+  catalogState.total = safeTotal;
+  catalogState.progress = safeTotal > 0 ? Math.min(1, safeProcessed / safeTotal) : 0;
+}
+
+function normalizeManifest(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+  return {
+    ...parsed,
+    sqliteSchemaVersion: Number(parsed.sqliteSchemaVersion || parsed.PRODUCTS_SQLITE_SCHEMA_VERSION || 0) || null,
+    mappingVersion: Number(parsed.mappingVersion || parsed.CATALOG_MAPPING_VERSION || 0) || null,
+    productCount: Number(parsed.productCount || 0) || 0,
+    publicProductCount: Number(parsed.publicProductCount || parsed.publicCount || 0) || 0,
+    productsJsonSizeBytes: Number(parsed.productsJsonSizeBytes || parsed.productsJsonSize || 0) || 0,
+    productsJsonMtimeMs: Number(parsed.productsJsonMtimeMs || 0) || 0,
+    productsJsonSha256: parsed.productsJsonSha256 || parsed.productsJsonHash || null,
+  };
+}
+
+async function readManifest() {
+  try {
+    return normalizeManifest(JSON.parse(await fsp.readFile(MANIFEST_PATH, "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+async function computeFileSha256(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+async function sleep(ms) {
+  if (!ms) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function setCatalogError(error, context = {}) {
@@ -1714,7 +1773,7 @@ function mapProductRow(product = {}, options = {}) {
   }
   const priceFields = resolvePriceFields(product);
   const stock = Math.trunc(toNumber(product.stock, 0));
-  if (rowNumber != null && rowNumber <= 3) {
+  if (DEBUG_PRICE_MAPPING && rowNumber != null && rowNumber <= 3) {
     console.log("[products-price-map]", {
       id: toNullableText(product.id),
       sku: toNullableText(product.sku),
@@ -2322,10 +2381,14 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
     catalogState.rebuilding = true;
     catalogState.initializing = true;
     catalogState.ready = false;
+    catalogState.startedAt = new Date(startedAt).toISOString();
+    catalogState.finishedAt = null;
     catalogState.lastRebuildStartedAt = new Date(startedAt).toISOString();
     const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
+    const previousManifest = await readManifest();
+    updateCatalogProgress(0, Number(previousManifest?.productCount || 0));
     const tmpDbPath = `${SQLITE_PATH}.tmp-${process.pid}-${Date.now()}`;
-    console.log(`[products-db] rebuild start reason=${activeReason} productsFilePath=${PRODUCTS_JSON_PATH}`);
+    console.log(`[products-db] rebuild started reason=${activeReason} productsFilePath=${PRODUCTS_JSON_PATH}`);
 
     const tmpDb = await new Promise((resolve, reject) => {
       const conn = new sqlite3.Database(tmpDbPath, (error) => {
@@ -2410,8 +2473,14 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
           batch.push(mapped);
           count += 1;
           if (mapped.is_public === 1) publicCount += 1;
+          if (count <= 100 || count % 1000 === 0) {
+            updateCatalogProgress(count);
+          }
           if (count % 5000 === 0) {
             console.log(`[products-db] rebuild progress count=${count}`);
+          }
+          if (TEST_REBUILD_DELAY_MS) {
+            await sleep(TEST_REBUILD_DELAY_MS);
           }
           if (batch.length >= BATCH_SIZE) {
             await flush();
@@ -2455,12 +2524,17 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
 
       const manifest = {
         sqliteSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
+        PRODUCTS_SQLITE_SCHEMA_VERSION,
         mappingVersion: CATALOG_MAPPING_VERSION,
+        CATALOG_MAPPING_VERSION,
         productCount: count,
         publicProductCount: publicCount,
+        publicCount,
         searchIndexCount,
         productsJsonSizeBytes: Number(productsStats.size || 0),
         productsJsonMtimeMs: Number(productsStats.mtimeMs || 0),
+        productsJsonSha256: await computeFileSha256(PRODUCTS_JSON_PATH),
+        indexBuiltAt: new Date().toISOString(),
         sqliteBuiltAt: new Date().toISOString(),
         sqlitePath: SQLITE_PATH,
         sqliteFtsEnabled: ftsEnabled,
@@ -2477,6 +2551,8 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
       catalogState.lastReadyAt = new Date().toISOString();
       catalogState.lastRebuildFinishedAt = new Date().toISOString();
       catalogState.lastRebuildDurationMs = durationMs;
+      catalogState.finishedAt = catalogState.lastRebuildFinishedAt;
+      updateCatalogProgress(count, count);
       clearCatalogError();
       return manifest;
     } catch (error) {
@@ -2488,6 +2564,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
       }
       catalogState.lastRebuildFinishedAt = new Date().toISOString();
       catalogState.lastRebuildDurationMs = Date.now() - startedAt;
+      catalogState.finishedAt = catalogState.lastRebuildFinishedAt;
       try {
         await new Promise((resolve) => tmpDb.close(() => resolve()));
       } catch {}
@@ -2585,12 +2662,7 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
   console.log("[products-db] paths", buildCatalogPathsInfo());
   console.log("[products-db] ensure start");
   const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
-  let manifest = null;
-  try {
-    manifest = JSON.parse(await fsp.readFile(MANIFEST_PATH, "utf8"));
-  } catch {
-    manifest = null;
-  }
+  let manifest = await readManifest();
 
   let reason = "";
   if (!fs.existsSync(SQLITE_PATH)) {
@@ -2607,7 +2679,20 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
     Math.floor(Number(manifest.productsJsonMtimeMs || -1)) !==
     Math.floor(Number(productsStats.mtimeMs || 0))
   ) {
-    reason = "products_json_mtime_changed";
+    const currentHash = await computeFileSha256(PRODUCTS_JSON_PATH);
+    if (manifest.productsJsonSha256 && manifest.productsJsonSha256 !== currentHash) {
+      reason = "products_json_hash_changed";
+    } else if (!manifest.productsJsonSha256) {
+      reason = "products_json_mtime_changed";
+    } else {
+      manifest = {
+        ...manifest,
+        productsJsonMtimeMs: Number(productsStats.mtimeMs || 0),
+        productsJsonSha256: currentHash,
+      };
+      await fsp.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2), "utf8");
+      console.log("[products-db] products mtime changed but hash is unchanged; manifest refreshed");
+    }
   }
 
   if (!reason && fs.existsSync(SQLITE_PATH)) {
@@ -2673,6 +2758,8 @@ async function ensureProductsDbOnce() {
 
 function ensureProductsDbInBackground(trigger = "request") {
   if (dbReady || dbReadyPromise) return;
+  catalogState.initializing = true;
+  catalogState.startedAt = catalogState.startedAt || new Date().toISOString();
   dbReadyPromise = ensureProductsDb({ allowRebuild: true });
   dbReadyPromise
     .then(() => {
@@ -3646,13 +3733,7 @@ async function getProductsByIdentifiers(identifiers = []) {
 }
 
 async function getManifestFromDb() {
-  try {
-    const raw = await fsp.readFile(MANIFEST_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
+  return readManifest();
 }
 
 async function getCatalogHealth() {
@@ -3719,8 +3800,21 @@ async function getCatalogHealth() {
     Math.floor(Number(manifest.productsJsonMtimeMs || -1)) !==
     Math.floor(Number(productsStats.mtimeMs || 0))
   ) {
-    isFresh = false;
-    freshnessReason = "products_json_mtime_changed";
+    if (manifest.productsJsonSha256) {
+      try {
+        const currentHash = await computeFileSha256(PRODUCTS_JSON_PATH);
+        if (manifest.productsJsonSha256 !== currentHash) {
+          isFresh = false;
+          freshnessReason = "products_json_hash_changed";
+        }
+      } catch {
+        isFresh = false;
+        freshnessReason = "products_json_hash_unavailable";
+      }
+    } else {
+      isFresh = false;
+      freshnessReason = "products_json_mtime_changed";
+    }
   }
   const manifestPublicCount = Number(manifest?.publicProductCount || 0);
   const productCount = Number(totalRow?.total || 0);
@@ -3744,6 +3838,9 @@ async function getCatalogHealth() {
     ready: Boolean(dbReady && sqliteExists && !catalogState.lastError),
     initializing: Boolean(catalogState.initializing),
     rebuilding: Boolean(catalogState.rebuilding),
+    progress: Number(catalogState.progress || 0),
+    total: Number(catalogState.total || manifest?.productCount || 0),
+    processed: Number(catalogState.processed || 0),
     lastError: catalogState.lastError,
     lastErrorCode: catalogState.lastError?.code || null,
     lastErrorAt: catalogState.lastErrorAt,
@@ -3752,6 +3849,10 @@ async function getCatalogHealth() {
     lastRebuildStartedAt: catalogState.lastRebuildStartedAt,
     lastRebuildFinishedAt: catalogState.lastRebuildFinishedAt,
     lastRebuildDurationMs: catalogState.lastRebuildDurationMs,
+    startedAt: catalogState.startedAt,
+    finishedAt: catalogState.finishedAt,
+    mappingVersion: CATALOG_MAPPING_VERSION,
+    schemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
     productsJsonExists,
     sqlitePath: SQLITE_PATH,
     sqliteExists,
@@ -4328,6 +4429,7 @@ module.exports = {
   ensureProductsDbOnce,
   rebuildProductsDbFromJson,
   isRebuildInProgress,
+  ensureProductsDbInBackground,
   repairCorruptSqlite,
   isSqliteCorruptionError,
   catalogStateSnapshot,
