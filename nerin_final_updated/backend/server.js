@@ -248,12 +248,18 @@ const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
 const analyticsDetailedCache = new Map();
 const analyticsLiveCache = { at: 0, value: null };
+let analyticsDetailedRunning = false;
+const ANALYTICS_IS_PRODUCTION = String(process.env.NODE_ENV||"development").toLowerCase()=="production";
+const ANALYTICS_DETAILED_ENABLED = String(process.env.ANALYTICS_DETAILED_ENABLED ?? (ANALYTICS_IS_PRODUCTION ? "false" : "true")).toLowerCase()=="true";
+const ANALYTICS_CATALOG_SNAPSHOT_ENABLED = String(process.env.ANALYTICS_CATALOG_SNAPSHOT_ENABLED ?? (ANALYTICS_IS_PRODUCTION ? "false" : "true")).toLowerCase()=="true";
+const ANALYTICS_MAX_EVENTS_DETAILED = Number.parseInt(process.env.ANALYTICS_MAX_EVENTS_DETAILED||"2000",10) || 2000;
+const ANALYTICS_SOFT_TIMEOUT_MS = 5000;
 
 function getDetailedAnalyticsTtlMs(range = "7d") {
-  if (range === "today") return 15_000;
-  if (range === "7d") return 30_000;
-  if (range === "30d") return 60_000;
-  return 60_000;
+  if (range === "today") return 60_000;
+  if (range === "7d") return 120_000;
+  if (range === "30d") return 300_000;
+  return 300_000;
 }
 const DISABLE_PRODUCTS_STREAMING_FALLBACK =
   String(process.env.DISABLE_PRODUCTS_STREAMING_FALLBACK || "true").trim().toLowerCase() === "true";
@@ -3293,7 +3299,7 @@ function savePurchaseOrders(purchaseOrders) {
  */
 function parseAnalyticsRange(query = {}) {
   const now = new Date();
-  const rawRange = String(query.range || "7d").trim().toLowerCase();
+  const rawRange = String(query.range || "today").trim().toLowerCase();
   const normalizeDayStart = (date) => {
     const normalized = new Date(date);
     normalized.setHours(0, 0, 0, 0);
@@ -3353,7 +3359,7 @@ function parseAnalyticsRange(query = {}) {
 
   const fallbackFrom = normalizeDayStart(new Date(now));
   fallbackFrom.setDate(fallbackFrom.getDate() - 6);
-  return { from: fallbackFrom, to: normalizeDayEnd(now), range: "7d" };
+  return { from: normalizeDayStart(now), to: normalizeDayEnd(now), range: "today" };
 }
 
 async function buildAnalyticsCatalogSnapshot() {
@@ -3372,6 +3378,9 @@ async function buildAnalyticsCatalogSnapshot() {
   };
   const categories = new Set();
   const brands = new Set();
+  if (!ANALYTICS_CATALOG_SNAPSHOT_ENABLED) {
+    return { manifest, totalProducts: 0, publishedProducts: 0, outOfStockProducts: 0, lowStockProducts: 0, hiddenProducts: 0, withSupplierPartNumber: 0, categoriesCount: 0, brandsCount: 0, productSummaryById: new Map() };
+  }
   console.log("[analytics-catalog-snapshot] start");
   try {
     await productsStreamRepo.streamProducts({
@@ -12459,37 +12468,47 @@ async function requestHandler(req, res) {
    */
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
     try {
+      if (!ANALYTICS_DETAILED_ENABLED) {
+        console.log("[analytics:detailed:skipped]", { reason: "disabled" });
+        return sendJson(res, 200, { analyticsAvailable: false, disabled: true, message: "analytics detailed disabled" });
+      }
       const range = parseAnalyticsRange(parsedUrl.query);
-      const cacheKey = JSON.stringify({ range: range.key, from: range.from?.toISOString?.() || null, to: range.to?.toISOString?.() || null });
-      const ttlMs = getDetailedAnalyticsTtlMs(range.key);
+      const rangeKey = range.range || "today";
+      const cacheKey = `range=${rangeKey}|from=${range.from ? range.from.toISOString().slice(0,10) : ""}|to=${range.to ? range.to.toISOString().slice(0,10) : ""}`;
+      const ttlMs = getDetailedAnalyticsTtlMs(rangeKey);
       const cached = analyticsDetailedCache.get(cacheKey);
       if (cached && Date.now() - cached.at < ttlMs) {
-        console.log("[analytics:detailed]", { range: range.key, durationMs: Date.now() - cached.at, cacheHit: true, eventsCount: cached.eventsCount || 0 });
-        return sendJson(res, 200, { analyticsAvailable: true, analytics: cached.analytics, range });
+        console.log("[analytics:detailed]", { range: rangeKey, durationMs: Date.now() - cached.at, cacheHit: true, eventsCount: cached.eventsCount || 0 });
+        return sendJson(res, 200, { analyticsAvailable: true, analytics: cached.analytics, range, cacheHit: true });
       }
+      if (analyticsDetailedRunning) {
+        if (cached) return sendJson(res, 200, { analyticsAvailable: true, analytics: cached.analytics, range, cacheHit: true, stale: true });
+        return sendJson(res, 429, { message: "analytics detailed already running" });
+      }
+      analyticsDetailedRunning = true;
       const startedAt = Date.now();
-      const events = getEventsByRange({ from: range.from, to: range.to });
-      let sessions = getStoredSessions();
-      if (!Array.isArray(sessions) || sessions.length === 0) {
-        const fallback = getActivityLog();
-        sessions = Array.isArray(fallback.sessions) ? fallback.sessions : [];
+      console.log("[analytics:detailed:start]", { range: rangeKey });
+      console.log("[analytics:memory]", process.memoryUsage());
+      const allEvents = getEventsByRange({ from: range.from, to: range.to, skipArchive: !parsedUrl.query.from && !parsedUrl.query.to });
+      const events = allEvents.slice(0, ANALYTICS_MAX_EVENTS_DETAILED);
+      const truncated = allEvents.length > events.length;
+      if (Date.now() - startedAt > ANALYTICS_SOFT_TIMEOUT_MS) {
+        console.log("[analytics:detailed:timeout]", { range: rangeKey });
+        analyticsDetailedRunning = false;
+        return sendJson(res, 200, { partial: true, error: "ANALYTICS_TIMEOUT_SOFT_LIMIT", truncated, eventsUsed: events.length, eventsTotalEstimate: allEvents.length });
       }
-      const analytics = await calculateDetailedAnalytics({
-        rangeStart: range.from,
-        rangeEnd: range.to,
-        events,
-        sessions,
-      });
-      analyticsDetailedCache.set(cacheKey, { at: Date.now(), analytics, eventsCount: events.length });
-      console.log("[analytics:detailed]", { range: range.key, durationMs: Date.now() - startedAt, cacheHit: false, eventsCount: events.length });
-      return sendJson(res, 200, { analyticsAvailable: true, analytics, range });
-    } catch (err) {
+      let sessions = getStoredSessions();
+      if (!Array.isArray(sessions) || sessions.length === 0) sessions = (getActivityLog().sessions || []);
+      const analytics = await calculateDetailedAnalytics({ rangeStart: range.from, rangeEnd: range.to, events, sessions });
+      const payload = { analytics, truncated, eventsUsed: events.length, eventsTotalEstimate: allEvents.length };
+      analyticsDetailedCache.set(cacheKey, { at: Date.now(), analytics: payload, eventsCount: events.length });
+      console.log("[analytics:detailed:end]", { range: rangeKey, durationMs: Date.now() - startedAt, cacheHit: false, eventsCount: events.length });
+      console.log("[analytics:memory]", process.memoryUsage());
+      analyticsDetailedRunning = false;
+      return sendJson(res, 200, { analyticsAvailable: true, ...payload, range });
+    } catch (err) { analyticsDetailedRunning = false;
       console.error("analytics-detailed error", err);
-      return sendJson(res, 500, {
-        analyticsAvailable: false,
-        error: "No se pudieron calcular las analíticas detalladas",
-        details: err?.message || String(err),
-      });
+      return sendJson(res, 500, { analyticsAvailable: false, error: "No se pudieron calcular las analíticas detalladas", details: err?.message || String(err) });
     }
   }
 
