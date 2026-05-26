@@ -409,7 +409,7 @@ export function trackStockRealPurchase(order = {}) {
 if (hasWindow()) ensureDebugState();
 
 const LIVE_MS = 8000;
-const DETAIL_MS = 120000;
+const DETAIL_MS = 0;
 const state = { range: "7d", from: "", to: "" };
 let liveTimer = null;
 let detailTimer = null;
@@ -450,7 +450,7 @@ function shell(container) {
       <div class="analytics-range__custom" id="analytics-custom-range" style="display:none"><input type="date" id="analytics-from-date"><input type="date" id="analytics-to-date"><button type="button" class="button secondary" id="analytics-apply-range">Aplicar</button></div>
       <button type="button" class="button secondary" id="analytics-refresh-now">Actualizar ahora</button>
     </div></div>
-    <div class="analytics-meta" role="status"><span class="analytics-meta__status" id="analytics-live-updated-at">Cargando datos en vivo...</span><span class="analytics-meta__hint">En vivo cada ${Math.round(LIVE_MS / 1000)} s</span><span class="analytics-meta__hint">Detallado cada ${Math.round(DETAIL_MS / 1000)} s</span><span class="analytics-meta__hint" id="analytics-live-health">Último evento: cargando...</span><span class="analytics-meta__hint" id="analytics-detail-status">Métricas detalladas: cargando...</span></div>
+    <div class="analytics-meta" role="status"><span class="analytics-meta__status" id="analytics-live-updated-at">Cargando datos en vivo...</span><span class="analytics-meta__hint">En vivo cada ${Math.round(LIVE_MS / 1000)} s</span><span class="analytics-meta__hint">Reporte detallado limitado para proteger rendimiento. Actualizar manualmente</span><span class="analytics-meta__hint" id="analytics-live-health">Último evento: cargando...</span><span class="analytics-meta__hint" id="analytics-detail-status">Métricas detalladas: cargando...</span></div>
     <div class="analytics-summary-grid">${card("analytics-live-active-sessions", "Sesiones activas", "Personas navegando en tiempo real", "primary")}${card("analytics-live-checkout-in-progress", "Checkout en curso", "Usuarios a punto de comprar", "warning")}${card("analytics-visitors-today", "Visitantes hoy", "Datos detallados")}${card("analytics-revenue-today", "Ingresos hoy", "Datos detallados", "success")}${card("analytics-conversion-rate", "Tasa de conversión", "Datos detallados", "info")}${card("analytics-average-session-duration", "Duración media sesión", "Datos detallados")}</div>
     <div class="analytics-two-column"><section class="analytics-panel"><h4>Sesiones en vivo</h4><div id="analytics-live-sessions-panel" class="analytics-empty">Cargando sesiones...</div></section><section class="analytics-panel"><h4>Productos más vistos</h4><div id="analytics-hot-products-panel" class="analytics-empty">Cargando productos...</div></section></div>
     <div class="analytics-two-column analytics-two-column--balanced"><section class="analytics-panel"><h4>Insights automáticos</h4><div id="analytics-insights-panel" class="analytics-empty">Cargando insights...</div></section><section class="analytics-panel"><h4>Calidad de tráfico</h4><div id="analytics-quality-panel" class="analytics-empty">Cargando calidad...</div></section></div>
@@ -540,6 +540,8 @@ async function fetchDetail(force = false) {
     hasDetail = true;
     applyDetail(analytics);
     setText("analytics-detail-status", `Métricas detalladas actualizadas ${clock(new Date().toISOString())}`);
+    if (payload?.disabled) setText("analytics-detail-status", "Reporte detallado desactivado para proteger rendimiento.");
+    if (payload?.partial || payload?.truncated) setText("analytics-detail-status", `Reporte limitado: ${payload.error || "truncated"}`);
   } catch (err) {
     console.error("analytics-detailed-refresh-error", err);
     setText("analytics-detail-status", "No se pudieron actualizar las métricas detalladas.");
@@ -548,7 +550,7 @@ async function fetchDetail(force = false) {
 
 function timers() {
   if (!liveTimer) liveTimer = window.setInterval(() => fetchLive(), LIVE_MS);
-  if (!detailTimer) detailTimer = window.setInterval(() => fetchDetail(), DETAIL_MS);
+  // detailed manual refresh only
 }
 
 export async function renderAnalyticsDashboard(containerId = "analytics-dashboard", options = {}) {
