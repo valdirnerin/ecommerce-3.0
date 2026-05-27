@@ -4,7 +4,7 @@
   "description": "Sistema ERP + E‑commerce para NERIN Repuestos",
   "main": "backend/index.js",
   "scripts": {
-    "start": "node scripts/applyCodexSeoBulkPatch.js && node scripts/applySitemapHotfix.js && node --max-old-space-size=512 -r ./backend/utils/preloadProductAvailability.js backend/server.js",
+    "start": "node scripts/applyCodexSeoBulkPatch.js && node scripts/applySitemapHotfix.js && node scripts/applyScreenPublisherHotfix.js && node --max-old-space-size=512 -r ./backend/utils/preloadProductAvailability.js backend/server.js",
     "test": "jest",
     "validate:meta-feed": "node scripts/validate-meta-feed.js",
     "catalog:enrich-csv": "node scripts/enrichCatalogCsv.js",
@@ -22,7 +22,7 @@
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "csv-parse": "^5.5.6",
-    "decimal.js": "^10.4.3",
+    "decimal.js": "^10.4.0",
     "express": "^4.19.2",
     "http-proxy-middleware": "^3.0.0",
     "joi": "^17.12.0",
