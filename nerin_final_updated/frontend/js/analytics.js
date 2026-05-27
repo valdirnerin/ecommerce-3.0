@@ -408,11 +408,9 @@ export function trackStockRealPurchase(order = {}) {
 
 if (hasWindow()) ensureDebugState();
 
-const LIVE_MS = 8000;
-const DETAIL_MS = 120000;
-const state = { range: "7d", from: "", to: "" };
+const LIVE_MS = 12000;
+const state = { range: "today", from: "", to: "" };
 let liveTimer = null;
-let detailTimer = null;
 let liveBusy = false;
 let detailBusy = false;
 let hasDetail = false;
@@ -448,9 +446,10 @@ function shell(container) {
       <label for="analytics-range-select">Rango de análisis</label>
       <select id="analytics-range-select"><option value="today">Hoy</option><option value="7d">7 días</option><option value="30d">30 días</option><option value="custom">Personalizado</option></select>
       <div class="analytics-range__custom" id="analytics-custom-range" style="display:none"><input type="date" id="analytics-from-date"><input type="date" id="analytics-to-date"><button type="button" class="button secondary" id="analytics-apply-range">Aplicar</button></div>
-      <button type="button" class="button secondary" id="analytics-refresh-now">Actualizar ahora</button>
+      <button type="button" class="button secondary" id="analytics-refresh-now">Actualizar en vivo</button>
+      <button type="button" class="button primary" id="analytics-refresh-detail">Actualizar reporte pesado</button>
     </div></div>
-    <div class="analytics-meta" role="status"><span class="analytics-meta__status" id="analytics-live-updated-at">Cargando datos en vivo...</span><span class="analytics-meta__hint">En vivo cada ${Math.round(LIVE_MS / 1000)} s</span><span class="analytics-meta__hint">Detallado cada ${Math.round(DETAIL_MS / 1000)} s</span><span class="analytics-meta__hint" id="analytics-live-health">Último evento: cargando...</span><span class="analytics-meta__hint" id="analytics-detail-status">Métricas detalladas: cargando...</span></div>
+    <div class="analytics-meta" role="status"><span class="analytics-meta__status" id="analytics-live-updated-at">Cargando datos en vivo...</span><span class="analytics-meta__hint">En vivo cada ${Math.round(LIVE_MS / 1000)} s</span><span class="analytics-meta__hint">Reporte detallado limitado para proteger rendimiento.</span><span class="analytics-meta__hint" id="analytics-live-health">Último evento: cargando...</span><span class="analytics-meta__hint" id="analytics-detail-status">Métricas detalladas: pendientes de actualización manual.</span></div>
     <div class="analytics-summary-grid">${card("analytics-live-active-sessions", "Sesiones activas", "Personas navegando en tiempo real", "primary")}${card("analytics-live-checkout-in-progress", "Checkout en curso", "Usuarios a punto de comprar", "warning")}${card("analytics-visitors-today", "Visitantes hoy", "Datos detallados")}${card("analytics-revenue-today", "Ingresos hoy", "Datos detallados", "success")}${card("analytics-conversion-rate", "Tasa de conversión", "Datos detallados", "info")}${card("analytics-average-session-duration", "Duración media sesión", "Datos detallados")}</div>
     <div class="analytics-two-column"><section class="analytics-panel"><h4>Sesiones en vivo</h4><div id="analytics-live-sessions-panel" class="analytics-empty">Cargando sesiones...</div></section><section class="analytics-panel"><h4>Productos más vistos</h4><div id="analytics-hot-products-panel" class="analytics-empty">Cargando productos...</div></section></div>
     <div class="analytics-two-column analytics-two-column--balanced"><section class="analytics-panel"><h4>Insights automáticos</h4><div id="analytics-insights-panel" class="analytics-empty">Cargando insights...</div></section><section class="analytics-panel"><h4>Calidad de tráfico</h4><div id="analytics-quality-panel" class="analytics-empty">Cargando calidad...</div></section></div>
@@ -464,10 +463,11 @@ function shell(container) {
   range.addEventListener("change", () => {
     state.range = range.value;
     custom.style.display = state.range === "custom" ? "flex" : "none";
-    if (state.range !== "custom") { state.from = ""; state.to = ""; fetchDetail(true); }
+    if (state.range !== "custom") { state.from = ""; state.to = ""; setText("analytics-detail-status", "Rango actualizado. Usá Actualizar reporte pesado para recalcular."); }
   });
-  document.getElementById("analytics-apply-range")?.addEventListener("click", () => { state.range = "custom"; state.from = from?.value || ""; state.to = to?.value || ""; fetchDetail(true); });
-  document.getElementById("analytics-refresh-now")?.addEventListener("click", () => { fetchLive(true); fetchDetail(true); });
+  document.getElementById("analytics-apply-range")?.addEventListener("click", () => { state.range = "custom"; state.from = from?.value || ""; state.to = to?.value || ""; setText("analytics-detail-status", "Rango personalizado aplicado. Usá Actualizar reporte pesado para recalcular."); });
+  document.getElementById("analytics-refresh-now")?.addEventListener("click", () => { fetchLive(true); });
+  document.getElementById("analytics-refresh-detail")?.addEventListener("click", () => { fetchDetail(true); });
 }
 
 function renderLiveSessions(sessions = []) {
@@ -533,13 +533,22 @@ async function fetchDetail(force = false) {
     const p = params();
     if (force) p.set("force", "1");
     const res = await apiFetch(`/api/analytics/detailed?${p.toString()}`, { cache: "no-store" });
+    if (res.status === 429 || res.status === 202) {
+      setText("analytics-detail-status", "El reporte pesado ya se está calculando. Probá de nuevo en unos segundos.");
+      return;
+    }
     if (!res.ok) throw new Error(`detailed analytics ${res.status}`);
     const payload = await res.json();
     const analytics = payload?.analytics || payload || {};
+    if (payload?.disabled || payload?.analyticsAvailable === false) {
+      setText("analytics-detail-status", payload?.message || "Reporte detallado limitado para proteger rendimiento.");
+      return;
+    }
     if (analytics.analyticsAvailable === false) { setText("analytics-detail-status", analytics.error || analytics.message || "No se pudieron cargar las métricas detalladas."); return; }
     hasDetail = true;
     applyDetail(analytics);
-    setText("analytics-detail-status", `Métricas detalladas actualizadas ${clock(new Date().toISOString())}`);
+    const flags = [payload?.partial ? "parcial" : "", payload?.truncated ? `limitado a ${num(payload.eventsUsed)} eventos` : ""].filter(Boolean).join(" · ");
+    setText("analytics-detail-status", `Métricas detalladas actualizadas ${clock(new Date().toISOString())}${flags ? ` · ${flags}` : ""}`);
   } catch (err) {
     console.error("analytics-detailed-refresh-error", err);
     setText("analytics-detail-status", "No se pudieron actualizar las métricas detalladas.");
@@ -548,7 +557,6 @@ async function fetchDetail(force = false) {
 
 function timers() {
   if (!liveTimer) liveTimer = window.setInterval(() => fetchLive(), LIVE_MS);
-  if (!detailTimer) detailTimer = window.setInterval(() => fetchDetail(), DETAIL_MS);
 }
 
 export async function renderAnalyticsDashboard(containerId = "analytics-dashboard", options = {}) {
@@ -561,5 +569,6 @@ export async function renderAnalyticsDashboard(containerId = "analytics-dashboar
   shell(container);
   timers();
   fetchLive(true);
-  if (!isAutoRefresh || forceDetailed || !hasDetail) fetchDetail(Boolean(forceDetailed));
+  if (forceDetailed) fetchDetail(true);
+  else if (!hasDetail && !isAutoRefresh) setText("analytics-detail-status", "Reporte detallado limitado para proteger rendimiento. Usá Actualizar reporte pesado.");
 }

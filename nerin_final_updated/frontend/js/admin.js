@@ -104,7 +104,7 @@ if (currentRole === "vendedor") {
 const navButtons = document.querySelectorAll(".admin-nav button");
 const sections = document.querySelectorAll(".admin-section");
 const analyticsSection = document.getElementById("analyticsSection");
-const ANALYTICS_REFRESH_INTERVAL_MS = 45 * 1000;
+const ANALYTICS_REFRESH_INTERVAL_MS = 15 * 1000;
 let analyticsRefreshTimer = null;
 let analyticsAutoRefreshMs = null;
 let analyticsLoading = false;
