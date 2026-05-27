@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
 const zlib = require("zlib");
 const { DATA_DIR, dataPath, IS_PERSISTENT } = require("./dataDir");
 
@@ -268,6 +269,136 @@ function getEventsByRange({ from, to, type, skipArchive = false } = {}) {
   });
 }
 
+function buildEventTypeFilter(type) {
+  return typeof type === "string"
+    ? type
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean)
+    : null;
+}
+
+function eventMatchesRange(evt, { fromMs = null, toMs = null, typeFilter = null } = {}) {
+  const ts = Date.parse(evt?.timestamp || "");
+  if (Number.isFinite(fromMs) && Number.isFinite(ts) && ts < fromMs) return false;
+  if (Number.isFinite(toMs) && Number.isFinite(ts) && ts > toMs) return false;
+  if (typeFilter && typeFilter.length) {
+    const evtType = String(evt?.type || "").toLowerCase();
+    if (!typeFilter.includes(evtType)) return false;
+  }
+  return true;
+}
+
+async function iterateTextLines(input, onLine) {
+  const rl = readline.createInterface({
+    input,
+    crlfDelay: Infinity,
+  });
+  try {
+    for await (const line of rl) {
+      const shouldContinue = await onLine(line);
+      if (shouldContinue === false) {
+        rl.close();
+        if (typeof input.destroy === "function") input.destroy();
+        break;
+      }
+    }
+  } catch (error) {
+    if (error?.code !== "ERR_STREAM_PREMATURE_CLOSE") throw error;
+  }
+}
+
+async function iterateEventsByRange({
+  from,
+  to,
+  type,
+  skipArchive = false,
+  includeArchive = false,
+  maxEvents = Infinity,
+  onEvent,
+} = {}) {
+  ensureDirs();
+  const fromMs = from ? new Date(from).getTime() : null;
+  const toMs = to ? new Date(to).getTime() : null;
+  const typeFilter = buildEventTypeFilter(type);
+  const safeMax = Number.isFinite(Number(maxEvents)) ? Math.max(0, Number(maxEvents)) : Infinity;
+  let matched = 0;
+  let totalEstimate = 0;
+  let truncated = false;
+
+  const visitEvent = async (evt) => {
+    if (!evt || !eventMatchesRange(evt, { fromMs, toMs, typeFilter })) return true;
+    totalEstimate += 1;
+    if (matched >= safeMax) {
+      truncated = true;
+      return false;
+    }
+    matched += 1;
+    if (typeof onEvent === "function") {
+      const shouldContinue = await onEvent(evt, { matched, totalEstimate });
+      if (shouldContinue === false) {
+        truncated = true;
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const files = listEventFiles();
+  for (const file of files) {
+    const dateMs = Date.parse(file.dateKey);
+    if (Number.isFinite(fromMs) && Number.isFinite(dateMs) && dateMs + 86400000 < fromMs) continue;
+    if (Number.isFinite(toMs) && Number.isFinite(dateMs) && dateMs > toMs) continue;
+    let keepGoing = true;
+    try {
+      await iterateTextLines(fs.createReadStream(file.filePath, { encoding: "utf8" }), async (line) => {
+        const evt = parseJsonLine(line);
+        keepGoing = await visitEvent(evt);
+        return keepGoing;
+      });
+    } catch {
+      keepGoing = true;
+    }
+    if (!keepGoing) break;
+  }
+
+  if (!skipArchive && includeArchive && !truncated) {
+    const archiveFiles = listArchiveFiles();
+    for (const archive of archiveFiles) {
+      const weekMs = archive.weekDate.getTime();
+      if (Number.isFinite(fromMs) && weekMs + 7 * 86400000 < fromMs) continue;
+      if (Number.isFinite(toMs) && weekMs > toMs) continue;
+      let keepGoing = true;
+      try {
+        await iterateTextLines(fs.createReadStream(archive.filePath).pipe(zlib.createGunzip()), async (line) => {
+          const evt = parseJsonLine(line);
+          keepGoing = await visitEvent(evt);
+          return keepGoing;
+        });
+      } catch {
+        keepGoing = true;
+      }
+      if (!keepGoing) break;
+    }
+  }
+
+  return { matched, eventsUsed: matched, eventsTotalEstimate: totalEstimate, truncated };
+}
+
+async function getEventsSummaryByRange(options = {}) {
+  const events = [];
+  const result = await iterateEventsByRange({
+    ...options,
+    onEvent: (evt) => {
+      if (options.includeEvents !== false) events.push(evt);
+    },
+  });
+  return {
+    ...result,
+    events,
+  };
+}
+
 function getSessionTimeline(sessionId, { from, to } = {}) {
   if (!sessionId) return [];
   const events = getEventsByRange({ from, to });
@@ -391,10 +522,10 @@ function getTrackingHealth() {
   const lastEvent = getLatestEventInfo();
   const now = Date.now();
   const oneHourAgo = new Date(now - 60 * 60 * 1000);
-  const eventsLastHour = getEventsByRange({ from: oneHourAgo, to: new Date(now) }).length;
+  const hotEvents = getEventsByRange({ from: oneHourAgo, to: new Date(now), skipArchive: true });
   return {
     lastEventAt: lastEvent?.timestamp || null,
-    eventsLastHour,
+    eventsLastHour: hotEvents.length,
     isPersistentDataDir: IS_PERSISTENT,
     dataDirPath: dataPath("").replace(/\/$/, ""),
   };
@@ -406,6 +537,10 @@ module.exports = {
   getSessions,
   getSessionTimeline,
   getEventsByRange,
+  iterateEventsByRange,
+  getEventsSummaryByRange,
+  listEventFiles,
+  listArchiveFiles,
   rotateAndArchive,
   getTrackingHealth,
   ANALYTICS_DIR,

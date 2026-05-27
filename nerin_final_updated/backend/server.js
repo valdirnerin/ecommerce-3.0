@@ -105,8 +105,10 @@ const {
   getSessions: getStoredSessions,
   getSessionTimeline,
   getEventsByRange,
+  getEventsSummaryByRange,
+  listEventFiles,
+  listArchiveFiles,
   rotateAndArchive,
-  getTrackingHealth,
 } = require("./utils/analyticsStore");
 
 let buildInfo = {};
@@ -248,12 +250,65 @@ const MAX_ANALYTICS_HISTORY_DAYS = 35;
 const MAX_HISTORY_SESSION_IDS = 2000;
 const analyticsDetailedCache = new Map();
 const analyticsLiveCache = { at: 0, value: null };
+let analyticsDetailedRunning = false;
+let analyticsCatalogSnapshotCache = null;
+
+function parseBooleanEnv(name, defaultValue = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return defaultValue;
+  return ["1", "true", "yes", "on"].includes(String(raw).trim().toLowerCase());
+}
+
+const ANALYTICS_DETAILED_ENABLED = parseBooleanEnv(
+  "ANALYTICS_DETAILED_ENABLED",
+  !IS_PRODUCTION,
+);
+const ANALYTICS_CATALOG_SNAPSHOT_ENABLED = parseBooleanEnv(
+  "ANALYTICS_CATALOG_SNAPSHOT_ENABLED",
+  !IS_PRODUCTION,
+);
+const ANALYTICS_MAX_EVENTS_DETAILED = Math.max(
+  1,
+  Number.parseInt(process.env.ANALYTICS_MAX_EVENTS_DETAILED || "2000", 10) || 2000,
+);
+const ANALYTICS_DETAILED_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.ANALYTICS_DETAILED_TIMEOUT_MS || "5000", 10) || 5000,
+);
+const ANALYTICS_CATALOG_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
 
 function getDetailedAnalyticsTtlMs(range = "7d") {
-  if (range === "today") return 15_000;
-  if (range === "7d") return 30_000;
-  if (range === "30d") return 60_000;
-  return 60_000;
+  if (range === "today") return 60_000;
+  if (range === "7d") return 120_000;
+  if (range === "30d") return 300_000;
+  return 300_000;
+}
+
+function getMemoryUsageSnapshot() {
+  const mem = process.memoryUsage();
+  return {
+    rss: mem.rss,
+    heapUsed: mem.heapUsed,
+    heapTotal: mem.heapTotal,
+    external: mem.external,
+  };
+}
+
+function logAnalyticsMemory(stage) {
+  console.log("[analytics:memory]", {
+    stage,
+    ...getMemoryUsageSnapshot(),
+  });
+}
+
+function getAnalyticsCacheKey(range) {
+  const key = range?.key || range?.range || "today";
+  const parts = [`range=${key}`];
+  if (key === "custom") {
+    parts.push(`from=${range?.from ? range.from.toISOString().slice(0, 10) : ""}`);
+    parts.push(`to=${range?.to ? range.to.toISOString().slice(0, 10) : ""}`);
+  }
+  return parts.join("|");
 }
 const DISABLE_PRODUCTS_STREAMING_FALLBACK =
   String(process.env.DISABLE_PRODUCTS_STREAMING_FALLBACK || "true").trim().toLowerCase() === "true";
@@ -3293,7 +3348,8 @@ function savePurchaseOrders(purchaseOrders) {
  */
 function parseAnalyticsRange(query = {}) {
   const now = new Date();
-  const rawRange = String(query.range || "7d").trim().toLowerCase();
+  const hasExplicitRange = Boolean(query.range || query.from || query.to);
+  const rawRange = String(query.range || "today").trim().toLowerCase();
   const normalizeDayStart = (date) => {
     const normalized = new Date(date);
     normalized.setHours(0, 0, 0, 0);
@@ -3306,7 +3362,14 @@ function parseAnalyticsRange(query = {}) {
   };
 
   if (rawRange === "today" || rawRange === "1d") {
-    return { from: normalizeDayStart(now), to: normalizeDayEnd(now), range: "today" };
+    const range = {
+      from: normalizeDayStart(now),
+      to: normalizeDayEnd(now),
+      range: "today",
+      key: "today",
+      hasExplicitRange,
+    };
+    return range;
   }
 
   if (rawRange === "custom" || query.from || query.to) {
@@ -3324,6 +3387,8 @@ function parseAnalyticsRange(query = {}) {
       from: from || normalizeDayStart(new Date(now.getTime() - 6 * 86400000)),
       to,
       range: "custom",
+      key: "custom",
+      hasExplicitRange,
     };
   }
 
@@ -3334,6 +3399,8 @@ function parseAnalyticsRange(query = {}) {
         from: new Date(now.getTime() - hours * 60 * 60 * 1000),
         to: now,
         range: rawRange,
+        key: rawRange,
+        hasExplicitRange,
       };
     }
   }
@@ -3347,16 +3414,31 @@ function parseAnalyticsRange(query = {}) {
         from,
         to: normalizeDayEnd(now),
         range: rawRange,
+        key: rawRange,
+        hasExplicitRange,
       };
     }
   }
 
   const fallbackFrom = normalizeDayStart(new Date(now));
   fallbackFrom.setDate(fallbackFrom.getDate() - 6);
-  return { from: fallbackFrom, to: normalizeDayEnd(now), range: "7d" };
+  return {
+    from: fallbackFrom,
+    to: normalizeDayEnd(now),
+    range: "7d",
+    key: "7d",
+    hasExplicitRange,
+  };
 }
 
 async function buildAnalyticsCatalogSnapshot() {
+  const now = Date.now();
+  if (
+    analyticsCatalogSnapshotCache &&
+    now - analyticsCatalogSnapshotCache.at < ANALYTICS_CATALOG_SNAPSHOT_TTL_MS
+  ) {
+    return analyticsCatalogSnapshotCache.value;
+  }
   const manifest = productsStreamRepo.safeReadManifest() || null;
   const snapshot = {
     manifest,
@@ -3370,10 +3452,26 @@ async function buildAnalyticsCatalogSnapshot() {
     brandsCount: 0,
     productSummaryById: new Map(),
   };
-  const categories = new Set();
-  const brands = new Set();
+  if (!ANALYTICS_CATALOG_SNAPSHOT_ENABLED) {
+    console.log("[analytics-catalog-snapshot] skipped disabled");
+    snapshot.totalProducts = Number(manifest?.productCount || 0) || 0;
+    snapshot.publishedProducts = Number(manifest?.publicProductCount || manifest?.publicCount || 0) || 0;
+    analyticsCatalogSnapshotCache = { at: now, value: snapshot };
+    return snapshot;
+  }
   console.log("[analytics-catalog-snapshot] start");
   try {
+    const health = await productsSqliteRepo.getCatalogHealth();
+    snapshot.totalProducts = Number(health?.productCount || manifest?.productCount || 0) || 0;
+    snapshot.publishedProducts = Number(health?.publicProductCount || manifest?.publicProductCount || manifest?.publicCount || 0) || 0;
+    snapshot.hiddenProducts = Math.max(0, snapshot.totalProducts - snapshot.publishedProducts);
+    snapshot.outOfStockProducts = Number(health?.outOfStockProducts || 0) || 0;
+    snapshot.lowStockProducts = Number(health?.lowStockProducts || 0) || 0;
+    snapshot.categoriesCount = Number(health?.categoriesCount || 0) || 0;
+    snapshot.brandsCount = Number(health?.brandsCount || 0) || 0;
+    analyticsCatalogSnapshotCache = { at: Date.now(), value: snapshot };
+    console.log("[analytics-catalog-snapshot] completed");
+    return snapshot;
     await productsStreamRepo.streamProducts({
       onProduct: (product) => {
         const id = String(product?.id ?? "").trim();
@@ -3434,7 +3532,8 @@ async function calculateDetailedAnalytics(options = {}) {
   const returns = getReturns();
   const catalogSnapshot = await buildAnalyticsCatalogSnapshot();
   const productsById = catalogSnapshot.productSummaryById;
-  const fallbackLog = getActivityLog();
+  const needsFallbackLog = !Array.isArray(providedSessions) || !Array.isArray(providedEvents);
+  const fallbackLog = needsFallbackLog ? getActivityLog() : { sessions: [], events: [] };
   const sessions = Array.isArray(providedSessions) ? providedSessions : fallbackLog.sessions;
   const events = Array.isArray(providedEvents) ? providedEvents : fallbackLog.events;
   const analyticsHistory = getAnalyticsHistory();
@@ -12438,8 +12537,21 @@ async function requestHandler(req, res) {
       const liveSessions = Array.isArray(sessions) ? sessions.slice(0, 8).map((s) => ({ id: s.id, userName: s.userName, userEmail: s.userEmail, lastSeenAt: s.lastSeenAt, currentStep: s.currentStep, cartValue: s.cartValue })) : [];
       const activeSessions = liveSessions.filter((s) => String(s.status || "active") === "active").length || liveSessions.length;
       const checkoutInProgress = liveSessions.filter((s) => String(s.currentStep || "").toLowerCase().includes("checkout")).length;
-      const eventsLastHour = getEventsByRange({ from: oneHourAgo, to: new Date(now), skipArchive: true }).length;
-      const trackingHealth = getTrackingHealth();
+      const liveSummary = await getEventsSummaryByRange({
+        from: oneHourAgo,
+        to: new Date(now),
+        skipArchive: true,
+        includeArchive: false,
+        includeEvents: true,
+        maxEvents: 10_000,
+      });
+      const eventsLastHour = Number(liveSummary.eventsTotalEstimate || liveSummary.eventsUsed || 0);
+      const liveEvents = Array.isArray(liveSummary.events) ? liveSummary.events : [];
+      const lastLiveEvent = liveEvents[liveEvents.length - 1] || null;
+      const trackingHealth = {
+        lastEventAt: lastLiveEvent?.timestamp || null,
+        isPersistentDataDir: true,
+      };
       const payload = { activeSessions, checkoutInProgress, liveSessions, lastEventAt: trackingHealth?.lastEventAt || null, eventsLastHour, trackingHealth: { isPersistentDataDir: trackingHealth?.isPersistentDataDir !== false }, updatedAt: new Date().toISOString(), cacheHit: false };
       analyticsLiveCache.at = now;
       analyticsLiveCache.value = payload;
@@ -12451,6 +12563,21 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/admin/analytics/health" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    return sendJson(res, 200, {
+      liveEnabled: true,
+      detailedEnabled: ANALYTICS_DETAILED_ENABLED,
+      catalogSnapshotEnabled: ANALYTICS_CATALOG_SNAPSHOT_ENABLED,
+      currentDetailedRunning: analyticsDetailedRunning,
+      cacheKeys: Array.from(analyticsDetailedCache.keys()),
+      memoryUsage: getMemoryUsageSnapshot(),
+      hotFiles: listEventFiles().map((file) => file.name),
+      archiveFiles: listArchiveFiles().map((file) => file.name),
+      maxEventsDetailed: ANALYTICS_MAX_EVENTS_DETAILED,
+    });
+  }
+
   /*
    * API: Analíticas avanzadas
    * Devuelve métricas más detalladas: ventas por categoría, volumen por producto,
@@ -12458,21 +12585,65 @@ async function requestHandler(req, res) {
    * análisis profundo y dashboards.
    */
   if (pathname === "/api/analytics/detailed" && req.method === "GET") {
+    let acquiredDetailedSlot = false;
     try {
       const range = parseAnalyticsRange(parsedUrl.query);
-      const cacheKey = JSON.stringify({ range: range.key, from: range.from?.toISOString?.() || null, to: range.to?.toISOString?.() || null });
+      const cacheKey = getAnalyticsCacheKey(range);
       const ttlMs = getDetailedAnalyticsTtlMs(range.key);
       const cached = analyticsDetailedCache.get(cacheKey);
       if (cached && Date.now() - cached.at < ttlMs) {
-        console.log("[analytics:detailed]", { range: range.key, durationMs: Date.now() - cached.at, cacheHit: true, eventsCount: cached.eventsCount || 0 });
-        return sendJson(res, 200, { analyticsAvailable: true, analytics: cached.analytics, range });
+        console.log("[analytics:detailed:end]", { range: range.key, durationMs: 0, cacheHit: true, eventsCount: cached.eventsCount || 0 });
+        return sendJson(res, 200, { ...cached.payload, cacheHit: true });
       }
+      if (!ANALYTICS_DETAILED_ENABLED) {
+        console.log("[analytics:detailed:skipped]", { range: range.key, reason: "disabled" });
+        return sendJson(res, 200, {
+          analyticsAvailable: false,
+          disabled: true,
+          error: "ANALYTICS_DETAILED_DISABLED",
+          message: "Reporte detallado limitado para proteger rendimiento.",
+          range,
+          cacheHit: false,
+        });
+      }
+      if (analyticsDetailedRunning) {
+        if (cached) {
+          console.log("[analytics:detailed:skipped]", { range: range.key, reason: "already_running_cache_stale" });
+          return sendJson(res, 200, { ...cached.payload, cacheHit: true, stale: true });
+        }
+        console.log("[analytics:detailed:skipped]", { range: range.key, reason: "already_running" });
+        return sendJson(res, 429, {
+          analyticsAvailable: false,
+          error: "ANALYTICS_DETAILED_ALREADY_RUNNING",
+          message: "analytics detailed already running",
+          range,
+        });
+      }
+      analyticsDetailedRunning = true;
+      acquiredDetailedSlot = true;
       const startedAt = Date.now();
-      const events = getEventsByRange({ from: range.from, to: range.to });
+      console.log("[analytics:detailed:start]", { range: range.key, maxEvents: ANALYTICS_MAX_EVENTS_DETAILED });
+      logAnalyticsMemory("detailed:start");
+      if (process.env.NODE_ENV === "test" && Number(process.env.ANALYTICS_DETAILED_TEST_DELAY_MS || 0) > 0) {
+        await new Promise((resolve) => setTimeout(resolve, Number(process.env.ANALYTICS_DETAILED_TEST_DELAY_MS || 0)));
+      }
+      const includeArchive =
+        range.hasExplicitRange &&
+        ["1", "true", "yes"].includes(String(parsedUrl.query.includeArchive || parsedUrl.query.archive || "").toLowerCase());
+      const summary = await getEventsSummaryByRange({
+        from: range.from,
+        to: range.to,
+        type: parsedUrl.query.type,
+        maxEvents: ANALYTICS_MAX_EVENTS_DETAILED,
+        skipArchive: !includeArchive,
+        includeArchive,
+      });
+      const events = summary.events || [];
+      let partial = false;
+      let error = null;
       let sessions = getStoredSessions();
       if (!Array.isArray(sessions) || sessions.length === 0) {
-        const fallback = getActivityLog();
-        sessions = Array.isArray(fallback.sessions) ? fallback.sessions : [];
+        sessions = [];
       }
       const analytics = await calculateDetailedAnalytics({
         rangeStart: range.from,
@@ -12480,9 +12651,26 @@ async function requestHandler(req, res) {
         events,
         sessions,
       });
-      analyticsDetailedCache.set(cacheKey, { at: Date.now(), analytics, eventsCount: events.length });
-      console.log("[analytics:detailed]", { range: range.key, durationMs: Date.now() - startedAt, cacheHit: false, eventsCount: events.length });
-      return sendJson(res, 200, { analyticsAvailable: true, analytics, range });
+      if (Date.now() - startedAt > ANALYTICS_DETAILED_TIMEOUT_MS) {
+        partial = true;
+        error = "ANALYTICS_TIMEOUT_SOFT_LIMIT";
+        console.log("[analytics:detailed:timeout]", { range: range.key, durationMs: Date.now() - startedAt });
+      }
+      const payload = {
+        analyticsAvailable: true,
+        analytics,
+        range,
+        partial,
+        truncated: Boolean(summary.truncated),
+        eventsUsed: Number(summary.eventsUsed || events.length),
+        eventsTotalEstimate: Number(summary.eventsTotalEstimate || events.length),
+        error,
+        cacheHit: false,
+      };
+      analyticsDetailedCache.set(cacheKey, { at: Date.now(), payload, analytics, eventsCount: events.length });
+      console.log("[analytics:detailed:end]", { range: range.key, durationMs: Date.now() - startedAt, cacheHit: false, eventsCount: events.length, truncated: Boolean(summary.truncated), partial });
+      logAnalyticsMemory("detailed:end");
+      return sendJson(res, 200, payload);
     } catch (err) {
       console.error("analytics-detailed error", err);
       return sendJson(res, 500, {
@@ -12490,6 +12678,8 @@ async function requestHandler(req, res) {
         error: "No se pudieron calcular las analíticas detalladas",
         details: err?.message || String(err),
       });
+    } finally {
+      if (acquiredDetailedSlot) analyticsDetailedRunning = false;
     }
   }
 

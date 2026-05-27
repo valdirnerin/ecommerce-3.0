@@ -11,6 +11,7 @@
     "inspect:products": "node scripts/inspect-products-file.js",
     "rebuild:products-manifest": "node scripts/rebuildProductsManifest.js",
     "test:render-startup": "node scripts/test-render-startup-nonblocking.js",
+    "test:analytics-memory": "node scripts/test-analytics-memory-safety.js",
     "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
   },
   "dependencies": {
