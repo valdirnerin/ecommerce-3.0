@@ -12,6 +12,8 @@
     "rebuild:products-manifest": "node scripts/rebuildProductsManifest.js",
     "test:render-startup": "node scripts/test-render-startup-nonblocking.js",
     "test:analytics-memory": "node scripts/test-analytics-memory-safety.js",
+    "test:screens-final": "node scripts/test-screens-and-adhesives-final.js",
+    "audit:screens-final": "node scripts/audit-screens-and-adhesives-final.js",
     "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
   },
   "dependencies": {

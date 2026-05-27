@@ -4060,6 +4060,81 @@ if (bulkPublishRunBtn) {
     }
   });
 }
+
+const finalScreensPublisherStatus = document.getElementById("finalScreensPublisherStatus");
+const finalScreensPublisherSummary = document.getElementById("finalScreensPublisherSummary");
+
+function finalPublisherFilters(kind) {
+  const isScreen = kind === "screen";
+  return {
+    brand: document.getElementById(isScreen ? "screenPubBrand" : "adhPubBrand")?.value?.trim() || "",
+    model: document.getElementById(isScreen ? "screenPubModel" : "adhPubModel")?.value?.trim() || "",
+    qualityTier: isScreen ? document.getElementById("screenPubQuality")?.value?.trim() || "" : undefined,
+    adhesiveType: !isScreen ? document.getElementById("adhPubType")?.value?.trim() || "" : undefined,
+    stockMode: document.getElementById(isScreen ? "screenPubStock" : "adhPubStock")?.value || "all",
+    onlyWithImage: Boolean(document.getElementById(isScreen ? "screenPubOnlyImage" : "adhPubOnlyImage")?.checked),
+    onlyWithPrice: Boolean(document.getElementById(isScreen ? "screenPubOnlyPrice" : "adhPubOnlyPrice")?.checked),
+    includePrivate: Boolean(document.getElementById(isScreen ? "screenPubIncludePrivate" : "adhPubIncludePrivate")?.checked),
+    includeHidden: Boolean(document.getElementById(isScreen ? "screenPubIncludeHidden" : "adhPubIncludeHidden")?.checked),
+    includeRemoteOrderable: Boolean(document.getElementById(isScreen ? "screenPubIncludeRemote" : "adhPubIncludeRemote")?.checked),
+    limit: Number(document.getElementById(isScreen ? "screenPubLimit" : "adhPubLimit")?.value || 10000) || 10000,
+  };
+}
+
+function setFinalPublisherStatus(message) {
+  if (finalScreensPublisherStatus) finalScreensPublisherStatus.textContent = message || "";
+}
+
+function renderFinalPublisherSummary(data = {}, kind = "screen") {
+  if (!finalScreensPublisherSummary) return;
+  const isScreen = kind === "screen";
+  const rows = isScreen
+    ? [["Pantallas publicas actuales", data.publicScreensCurrent], ["Pantallas privadas elegibles", data.privateScreensEligible], ["Pantallas ocultas elegibles", data.hiddenScreensEligible], ["Pantallas stock real elegibles", data.stockRealScreensEligible], ["Pantallas a pedido elegibles", data.remoteScreensEligible]]
+    : [["Adhesivos publicos actuales", data.publicScreenAdhesivesCurrent], ["Adhesivos privados elegibles", data.privateScreenAdhesivesEligible], ["Adhesivos ocultos elegibles", data.hiddenScreenAdhesivesEligible], ["Adhesivos stock real elegibles", data.stockRealScreenAdhesivesEligible], ["Adhesivos a pedido elegibles", data.remoteScreenAdhesivesEligible]];
+  rows.push(["Bloqueados por imagen", data.blockersBreakdown?.missingImage || 0]);
+  rows.push(["Bloqueados por precio", data.blockersBreakdown?.missingPrice || 0]);
+  rows.push(["Bloqueados Merchant", Object.entries(data.blockersBreakdown || {}).filter(([k]) => k.startsWith("merchant")).reduce((s, [, v]) => s + Number(v || 0), 0)]);
+  rows.push([isScreen ? "Excluidos por accesorio" : "Excluidos por no ser de pantalla", isScreen ? (data.accessoryExcludedSamples || []).length : (data.excludedSamples || []).length]);
+  finalScreensPublisherSummary.innerHTML = `<div class="bulk-publish-summary-grid">${rows.map(([label, value]) => `<article><strong>${escapeHtml(String(value ?? 0))}</strong><span>${escapeHtml(label)}</span></article>`).join("")}</div><p><a href="/pantallas-en-stock" target="_blank">/pantallas-en-stock</a> · <a href="/adhesivos-de-pantalla" target="_blank">/adhesivos-de-pantalla</a> · <a href="/api/merchant/screens-feed.csv" target="_blank">feed pantallas</a> · <a href="/api/merchant/screen-adhesives-feed.csv" target="_blank">feed adhesivos</a></p>`;
+}
+
+async function runFinalPublisher(kind, action) {
+  const isScreen = kind === "screen";
+  const base = isScreen ? "/api/admin/screens" : "/api/admin/screen-adhesives";
+  const filters = finalPublisherFilters(kind);
+  setFinalPublisherStatus("Procesando...");
+  try {
+    let data;
+    if (action === "audit") {
+      const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== ""));
+      const res = await apiFetch(`${base}/audit?${params.toString()}`);
+      data = await res.json();
+    } else {
+      const body = action === "publish" ? { ...filters, [isScreen ? "confirmScreenBulkPublish" : "confirmScreenAdhesiveBulkPublish"]: true } : filters;
+      if (action === "publish") {
+        const ok = confirm(isScreen
+          ? "Vas a publicar pantallas reales elegibles. No se publicaran adhesivos, brackets, fundas, protectores ni productos sin precio/imagen."
+          : "Vas a publicar adhesivos de pantalla elegibles. No se publicaran adhesivos de bateria, tapas, camaras ni cintas genericas sin modelo.");
+        if (!ok) return;
+      }
+      const res = await apiFetch(`${base}/${action === "publish" ? "publish" : "publish-preview"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      data = await res.json();
+    }
+    if (!data.ok) throw new Error(data.error || "No se pudo completar");
+    setFinalPublisherStatus(action === "publish" ? `Actualizados ${data.updatedCount || 0}, verificados ${data.verifiedPublicCount || 0}, fallidos ${data.failedCount || 0}` : "Listo.");
+    renderFinalPublisherSummary(data, kind);
+  } catch (error) {
+    setFinalPublisherStatus(error?.message || "No se pudo completar la operacion");
+  }
+}
+
+document.getElementById("screenAuditBtn")?.addEventListener("click", () => runFinalPublisher("screen", "audit"));
+document.getElementById("screenPreviewBtn")?.addEventListener("click", () => runFinalPublisher("screen", "preview"));
+document.getElementById("screenPublishBtn")?.addEventListener("click", () => runFinalPublisher("screen", "publish"));
+document.getElementById("adhAuditBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "audit"));
+document.getElementById("adhPreviewBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "preview"));
+document.getElementById("adhPublishBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "publish"));
+
 async function deleteProduct(id) {
   if (!confirm("¿Estás seguro de eliminar este producto?")) return;
   const resp = await apiFetch(`/api/products/${id}`, { method: "DELETE" });
