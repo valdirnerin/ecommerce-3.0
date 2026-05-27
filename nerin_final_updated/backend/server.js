@@ -76,6 +76,7 @@ const {
 } = require("./utils/reviewValidation");
 const { importStockXlsxFile } = require("./services/stockXlsxImport");
 const { buildMockAndreaniQuote } = require("./services/andreaniService");
+const finalScreenPublication = require("./services/screenPublicationService");
 const productsStreamRepo = require("./data/productsStreamRepo");
 const productsSqliteRepo = require("./data/productsSqliteRepo");
 const catalogInventoryRepo = require("./data/catalogInventoryRepo");
@@ -7380,6 +7381,70 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/admin/screens/audit" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await finalScreenPublication.previewPublication("screen", parsedUrl.query || {});
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error?.message || "screen_audit_failed" });
+    }
+  }
+
+  if (pathname === "/api/admin/screens/publish-preview" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    await parseBody(req);
+    try {
+      const result = await finalScreenPublication.previewPublication("screen", req.body || {});
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error?.message || "screen_preview_failed" });
+    }
+  }
+
+  if (pathname === "/api/admin/screens/publish" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    await parseBody(req);
+    try {
+      const result = await finalScreenPublication.publishEligible("screen", req.body || {});
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error?.statusCode || 500, { ok: false, error: error?.message || "screen_publish_failed" });
+    }
+  }
+
+  if (pathname === "/api/admin/screen-adhesives/audit" && req.method === "GET") {
+    if (!requireAdmin(req, res)) return;
+    try {
+      const result = await finalScreenPublication.previewPublication("screen_adhesive", parsedUrl.query || {});
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error?.message || "screen_adhesive_audit_failed" });
+    }
+  }
+
+  if (pathname === "/api/admin/screen-adhesives/publish-preview" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    await parseBody(req);
+    try {
+      const result = await finalScreenPublication.previewPublication("screen_adhesive", req.body || {});
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, 500, { ok: false, error: error?.message || "screen_adhesive_preview_failed" });
+    }
+  }
+
+  if (pathname === "/api/admin/screen-adhesives/publish" && req.method === "POST") {
+    if (!requireAdmin(req, res)) return;
+    await parseBody(req);
+    try {
+      const result = await finalScreenPublication.publishEligible("screen_adhesive", req.body || {});
+      return sendJson(res, 200, result);
+    } catch (error) {
+      return sendJson(res, error?.statusCode || 500, { ok: false, error: error?.message || "screen_adhesive_publish_failed" });
+    }
+  }
+
   if (pathname === "/api/test-email" && req.method === "GET") {
     const requestUrl = new URL(req.url, "http://localhost");
     const to = requestUrl.searchParams.get("to") || "tuemail@ejemplo.com";
@@ -13318,6 +13383,25 @@ async function requestHandler(req, res) {
     return;
   }
 
+  if ((pathname === "/api/merchant/screens-feed.csv" || pathname === "/google-merchant-screens-feed.csv" || pathname === "/api/merchant/screen-adhesives-feed.csv" || pathname === "/google-merchant-screen-adhesives-feed.csv") && req.method === "GET") {
+    try {
+      const type = pathname.includes("adhesive") ? "screen_adhesive" : "screen";
+      const payload = await finalScreenPublication.buildFeed(type, {
+        baseUrl: getPublicBaseUrl(getConfig()) || "https://nerinparts.com.ar",
+        limit: Math.max(1, Number(parsedUrl.query?.limit || 100000) || 100000),
+      });
+      res.writeHead(200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Cache-Control": "public, max-age=1800",
+      });
+      res.end(payload.csv);
+      return;
+    } catch (error) {
+      console.error("[merchant-screen-feed] error", error?.message || error);
+      return sendJson(res, 500, { ok: false, error: "No se pudo generar feed Merchant dedicado" });
+    }
+  }
+
 
   if ((pathname === "/merchant-feed.tsv" || pathname === "/merchant-feed-sample.tsv" || pathname === "/merchant-feed-debug.json") && req.method === "GET") {
     const startedAt = Date.now();
@@ -13518,6 +13602,40 @@ async function requestHandler(req, res) {
       refreshedAt: new Date().toISOString(),
     });
     return;
+  }
+
+  if (pathname === "/adhesivos-de-pantalla" && req.method === "GET") {
+    try {
+      const feed = await finalScreenPublication.buildFeed("screen_adhesive", {
+        baseUrl: getPublicBaseUrl(getConfig()) || "https://nerinparts.com.ar",
+        limit: 48,
+      });
+      const items = feed.entries.slice(0, 48);
+      const itemList = {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        itemListElement: items.map((item, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          url: item.link,
+          name: item.title,
+        })),
+      };
+      const cards = items.map((item) => `
+        <article class="product-card">
+          <a href="${esc(item.link)}"><img src="${esc(item.image_link)}" alt="${esc(item.title)}" loading="lazy"></a>
+          <h2><a href="${esc(item.link)}">${esc(item.title)}</a></h2>
+          <p>${esc(item.price)}</p>
+        </article>
+      `).join("");
+      const html = `<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><title>Adhesivos de pantalla para celulares | NERIN Parts</title><meta name="description" content="Adhesivos, gaskets y cintas para instalación de pantallas en Samsung, iPhone, Motorola, Xiaomi, Honor, Huawei, Google Pixel y más."><link rel="canonical" href="${esc((getPublicBaseUrl(getConfig()) || BASE_URL).replace(/\/+$/, ""))}/adhesivos-de-pantalla"><script type="application/ld+json">${safeJsonForScript(itemList)}</script></head><body><main><nav><a href="/shop.html?part_type=display_adhesive">Ver en catálogo</a></nav><h1>Adhesivos de pantalla para celulares</h1><p>Adhesivos, gaskets y cintas para instalación de pantallas en Samsung, iPhone, Motorola, Xiaomi, Honor, Huawei, Google Pixel y más. Repuestos para técnicos y laboratorios, con soporte para verificar compatibilidad.</p><section class="product-grid">${cards || '<p>No hay adhesivos de pantalla publicados en este momento.</p>'}</section></main></body></html>`;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=600" });
+      res.end(html);
+      return;
+    } catch (error) {
+      console.error("[screen-adhesives-page] error", error?.message || error);
+      return sendJson(res, 500, { ok: false, error: "No se pudo cargar adhesivos de pantalla" });
+    }
   }
 
   if ((pathname === "/sitemap.xml" || pathname === "/sitemap-static.xml" || /^\/sitemap-products-\d+\.xml$/.test(pathname)) && req.method === "GET") {

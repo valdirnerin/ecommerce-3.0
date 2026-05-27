@@ -11,6 +11,10 @@ const {
   normalizeText: normalizeCatalogText,
   parseCatalogQuery,
 } = require("../utils/catalogClassifier");
+const {
+  isRealScreenProduct,
+  isScreenAdhesiveProduct,
+} = require("../utils/screenProductClassifier");
 
 const PRODUCTS_JSON_PATH = dataPath("products.json");
 const SQLITE_PATH = dataPath("products.sqlite");
@@ -3112,6 +3116,10 @@ function scoreSearchIndexRow(row = {}, intent = {}) {
   const rowNetwork = normalizeFacetValue(row.network_variant || "");
   const queryNetwork = normalizeFacetValue(intent.network_variant || "");
   const queryText = normalizeFacetValue(intent.normalized_query || intent.original_query || "");
+  const adhesiveIntent = /\b(adhesivo|adhesive|gasket|seal|junta|cinta|tape)\b/.test(queryText) && /\b(pantalla|display|screen|lcd|oled|pixel|iphone|galaxy)\b/.test(queryText);
+  const displayIntent = !adhesiveIntent && /\b(pantalla|display|screen|modulo|modulo|lcd|oled|amoled)\b/.test(queryText);
+  const screenClass = isRealScreenProduct(row);
+  const adhesiveClass = isScreenAdhesiveProduct(row);
   const identifiers = [row.sku, row.mpn, row.part_number, row.product_id, row.public_slug, row.id, row.code].map(normalizeFacetValue).filter(Boolean);
   if (queryText && identifiers.includes(queryText)) addStructuredReason(entry, "SKU/MPN/slug exacto", 2600);
   if (intent.model_code && blob.includes(normalizeFacetValue(intent.model_code))) addStructuredReason(entry, "SKU/MPN/model code exacto", 800);
@@ -3131,6 +3139,14 @@ function scoreSearchIndexRow(row = {}, intent = {}) {
   if (intent.part_type) {
     if (row.part_type === intent.part_type) addStructuredReason(entry, `tipo exacto ${intent.part_type}`, 2200);
     else if (row.part_type) addStructuredReason(entry, `tipo incorrecto ${row.part_type}`, -2200);
+  }
+  if (adhesiveIntent) {
+    if (adhesiveClass.isScreenAdhesive) addStructuredReason(entry, "intencion adhesivo de pantalla", 3200);
+    if (screenClass.isScreen) addStructuredReason(entry, "pantalla real debajo de adhesivo", -1800);
+  } else if (displayIntent) {
+    if (screenClass.isScreen) addStructuredReason(entry, "intencion pantalla real", 3200);
+    if (adhesiveClass.isScreenAdhesive) addStructuredReason(entry, "adhesivo debajo de pantalla", -2400);
+    if (screenClass.excludedAsAccessory) addStructuredReason(entry, `accesorio excluido ${screenClass.excludeReason}`, -2600);
   }
   if (intent.device_brand) {
     if (normalizeFacetValue(row.device_brand) === normalizeFacetValue(intent.device_brand) || normalizeFacetValue(row.compatible_brand) === normalizeFacetValue(intent.device_brand)) {

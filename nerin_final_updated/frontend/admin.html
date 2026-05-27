@@ -560,6 +560,54 @@
             <div id="bulkPublishSummary" role="status" aria-live="polite"></div>
             <div id="bulkPublishDetails" class="bulk-publish-details"></div>
           </section>
+          <section class="bulk-publish-panel" aria-labelledby="finalScreensPublisherTitle">
+            <header class="bulk-publish-header">
+              <h4 id="finalScreensPublisherTitle">Publicador final de pantallas y adhesivos de pantalla</h4>
+              <p>PublicaciÃ³n manual y separada. No mezcla pantallas con adhesivos, brackets, fundas ni protectores.</p>
+            </header>
+            <div class="bulk-publish-card">
+              <h5>Pantallas / mÃ³dulos</h5>
+              <div class="bulk-publish-filters-grid">
+                <label class="bulk-publish-field">Marca<input id="screenPubBrand" type="text" /></label>
+                <label class="bulk-publish-field">Modelo<input id="screenPubModel" type="text" /></label>
+                <label class="bulk-publish-field">Calidad<input id="screenPubQuality" type="text" /></label>
+                <label class="bulk-publish-field">Stock<select id="screenPubStock"><option value="all">Todas</option><option value="stock_real">Stock real</option><option value="remote_orderable">A pedido</option></select></label>
+                <label class="bulk-publish-field">LÃ­mite<input id="screenPubLimit" type="number" value="10000" min="1" max="50000" /></label>
+              </div>
+              <label><input id="screenPubOnlyImage" type="checkbox" checked /> Solo con imagen</label>
+              <label><input id="screenPubOnlyPrice" type="checkbox" checked /> Solo con precio</label>
+              <label><input id="screenPubIncludePrivate" type="checkbox" checked /> Incluir privadas</label>
+              <label><input id="screenPubIncludeHidden" type="checkbox" checked /> Incluir ocultas</label>
+              <label><input id="screenPubIncludeRemote" type="checkbox" checked /> Incluir a pedido</label>
+              <div class="bulk-publish-actions">
+                <button id="screenAuditBtn" class="button secondary">Auditar pantallas</button>
+                <button id="screenPreviewBtn" class="button secondary">Simular publicaciÃ³n de pantallas</button>
+                <button id="screenPublishBtn" class="button">Publicar pantallas elegibles</button>
+              </div>
+            </div>
+            <div class="bulk-publish-card">
+              <h5>Adhesivos de pantalla</h5>
+              <div class="bulk-publish-filters-grid">
+                <label class="bulk-publish-field">Marca<input id="adhPubBrand" type="text" /></label>
+                <label class="bulk-publish-field">Modelo<input id="adhPubModel" type="text" /></label>
+                <label class="bulk-publish-field">Tipo<input id="adhPubType" type="text" /></label>
+                <label class="bulk-publish-field">Stock<select id="adhPubStock"><option value="all">Todas</option><option value="stock_real">Stock real</option><option value="remote_orderable">A pedido</option></select></label>
+                <label class="bulk-publish-field">LÃ­mite<input id="adhPubLimit" type="number" value="10000" min="1" max="50000" /></label>
+              </div>
+              <label><input id="adhPubOnlyImage" type="checkbox" checked /> Solo con imagen</label>
+              <label><input id="adhPubOnlyPrice" type="checkbox" checked /> Solo con precio</label>
+              <label><input id="adhPubIncludePrivate" type="checkbox" checked /> Incluir privadas</label>
+              <label><input id="adhPubIncludeHidden" type="checkbox" checked /> Incluir ocultas</label>
+              <label><input id="adhPubIncludeRemote" type="checkbox" checked /> Incluir a pedido</label>
+              <div class="bulk-publish-actions">
+                <button id="adhAuditBtn" class="button secondary">Auditar adhesivos de pantalla</button>
+                <button id="adhPreviewBtn" class="button secondary">Simular publicaciÃ³n de adhesivos</button>
+                <button id="adhPublishBtn" class="button">Publicar adhesivos elegibles</button>
+              </div>
+            </div>
+            <div id="finalScreensPublisherStatus" class="bulk-publish-status" role="status" aria-live="polite"></div>
+            <div id="finalScreensPublisherSummary" class="bulk-publish-details"></div>
+          </section>
           <div class="bulk-actions">
             <select id="bulkActionSelect">
               <option value="">Acción masiva…</option>
