@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
+process.env.SCREEN_PUBLISHER_ENABLED = "false";
+
 const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
@@ -45,7 +47,7 @@ function assertSourceContracts() {
   const admin = fs.readFileSync(path.join(ROOT, "frontend", "js", "admin.js"), "utf8");
   const packageJson = fs.readFileSync(path.join(ROOT, "package.json"), "utf8");
 
-  assert(service.includes("const DEFAULT_SCAN_LIMIT = 250000"), "DEFAULT_SCAN_LIMIT must be permanent");
+  assert(service.includes("SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT || 5000"), "DEFAULT_SCAN_LIMIT must default to 5000");
   assert(service.includes("function isPublicProduct(product = {})"), "isPublicProduct helper missing");
   assert(service.includes("computePublicationState(product).is_public"), "isPublicProduct must use computePublicationState");
   assert(!/Number\([^)\n]*is_public/.test(service), "service must not use Number(raw is_public)");
@@ -83,28 +85,28 @@ async function assertEndpointContracts() {
 
     const authHeaders = { Authorization: `Bearer ${ADMIN_TOKEN}` };
     const screensAudit = await requestJson(baseUrl, "/api/admin/screens/audit", { headers: authHeaders });
-    assert.strictEqual(screensAudit.response.status, 200, "screens audit with auth should be 200 JSON");
-    assert.strictEqual(screensAudit.data.ok, true, "screens audit ok");
+    assert.strictEqual(screensAudit.response.status, 503, "screens audit should be disabled by default");
+    assert.strictEqual(screensAudit.data.error, "SCREEN_PUBLISHER_DISABLED", "screens audit disabled code");
 
     const preview = await requestJson(baseUrl, "/api/admin/screens/publish-preview", {
       method: "POST",
       headers: { ...authHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({ onlyWithImage: true, onlyWithPrice: true }),
     });
-    assert.strictEqual(preview.response.status, 200, "screens preview should be 200 JSON");
-    assert.strictEqual(preview.data.ok, true, "screens preview ok");
+    assert.strictEqual(preview.response.status, 503, "screens preview should be disabled by default");
+    assert.strictEqual(preview.data.error, "SCREEN_PUBLISHER_DISABLED", "screens preview disabled code");
 
     const publishNoConfirm = await requestJson(baseUrl, "/api/admin/screens/publish", {
       method: "POST",
       headers: { ...authHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({ onlyWithImage: true }),
     });
-    assert.strictEqual(publishNoConfirm.response.status, 400, "screens publish without confirm should be 400 JSON");
+    assert.strictEqual(publishNoConfirm.response.status, 503, "screens publish should be disabled before confirm");
     assert.strictEqual(publishNoConfirm.data.ok, false, "screens publish without confirm ok=false");
 
     const adhesivesAudit = await requestJson(baseUrl, "/api/admin/screen-adhesives/audit", { headers: authHeaders });
-    assert.strictEqual(adhesivesAudit.response.status, 200, "adhesives audit with auth should be 200 JSON");
-    assert.strictEqual(adhesivesAudit.data.ok, true, "adhesives audit ok");
+    assert.strictEqual(adhesivesAudit.response.status, 503, "adhesives audit should be disabled by default");
+    assert.strictEqual(adhesivesAudit.data.error, "SCREEN_PUBLISHER_DISABLED", "adhesives audit disabled code");
   } finally {
     await close(server);
   }
