@@ -17,6 +17,7 @@
     "test:screen-publisher-routes": "node scripts/test-screen-publisher-routes.js",
     "test:screen-publisher-stability": "node scripts/test-screen-publisher-stability.js",
     "test:admin-bulk-visibility": "node scripts/test-admin-bulk-visibility.js",
+    "test:admin-bulk-selection-stale": "node scripts/test-admin-bulk-selection-stale.js",
     "audit:screens-final": "node scripts/audit-screens-and-adhesives-final.js",
     "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
   },
