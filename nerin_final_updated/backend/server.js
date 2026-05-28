@@ -2152,6 +2152,84 @@ async function buildFreeListingsPriorityReport({ limit = 100 } = {}) {
   return summary;
 }
 
+function buildShopSeoState({ siteBase, search = "", category = "", brand = "", count = 0, products = [] } = {}) {
+  const normalizedBase = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
+  const cleanSearch = compactText(search);
+  const cleanCategory = compactText(category);
+  const cleanBrand = compactText(brand);
+  const query = new URLSearchParams();
+  if (cleanCategory) query.set("category", cleanCategory);
+  if (cleanBrand) query.set("brand", cleanBrand);
+  const queryText = query.toString();
+  const canonical = normalizedBase + "/shop.html" + (queryText ? "?" + queryText : "");
+  const titleSubject = [cleanCategory, cleanBrand].filter(Boolean).join(" ");
+  const title = cleanSearch
+    ? "Resultados para " + cleanSearch + " | NERIN Parts"
+    : titleSubject
+      ? titleSubject + " en stock | NERIN Parts"
+      : "Catalogo de repuestos para celulares | NERIN Parts";
+  const description = cleanSearch
+    ? "Resultados de busqueda para " + cleanSearch + " en NERIN Parts. Repuestos para celulares con stock real, factura A/B y envios a todo el pais."
+    : titleSubject
+      ? "Compra " + titleSubject + " en NERIN Parts. Stock real, factura A/B, retiro con turno en CABA y envios a todo Argentina."
+      : "Catalogo actualizado de pantallas, modulos, baterias y repuestos para celulares. Stock real, garantia, factura A/B y envios a todo Argentina.";
+  const robots = cleanSearch ? "noindex,follow" : "index,follow";
+  const itemListElement = products
+    .map((product, index) => {
+      const slug = product?.publicSlug || product?.public_slug || product?.slug || product?.id;
+      const urlValue = slug ? absoluteUrl("/p/" + encodeURIComponent(String(slug)), normalizedBase) : null;
+      if (!urlValue) return null;
+      return {
+        "@type": "ListItem",
+        position: index + 1,
+        url: urlValue,
+        name: product?.name || product?.title || "Repuesto NERIN",
+      };
+    })
+    .filter(Boolean);
+  const collectionLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: title,
+    description,
+    url: canonical,
+    isPartOf: {
+      "@type": "WebSite",
+      name: "NERIN Parts",
+      url: normalizedBase + "/",
+    },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: Number(count) || itemListElement.length,
+      itemListElement,
+    },
+  };
+  return { canonical, title, description, robots, collectionLd };
+}
+
+function replaceTag(html, regex, replacement) {
+  if (regex.test(html)) return html.replace(regex, replacement);
+  return html + replacement;
+}
+
+function applyShopSeoHead(head, seo) {
+  let next = head || "";
+  next = replaceTag(next, /<title>[\s\S]*?<\/title>/i, "<title>" + esc(seo.title) + "</title>");
+  next = replaceTag(next, /<meta\s+name=["']description["'][^>]*>/i, "<meta name=\"description\" content=\"" + esc(seo.description) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']robots["'][^>]*>/i, "<meta name=\"robots\" content=\"" + esc(seo.robots) + "\">");
+  next = replaceTag(next, /<link\s+rel=["']canonical["'][^>]*>/i, "<link rel=\"canonical\" href=\"" + esc(seo.canonical) + "\">");
+  next = replaceTag(next, /<meta\s+property=["']og:title["'][^>]*>/i, "<meta property=\"og:title\" content=\"" + esc(seo.title) + "\">");
+  next = replaceTag(next, /<meta\s+property=["']og:description["'][^>]*>/i, "<meta property=\"og:description\" content=\"" + esc(seo.description) + "\">");
+  next = replaceTag(next, /<meta\s+property=["']og:url["'][^>]*>/i, "<meta property=\"og:url\" content=\"" + esc(seo.canonical) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']twitter:title["'][^>]*>/i, "<meta name=\"twitter:title\" content=\"" + esc(seo.title) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']twitter:description["'][^>]*>/i, "<meta name=\"twitter:description\" content=\"" + esc(seo.description) + "\">");
+  next = replaceTag(next, /<meta\s+name=["']twitter:url["'][^>]*>/i, "<meta name=\"twitter:url\" content=\"" + esc(seo.canonical) + "\">");
+  return next.replace(
+    /<script[^>]+id=["']shop-schema["'][^>]*>[\s\S]*?<\/script>/i,
+    "<script type=\"application/ld+json\" id=\"shop-schema\">" + safeJsonForScript(seo.collectionLd) + "</script>",
+  );
+}
+
 function replaceBasePlaceholders(html, siteBase) {
   if (!html || !siteBase) return html;
   const normalized = siteBase.replace(/\/+$/, "");
@@ -2635,6 +2713,30 @@ function requireAdmin(req, res, options = {}) {
   const allowed = allowSeller ? hasAdminPanelAccess(user) : hasAdminRole(user);
   if (!allowed) {
     sendJson(res, 403, { error: "No tenés permisos para acceder a este recurso admin." });
+    return false;
+  }
+  return true;
+}
+
+function sendApiError(res, status, code, message, extra = {}) {
+  return sendJson(res, status, {
+    ok: false,
+    error: code,
+    message,
+    ...extra,
+  });
+}
+
+function requireAdminJson(req, res, options = {}) {
+  const { allowSeller = true } = options;
+  const user = resolveAuthUser(req);
+  if (!user) {
+    sendApiError(res, 401, "UNAUTHORIZED", "Debes iniciar sesion para acceder al panel admin.");
+    return false;
+  }
+  const allowed = allowSeller ? hasAdminPanelAccess(user) : hasAdminRole(user);
+  if (!allowed) {
+    sendApiError(res, 403, "FORBIDDEN", "No tenes permisos para acceder a este recurso admin.");
     return false;
   }
   return true;
@@ -6905,6 +7007,104 @@ function serveStatic(filePath, res, headers = {}) {
 
 // Crear servidor HTTP
 async function requestHandler(req, res) {
+  // [sitemap-hotfix-large-catalog]
+  // Intercepta sitemaps antes del handler historico para evitar cargar products.json completo en memoria.
+  // Mantener este handler simple: no ejecutar SEO, no generar contenido, no evaluar cada producto con funciones pesadas.
+  const __sitemapParsedUrl = url.parse(req.url, true);
+  const __sitemapPathname = __sitemapParsedUrl.pathname;
+  if (
+    (__sitemapPathname === "/sitemap.xml" ||
+      __sitemapPathname === "/sitemap-static.xml" ||
+      /^\/sitemap-products-\d+\.xml$/.test(__sitemapPathname)) &&
+    req.method === "GET"
+  ) {
+    try {
+      const cfg = getConfig();
+      const siteBase = getPublicBaseUrl(cfg);
+      const base = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
+      const generatedAt = toIsoString(new Date());
+      const pageSize = 45000;
+      const baseStaticEntries = ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((pathSegment) => ({
+        loc: absoluteUrl(pathSegment, base),
+        lastmod: generatedAt,
+        changefreq: pathSegment === "/" || pathSegment === "/shop.html" || pathSegment === "/shop" ? "daily" : "monthly",
+        priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" || pathSegment === "/shop" ? "0.9" : "0.5",
+      }));
+      let organicEntries = [];
+      if (typeof buildOrganicSitemapEntries === "function") {
+        try {
+          organicEntries = await buildOrganicSitemapEntries(base, generatedAt);
+        } catch (organicError) {
+          console.warn("[sitemap:organic-skip]", organicError?.message || organicError);
+        }
+      }
+      const staticEntries = [...baseStaticEntries, ...organicEntries];
+      const toProductEntry = (product) => {
+        try {
+          const slug = product?.publicSlug || product?.public_slug || product?.slug;
+          if (!slug) return null;
+          return {
+            loc: absoluteUrl("/p/" + encodeURIComponent(String(slug)), base),
+            lastmod: generatedAt,
+            changefreq: "weekly",
+            priority: "0.8",
+          };
+        } catch (entryError) {
+          console.warn("[sitemap:product-skip]", entryError?.message || entryError);
+          return null;
+        }
+      };
+      const firstPage = await productsSqliteRepo.queryProducts({ page: 1, pageSize: 1 });
+      const publicCount = Number(firstPage?.totalItems || firstPage?.total || firstPage?.count || firstPage?.items?.length || 0);
+      const totalParts = Math.max(1, Math.ceil(publicCount / pageSize));
+
+      if (__sitemapPathname === "/sitemap-static.xml") {
+        console.log("[sitemap] static count=" + staticEntries.length);
+        const xml = buildSitemapPartXml(base, staticEntries);
+        res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+        res.end(xml);
+        return;
+      }
+
+      if (__sitemapPathname === "/sitemap.xml") {
+        console.log("[sitemap] index count=" + publicCount);
+        if (publicCount > pageSize) {
+          const paths = ["/sitemap-static.xml"];
+          for (let i = 1; i <= totalParts; i += 1) paths.push("/sitemap-products-" + i + ".xml");
+          const xml = buildSitemapIndexXml(base, paths);
+          res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+          res.end(xml);
+          return;
+        }
+        const page = await productsSqliteRepo.queryProducts({ page: 1, pageSize });
+        const productEntries = (page?.items || []).map(toProductEntry).filter(Boolean);
+        const xml = buildSitemapPartXml(base, [...staticEntries, ...productEntries]);
+        res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+        res.end(xml);
+        return;
+      }
+
+      const match = __sitemapPathname.match(/^\/sitemap-products-(\d+)\.xml$/);
+      const part = Number(match?.[1] || 0);
+      if (!Number.isInteger(part) || part < 1 || part > totalParts) {
+        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("Not found");
+        return;
+      }
+      const page = await productsSqliteRepo.queryProducts({ page: part, pageSize });
+      const productEntries = (page?.items || []).map(toProductEntry).filter(Boolean);
+      console.log("[sitemap] products part=" + part + " limit=" + pageSize + " count=" + productEntries.length);
+      const xml = buildSitemapPartXml(base, productEntries);
+      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+      res.end(xml);
+      return;
+    } catch (error) {
+      console.error("[sitemap:error]", error?.stack || error?.message || error);
+      res.writeHead(500, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store" });
+      res.end('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap temporarily unavailable</error>');
+      return;
+    }
+  }
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
 
@@ -7381,68 +7581,96 @@ async function requestHandler(req, res) {
     }
   }
 
+  if (pathname === "/api/admin/screens/publisher-health" && req.method === "GET") {
+    const warnings = [];
+    let startHotfixRemoved = false;
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
+      startHotfixRemoved = !String(packageJson?.scripts?.start || "").includes("applyScreenPublisherHotfix.js");
+      if (!startHotfixRemoved) warnings.push("applyScreenPublisherHotfix.js sigue presente en start");
+    } catch (error) {
+      warnings.push(`No se pudo leer package.json: ${error?.message || error}`);
+    }
+    return sendJson(res, 200, {
+      ok: true,
+      routesReady: true,
+      serviceLoaded: Boolean(finalScreenPublication),
+      hasPreviewPublication: typeof finalScreenPublication.previewPublication === "function",
+      hasPublishEligible: typeof finalScreenPublication.publishEligible === "function",
+      hasBuildFeed: typeof finalScreenPublication.buildFeed === "function",
+      canUseComputePublicationState: typeof productsSqliteRepo.computePublicationState === "function",
+      canUseSearchIndex: typeof productsSqliteRepo.ensureProductsDbOnce === "function",
+      startHotfixRemoved,
+      warnings,
+    });
+  }
+
   if (pathname === "/api/admin/screens/audit" && req.method === "GET") {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminJson(req, res)) return;
     try {
       const result = await finalScreenPublication.previewPublication("screen", parsedUrl.query || {});
       return sendJson(res, 200, result);
     } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error?.message || "screen_audit_failed" });
+      return sendApiError(res, 500, "SCREEN_AUDIT_FAILED", "No se pudo auditar pantallas.", { detail: error?.message || "screen_audit_failed" });
     }
   }
 
   if (pathname === "/api/admin/screens/publish-preview" && req.method === "POST") {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminJson(req, res)) return;
     await parseBody(req);
     try {
       const result = await finalScreenPublication.previewPublication("screen", req.body || {});
       return sendJson(res, 200, result);
     } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error?.message || "screen_preview_failed" });
+      return sendApiError(res, 500, "SCREEN_PREVIEW_FAILED", "No se pudo simular publicacion de pantallas.", { detail: error?.message || "screen_preview_failed" });
     }
   }
 
   if (pathname === "/api/admin/screens/publish" && req.method === "POST") {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminJson(req, res)) return;
     await parseBody(req);
     try {
       const result = await finalScreenPublication.publishEligible("screen", req.body || {});
       return sendJson(res, 200, result);
     } catch (error) {
-      return sendJson(res, error?.statusCode || 500, { ok: false, error: error?.message || "screen_publish_failed" });
+      return sendApiError(res, error?.statusCode || 500, "SCREEN_PUBLISH_FAILED", error?.message || "No se pudo publicar pantallas.");
     }
   }
 
   if (pathname === "/api/admin/screen-adhesives/audit" && req.method === "GET") {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminJson(req, res)) return;
     try {
       const result = await finalScreenPublication.previewPublication("screen_adhesive", parsedUrl.query || {});
       return sendJson(res, 200, result);
     } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error?.message || "screen_adhesive_audit_failed" });
+      return sendApiError(res, 500, "SCREEN_ADHESIVE_AUDIT_FAILED", "No se pudo auditar adhesivos de pantalla.", { detail: error?.message || "screen_adhesive_audit_failed" });
     }
   }
 
   if (pathname === "/api/admin/screen-adhesives/publish-preview" && req.method === "POST") {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminJson(req, res)) return;
     await parseBody(req);
     try {
       const result = await finalScreenPublication.previewPublication("screen_adhesive", req.body || {});
       return sendJson(res, 200, result);
     } catch (error) {
-      return sendJson(res, 500, { ok: false, error: error?.message || "screen_adhesive_preview_failed" });
+      return sendApiError(res, 500, "SCREEN_ADHESIVE_PREVIEW_FAILED", "No se pudo simular publicacion de adhesivos de pantalla.", { detail: error?.message || "screen_adhesive_preview_failed" });
     }
   }
 
   if (pathname === "/api/admin/screen-adhesives/publish" && req.method === "POST") {
-    if (!requireAdmin(req, res)) return;
+    if (!requireAdminJson(req, res)) return;
     await parseBody(req);
     try {
       const result = await finalScreenPublication.publishEligible("screen_adhesive", req.body || {});
       return sendJson(res, 200, result);
     } catch (error) {
-      return sendJson(res, error?.statusCode || 500, { ok: false, error: error?.message || "screen_adhesive_publish_failed" });
+      return sendApiError(res, error?.statusCode || 500, "SCREEN_ADHESIVE_PUBLISH_FAILED", error?.message || "No se pudo publicar adhesivos de pantalla.");
     }
+  }
+
+  if (pathname.startsWith("/api/admin/screens/") || pathname.startsWith("/api/admin/screen-adhesives/")) {
+    return sendApiError(res, 404, "SCREEN_PUBLISHER_ROUTE_NOT_FOUND", "Ruta del publicador de pantallas no encontrada.", { path: pathname, method: req.method });
   }
 
   if (pathname === "/api/test-email" && req.method === "GET") {
@@ -13370,7 +13598,6 @@ async function requestHandler(req, res) {
       "Disallow: /account-minorista.html",
       "Disallow: /seguimiento.html",
       "Disallow: /login",
-      "Disallow: /*?*",
     ];
     if (siteBase) {
       lines.push(`Sitemap: ${siteBase}/sitemap.xml`);
@@ -13388,7 +13615,8 @@ async function requestHandler(req, res) {
       const type = pathname.includes("adhesive") ? "screen_adhesive" : "screen";
       const payload = await finalScreenPublication.buildFeed(type, {
         baseUrl: getPublicBaseUrl(getConfig()) || "https://nerinparts.com.ar",
-        limit: Math.max(1, Number(parsedUrl.query?.limit || 100000) || 100000),
+        outputLimit: Math.max(1, Number(parsedUrl.query?.limit || 100000) || 100000),
+        scanLimit: Math.max(1, Number(parsedUrl.query?.scanLimit || 250000) || 250000),
       });
       res.writeHead(200, {
         "Content-Type": "text/csv; charset=utf-8",
@@ -13608,7 +13836,7 @@ async function requestHandler(req, res) {
     try {
       const feed = await finalScreenPublication.buildFeed("screen_adhesive", {
         baseUrl: getPublicBaseUrl(getConfig()) || "https://nerinparts.com.ar",
-        limit: 48,
+        outputLimit: 48,
       });
       const items = feed.entries.slice(0, 48);
       const itemList = {
