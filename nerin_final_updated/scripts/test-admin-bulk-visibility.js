@@ -114,8 +114,10 @@ function functionBody(source, name) {
     assert.strictEqual(publish.response.status, 200, "publish status");
     assert.strictEqual(publish.data.requestedCount, 3, "requested count");
     assert.strictEqual(publish.data.updatedCount, 3, "updated count");
+    assert.strictEqual(publish.data.alreadyInTargetStateCount, 0, "already count after private to public");
     assert.strictEqual(publish.data.failedCount, 0, "failed count");
     assert(Array.isArray(publish.data.sampleUpdated), "sampleUpdated array");
+    assert(Array.isArray(publish.data.sampleAlreadyInTargetState), "sampleAlreadyInTargetState array");
     assert(Array.isArray(publish.data.sampleFailed), "sampleFailed array");
 
     for (const identifier of samples.slice(0, 3)) {
@@ -124,6 +126,17 @@ function functionBody(source, name) {
       assert(debug.computePublicationState?.is_public === true || debug.computed?.isPublic === true, `${identifier} debe quedar publico`);
       assert(debug.index?.found === true, `${identifier} debe estar reindexado`);
     }
+
+    const publishAgain = await requestJson(baseUrl, "/api/admin/products/bulk-visibility", {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: samples.slice(0, 3), visibility: "public", reindex: true }),
+    });
+    assert.strictEqual(publishAgain.response.status, 200, "publish again status");
+    assert.strictEqual(publishAgain.data.updatedCount, 0, "already public must not count as updated");
+    assert.strictEqual(publishAgain.data.alreadyInTargetStateCount, 3, "already public count");
+    assert.strictEqual(publishAgain.data.failedCount, 0, "publish again failed count");
+    assert(publishAgain.data.sampleAlreadyInTargetState.length > 0, "already sample");
 
     const partial = await requestJson(baseUrl, "/api/admin/products/bulk-visibility", {
       method: "POST",
@@ -149,14 +162,20 @@ function functionBody(source, name) {
   const batchBody = functionBody(repoSource, "setProductsVisibilityBatch");
   assert(!/rebuildProductsDb|rebuildProductsDbFromJson|ensureProductsDb\s*\(/.test(batchBody), "batch no debe hacer rebuild completo");
   assert(repoSource.includes("reindexProduct(identifier)"), "batch debe reindexar por producto");
+  assert(repoSource.includes("alreadyInTargetStateCount"), "batch debe separar ya-en-estado-destino");
+  assert(repoSource.includes("postVerificationFailed"), "batch debe verificar estado despues de publicar");
 
   const serverSource = readSource("backend/server.js");
   assert(serverSource.includes("/api/admin/products/bulk-visibility"), "server debe exponer bulk-visibility");
+  assert(!/admin-bulk-visibility[\s\S]{0,1200}rebuildProductsDb/.test(serverSource), "endpoint batch no debe disparar rebuild");
 
   const adminSource = readSource("frontend/js/admin.js");
   assert(adminSource.includes("/api/admin/products/bulk-visibility"), "frontend debe llamar al endpoint batch");
+  assert(adminSource.includes("[admin-bulk-action:selection]"), "frontend debe loguear seleccion visible");
+  assert(adminSource.includes("selectedProductMap"), "frontend debe guardar metadata de seleccion");
+  assert(adminSource.includes("clearProductSelection(\"loadProducts\")"), "loadProducts debe limpiar seleccion stale");
   assert(!/screenAuditBtn|screenPreviewBtn|screenPublishBtn|adhAuditBtn|adhPreviewBtn|adhPublishBtn/.test(adminSource), "frontend no debe mantener botones del publicador viejo");
-  assert(!/for\s*\(\s*const\s+id\s+of\s+selected\s*\)[\s\S]{0,700}visibility/.test(adminSource), "frontend no debe hacer PATCH por producto para visibilidad");
+  assert(!/body:\s*JSON\.stringify\(\{\s*visibility:/m.test(adminSource), "frontend no debe mandar visibility en PATCH individual");
 
   const htmlSource = readSource("frontend/admin.html");
   assert(!htmlSource.includes("Publicador final de pantallas"), "admin no debe mostrar el publicador viejo");

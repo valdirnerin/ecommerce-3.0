@@ -2338,6 +2338,23 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
+function getPublicationStateFromDebug(debug = {}) {
+  return debug?.computePublicationState || debug?.computed || debug?.publicationState || {};
+}
+
+function getStateVisibility(state = {}) {
+  return normalizeQueryText(state.visibility || state.status || state.admin_visibility_bucket || "");
+}
+
+function stateMatchesVisibility(state = {}, visibility = "") {
+  const target = normalizeQueryText(visibility || "");
+  if (target === "public") return state.is_public === true || state.isPublic === true;
+  const stateVisibility = getStateVisibility(state);
+  if (target === "private") return stateVisibility === "private" && state.is_public !== true;
+  if (target === "hidden") return stateVisibility === "hidden" && state.is_public !== true;
+  return false;
+}
+
 async function setProductsVisibilityBatch(identifiers = [], visibility, options = {}) {
   const startedAt = Date.now();
   const uniqueIdentifiers = Array.from(
@@ -2366,12 +2383,20 @@ async function setProductsVisibilityBatch(identifiers = [], visibility, options 
     reindex: options.reindex !== false,
   });
   const sampleUpdated = [];
+  const sampleAlreadyInTargetState = [];
   const sampleFailed = [];
   let updatedCount = 0;
+  let alreadyInTargetStateCount = 0;
   let failedCount = 0;
   await runWithConcurrency(uniqueIdentifiers, options.concurrency || 5, async (identifier) => {
     const itemStartedAt = Date.now();
     try {
+      const beforeDebug = await debugPublicationByIdentifier(identifier);
+      if (!beforeDebug?.found) {
+        throw new Error("Producto no encontrado");
+      }
+      const beforeState = getPublicationStateFromDebug(beforeDebug);
+      const beforeMatchesTarget = stateMatchesVisibility(beforeState, nextVisibility);
       const result = await setProductVisibility(identifier, nextVisibility, {
         reason: options.reason || "admin_bulk_visibility",
       });
@@ -2382,20 +2407,48 @@ async function setProductsVisibilityBatch(identifiers = [], visibility, options 
       if (options.reindex !== false) {
         reindexResult = await reindexProduct(identifier);
       }
-      updatedCount += 1;
-      if (sampleUpdated.length < 20) {
-        sampleUpdated.push({
-          identifier,
-          title: result?.debug?.sqlite?.title || result?.debug?.sqlite?.name || result?.debug?.product?.title || null,
-          before: result.before || null,
-          after: result.after || null,
-          reindexed: Boolean(reindexResult?.indexUpdated || result.indexUpdated),
-        });
+      const afterDebug = await debugPublicationByIdentifier(identifier);
+      const afterState = getPublicationStateFromDebug(afterDebug);
+      const afterMatchesTarget = stateMatchesVisibility(afterState, nextVisibility);
+      const changed = !beforeMatchesTarget && afterMatchesTarget;
+      if (!afterMatchesTarget) {
+        const error = new Error("postVerificationFailed");
+        error.beforeState = beforeState;
+        error.afterState = afterState;
+        throw error;
+      }
+      const sample = {
+        identifier,
+        title: beforeDebug?.sqlite?.title || beforeDebug?.sqlite?.name || result?.debug?.sqlite?.title || result?.debug?.sqlite?.name || null,
+        before: {
+          visibility: beforeState.visibility || null,
+          status: beforeState.status || null,
+          is_public: beforeState.is_public === true,
+        },
+        after: {
+          visibility: afterState.visibility || null,
+          status: afterState.status || null,
+          is_public: afterState.is_public === true,
+        },
+        reindexed: Boolean(reindexResult?.indexUpdated || result.indexUpdated),
+      };
+      let itemResult = "updated";
+      if (beforeMatchesTarget) {
+        alreadyInTargetStateCount += 1;
+        itemResult = "already";
+        if (sampleAlreadyInTargetState.length < 20) sampleAlreadyInTargetState.push(sample);
+      } else {
+        updatedCount += 1;
+        if (sampleUpdated.length < 20) sampleUpdated.push(sample);
       }
       console.info("[admin-bulk-visibility:item]", {
         identifier,
-        ok: true,
-        visibility: nextVisibility,
+        beforeIsPublic: beforeState.is_public === true,
+        afterIsPublic: afterState.is_public === true,
+        beforeVisibility: beforeState.visibility || null,
+        afterVisibility: afterState.visibility || null,
+        changed,
+        result: itemResult,
         durationMs: Date.now() - itemStartedAt,
       });
       return result;
@@ -2409,7 +2462,12 @@ async function setProductsVisibilityBatch(identifiers = [], visibility, options 
       }
       console.info("[admin-bulk-visibility:item]", {
         identifier,
-        ok: false,
+        beforeIsPublic: error?.beforeState?.is_public === true,
+        afterIsPublic: error?.afterState?.is_public === true,
+        beforeVisibility: error?.beforeState?.visibility || null,
+        afterVisibility: error?.afterState?.visibility || null,
+        changed: false,
+        result: "failed",
         error: error?.message || "bulk_visibility_item_failed",
         durationMs: Date.now() - itemStartedAt,
       });
@@ -2420,6 +2478,7 @@ async function setProductsVisibilityBatch(identifiers = [], visibility, options 
   console.info("[admin-bulk-visibility:end]", {
     requestedCount: uniqueIdentifiers.length,
     updatedCount,
+    alreadyInTargetStateCount,
     failedCount,
     visibility: nextVisibility,
     durationMs,
@@ -2428,9 +2487,11 @@ async function setProductsVisibilityBatch(identifiers = [], visibility, options 
     ok: true,
     requestedCount: uniqueIdentifiers.length,
     updatedCount,
+    alreadyInTargetStateCount,
     failedCount,
     visibility: nextVisibility,
     sampleUpdated,
+    sampleAlreadyInTargetState,
     sampleFailed,
     durationMs,
   };
