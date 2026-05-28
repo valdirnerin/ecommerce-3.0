@@ -2790,7 +2790,7 @@ function requireAdminJson(req, res, options = {}) {
 }
 
 function screenPublisherDisabled(res) {
-  return sendApiError(res, 503, "SCREEN_PUBLISHER_DISABLED", "Publicador desactivado temporalmente para proteger produccion");
+  return sendApiError(res, 503, "DISABLED", "Publicador especifico desactivado. Usar accion masiva normal.");
 }
 
 function normalizeScreenPublisherType(value) {
@@ -7695,6 +7695,56 @@ async function requestHandler(req, res) {
       }
     });
     return;
+  }
+
+  if (pathname === "/api/admin/products/bulk-visibility/health" && req.method === "GET") {
+    if (!requireAdminJson(req, res)) return;
+    return sendApiJson(res, 200, {
+      ok: true,
+      routeReady: true,
+      hasBatchFunction: typeof productsSqliteRepo.setProductsVisibilityBatch === "function",
+      maxBatchSize: 200,
+      reindexMode: "per-product",
+      rebuildsFullCatalog: false,
+    });
+  }
+
+  if (pathname === "/api/admin/products/bulk-visibility" && req.method === "POST") {
+    if (!requireAdminJson(req, res)) return;
+    await parseBody(req);
+    try {
+      const payload = req.body && typeof req.body === "object" ? req.body : {};
+      const identifiers = Array.isArray(payload.identifiers) ? payload.identifiers : [];
+      const visibility = String(payload.visibility || "").trim().toLowerCase();
+      if (identifiers.length === 0) {
+        return sendApiError(res, 400, "BULK_VISIBILITY_EMPTY", "Selecciona al menos un producto.");
+      }
+      if (identifiers.length > 200) {
+        return sendApiError(res, 400, "BULK_VISIBILITY_TOO_LARGE", "La accion masiva permite hasta 200 productos por request.", {
+          requestedCount: identifiers.length,
+          maxBatchSize: 200,
+        });
+      }
+      if (!["public", "private", "hidden"].includes(visibility)) {
+        return sendApiError(res, 400, "INVALID_VISIBILITY", "visibility debe ser public, private o hidden.");
+      }
+      const result = await productsSqliteRepo.setProductsVisibilityBatch(identifiers, visibility, {
+        reindex: payload.reindex !== false,
+        maxBatchSize: 200,
+        concurrency: 5,
+        reason: "admin_bulk_visibility",
+      });
+      invalidateCatalogCaches("admin_bulk_visibility");
+      return sendApiJson(res, 200, result);
+    } catch (error) {
+      if (error?.code === "INVALID_VISIBILITY") {
+        return sendApiError(res, 400, "INVALID_VISIBILITY", error.message);
+      }
+      if (error?.code === "BULK_VISIBILITY_TOO_LARGE") {
+        return sendApiError(res, 400, "BULK_VISIBILITY_TOO_LARGE", error.message);
+      }
+      return sendApiError(res, 500, "BULK_VISIBILITY_FAILED", error?.message || "No se pudo actualizar la visibilidad en lote.");
+    }
   }
 
   const adminProductReindexMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/reindex$/);

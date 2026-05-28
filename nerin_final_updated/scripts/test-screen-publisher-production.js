@@ -65,7 +65,8 @@ function assertSourceContracts() {
   assert(server.includes("outputLimit: 48"), "/adhesivos-de-pantalla must use outputLimit");
   assert(!server.includes("limit: 48,"), "/adhesivos-de-pantalla must not scan only 48 products");
   assert(admin.includes("async function fetchAdminJson"), "frontend fetchAdminJson helper missing");
-  assert(admin.includes("[screen-admin-request]"), "frontend request diagnostic log missing");
+  assert(admin.includes("/api/admin/products/bulk-visibility"), "frontend must use normal bulk visibility endpoint");
+  assert(!/screenAuditBtn|screenPreviewBtn|screenPublishBtn|adhAuditBtn|adhPreviewBtn|adhPublishBtn/.test(admin), "admin must not wire the retired screen publisher buttons");
   assert(!packageJson.includes("applyScreenPublisherHotfix.js"), "runtime hotfix must be removed from package.json");
 }
 
@@ -86,7 +87,7 @@ async function assertEndpointContracts() {
     const authHeaders = { Authorization: `Bearer ${ADMIN_TOKEN}` };
     const screensAudit = await requestJson(baseUrl, "/api/admin/screens/audit", { headers: authHeaders });
     assert.strictEqual(screensAudit.response.status, 503, "screens audit should be disabled by default");
-    assert.strictEqual(screensAudit.data.error, "SCREEN_PUBLISHER_DISABLED", "screens audit disabled code");
+    assert.strictEqual(screensAudit.data.error, "DISABLED", "screens audit disabled code");
 
     const preview = await requestJson(baseUrl, "/api/admin/screens/publish-preview", {
       method: "POST",
@@ -94,7 +95,7 @@ async function assertEndpointContracts() {
       body: JSON.stringify({ onlyWithImage: true, onlyWithPrice: true }),
     });
     assert.strictEqual(preview.response.status, 503, "screens preview should be disabled by default");
-    assert.strictEqual(preview.data.error, "SCREEN_PUBLISHER_DISABLED", "screens preview disabled code");
+    assert.strictEqual(preview.data.error, "DISABLED", "screens preview disabled code");
 
     const publishNoConfirm = await requestJson(baseUrl, "/api/admin/screens/publish", {
       method: "POST",
@@ -106,7 +107,7 @@ async function assertEndpointContracts() {
 
     const adhesivesAudit = await requestJson(baseUrl, "/api/admin/screen-adhesives/audit", { headers: authHeaders });
     assert.strictEqual(adhesivesAudit.response.status, 503, "adhesives audit should be disabled by default");
-    assert.strictEqual(adhesivesAudit.data.error, "SCREEN_PUBLISHER_DISABLED", "adhesives audit disabled code");
+    assert.strictEqual(adhesivesAudit.data.error, "DISABLED", "adhesives audit disabled code");
   } finally {
     await close(server);
   }

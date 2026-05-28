@@ -2322,6 +2322,120 @@ async function setProductVisibility(identifier, nextVisibility, options = {}) {
   };
 }
 
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let index = 0;
+  const workerCount = Math.min(Math.max(1, Number(limit) || 1), items.length || 1);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (index < items.length) {
+        const currentIndex = index;
+        index += 1;
+        results[currentIndex] = await worker(items[currentIndex], currentIndex);
+      }
+    }),
+  );
+  return results;
+}
+
+async function setProductsVisibilityBatch(identifiers = [], visibility, options = {}) {
+  const startedAt = Date.now();
+  const uniqueIdentifiers = Array.from(
+    new Set(
+      (Array.isArray(identifiers) ? identifiers : [])
+        .map((identifier) => String(identifier || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const nextVisibility = normalizeQueryText(visibility || "");
+  const allowedVisibility = new Set(["public", "private", "hidden"]);
+  if (!allowedVisibility.has(nextVisibility)) {
+    const error = new Error("visibility debe ser public, private o hidden");
+    error.code = "INVALID_VISIBILITY";
+    throw error;
+  }
+  const maxBatchSize = Number(options.maxBatchSize || 200);
+  if (uniqueIdentifiers.length > maxBatchSize) {
+    const error = new Error(`El lote supera el maximo de ${maxBatchSize} productos`);
+    error.code = "BULK_VISIBILITY_TOO_LARGE";
+    throw error;
+  }
+  console.info("[admin-bulk-visibility:start]", {
+    requestedCount: uniqueIdentifiers.length,
+    visibility: nextVisibility,
+    reindex: options.reindex !== false,
+  });
+  const sampleUpdated = [];
+  const sampleFailed = [];
+  let updatedCount = 0;
+  let failedCount = 0;
+  await runWithConcurrency(uniqueIdentifiers, options.concurrency || 5, async (identifier) => {
+    const itemStartedAt = Date.now();
+    try {
+      const result = await setProductVisibility(identifier, nextVisibility, {
+        reason: options.reason || "admin_bulk_visibility",
+      });
+      if (!result?.ok) {
+        throw new Error("Producto no encontrado");
+      }
+      let reindexResult = null;
+      if (options.reindex !== false) {
+        reindexResult = await reindexProduct(identifier);
+      }
+      updatedCount += 1;
+      if (sampleUpdated.length < 20) {
+        sampleUpdated.push({
+          identifier,
+          title: result?.debug?.sqlite?.title || result?.debug?.sqlite?.name || result?.debug?.product?.title || null,
+          before: result.before || null,
+          after: result.after || null,
+          reindexed: Boolean(reindexResult?.indexUpdated || result.indexUpdated),
+        });
+      }
+      console.info("[admin-bulk-visibility:item]", {
+        identifier,
+        ok: true,
+        visibility: nextVisibility,
+        durationMs: Date.now() - itemStartedAt,
+      });
+      return result;
+    } catch (error) {
+      failedCount += 1;
+      if (sampleFailed.length < 20) {
+        sampleFailed.push({
+          identifier,
+          error: error?.message || "No se pudo actualizar el producto",
+        });
+      }
+      console.info("[admin-bulk-visibility:item]", {
+        identifier,
+        ok: false,
+        error: error?.message || "bulk_visibility_item_failed",
+        durationMs: Date.now() - itemStartedAt,
+      });
+      return null;
+    }
+  });
+  const durationMs = Date.now() - startedAt;
+  console.info("[admin-bulk-visibility:end]", {
+    requestedCount: uniqueIdentifiers.length,
+    updatedCount,
+    failedCount,
+    visibility: nextVisibility,
+    durationMs,
+  });
+  return {
+    ok: true,
+    requestedCount: uniqueIdentifiers.length,
+    updatedCount,
+    failedCount,
+    visibility: nextVisibility,
+    sampleUpdated,
+    sampleFailed,
+    durationMs,
+  };
+}
+
 async function loadProductOverrides() {
   try {
     return JSON.parse(await fsp.readFile(OVERRIDES_PATH, "utf8")) || {};
@@ -4477,6 +4591,7 @@ module.exports = {
   computePublicationState,
   computeProductPublicState,
   setProductVisibility,
+  setProductsVisibilityBatch,
   reindexProduct,
   updateProductByIdentifier,
   normalizeProductForPublic,
