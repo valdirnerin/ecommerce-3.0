@@ -4098,6 +4098,40 @@ function renderFinalPublisherSummary(data = {}, kind = "screen") {
   finalScreensPublisherSummary.innerHTML = `<div class="bulk-publish-summary-grid">${rows.map(([label, value]) => `<article><strong>${escapeHtml(String(value ?? 0))}</strong><span>${escapeHtml(label)}</span></article>`).join("")}</div><p><a href="/pantallas-en-stock" target="_blank">/pantallas-en-stock</a> · <a href="/adhesivos-de-pantalla" target="_blank">/adhesivos-de-pantalla</a> · <a href="/api/merchant/screens-feed.csv" target="_blank">feed pantallas</a> · <a href="/api/merchant/screen-adhesives-feed.csv" target="_blank">feed adhesivos</a></p>`;
 }
 
+async function fetchAdminJson(url, options = {}) {
+  const response = await apiFetch(url, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {}),
+      ...getAdminHeaders(),
+    },
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  const preview = text.slice(0, 300).replace(/\s+/g, " ");
+  console.info("[screen-admin-request]", {
+    url,
+    method: options.method || "GET",
+    status: response.status,
+    contentType,
+    preview,
+  });
+  if (!contentType.includes("application/json")) {
+    throw new Error(`El endpoint ${url} devolvio ${response.status} ${contentType || "sin content-type"} en vez de JSON. Preview: ${preview}`);
+  }
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (error) {
+    throw new Error(`Respuesta JSON invalida de ${url}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new Error(data.message || data.error || `Error HTTP ${response.status}`);
+  }
+  return data;
+}
+
 async function runFinalPublisher(kind, action) {
   const isScreen = kind === "screen";
   const base = isScreen ? "/api/admin/screens" : "/api/admin/screen-adhesives";
@@ -4107,8 +4141,7 @@ async function runFinalPublisher(kind, action) {
     let data;
     if (action === "audit") {
       const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== ""));
-      const res = await apiFetch(`${base}/audit?${params.toString()}`);
-      data = await res.json();
+      data = await fetchAdminJson(`${base}/audit?${params.toString()}`);
     } else {
       const body = action === "publish" ? { ...filters, [isScreen ? "confirmScreenBulkPublish" : "confirmScreenAdhesiveBulkPublish"]: true } : filters;
       if (action === "publish") {
@@ -4117,8 +4150,7 @@ async function runFinalPublisher(kind, action) {
           : "Vas a publicar adhesivos de pantalla elegibles. No se publicaran adhesivos de bateria, tapas, camaras ni cintas genericas sin modelo.");
         if (!ok) return;
       }
-      const res = await apiFetch(`${base}/${action === "publish" ? "publish" : "publish-preview"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      data = await res.json();
+      data = await fetchAdminJson(`${base}/${action === "publish" ? "publish" : "publish-preview"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     }
     if (!data.ok) throw new Error(data.error || "No se pudo completar");
     setFinalPublisherStatus(action === "publish" ? `Actualizados ${data.updatedCount || 0}, verificados ${data.verifiedPublicCount || 0}, fallidos ${data.failedCount || 0}` : "Listo.");

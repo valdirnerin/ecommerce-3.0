@@ -20,6 +20,7 @@ const {
 const DEFAULT_BASE_URL = "https://nerinparts.com.ar";
 const GOOGLE_CATEGORY = "Electrónica > Comunicaciones > Telefonía > Accesorios para móviles";
 const VALID_AVAILABILITY = new Set(["in_stock", "preorder", "backorder", "out_of_stock"]);
+const DEFAULT_SCAN_LIMIT = 250000;
 
 function dbAll(db, sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -77,6 +78,10 @@ function optionEnabled(value, fallback = true) {
 function publicationBucket(product = {}) {
   const state = productsSqliteRepo.computePublicationState(product);
   return state.admin_visibility_bucket || (state.is_public ? "public" : "not_public");
+}
+
+function isPublicProduct(product = {}) {
+  return Boolean(productsSqliteRepo.computePublicationState(product).is_public);
 }
 
 function getIdentifier(product = {}) {
@@ -233,7 +238,7 @@ function sampleItem(item) {
   };
 }
 
-async function loadRows({ limit = 100000 } = {}) {
+async function loadRows({ limit = DEFAULT_SCAN_LIMIT, scanLimit } = {}) {
   await productsSqliteRepo.ensureProductsDbOnce();
   const db = await openReadonly(productsSqliteRepo.SQLITE_PATH);
   try {
@@ -244,7 +249,7 @@ async function loadRows({ limit = 100000 } = {}) {
        LEFT JOIN product_search_index si ON si.product_rowid = p.rowid
        ORDER BY p.rowid ASC
        LIMIT ?`,
-      [Math.max(1, Number(limit) || 100000)],
+      [Math.max(1, Number(scanLimit || limit) || DEFAULT_SCAN_LIMIT)],
     );
     return rows;
   } finally {
@@ -256,6 +261,7 @@ function analyzeRows(rows, filters = {}, type = "screen") {
   const summary = {
     ok: true,
     totalProducts: rows.length,
+    scannedRows: rows.length,
     blockedCount: 0,
     warningCount: 0,
     byBrand: {},
@@ -297,9 +303,10 @@ function analyzeRows(rows, filters = {}, type = "screen") {
   }
   const publicCurrent = summary.items.filter((i) => {
     const realType = type === "screen" ? i.screenClassification.isScreen : i.adhesiveClassification.isScreenAdhesive;
-    return realType && (Number(i.product.is_public) === 1 || boolish(i.product.is_public));
+    return realType && isPublicProduct(i.product);
   }).length;
   const eligible = summary.items.filter((i) => i.eligible);
+  summary.eligibleCount = eligible.length;
   if (type === "screen") {
     summary.totalScreensDetected = summary.items.filter((i) => i.screenClassification.isScreen).length;
     summary.publicScreensCurrent = publicCurrent;
@@ -319,9 +326,12 @@ function analyzeRows(rows, filters = {}, type = "screen") {
 }
 
 async function previewPublication(type, filters = {}) {
-  const rows = await loadRows({ limit: filters.limit || 100000 });
+  const startedAt = Date.now();
+  const rows = await loadRows({ scanLimit: filters.scanLimit || filters.maxScanRows || DEFAULT_SCAN_LIMIT });
   const summary = analyzeRows(rows, filters, type);
   delete summary.items;
+  summary.durationMs = Date.now() - startedAt;
+  console.info("[screen-publisher:preview]", { type, scannedRows: summary.scannedRows, eligibleCount: summary.eligibleCount || 0, blockedCount: summary.blockedCount || 0, durationMs: summary.durationMs });
   return summary;
 }
 
@@ -332,17 +342,18 @@ async function publishEligible(type, filters = {}) {
     error.statusCode = 400;
     throw error;
   }
-  const rows = await loadRows({ limit: filters.limit || 100000 });
+  const startedAt = Date.now();
+  const rows = await loadRows({ scanLimit: filters.scanLimit || filters.maxScanRows || DEFAULT_SCAN_LIMIT });
   const summary = analyzeRows(rows, filters, type);
   const eligible = summary.items.filter((i) => i.eligible);
-  const result = { ok: true, attemptedCount: eligible.length, updatedCount: 0, verifiedPublicCount: 0, failedCount: 0, samplePublished: [], sampleFailed: [] };
+  const result = { ok: true, attemptedCount: eligible.length, eligibleCount: eligible.length, blockedCount: summary.blockedCount || 0, warningCount: summary.warningCount || 0, updatedCount: 0, verifiedPublicCount: 0, failedCount: 0, samplePublished: [], sampleFailed: [], blockersBreakdown: summary.blockersBreakdown || {} };
   for (const item of eligible) {
     const identifier = getIdentifier(item.product);
     try {
       const publication = await productsSqliteRepo.setProductVisibility(identifier, "public", { reason: type === "screen" ? "final_screen_publish" : "final_screen_adhesive_publish" });
       await productsSqliteRepo.reindexProduct(identifier);
       const debug = await productsSqliteRepo.debugPublicationByIdentifier(identifier);
-      const verified = Boolean(debug?.appearsInPublicApi || publication?.publicApiVisible || publication?.after?.is_public);
+      const verified = Boolean(debug?.appearsInPublicApi || debug?.computePublicationState?.is_public || debug?.publicationState?.is_public || publication?.publicApiVisible || publication?.after?.is_public);
       if (verified) {
         result.updatedCount += 1;
         result.verifiedPublicCount += 1;
@@ -356,6 +367,8 @@ async function publishEligible(type, filters = {}) {
       if (result.sampleFailed.length < 15) result.sampleFailed.push({ ...sampleItem(item), reason: error?.message || "publishFailed" });
     }
   }
+  result.durationMs = Date.now() - startedAt;
+  console.info("[screen-publisher:publish]", { type, eligibleCount: result.eligibleCount, updatedCount: result.updatedCount, verifiedPublicCount: result.verifiedPublicCount, failedCount: result.failedCount, durationMs: result.durationMs });
   return result;
 }
 
@@ -415,16 +428,21 @@ function feedEntry(item, type, baseUrl = DEFAULT_BASE_URL) {
 }
 
 async function buildFeed(type, options = {}) {
-  const rows = await loadRows({ limit: options.limit || 100000 });
+  const startedAt = Date.now();
+  const outputLimit = Math.max(1, Number(options.outputLimit || options.limit || 100000) || 100000);
+  const rows = await loadRows({ scanLimit: options.scanLimit || options.maxScanRows || DEFAULT_SCAN_LIMIT });
   const summary = analyzeRows(rows, {}, type);
   const entries = summary.items
-    .filter((item) => Number(item.product.is_public) === 1 || boolish(item.product.is_public))
-    .filter((item) => item.eligible || item.blockers.every((b) => b === "not_public_visibility"))
+    .filter((item) => type === "screen" ? item.screenClassification?.isScreen : item.adhesiveClassification?.isScreenAdhesive)
+    .filter((item) => isPublicProduct(item.product))
+    .filter((item) => item.merchantReadiness?.ready)
     .map((item) => feedEntry(item, type, options.baseUrl || DEFAULT_BASE_URL))
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, outputLimit);
   const headers = ["id","title","description","link","image_link","additional_image_link","availability","availability_date","price","condition","brand","mpn","identifier_exists","google_product_category","product_type","custom_label_0","custom_label_1","custom_label_2","custom_label_3","custom_label_4"];
   const csv = [headers.join(",")].concat(entries.map((entry) => headers.map((h) => csvCell(entry[h])).join(","))).join("\n") + "\n";
-  return { entries, csv };
+  console.info("[screen-publisher:feed]", { type, scannedRows: summary.scannedRows, feedReadyCount: entries.length, outputLimit, durationMs: Date.now() - startedAt });
+  return { entries, csv, scannedRows: summary.scannedRows, feedReadyCount: entries.length };
 }
 
 function csvCell(value) {
@@ -452,7 +470,7 @@ function toAuditCsv(items, type, headers) {
     const av = availability(p);
     const entry = feedEntry(item, type, DEFAULT_BASE_URL) || {};
     const values = {
-      id: p.id || p.rowid, sku: p.sku || "", title: getTitle(p), public_slug: getSlug(p), visibility: p.visibility || "", is_public: p.is_public || 0,
+      id: p.id || p.rowid, sku: p.sku || "", title: getTitle(p), public_slug: getSlug(p), visibility: p.visibility || "", is_public: isPublicProduct(p) ? 1 : 0,
       part_type: type === "screen" ? "display" : "display_adhesive", adhesive_context: type === "screen_adhesive" ? "display" : "",
       device_brand: cls.deviceBrand || "", model_base: cls.modelBase || "", quality_tier: cls.qualityTier || "", adhesive_type: cls.adhesiveType || "",
       stock_status: isStockReal(p) ? "stock_real" : isRemoteOrderable(p) ? "a_pedido" : "out_of_stock", price: getPublicPriceValue(p) || "", has_image: hasImage(p),
@@ -473,4 +491,5 @@ module.exports = {
   writeAuditCsv,
   analyzeRows,
   feedEntry,
+  isPublicProduct,
 };
