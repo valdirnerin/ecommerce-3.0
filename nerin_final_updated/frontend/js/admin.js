@@ -4132,6 +4132,26 @@ async function fetchAdminJson(url, options = {}) {
   return data;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitScreenPublisherJob(base, jobId, kind) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const data = await fetchAdminJson(`${base}/jobs/${encodeURIComponent(jobId)}`);
+    const job = data.job || {};
+    setFinalPublisherStatus(`Job ${job.status || "running"}: escaneados ${job.scannedRows || 0}, elegibles ${job.eligibleCount || 0}, bloqueados ${job.blockedCount || 0}`);
+    if (job.status === "done") {
+      return data.result || job;
+    }
+    if (job.status === "failed") {
+      throw new Error(job.error || "El job del publicador fallo");
+    }
+    await sleep(2500);
+  }
+  throw new Error("El job sigue corriendo. Volve a consultar el estado en unos segundos.");
+}
+
 async function runFinalPublisher(kind, action) {
   const isScreen = kind === "screen";
   const base = isScreen ? "/api/admin/screens" : "/api/admin/screen-adhesives";
@@ -4139,18 +4159,19 @@ async function runFinalPublisher(kind, action) {
   setFinalPublisherStatus("Procesando...");
   try {
     let data;
-    if (action === "audit") {
-      const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v !== undefined && v !== ""));
-      data = await fetchAdminJson(`${base}/audit?${params.toString()}`);
+    if (action === "audit" || action === "preview") {
+      const started = await fetchAdminJson(`${base}/audit-job`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(filters) });
+      data = await waitScreenPublisherJob(base, started.jobId, kind);
     } else {
-      const body = action === "publish" ? { ...filters, [isScreen ? "confirmScreenBulkPublish" : "confirmScreenAdhesiveBulkPublish"]: true } : filters;
+      const body = { ...filters, [isScreen ? "confirmScreenBulkPublish" : "confirmScreenAdhesiveBulkPublish"]: true };
       if (action === "publish") {
         const ok = confirm(isScreen
           ? "Vas a publicar pantallas reales elegibles. No se publicaran adhesivos, brackets, fundas, protectores ni productos sin precio/imagen."
           : "Vas a publicar adhesivos de pantalla elegibles. No se publicaran adhesivos de bateria, tapas, camaras ni cintas genericas sin modelo.");
         if (!ok) return;
       }
-      data = await fetchAdminJson(`${base}/${action === "publish" ? "publish" : "publish-preview"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const started = await fetchAdminJson(`${base}/publish-job`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      data = await waitScreenPublisherJob(base, started.jobId, kind);
     }
     if (!data.ok) throw new Error(data.error || "No se pudo completar");
     setFinalPublisherStatus(action === "publish" ? `Actualizados ${data.updatedCount || 0}, verificados ${data.verifiedPublicCount || 0}, fallidos ${data.failedCount || 0}` : "Listo.");

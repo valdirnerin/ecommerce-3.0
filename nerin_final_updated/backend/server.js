@@ -277,6 +277,19 @@ const ANALYTICS_DETAILED_TIMEOUT_MS = Math.max(
   Number.parseInt(process.env.ANALYTICS_DETAILED_TIMEOUT_MS || "5000", 10) || 5000,
 );
 const ANALYTICS_CATALOG_SNAPSHOT_TTL_MS = 10 * 60 * 1000;
+const SCREEN_PUBLISHER_ENABLED = parseBooleanEnv("SCREEN_PUBLISHER_ENABLED", false);
+const SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT = Math.max(1, Number(process.env.SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT || 5000) || 5000);
+const SCREEN_PUBLISHER_SCAN_LIMIT_MAX = Math.max(SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT, Number(process.env.SCREEN_PUBLISHER_SCAN_LIMIT_MAX || 60000) || 60000);
+const SCREEN_PUBLISHER_JOB_CHUNK_SIZE = Math.max(100, Number(process.env.SCREEN_PUBLISHER_CHUNK_SIZE || 1000) || 1000);
+const SCREEN_PUBLISHER_AUDIT_CACHE_MS = 5 * 60 * 1000;
+const SCREEN_PUBLISHER_HEAP_ABORT_BYTES = Math.max(64 * 1024 * 1024, Number(process.env.SCREEN_PUBLISHER_HEAP_ABORT_BYTES || 420 * 1024 * 1024) || 420 * 1024 * 1024);
+const screenPublisherJobs = new Map();
+const screenPublisherAuditCache = new Map();
+const screenPublisherLocks = { screen: null, screen_adhesive: null };
+let lastScreenPublisherJob = null;
+const PRODUCT_DETAIL_CACHE_TTL_MS = Math.max(60_000, Number(process.env.PRODUCT_DETAIL_CACHE_TTL_MS || 5 * 60 * 1000) || 5 * 60 * 1000);
+const PRODUCT_DETAIL_CACHE_MAX = Math.max(50, Number(process.env.PRODUCT_DETAIL_CACHE_MAX || 500) || 500);
+const productDetailCache = new Map();
 
 function getDetailedAnalyticsTtlMs(range = "7d") {
   if (range === "today") return 60_000;
@@ -1901,14 +1914,42 @@ function buildShopCard(product, siteBase) {
   `;
 }
 
-function renderShopListing(products, siteBase) {
+function renderShopListing(products, siteBase, totalCount = null) {
   const valid = Array.isArray(products)
     ? products.filter((p) => p && isProductPublic(p))
     : [];
   const cards = valid.slice(0, 30).map((p) => buildShopCard(p, siteBase)).join("");
-  const count = valid.length;
-  const summary = count === 1 ? "producto disponible." : "productos listados.";
-  return { cards, count, summary };
+  const numericTotal = Number(totalCount);
+  const count = Number.isFinite(numericTotal) && numericTotal >= valid.length ? numericTotal : valid.length;
+  const summary = count === 1 ? "producto disponible." : "productos disponibles.";
+  return { cards, count, summary, products: valid.slice(0, 30) };
+}
+
+function filterShopProductsForSsr(products = [], { search = "", category = "", brand = "" } = {}) {
+  const cleanSearch = compactText(search).toLowerCase();
+  const cleanCategory = compactText(category).toLowerCase();
+  const cleanBrand = compactText(brand).toLowerCase();
+  return (Array.isArray(products) ? products : [])
+    .filter((product) => product && isProductPublic(product))
+    .filter((product) => {
+      if (cleanCategory && compactText(product?.category || product?.categoria).toLowerCase() !== cleanCategory) return false;
+      if (cleanBrand && compactText(product?.brand || product?.marca).toLowerCase() !== cleanBrand) return false;
+      if (!cleanSearch) return true;
+      const haystack = [
+        product?.name,
+        product?.title,
+        product?.sku,
+        product?.code,
+        product?.brand,
+        product?.category,
+        product?.model,
+        product?.description,
+        product?.short_description,
+      ]
+        .map((value) => compactText(value).toLowerCase())
+        .join(" ");
+      return haystack.includes(cleanSearch);
+    });
 }
 
 function parseSqliteProductRow(row = {}) {
@@ -2718,8 +2759,14 @@ function requireAdmin(req, res, options = {}) {
   return true;
 }
 
+function sendApiJson(res, status, payload) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(payload));
+}
+
 function sendApiError(res, status, code, message, extra = {}) {
-  return sendJson(res, status, {
+  return sendApiJson(res, status, {
     ok: false,
     error: code,
     message,
@@ -2740,6 +2787,192 @@ function requireAdminJson(req, res, options = {}) {
     return false;
   }
   return true;
+}
+
+function screenPublisherDisabled(res) {
+  return sendApiError(res, 503, "SCREEN_PUBLISHER_DISABLED", "Publicador desactivado temporalmente para proteger produccion");
+}
+
+function normalizeScreenPublisherType(value) {
+  return value === "screen_adhesive" || value === "adhesive" ? "screen_adhesive" : "screen";
+}
+
+function clampScreenPublisherScanLimit(value) {
+  return Math.min(SCREEN_PUBLISHER_SCAN_LIMIT_MAX, Math.max(1, Number(value || SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT) || SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT));
+}
+
+function screenPublisherJobSnapshot(job) {
+  if (!job) return null;
+  return {
+    id: job.id,
+    type: job.type,
+    mode: job.mode,
+    status: job.status,
+    scannedRows: job.scannedRows || 0,
+    detectedCount: job.detectedCount || 0,
+    eligibleCount: job.eligibleCount || 0,
+    blockedCount: job.blockedCount || 0,
+    updatedCount: job.updatedCount || 0,
+    verifiedPublicCount: job.verifiedPublicCount || 0,
+    failedCount: job.failedCount || 0,
+    startedAt: job.startedAt || null,
+    finishedAt: job.finishedAt || null,
+    error: job.error || "",
+    samples: job.samples || {},
+    memoryUsage: job.memoryUsage || {},
+  };
+}
+
+function screenPublisherCacheKey(type, filters = {}) {
+  const copy = { ...filters };
+  delete copy.confirmScreenBulkPublish;
+  delete copy.confirmScreenAdhesiveBulkPublish;
+  return `${type}:${JSON.stringify(copy)}`;
+}
+
+function logScreenPublisherMemory(label, job) {
+  const memoryUsage = getMemoryUsageSnapshot();
+  console.info("[screen-publisher:memory]", { label, jobId: job?.id || null, memoryUsage });
+  if (job) job.memoryUsage = { ...(job.memoryUsage || {}), [label]: memoryUsage };
+  if (memoryUsage.heapUsed > SCREEN_PUBLISHER_HEAP_ABORT_BYTES) {
+    const error = new Error("SCREEN_PUBLISHER_MEMORY_SOFT_LIMIT");
+    error.code = "SCREEN_PUBLISHER_MEMORY_SOFT_LIMIT";
+    throw error;
+  }
+  return memoryUsage;
+}
+
+async function runScreenPublisherAuditJob(job) {
+  const cacheKey = screenPublisherCacheKey(job.type, job.filters);
+  const cached = screenPublisherAuditCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < SCREEN_PUBLISHER_AUDIT_CACHE_MS) {
+    Object.assign(job, cached.result, { status: "done", cached: true, finishedAt: new Date().toISOString() });
+    return;
+  }
+  const scanLimit = clampScreenPublisherScanLimit(job.filters.scanLimit || job.filters.maxScanRows || job.filters.limit);
+  const rows = [];
+  let offset = 0;
+  const started = Date.now();
+  while (rows.length < scanLimit && Date.now() - started < 30_000) {
+    logScreenPublisherMemory("chunk-start", job);
+    const chunk = await finalScreenPublication.loadRows({
+      type: job.type,
+      scanLimit: Math.min(SCREEN_PUBLISHER_JOB_CHUNK_SIZE, scanLimit - rows.length),
+      offset,
+    });
+    rows.push(...chunk);
+    offset += chunk.length;
+    job.scannedRows = rows.length;
+    if (chunk.length < SCREEN_PUBLISHER_JOB_CHUNK_SIZE) break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  const summary = finalScreenPublication.analyzeRows(rows, job.filters, job.type);
+  job.scannedRows = summary.scannedRows || rows.length;
+  job.detectedCount = job.type === "screen" ? summary.totalScreensDetected || 0 : summary.totalScreenAdhesivesDetected || 0;
+  job.eligibleCount = summary.eligibleCount || 0;
+  job.blockedCount = summary.blockedCount || 0;
+  job.samples = {
+    eligible: summary.eligibleSamples || [],
+    blocked: summary.blockedSamples || [],
+    excluded: job.type === "screen" ? summary.accessoryExcludedSamples || [] : summary.excludedSamples || [],
+  };
+  job.result = { ...summary };
+  delete job.result.items;
+  screenPublisherAuditCache.set(cacheKey, { at: Date.now(), result: screenPublisherJobSnapshot(job) });
+}
+
+async function runScreenPublisherPublishJob(job) {
+  const filters = { ...job.filters };
+  if (job.type === "screen") filters.confirmScreenBulkPublish = true;
+  else filters.confirmScreenAdhesiveBulkPublish = true;
+  filters.scanLimit = clampScreenPublisherScanLimit(filters.scanLimit || filters.maxScanRows || filters.limit);
+  const result = await finalScreenPublication.publishEligible(job.type, filters);
+  job.scannedRows = result.scannedRows || filters.scanLimit;
+  job.eligibleCount = result.eligibleCount || result.attemptedCount || 0;
+  job.blockedCount = result.blockedCount || 0;
+  job.updatedCount = result.updatedCount || 0;
+  job.verifiedPublicCount = result.verifiedPublicCount || 0;
+  job.failedCount = result.failedCount || 0;
+  job.samples = {
+    published: result.samplePublished || [],
+    failed: result.sampleFailed || [],
+  };
+  job.result = result;
+}
+
+function startScreenPublisherJob(type, mode, filters = {}) {
+  const normalizedType = normalizeScreenPublisherType(type);
+  if (screenPublisherLocks[normalizedType]) {
+    return { alreadyRunning: true, jobId: screenPublisherLocks[normalizedType] };
+  }
+  const id = `${normalizedType}-${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const job = {
+    id,
+    type: normalizedType,
+    mode,
+    status: "queued",
+    filters: { ...(filters || {}) },
+    scannedRows: 0,
+    detectedCount: 0,
+    eligibleCount: 0,
+    blockedCount: 0,
+    updatedCount: 0,
+    verifiedPublicCount: 0,
+    failedCount: 0,
+    startedAt: null,
+    finishedAt: null,
+    error: "",
+    samples: {},
+    memoryUsage: {},
+  };
+  screenPublisherJobs.set(id, job);
+  screenPublisherLocks[normalizedType] = id;
+  lastScreenPublisherJob = id;
+  setImmediate(async () => {
+    job.status = "running";
+    job.startedAt = new Date().toISOString();
+    try {
+      logScreenPublisherMemory("start", job);
+      if (mode === "audit") await runScreenPublisherAuditJob(job);
+      else await runScreenPublisherPublishJob(job);
+      logScreenPublisherMemory("end", job);
+      job.status = "done";
+    } catch (error) {
+      job.status = "failed";
+      job.error = error?.code || error?.message || "SCREEN_PUBLISHER_JOB_FAILED";
+      console.error("[screen-publisher:job-failed]", { id: job.id, type: job.type, mode: job.mode, error: job.error });
+    } finally {
+      job.finishedAt = new Date().toISOString();
+      if (screenPublisherLocks[normalizedType] === id) screenPublisherLocks[normalizedType] = null;
+    }
+  });
+  return { job };
+}
+
+function isLikelyCrawler(req) {
+  const ua = String(req.headers?.["user-agent"] || "").toLowerCase();
+  return /bot|crawl|spider|slurp|bingpreview|facebookexternalhit|whatsapp|telegram|preview|headless|lighthouse/.test(ua);
+}
+
+function getProductDetailCache(key) {
+  const cached = productDetailCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.at > PRODUCT_DETAIL_CACHE_TTL_MS) {
+    productDetailCache.delete(key);
+    return null;
+  }
+  productDetailCache.delete(key);
+  productDetailCache.set(key, cached);
+  return cached.html;
+}
+
+function setProductDetailCache(key, html) {
+  productDetailCache.set(key, { at: Date.now(), html });
+  while (productDetailCache.size > PRODUCT_DETAIL_CACHE_MAX) {
+    const first = productDetailCache.keys().next().value;
+    if (!first) break;
+    productDetailCache.delete(first);
+  }
 }
 
 function parseSvixSignatures(headerValue) {
@@ -7139,6 +7372,16 @@ async function requestHandler(req, res) {
     }, { "Cache-Control": "no-store" });
   }
 
+  if (pathname === "/api/system/health-light" && req.method === "GET") {
+    return sendApiJson(res, 200, {
+      ok: true,
+      uptime: process.uptime(),
+      memoryUsage: getMemoryUsageSnapshot(),
+      catalogReady: Boolean(productsSqliteRepo.catalogStateSnapshot()?.ready),
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   if (pathname === "/api/catalog/status" && req.method === "GET") {
     try {
       const health = await productsSqliteRepo.getCatalogHealth();
@@ -7591,8 +7834,9 @@ async function requestHandler(req, res) {
     } catch (error) {
       warnings.push(`No se pudo leer package.json: ${error?.message || error}`);
     }
-    return sendJson(res, 200, {
+    return sendApiJson(res, 200, {
       ok: true,
+      enabled: SCREEN_PUBLISHER_ENABLED,
       routesReady: true,
       serviceLoaded: Boolean(finalScreenPublication),
       hasPreviewPublication: typeof finalScreenPublication.previewPublication === "function",
@@ -7601,15 +7845,19 @@ async function requestHandler(req, res) {
       canUseComputePublicationState: typeof productsSqliteRepo.computePublicationState === "function",
       canUseSearchIndex: typeof productsSqliteRepo.ensureProductsDbOnce === "function",
       startHotfixRemoved,
+      jobRunning: { screen: screenPublisherLocks.screen, screen_adhesive: screenPublisherLocks.screen_adhesive },
+      lastJob: screenPublisherJobSnapshot(screenPublisherJobs.get(lastScreenPublisherJob)),
+      memoryUsage: getMemoryUsageSnapshot(),
       warnings,
     });
   }
 
   if (pathname === "/api/admin/screens/audit" && req.method === "GET") {
     if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
     try {
       const result = await finalScreenPublication.previewPublication("screen", parsedUrl.query || {});
-      return sendJson(res, 200, result);
+      return sendApiJson(res, 200, result);
     } catch (error) {
       return sendApiError(res, 500, "SCREEN_AUDIT_FAILED", "No se pudo auditar pantallas.", { detail: error?.message || "screen_audit_failed" });
     }
@@ -7617,10 +7865,11 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/admin/screens/publish-preview" && req.method === "POST") {
     if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
     await parseBody(req);
     try {
       const result = await finalScreenPublication.previewPublication("screen", req.body || {});
-      return sendJson(res, 200, result);
+      return sendApiJson(res, 200, result);
     } catch (error) {
       return sendApiError(res, 500, "SCREEN_PREVIEW_FAILED", "No se pudo simular publicacion de pantallas.", { detail: error?.message || "screen_preview_failed" });
     }
@@ -7628,20 +7877,48 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/admin/screens/publish" && req.method === "POST") {
     if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
     await parseBody(req);
     try {
       const result = await finalScreenPublication.publishEligible("screen", req.body || {});
-      return sendJson(res, 200, result);
+      return sendApiJson(res, 200, result);
     } catch (error) {
       return sendApiError(res, error?.statusCode || 500, "SCREEN_PUBLISH_FAILED", error?.message || "No se pudo publicar pantallas.");
     }
   }
 
+  if (pathname === "/api/admin/screens/audit-job" && req.method === "POST") {
+    if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
+    await parseBody(req);
+    const started = startScreenPublisherJob("screen", "audit", req.body || {});
+    if (started.alreadyRunning) return sendApiError(res, 423, "SCREEN_PUBLISHER_JOB_RUNNING", "Ya hay un job de pantallas corriendo.", { jobId: started.jobId });
+    return sendApiJson(res, 202, { ok: true, job: screenPublisherJobSnapshot(started.job), jobId: started.job.id });
+  }
+
+  if (pathname === "/api/admin/screens/publish-job" && req.method === "POST") {
+    if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
+    await parseBody(req);
+    const started = startScreenPublisherJob("screen", "publish", req.body || {});
+    if (started.alreadyRunning) return sendApiError(res, 423, "SCREEN_PUBLISHER_JOB_RUNNING", "Ya hay un job de pantallas corriendo.", { jobId: started.jobId });
+    return sendApiJson(res, 202, { ok: true, job: screenPublisherJobSnapshot(started.job), jobId: started.job.id });
+  }
+
+  const screenJobMatch = pathname.match(/^\/api\/admin\/screens\/jobs\/([^/]+)$/);
+  if (screenJobMatch && req.method === "GET") {
+    if (!requireAdminJson(req, res)) return;
+    const job = screenPublisherJobs.get(decodeURIComponent(screenJobMatch[1] || ""));
+    if (!job || job.type !== "screen") return sendApiError(res, 404, "SCREEN_PUBLISHER_JOB_NOT_FOUND", "Job de pantallas no encontrado.");
+    return sendApiJson(res, 200, { ok: true, job: screenPublisherJobSnapshot(job), result: job.result || null });
+  }
+
   if (pathname === "/api/admin/screen-adhesives/audit" && req.method === "GET") {
     if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
     try {
       const result = await finalScreenPublication.previewPublication("screen_adhesive", parsedUrl.query || {});
-      return sendJson(res, 200, result);
+      return sendApiJson(res, 200, result);
     } catch (error) {
       return sendApiError(res, 500, "SCREEN_ADHESIVE_AUDIT_FAILED", "No se pudo auditar adhesivos de pantalla.", { detail: error?.message || "screen_adhesive_audit_failed" });
     }
@@ -7649,10 +7926,11 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/admin/screen-adhesives/publish-preview" && req.method === "POST") {
     if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
     await parseBody(req);
     try {
       const result = await finalScreenPublication.previewPublication("screen_adhesive", req.body || {});
-      return sendJson(res, 200, result);
+      return sendApiJson(res, 200, result);
     } catch (error) {
       return sendApiError(res, 500, "SCREEN_ADHESIVE_PREVIEW_FAILED", "No se pudo simular publicacion de adhesivos de pantalla.", { detail: error?.message || "screen_adhesive_preview_failed" });
     }
@@ -7660,13 +7938,40 @@ async function requestHandler(req, res) {
 
   if (pathname === "/api/admin/screen-adhesives/publish" && req.method === "POST") {
     if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
     await parseBody(req);
     try {
       const result = await finalScreenPublication.publishEligible("screen_adhesive", req.body || {});
-      return sendJson(res, 200, result);
+      return sendApiJson(res, 200, result);
     } catch (error) {
       return sendApiError(res, error?.statusCode || 500, "SCREEN_ADHESIVE_PUBLISH_FAILED", error?.message || "No se pudo publicar adhesivos de pantalla.");
     }
+  }
+
+  if (pathname === "/api/admin/screen-adhesives/audit-job" && req.method === "POST") {
+    if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
+    await parseBody(req);
+    const started = startScreenPublisherJob("screen_adhesive", "audit", req.body || {});
+    if (started.alreadyRunning) return sendApiError(res, 423, "SCREEN_PUBLISHER_JOB_RUNNING", "Ya hay un job de adhesivos corriendo.", { jobId: started.jobId });
+    return sendApiJson(res, 202, { ok: true, job: screenPublisherJobSnapshot(started.job), jobId: started.job.id });
+  }
+
+  if (pathname === "/api/admin/screen-adhesives/publish-job" && req.method === "POST") {
+    if (!requireAdminJson(req, res)) return;
+    if (!SCREEN_PUBLISHER_ENABLED) return screenPublisherDisabled(res);
+    await parseBody(req);
+    const started = startScreenPublisherJob("screen_adhesive", "publish", req.body || {});
+    if (started.alreadyRunning) return sendApiError(res, 423, "SCREEN_PUBLISHER_JOB_RUNNING", "Ya hay un job de adhesivos corriendo.", { jobId: started.jobId });
+    return sendApiJson(res, 202, { ok: true, job: screenPublisherJobSnapshot(started.job), jobId: started.job.id });
+  }
+
+  const adhesiveJobMatch = pathname.match(/^\/api\/admin\/screen-adhesives\/jobs\/([^/]+)$/);
+  if (adhesiveJobMatch && req.method === "GET") {
+    if (!requireAdminJson(req, res)) return;
+    const job = screenPublisherJobs.get(decodeURIComponent(adhesiveJobMatch[1] || ""));
+    if (!job || job.type !== "screen_adhesive") return sendApiError(res, 404, "SCREEN_PUBLISHER_JOB_NOT_FOUND", "Job de adhesivos no encontrado.");
+    return sendApiJson(res, 200, { ok: true, job: screenPublisherJobSnapshot(job), result: job.result || null });
   }
 
   if (pathname.startsWith("/api/admin/screens/") || pathname.startsWith("/api/admin/screen-adhesives/")) {
@@ -14041,6 +14346,14 @@ async function requestHandler(req, res) {
       res.end(html);
       return;
     }
+    const detailCacheKey = `product:${slug}`;
+    const cachedProductHtml = getProductDetailCache(detailCacheKey);
+    if (cachedProductHtml) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "X-Product-Detail-Cache": "hit" });
+      res.end(cachedProductHtml);
+      return;
+    }
+    const productDetailIsCrawler = isLikelyCrawler(req);
     let source = "sqlite";
     let foundBy = "none";
     let product = null;
@@ -14069,7 +14382,9 @@ async function requestHandler(req, res) {
       res.end(html);
       return;
     }
-    console.log(`[product-detail:found] identifier=${slug} source=${source} foundBy=${foundBy}`);
+    if (process.env.DEBUG_PRODUCT_DETAIL === "true") {
+      console.log(`[product-detail:found] identifier=${slug} source=${source} foundBy=${foundBy} crawler=${productDetailIsCrawler}`);
+    }
     const name = product.name || "";
     const productSeo = generateProductSeo(product);
     const desc =
@@ -14229,12 +14544,13 @@ async function requestHandler(req, res) {
     const infoHtml = renderProductInfoSsr(product, siteBase) + (debugMerchant ? renderMerchantDebugSsr(product, { canonical, imageLink: primaryImage || "" }) : "") + seoDebugHtml;
     const hydratedBody = injectProductContent(templateBody, galleryHtml, infoHtml);
     const html = `<!DOCTYPE html><html lang="es-AR"><head>${head}</head>${hydratedBody}</html>`;
+    setProductDetailCache(detailCacheKey, html);
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;
   }
 
-  // SSR del catálogo
+  // SSR del catalogo
   if (
     (pathname === "/shop.html" || pathname === "/shop" || pathname === "/shop/") &&
     req.method === "GET"
@@ -14242,24 +14558,58 @@ async function requestHandler(req, res) {
     const seoConfig = getConfig();
     const siteBase = getPublicBaseUrl(seoConfig);
     const { head: templateHead, body: templateBody } = getShopTemplateParts();
-    const listing =
-      '<p class="description">Cargando catálogo…</p>';
-    const summary = "Mostrando productos";
-    const hydratedHead = replaceBasePlaceholders(templateHead, siteBase);
+    const search = compactText(String(parsedUrl.query?.search || ""));
+    const category = compactText(String(parsedUrl.query?.category || parsedUrl.query?.categoria || ""));
+    const brand = compactText(String(parsedUrl.query?.brand || parsedUrl.query?.marca || ""));
+    const sort = compactText(String(parsedUrl.query?.sort || ""));
+    let queryResult = null;
+    try {
+      queryResult = await productsSqliteRepo.queryProducts({
+        page: 1,
+        pageSize: 30,
+        search,
+        category,
+        brand,
+        sort,
+      });
+    } catch (error) {
+      console.warn("[shop-ssr:query-failed]", error?.message || error);
+      try {
+        const fallbackProducts = filterShopProductsForSsr(await loadProducts(), { search, category, brand });
+        queryResult = {
+          items: fallbackProducts.slice(0, 30),
+          totalItems: fallbackProducts.length,
+        };
+      } catch (fallbackError) {
+        console.warn("[shop-ssr:fallback-failed]", fallbackError?.message || fallbackError);
+      }
+    }
+    const rendered = renderShopListing(queryResult?.items || [], siteBase, queryResult?.totalItems);
+    const listing = rendered.cards || '<p class="description">Cargando catalogo...</p>';
+    const summary = rendered.summary || "Mostrando productos";
+    const seo = buildShopSeoState({
+      siteBase,
+      search,
+      category,
+      brand,
+      count: rendered.count,
+      products: rendered.products,
+    });
+    const hydratedHead = applyShopSeoHead(replaceBasePlaceholders(templateHead, siteBase), seo);
     let hydratedBody = replaceBasePlaceholders(templateBody, siteBase);
     hydratedBody = hydratedBody.replace(
       /<div\s+id=\"productGrid\"[^>]*>\s*<\/div>/i,
-      `<div id="productGrid" class="product-grid premium-grid" role="list">${listing}</div>`,
+      '<div id="productGrid" class="product-grid premium-grid" role="list">' + listing + '</div>',
     );
     hydratedBody = hydratedBody.replace(
       /<span\s+id=\"resultCount\">[^<]*<\/span>/i,
-      `<span id="resultCount">0</span>`,
+      '<span id="resultCount">' + esc(String(rendered.count || 0)) + '</span>',
     );
     hydratedBody = hydratedBody.replace(
       /<p>\s*<span\s+id=\"resultCount\">[^<]*<\/span>[^<]*<\/p>/i,
-      `<p><span id="resultCount">0</span> ${esc(summary)}</p>`,
+      '<p><span id="resultCount">' + esc(String(rendered.count || 0)) + '</span> ' + esc(summary) + '</p>',
     );
-    const html = `<!doctype html><html lang="es"><head>${hydratedHead}</head>${hydratedBody}</html>`;
+    const html = '<!doctype html><html lang="es"><head>' + hydratedHead + '</head>' + hydratedBody + '</html>';
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(html);
     return;

@@ -20,7 +20,14 @@ const {
 const DEFAULT_BASE_URL = "https://nerinparts.com.ar";
 const GOOGLE_CATEGORY = "Electrónica > Comunicaciones > Telefonía > Accesorios para móviles";
 const VALID_AVAILABILITY = new Set(["in_stock", "preorder", "backorder", "out_of_stock"]);
-const DEFAULT_SCAN_LIMIT = 250000;
+const DEFAULT_SCAN_LIMIT = Math.max(1, Number(process.env.SCREEN_PUBLISHER_SCAN_LIMIT_DEFAULT || 5000) || 5000);
+const MAX_SCAN_LIMIT = Math.max(DEFAULT_SCAN_LIMIT, Number(process.env.SCREEN_PUBLISHER_SCAN_LIMIT_MAX || 60000) || 60000);
+const JOB_CHUNK_SIZE = Math.max(100, Number(process.env.SCREEN_PUBLISHER_CHUNK_SIZE || 1000) || 1000);
+const CLI_SCAN_LIMIT = 250000;
+
+function clampScanLimit(value, fallback = DEFAULT_SCAN_LIMIT) {
+  return Math.min(MAX_SCAN_LIMIT, Math.max(1, Number(value || fallback) || fallback));
+}
 
 function dbAll(db, sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -238,18 +245,56 @@ function sampleItem(item) {
   };
 }
 
-async function loadRows({ limit = DEFAULT_SCAN_LIMIT, scanLimit } = {}) {
+function candidateWhere(type = "screen") {
+  if (type === "screen_adhesive") {
+    return `(
+      (lower(si.search_blob) LIKE '%adhesive%' OR lower(si.search_blob) LIKE '%adhesivo%' OR lower(si.search_blob) LIKE '%tape%' OR lower(si.search_blob) LIKE '%cinta%' OR lower(si.search_blob) LIKE '%gasket%' OR lower(si.search_blob) LIKE '%seal%' OR lower(si.search_blob) LIKE '%junta%')
+      AND (lower(si.search_blob) LIKE '%display%' OR lower(si.search_blob) LIKE '%screen%' OR lower(si.search_blob) LIKE '%pantalla%' OR lower(si.search_blob) LIKE '%lcd%' OR lower(si.search_blob) LIKE '%oled%')
+      AND lower(si.search_blob) NOT LIKE '%battery%'
+      AND lower(si.search_blob) NOT LIKE '%bateria%'
+      AND lower(si.search_blob) NOT LIKE '%back cover%'
+      AND lower(si.search_blob) NOT LIKE '%rear cover%'
+      AND lower(si.search_blob) NOT LIKE '%camera%'
+    )`;
+  }
+  return `(
+    si.part_type = 'display'
+    OR lower(si.search_blob) LIKE '%display%'
+    OR lower(si.search_blob) LIKE '%pantalla%'
+    OR lower(si.search_blob) LIKE '%screen%'
+    OR lower(si.search_blob) LIKE '%lcd%'
+    OR lower(si.search_blob) LIKE '%oled%'
+    OR lower(si.search_blob) LIKE '%amoled%'
+  ) AND lower(si.search_blob) NOT LIKE '%adhesive%'
+    AND lower(si.search_blob) NOT LIKE '%adhesivo%'
+    AND lower(si.search_blob) NOT LIKE '%bracket%'
+    AND lower(si.search_blob) NOT LIKE '%protector%'
+    AND lower(si.search_blob) NOT LIKE '%case%'
+    AND lower(si.search_blob) NOT LIKE '%coverz%'
+    AND lower(si.search_blob) NOT LIKE '%snap%'
+    AND lower(si.search_blob) NOT LIKE '%back glass%'
+    AND lower(si.search_blob) NOT LIKE '%rear cover%'
+    AND lower(si.search_blob) NOT LIKE '%sim tray%'
+    AND lower(si.search_blob) NOT LIKE '%antenna%'
+    AND lower(si.search_blob) NOT LIKE '%camera lens%'
+    AND lower(si.search_blob) NOT LIKE '%battery%'`;
+}
+
+async function loadRows({ limit = DEFAULT_SCAN_LIMIT, scanLimit, offset = 0, type = "screen", fullScan = false } = {}) {
   await productsSqliteRepo.ensureProductsDbOnce();
   const db = await openReadonly(productsSqliteRepo.SQLITE_PATH);
   try {
+    const effectiveLimit = fullScan ? Math.max(1, Number(scanLimit || limit) || CLI_SCAN_LIMIT) : clampScanLimit(scanLimit || limit);
+    const where = fullScan ? "1=1" : candidateWhere(type);
     const rows = await dbAll(
       db,
       `SELECT p.rowid, p.*, si.product_rowid, si.part_type, si.device_brand, si.compatible_brand, si.model_base, si.quality_tier, si.has_frame, si.stock_status, si.is_stock_real, si.classification_confidence, si.search_blob
        FROM products p
        LEFT JOIN product_search_index si ON si.product_rowid = p.rowid
+       WHERE ${where}
        ORDER BY p.rowid ASC
-       LIMIT ?`,
-      [Math.max(1, Number(scanLimit || limit) || DEFAULT_SCAN_LIMIT)],
+       LIMIT ? OFFSET ?`,
+      [effectiveLimit, Math.max(0, Number(offset) || 0)],
     );
     return rows;
   } finally {
@@ -327,7 +372,7 @@ function analyzeRows(rows, filters = {}, type = "screen") {
 
 async function previewPublication(type, filters = {}) {
   const startedAt = Date.now();
-  const rows = await loadRows({ scanLimit: filters.scanLimit || filters.maxScanRows || DEFAULT_SCAN_LIMIT });
+  const rows = await loadRows({ scanLimit: filters.scanLimit || filters.maxScanRows || DEFAULT_SCAN_LIMIT, type });
   const summary = analyzeRows(rows, filters, type);
   delete summary.items;
   summary.durationMs = Date.now() - startedAt;
@@ -343,7 +388,7 @@ async function publishEligible(type, filters = {}) {
     throw error;
   }
   const startedAt = Date.now();
-  const rows = await loadRows({ scanLimit: filters.scanLimit || filters.maxScanRows || DEFAULT_SCAN_LIMIT });
+  const rows = await loadRows({ scanLimit: filters.scanLimit || filters.maxScanRows || DEFAULT_SCAN_LIMIT, type });
   const summary = analyzeRows(rows, filters, type);
   const eligible = summary.items.filter((i) => i.eligible);
   const result = { ok: true, attemptedCount: eligible.length, eligibleCount: eligible.length, blockedCount: summary.blockedCount || 0, warningCount: summary.warningCount || 0, updatedCount: 0, verifiedPublicCount: 0, failedCount: 0, samplePublished: [], sampleFailed: [], blockersBreakdown: summary.blockersBreakdown || {} };
@@ -430,7 +475,7 @@ function feedEntry(item, type, baseUrl = DEFAULT_BASE_URL) {
 async function buildFeed(type, options = {}) {
   const startedAt = Date.now();
   const outputLimit = Math.max(1, Number(options.outputLimit || options.limit || 100000) || 100000);
-  const rows = await loadRows({ scanLimit: options.scanLimit || options.maxScanRows || DEFAULT_SCAN_LIMIT });
+  const rows = await loadRows({ scanLimit: options.scanLimit || options.maxScanRows || DEFAULT_SCAN_LIMIT, type });
   const summary = analyzeRows(rows, {}, type);
   const entries = summary.items
     .filter((item) => type === "screen" ? item.screenClassification?.isScreen : item.adhesiveClassification?.isScreenAdhesive)
@@ -451,7 +496,7 @@ function csvCell(value) {
 }
 
 async function writeAuditCsv() {
-  const rows = await loadRows({ limit: 100000 });
+  const rows = await loadRows({ limit: CLI_SCAN_LIMIT, fullScan: true });
   const screens = analyzeRows(rows, {}, "screen");
   const adhesives = analyzeRows(rows, {}, "screen_adhesive");
   const exportDir = path.join(path.dirname(dataPath("x")), "..", "exports");
@@ -492,4 +537,8 @@ module.exports = {
   analyzeRows,
   feedEntry,
   isPublicProduct,
+  loadRows,
+  DEFAULT_SCAN_LIMIT,
+  MAX_SCAN_LIMIT,
+  JOB_CHUNK_SIZE,
 };

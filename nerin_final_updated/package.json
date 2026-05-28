@@ -14,6 +14,8 @@
     "test:analytics-memory": "node scripts/test-analytics-memory-safety.js",
     "test:screens-final": "node scripts/test-screens-and-adhesives-final.js",
     "test:screen-publisher-production": "node scripts/test-screen-publisher-production.js",
+    "test:screen-publisher-routes": "node scripts/test-screen-publisher-routes.js",
+    "test:screen-publisher-stability": "node scripts/test-screen-publisher-stability.js",
     "audit:screens-final": "node scripts/audit-screens-and-adhesives-final.js",
     "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
   },
