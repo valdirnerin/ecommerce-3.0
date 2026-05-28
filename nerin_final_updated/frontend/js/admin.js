@@ -3821,78 +3821,122 @@ if (bulkSelect && bulkValueInput) {
   });
 }
 
+async function fetchAdminJson(url, options = {}) {
+  const response = await apiFetch(url, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {}),
+      ...getAdminHeaders(),
+    },
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  const preview = text.slice(0, 300).replace(/\s+/g, " ");
+  if (!contentType.includes("application/json")) {
+    throw new Error(`El endpoint ${url} devolvio ${response.status} ${contentType || "sin content-type"} en vez de JSON. Preview: ${preview}`);
+  }
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (error) {
+    throw new Error(`Respuesta JSON invalida de ${url}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new Error(data.message || data.error || `Error HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function getSelectedProductIdentifiers() {
+  return Array.from(document.querySelectorAll(".select-product:checked"))
+    .map((cb) => {
+      const row = cb.closest("tr");
+      return row?.dataset?.adminIdentifier || row?.dataset?.id || "";
+    })
+    .map((identifier) => String(identifier || "").trim())
+    .filter(Boolean);
+}
+
+function setBulkActionBusy(isBusy) {
+  if (applyBulkBtn) {
+    applyBulkBtn.disabled = isBusy;
+    applyBulkBtn.textContent = isBusy ? "Aplicando..." : "Aplicar";
+  }
+}
+
+async function applyBulkVisibilityAction(visibility, identifiers) {
+  const label = visibility === "public" ? "Publicando" : visibility === "private" ? "Pasando a privado" : "Ocultando";
+  setBulkActionBusy(true);
+  if (window.showToast) showToast(`${label} ${identifiers.length} productos...`);
+  const data = await fetchAdminJson("/api/admin/products/bulk-visibility", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifiers, visibility, reindex: true }),
+  });
+  const message = `${visibility === "public" ? "Publicados" : "Actualizados"} ${data.updatedCount || 0}/${data.requestedCount || identifiers.length} productos. Fallaron ${data.failedCount || 0}.`;
+  if (window.showToast) showToast(message);
+  if (data.failedCount && Array.isArray(data.sampleFailed)) {
+    console.warn("[admin-bulk-visibility:failed]", data.sampleFailed);
+    alert(`${message}\n\nFallos:\n${data.sampleFailed.map((item) => `${item.identifier}: ${item.error}`).join("\n")}`);
+  }
+  document.querySelectorAll(".select-product:checked").forEach((cb) => {
+    cb.checked = false;
+  });
+  if (selectAllCheckbox) selectAllCheckbox.checked = false;
+  await loadProducts();
+}
+
 if (applyBulkBtn && bulkSelect) {
   applyBulkBtn.addEventListener("click", async () => {
     const action = bulkSelect.value;
-  const selected = Array.from(
-    document.querySelectorAll(".select-product:checked"),
-  ).map((cb) => cb.closest("tr").dataset.id);
-  if (selected.length === 0) {
-    alert("Seleccione productos");
-    return;
-  }
-  if (action === "delete") {
-    if (!confirm("¿Eliminar productos seleccionados?")) return;
-    for (const id of selected) {
-      await apiFetch(`/api/products/${id}`, { method: "DELETE" });
-    }
-  } else if (action.startsWith("vis-")) {
-    const vis = action.split("-")[1];
-    for (const id of selected) {
-      const row = document.querySelector(`tr[data-id="${id}"]`);
-      const identifier = row?.dataset?.adminIdentifier || id;
-      const endpoint = `/api/products/${encodeURIComponent(String(identifier))}`;
-      const payload = { visibility: vis };
-      console.info("[admin-visibility-update]", {
-        identifier,
-        previousVisibility: row ? String((productsCache.find((item) => String(item.id) === String(id)) || {}).visibility || "") : "",
-        nextVisibility: vis,
-        endpoint,
-        payload,
-      });
-      const response = await apiFetch(endpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json().catch(() => ({}));
-      console.info("[admin-visibility-update-result]", {
-        status: response.status,
-        enabled: data?.product?.enabled,
-        visibility: data?.product?.visibility,
-        is_public: data?.product?.is_public,
-        source: data?.source,
-      });
-      const computedIsPublic = data?.debugPublication?.computed?.isPublic;
-      const computedReason = data?.debugPublication?.computed?.reason;
-      if (!response.ok || (vis === "public" && (response.status === 409 || computedIsPublic === false))) {
-        throw new Error(data.error || `No se pudo publicar el producto (reason: ${computedReason || "unknown"}).`);
-      }
-    }
-  } else if (action.startsWith("price")) {
-    const pct = parseFloat(bulkValueInput.value);
-    if (isNaN(pct)) {
-      alert("Ingrese un porcentaje válido");
+    const selected = getSelectedProductIdentifiers();
+    if (selected.length === 0) {
+      alert("Seleccione productos");
       return;
     }
-    for (const id of selected) {
-      const row = document.querySelector(`tr[data-id='${id}']`);
-      const minorInput = row.querySelector("input[data-field='price_minorista']");
-      const mayorInput = row.querySelector("input[data-field='price_mayorista']");
-      const factor = action === "price-inc" ? 1 + pct / 100 : 1 - pct / 100;
-      const newMinor = Math.round(parseFloat(minorInput.value) * factor);
-      const newMayor = Math.round(parseFloat(mayorInput.value) * factor);
-      await apiFetch(`/api/products/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          price_minorista: newMinor,
-          price_mayorista: newMayor,
-        }),
-      });
+    try {
+      setBulkActionBusy(true);
+      if (action === "delete") {
+        if (!confirm("Eliminar productos seleccionados?")) return;
+        for (const id of selected) {
+          await apiFetch(`/api/products/${encodeURIComponent(String(id))}`, { method: "DELETE" });
+        }
+        await loadProducts();
+      } else if (action.startsWith("vis-")) {
+        const vis = action.split("-")[1];
+        await applyBulkVisibilityAction(vis, selected);
+      } else if (action.startsWith("price")) {
+        const pct = parseFloat(bulkValueInput.value);
+        if (isNaN(pct)) {
+          alert("Ingrese un porcentaje valido");
+          return;
+        }
+        const selectedRows = Array.from(document.querySelectorAll(".select-product:checked")).map((cb) => cb.closest("tr"));
+        for (const id of selected) {
+          const row = selectedRows.find((candidate) => candidate?.dataset?.adminIdentifier === id || candidate?.dataset?.id === id);
+          const minorInput = row?.querySelector("input[data-field='price_minorista']");
+          const mayorInput = row?.querySelector("input[data-field='price_mayorista']");
+          const factor = action === "price-inc" ? 1 + pct / 100 : 1 - pct / 100;
+          const newMinor = Math.round(parseFloat(minorInput?.value || 0) * factor);
+          const newMayor = Math.round(parseFloat(mayorInput?.value || 0) * factor);
+          await apiFetch(`/api/products/${encodeURIComponent(String(id))}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              price_minorista: newMinor,
+              price_mayorista: newMayor,
+            }),
+          });
+        }
+        await loadProducts();
+      }
+    } catch (error) {
+      console.error("[admin-bulk-action:error]", error);
+      alert(error?.message || "No se pudo aplicar la accion masiva");
+    } finally {
+      setBulkActionBusy(false);
     }
-  }
-  loadProducts();
   });
 }
 
@@ -4061,132 +4105,7 @@ if (bulkPublishRunBtn) {
   });
 }
 
-const finalScreensPublisherStatus = document.getElementById("finalScreensPublisherStatus");
-const finalScreensPublisherSummary = document.getElementById("finalScreensPublisherSummary");
 
-function finalPublisherFilters(kind) {
-  const isScreen = kind === "screen";
-  return {
-    brand: document.getElementById(isScreen ? "screenPubBrand" : "adhPubBrand")?.value?.trim() || "",
-    model: document.getElementById(isScreen ? "screenPubModel" : "adhPubModel")?.value?.trim() || "",
-    qualityTier: isScreen ? document.getElementById("screenPubQuality")?.value?.trim() || "" : undefined,
-    adhesiveType: !isScreen ? document.getElementById("adhPubType")?.value?.trim() || "" : undefined,
-    stockMode: document.getElementById(isScreen ? "screenPubStock" : "adhPubStock")?.value || "all",
-    onlyWithImage: Boolean(document.getElementById(isScreen ? "screenPubOnlyImage" : "adhPubOnlyImage")?.checked),
-    onlyWithPrice: Boolean(document.getElementById(isScreen ? "screenPubOnlyPrice" : "adhPubOnlyPrice")?.checked),
-    includePrivate: Boolean(document.getElementById(isScreen ? "screenPubIncludePrivate" : "adhPubIncludePrivate")?.checked),
-    includeHidden: Boolean(document.getElementById(isScreen ? "screenPubIncludeHidden" : "adhPubIncludeHidden")?.checked),
-    includeRemoteOrderable: Boolean(document.getElementById(isScreen ? "screenPubIncludeRemote" : "adhPubIncludeRemote")?.checked),
-    limit: Number(document.getElementById(isScreen ? "screenPubLimit" : "adhPubLimit")?.value || 10000) || 10000,
-  };
-}
-
-function setFinalPublisherStatus(message) {
-  if (finalScreensPublisherStatus) finalScreensPublisherStatus.textContent = message || "";
-}
-
-function renderFinalPublisherSummary(data = {}, kind = "screen") {
-  if (!finalScreensPublisherSummary) return;
-  const isScreen = kind === "screen";
-  const rows = isScreen
-    ? [["Pantallas publicas actuales", data.publicScreensCurrent], ["Pantallas privadas elegibles", data.privateScreensEligible], ["Pantallas ocultas elegibles", data.hiddenScreensEligible], ["Pantallas stock real elegibles", data.stockRealScreensEligible], ["Pantallas a pedido elegibles", data.remoteScreensEligible]]
-    : [["Adhesivos publicos actuales", data.publicScreenAdhesivesCurrent], ["Adhesivos privados elegibles", data.privateScreenAdhesivesEligible], ["Adhesivos ocultos elegibles", data.hiddenScreenAdhesivesEligible], ["Adhesivos stock real elegibles", data.stockRealScreenAdhesivesEligible], ["Adhesivos a pedido elegibles", data.remoteScreenAdhesivesEligible]];
-  rows.push(["Bloqueados por imagen", data.blockersBreakdown?.missingImage || 0]);
-  rows.push(["Bloqueados por precio", data.blockersBreakdown?.missingPrice || 0]);
-  rows.push(["Bloqueados Merchant", Object.entries(data.blockersBreakdown || {}).filter(([k]) => k.startsWith("merchant")).reduce((s, [, v]) => s + Number(v || 0), 0)]);
-  rows.push([isScreen ? "Excluidos por accesorio" : "Excluidos por no ser de pantalla", isScreen ? (data.accessoryExcludedSamples || []).length : (data.excludedSamples || []).length]);
-  finalScreensPublisherSummary.innerHTML = `<div class="bulk-publish-summary-grid">${rows.map(([label, value]) => `<article><strong>${escapeHtml(String(value ?? 0))}</strong><span>${escapeHtml(label)}</span></article>`).join("")}</div><p><a href="/pantallas-en-stock" target="_blank">/pantallas-en-stock</a> · <a href="/adhesivos-de-pantalla" target="_blank">/adhesivos-de-pantalla</a> · <a href="/api/merchant/screens-feed.csv" target="_blank">feed pantallas</a> · <a href="/api/merchant/screen-adhesives-feed.csv" target="_blank">feed adhesivos</a></p>`;
-}
-
-async function fetchAdminJson(url, options = {}) {
-  const response = await apiFetch(url, {
-    ...options,
-    headers: {
-      Accept: "application/json",
-      ...(options.headers || {}),
-      ...getAdminHeaders(),
-    },
-  });
-  const contentType = response.headers.get("content-type") || "";
-  const text = await response.text();
-  const preview = text.slice(0, 300).replace(/\s+/g, " ");
-  console.info("[screen-admin-request]", {
-    url,
-    method: options.method || "GET",
-    status: response.status,
-    contentType,
-    preview,
-  });
-  if (!contentType.includes("application/json")) {
-    throw new Error(`El endpoint ${url} devolvio ${response.status} ${contentType || "sin content-type"} en vez de JSON. Preview: ${preview}`);
-  }
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch (error) {
-    throw new Error(`Respuesta JSON invalida de ${url}: ${error.message}`);
-  }
-  if (!response.ok) {
-    throw new Error(data.message || data.error || `Error HTTP ${response.status}`);
-  }
-  return data;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitScreenPublisherJob(base, jobId, kind) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const data = await fetchAdminJson(`${base}/jobs/${encodeURIComponent(jobId)}`);
-    const job = data.job || {};
-    setFinalPublisherStatus(`Job ${job.status || "running"}: escaneados ${job.scannedRows || 0}, elegibles ${job.eligibleCount || 0}, bloqueados ${job.blockedCount || 0}`);
-    if (job.status === "done") {
-      return data.result || job;
-    }
-    if (job.status === "failed") {
-      throw new Error(job.error || "El job del publicador fallo");
-    }
-    await sleep(2500);
-  }
-  throw new Error("El job sigue corriendo. Volve a consultar el estado en unos segundos.");
-}
-
-async function runFinalPublisher(kind, action) {
-  const isScreen = kind === "screen";
-  const base = isScreen ? "/api/admin/screens" : "/api/admin/screen-adhesives";
-  const filters = finalPublisherFilters(kind);
-  setFinalPublisherStatus("Procesando...");
-  try {
-    let data;
-    if (action === "audit" || action === "preview") {
-      const started = await fetchAdminJson(`${base}/audit-job`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(filters) });
-      data = await waitScreenPublisherJob(base, started.jobId, kind);
-    } else {
-      const body = { ...filters, [isScreen ? "confirmScreenBulkPublish" : "confirmScreenAdhesiveBulkPublish"]: true };
-      if (action === "publish") {
-        const ok = confirm(isScreen
-          ? "Vas a publicar pantallas reales elegibles. No se publicaran adhesivos, brackets, fundas, protectores ni productos sin precio/imagen."
-          : "Vas a publicar adhesivos de pantalla elegibles. No se publicaran adhesivos de bateria, tapas, camaras ni cintas genericas sin modelo.");
-        if (!ok) return;
-      }
-      const started = await fetchAdminJson(`${base}/publish-job`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      data = await waitScreenPublisherJob(base, started.jobId, kind);
-    }
-    if (!data.ok) throw new Error(data.error || "No se pudo completar");
-    setFinalPublisherStatus(action === "publish" ? `Actualizados ${data.updatedCount || 0}, verificados ${data.verifiedPublicCount || 0}, fallidos ${data.failedCount || 0}` : "Listo.");
-    renderFinalPublisherSummary(data, kind);
-  } catch (error) {
-    setFinalPublisherStatus(error?.message || "No se pudo completar la operacion");
-  }
-}
-
-document.getElementById("screenAuditBtn")?.addEventListener("click", () => runFinalPublisher("screen", "audit"));
-document.getElementById("screenPreviewBtn")?.addEventListener("click", () => runFinalPublisher("screen", "preview"));
-document.getElementById("screenPublishBtn")?.addEventListener("click", () => runFinalPublisher("screen", "publish"));
-document.getElementById("adhAuditBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "audit"));
-document.getElementById("adhPreviewBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "preview"));
-document.getElementById("adhPublishBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "publish"));
 
 async function deleteProduct(id) {
   if (!confirm("¿Estás seguro de eliminar este producto?")) return;
