@@ -20,6 +20,14 @@ function assertNoPatternInBlock({ content, blockName, startPattern, endPattern, 
   });
 }
 
+
+function sliceRouteBlock(content, start) {
+  const tail = content.slice(start);
+  const matches = [...tail.matchAll(/\n  if\s*\(/g)].filter((match) => match.index > 0);
+  const next = matches.length ? matches[0].index : -1;
+  return next > 0 ? tail.slice(0, next) : tail;
+}
+
 function walk(dirPath) {
   const entries = fs.readdirSync(dirPath, { withFileTypes: true });
   for (const entry of entries) {
@@ -78,10 +86,7 @@ if (fs.existsSync(SERVER_PATH)) {
 
   const analyticsRouteStart = serverContent.indexOf('if (pathname === "/api/analytics/detailed"');
   if (analyticsRouteStart >= 0) {
-    const analyticsRouteTail = serverContent.slice(analyticsRouteStart);
-    const nextRouteIdx = analyticsRouteTail.indexOf("\n  if (pathname === ");
-    const analyticsRouteBlock =
-      nextRouteIdx > 0 ? analyticsRouteTail.slice(0, nextRouteIdx) : analyticsRouteTail;
+    const analyticsRouteBlock = sliceRouteBlock(serverContent, analyticsRouteStart);
     if (/\bgetProducts\s*\(/.test(analyticsRouteBlock)) {
       RULE_VIOLATIONS.push("/api/analytics/detailed: no debe usar getProducts()");
     }
@@ -98,9 +103,7 @@ if (fs.existsSync(SERVER_PATH)) {
   for (const entry of forbiddenPublicRoutes) {
     const start = serverContent.indexOf(entry.marker);
     if (start < 0) continue;
-    const tail = serverContent.slice(start);
-    const nextRouteIdx = tail.indexOf("\n  if (pathname === ");
-    const block = nextRouteIdx > 0 ? tail.slice(0, nextRouteIdx) : tail;
+    const block = sliceRouteBlock(serverContent, start);
     if (/\bloadProducts\s*\(/.test(block)) {
       RULE_VIOLATIONS.push(`${entry.route}: no debe usar loadProducts()`);
     }

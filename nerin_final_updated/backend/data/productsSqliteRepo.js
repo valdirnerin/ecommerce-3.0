@@ -3669,6 +3669,79 @@ async function queryProducts(params = {}) {
   return result;
 }
 
+async function getPublicSitemapStats() {
+  const startedAt = Date.now();
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const countStartedAt = Date.now();
+    const row = await get(
+      db,
+      `SELECT
+        COUNT(*) AS totalPublicProducts,
+        SUM(CASE WHEN public_slug IS NOT NULL AND trim(public_slug) != '' THEN 1 ELSE 0 END) AS indexableProducts,
+        SUM(CASE WHEN public_slug IS NULL OR trim(public_slug) = '' THEN 1 ELSE 0 END) AS missingSlugProducts
+       FROM product_search_index
+       WHERE is_public = 1`,
+    );
+    const countMs = Date.now() - countStartedAt;
+    return {
+      totalPublicProducts: Number(row?.totalPublicProducts || 0),
+      indexableProducts: Number(row?.indexableProducts || 0),
+      missingSlugProducts: Number(row?.missingSlugProducts || 0),
+      countMs,
+      totalDurationMs: Date.now() - startedAt,
+      source: "sqlite_search_index",
+    };
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "sitemap_stats", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "sitemap_stats_corrupt" });
+    return getPublicSitemapStats();
+  }
+}
+
+async function listPublicSitemapProducts({ page = 1, pageSize = 2500 } = {}) {
+  const startedAt = Date.now();
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.max(1, Math.min(5000, Number(pageSize) || 2500));
+    const offset = (safePage - 1) * safePageSize;
+    const selectStartedAt = Date.now();
+    const rows = await all(
+      db,
+      `SELECT product_rowid, product_id, public_slug, updated_at
+       FROM product_search_index
+       WHERE is_public = 1
+         AND public_slug IS NOT NULL
+         AND trim(public_slug) != ''
+       ORDER BY product_rowid ASC
+       LIMIT ? OFFSET ?`,
+      [safePageSize, offset],
+    );
+    const selectMs = Date.now() - selectStartedAt;
+    return {
+      rows,
+      page: safePage,
+      pageSize: safePageSize,
+      offset,
+      limit: safePageSize,
+      count: rows.length,
+      selectMs,
+      totalDurationMs: Date.now() - startedAt,
+      source: "sqlite_search_index",
+    };
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "sitemap_products", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "sitemap_products_corrupt" });
+    return listPublicSitemapProducts({ page, pageSize });
+  }
+}
+
+
 async function queryAdminProducts(params = {}) {
   let result;
   try {
@@ -4627,6 +4700,8 @@ module.exports = {
   setCatalogError,
   clearCatalogError,
   queryProducts,
+  getPublicSitemapStats,
+  listPublicSitemapProducts,
   queryAdminProducts,
   getProductBySlug,
   getProductById,
