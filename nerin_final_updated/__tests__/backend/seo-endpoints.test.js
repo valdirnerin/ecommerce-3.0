@@ -18,7 +18,9 @@ describe('SEO endpoints', () => {
       products: [
         {
           id: '1',
+          title: 'Pantalla iPhone 12',
           slug: 'pantalla-iphone-12',
+          public_slug: 'pantalla-iphone-12',
           visibility: 'public',
           vip_only: false,
           updated_at: '2024-01-10T00:00:00.000Z',
@@ -56,12 +58,24 @@ describe('SEO endpoints', () => {
     expect(res.text).toContain('Disallow: /admin');
   });
 
-  test('sitemap.xml lista páginas principales y productos públicos', async () => {
+  test('sitemap.xml expone índice y sitemaps paginados sin mezclar URLs', async () => {
     const res = await request(server).get('/sitemap.xml');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/application\/xml/);
-    expect(res.text).toContain('<loc>https://nerinparts.example/</loc>');
-    expect(res.text).toContain('<loc>https://nerinparts.example/shop.html</loc>');
-    expect(res.text).toContain('<loc>https://nerinparts.example/p/pantalla-iphone-12</loc>');
+    expect(res.text).toContain('<sitemapindex');
+    expect(res.text).toContain('<loc>https://nerinparts.example/sitemap-static.xml</loc>');
+    expect(res.text).toContain('<loc>https://nerinparts.example/sitemap-products-1.xml</loc>');
+    expect(res.text).not.toContain('<loc>https://nerinparts.example/p/pantalla-iphone-12</loc>');
+  });
+
+  test('sitemap-static.xml y sitemap-products paginado listan sus URLs', async () => {
+    const staticRes = await request(server).get('/sitemap-static.xml');
+    expect(staticRes.status).toBe(200);
+    expect(staticRes.text).toContain('<loc>https://nerinparts.example/</loc>');
+    expect(staticRes.text).toContain('<loc>https://nerinparts.example/shop.html</loc>');
+
+    const productsRes = await request(server).get('/sitemap-products-1.xml');
+    expect(productsRes.status).toBe(200);
+    expect(productsRes.text).toContain('<loc>https://nerinparts.example/p/pantalla-iphone-12</loc>');
   });
 });

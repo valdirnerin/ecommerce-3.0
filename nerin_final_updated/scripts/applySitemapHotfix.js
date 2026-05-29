@@ -8,7 +8,7 @@ const flag = "[sitemap-hotfix-large-catalog]";
 
 let text = fs.readFileSync(serverPath, "utf8");
 
-if (text.includes(flag)) {
+if (text.includes("async function buildSitemapResponse") || text.includes(flag)) {
   console.log("[sitemap-hotfix] already applied");
   process.exit(0);
 }
