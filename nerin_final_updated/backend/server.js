@@ -336,6 +336,15 @@ let lastScreenPublisherJob = null;
 const PRODUCT_DETAIL_CACHE_TTL_MS = Math.max(60_000, Number(process.env.PRODUCT_DETAIL_CACHE_TTL_MS || 5 * 60 * 1000) || 5 * 60 * 1000);
 const PRODUCT_DETAIL_CACHE_MAX = Math.max(50, Number(process.env.PRODUCT_DETAIL_CACHE_MAX || 500) || 500);
 const productDetailCache = new Map();
+const PUBLIC_PRODUCTS_CACHE_MS = Math.max(0, Number(process.env.PUBLIC_PRODUCTS_CACHE_MS || 30_000) || 30_000);
+const PUBLIC_SEARCH_CACHE_MS = Math.max(0, Number(process.env.PUBLIC_SEARCH_CACHE_MS || 30_000) || 30_000);
+const SITEMAP_STOCK_CACHE_MS = Math.max(60_000, Number(process.env.SITEMAP_STOCK_CACHE_MS || 60 * 60 * 1000) || 60 * 60 * 1000);
+const MERCHANT_FEED_CACHE_MS = Math.max(60_000, Number(process.env.MERCHANT_FEED_CACHE_MS || 30 * 60 * 1000) || 30 * 60 * 1000);
+const MAX_JSON_BODY_BYTES = Math.max(16 * 1024, Number(process.env.MAX_JSON_BODY_BYTES || 512 * 1024) || 512 * 1024);
+const publicProductsCache = new Map();
+const publicSearchCache = new Map();
+const merchantFeedRuntimeCache = new Map();
+let sitemapStockCache = { t: 0, baseUrl: null, xml: null, count: 0 };
 
 function getDetailedAnalyticsTtlMs(range = "7d") {
   if (range === "today") return 60_000;
@@ -381,6 +390,10 @@ let metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 
 function invalidateCatalogCaches(reason = "unknown") {
   _cache = { t: 0, data: null };
   metaFeedCache = { t: 0, baseUrl: null, csv: null, count: 0, inStockCount: 0 };
+  publicProductsCache.clear();
+  publicSearchCache.clear();
+  merchantFeedRuntimeCache.clear();
+  sitemapStockCache = { t: 0, baseUrl: null, xml: null, count: 0 };
   console.log(`[catalog-cache] invalidated reason=${reason}`);
 }
 const importJobs = new Map();
@@ -1675,6 +1688,113 @@ function sqliteAll(dbConn, sql, params = []) {
   });
 }
 
+function getCacheEntry(cache, key, ttlMs) {
+  if (!ttlMs) return null;
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.t > ttlMs) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCacheEntry(cache, key, value, maxEntries = 120) {
+  if (!cache || !key) return;
+  cache.set(key, { t: Date.now(), value });
+  if (cache.size > maxEntries) {
+    const firstKey = cache.keys().next().value;
+    if (firstKey) cache.delete(firstKey);
+  }
+}
+
+function buildPublicCacheKey(pathname, query = {}) {
+  const params = new URLSearchParams();
+  Object.keys(query || {})
+    .sort()
+    .forEach((key) => {
+      const value = query[key];
+      if (value === undefined || value === null || value === "") return;
+      params.set(key, String(value));
+    });
+  const serialized = params.toString();
+  return serialized ? `${pathname}?${serialized}` : pathname;
+}
+
+function buildCatalogCacheHeaders({ privateResponse = false, cacheHit = false } = {}) {
+  if (privateResponse) {
+    return {
+      "Cache-Control": "private, no-store",
+      "Vary": "Authorization, Cookie, X-Admin-Key",
+      "X-Cache": "BYPASS",
+    };
+  }
+  return {
+    "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
+    "X-Cache": cacheHit ? "HIT" : "MISS",
+  };
+}
+
+function parseRawJsonObject(value) {
+  try {
+    const parsed = JSON.parse(value || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function buildStockSitemapXml(baseUrl) {
+  const now = Date.now();
+  if (
+    sitemapStockCache.xml &&
+    sitemapStockCache.baseUrl === baseUrl &&
+    now - sitemapStockCache.t < SITEMAP_STOCK_CACHE_MS
+  ) {
+    return { xml: sitemapStockCache.xml, count: sitemapStockCache.count, cacheHit: true };
+  }
+
+  await productsSqliteRepo.ensureProductsDbOnce();
+  let dbConn;
+  try {
+    dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
+    const rows = await sqliteAll(
+      dbConn,
+      `SELECT si.public_slug, si.title, si.price, si.has_image, si.stock, si.is_stock_real, si.is_public, p.slug, p.raw_json
+       FROM product_search_index si
+       JOIN products p ON p.rowid = si.product_rowid
+       WHERE si.is_public = 1
+         AND si.is_stock_real = 1
+         AND si.stock > 0
+         AND si.price > 0
+         AND si.has_image = 1
+       ORDER BY si.is_stock_real DESC, si.stock DESC, si.title ASC
+       LIMIT 45000`,
+    );
+    const generatedAt = toIsoString(new Date());
+    const entries = rows
+      .map((row) => {
+        const raw = parseRawJsonObject(row.raw_json);
+        const slug = String(row.public_slug || raw.publicSlug || raw.public_slug || row.slug || raw.slug || "").trim();
+        if (!slug) return null;
+        return {
+          loc: absoluteUrl(`/p/${encodeURIComponent(slug)}`, baseUrl),
+          lastmod: raw.updatedAt || raw.updated_at || raw.modifiedAt || raw.modified_at || generatedAt,
+          changefreq: "daily",
+          priority: "0.9",
+        };
+      })
+      .filter(Boolean);
+    const xml = buildSitemapPartXml(baseUrl, entries);
+    sitemapStockCache = { t: now, baseUrl, xml, count: entries.length };
+    return { xml, count: entries.length, cacheHit: false };
+  } finally {
+    if (dbConn) {
+      try { dbConn.close(); } catch {}
+    }
+  }
+}
+
 function getArgIsoDateInArgentinaPlusDays(days = 30) {
   const now = new Date();
   const ms = now.getTime() + (Number(days) * 24 * 60 * 60 * 1000);
@@ -2718,10 +2838,29 @@ const DEFAULT_FOOTER = {
 
 // Parsear cuerpo de la request guardando rawBody
 function parseBody(req) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on("data", (c) => chunks.push(c));
+    let totalBytes = 0;
+    let rejected = false;
+    req.on("data", (c) => {
+      if (rejected) return;
+      totalBytes += c.length;
+      if (totalBytes > MAX_JSON_BODY_BYTES) {
+        rejected = true;
+        const error = new Error("REQUEST_BODY_TOO_LARGE");
+        error.code = "REQUEST_BODY_TOO_LARGE";
+        chunks.length = 0;
+        req.resume();
+        reject(error);
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("error", (error) => {
+      if (!rejected) reject(error);
+    });
     req.on("end", async () => {
+      if (rejected) return;
       const buf = Buffer.concat(chunks);
       req.rawBody = buf;
       const type = req.headers["content-type"] || "";
@@ -7399,7 +7538,7 @@ async function buildSitemapResponse(pathname, req) {
   }
 
   if (pathname === "/sitemap.xml") {
-    const paths = ["/sitemap-static.xml"];
+    const paths = ["/sitemap-static.xml", "/sitemap-stock.xml"];
     for (let i = 1; i <= totalProductPages; i += 1) paths.push(`/sitemap-products-${i}.xml`);
     const xml = buildSitemapIndexXml(context.base, paths);
     sitemapLog("index:success", {
@@ -7411,6 +7550,23 @@ async function buildSitemapResponse(pathname, req) {
       memoryAfter: getMemoryUsageSnapshot(),
     });
     return { status: 200, contentType: "application/xml; charset=utf-8", body: xml };
+  }
+
+  if (pathname === "/sitemap-stock.xml") {
+    const stock = await buildStockSitemapXml(context.base);
+    sitemapLog("stock:success", {
+      requestId: context.requestId,
+      urlCount: stock.count,
+      cacheHit: stock.cacheHit,
+      durationMs: Date.now() - startedAt,
+      memoryAfter: getMemoryUsageSnapshot(),
+    });
+    return {
+      status: 200,
+      contentType: "application/xml; charset=utf-8",
+      body: stock.xml,
+      cacheControl: "public, max-age=3600, stale-while-revalidate=86400",
+    };
   }
 
   const match = pathname.match(/^\/sitemap-products-(\d+)\.xml$/);
@@ -7464,7 +7620,7 @@ async function sendSitemapResponse(req, res, pathname) {
     const response = await buildSitemapResponse(pathname, req);
     res.writeHead(response.status, {
       "Content-Type": response.contentType,
-      "Cache-Control": response.status === 200 ? "public, max-age=3600" : "no-store",
+      "Cache-Control": response.cacheControl || (response.status === 200 ? "public, max-age=3600" : "no-store"),
     });
     res.end(response.body);
   } catch (error) {
@@ -7479,7 +7635,7 @@ async function sendSitemapResponse(req, res, pathname) {
 }
 
 function isSitemapPath(pathname) {
-  return pathname === "/sitemap.xml" || pathname === "/sitemap-static.xml" || /^\/sitemap-products-\d+\.xml$/.test(pathname);
+  return pathname === "/sitemap.xml" || pathname === "/sitemap-static.xml" || pathname === "/sitemap-stock.xml" || /^\/sitemap-products-\d+\.xml$/.test(pathname);
 }
 
 function isSitemapDiagnosticAllowed(req) {
@@ -7578,6 +7734,34 @@ async function requestHandler(req, res) {
       catalog: productsSqliteRepo.catalogStateSnapshot(),
       ts: Date.now(),
     }, { "Cache-Control": "no-store" });
+  }
+
+  if (pathname === "/healthz" && req.method === "GET") {
+    return sendJson(res, 200, {
+      ok: true,
+      status: "ok",
+      uptime: process.uptime(),
+      build: BUILD_ID,
+      ts: Date.now(),
+    }, { "Cache-Control": "no-store" });
+  }
+
+  if (pathname === "/readyz" && req.method === "GET") {
+    const catalogState = productsSqliteRepo.catalogStateSnapshot();
+    const ready = Boolean(catalogState?.ready);
+    return sendJson(res, ready ? 200 : 503, {
+      ok: ready,
+      ready,
+      initializing: Boolean(catalogState?.initializing),
+      rebuilding: Boolean(catalogState?.rebuilding),
+      progress: Number(catalogState?.progress || 0),
+      lastError: catalogState?.lastError || null,
+      build: BUILD_ID,
+      ts: Date.now(),
+    }, {
+      "Cache-Control": "no-store",
+      ...(ready ? {} : { "Retry-After": "5" }),
+    });
   }
 
   if (pathname === "/api/system/health-light" && req.method === "GET") {
@@ -8288,6 +8472,12 @@ async function requestHandler(req, res) {
       });
       const queryParams = parsedUrl.query || {};
       const startedAt = Date.now();
+      const withWholesale = canSeeWholesalePrices(req);
+      const cacheKey = buildPublicCacheKey(pathname, queryParams);
+      const cachedPayload = !withWholesale ? getCacheEntry(publicProductsCache, cacheKey, PUBLIC_PRODUCTS_CACHE_MS) : null;
+      if (cachedPayload) {
+        return sendJson(res, 200, cachedPayload, buildCatalogCacheHeaders({ cacheHit: true }));
+      }
       console.info("[public-products:start]", {
         page,
         pageSize,
@@ -8302,7 +8492,6 @@ async function requestHandler(req, res) {
         },
       });
       console.info("[public-products:sqlite-query:start]");
-      const withWholesale = canSeeWholesalePrices(req);
       const sqliteData = await productsSqliteRepo.queryProducts({
         page,
         pageSize,
@@ -8321,6 +8510,7 @@ async function requestHandler(req, res) {
         priceMax: queryParams.price_max ?? queryParams.priceMax,
         sort: queryParams.sort || "",
         debugSearch: queryParams.debugSearch === "1" || queryParams.debug === "1",
+        includeFacets: queryParams.includeFacets === "1" || queryParams.facets === "1",
       });
       const items = withWholesale
         ? sqliteData.items.map((item) => normalizeProductImages(item))
@@ -8341,13 +8531,13 @@ async function requestHandler(req, res) {
         totalPages: responsePayload.totalPages,
         durationMs,
       });
-      console.log("[public-products:first-item-shape]", {
-        keys: items?.[0] ? Object.keys(items[0]) : [],
-        sample: items?.[0],
-      });
-      return sendJson(res, 200, responsePayload, {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-      });
+      if (!withWholesale) setCacheEntry(publicProductsCache, cacheKey, responsePayload);
+      return sendJson(
+        res,
+        200,
+        responsePayload,
+        buildCatalogCacheHeaders({ privateResponse: withWholesale, cacheHit: false }),
+      );
     } catch (err) {
       return sendCatalogError(res, err);
       const code = err?.code || "CATALOG_SQLITE_FAILED";
@@ -8379,6 +8569,11 @@ async function requestHandler(req, res) {
       const page = Math.floor(offset / limit) + 1;
       const debug = String(parsedUrl.query?.debug || "") === "1";
       const startedAt = Date.now();
+      const cacheKey = buildPublicCacheKey(pathname, parsedUrl.query || {});
+      const cachedPayload = getCacheEntry(publicSearchCache, cacheKey, PUBLIC_SEARCH_CACHE_MS);
+      if (cachedPayload) {
+        return sendJson(res, 200, cachedPayload, buildCatalogCacheHeaders({ cacheHit: true }));
+      }
       const data = await productsSqliteRepo.queryProducts({
         page,
         pageSize: limit,
@@ -8395,6 +8590,7 @@ async function requestHandler(req, res) {
         stockStatus: parsedUrl.query?.stock_status || parsedUrl.query?.stockStatus || "",
         stock: parsedUrl.query?.stock || "",
         debugSearch: debug,
+        includeFacets: parsedUrl.query?.includeFacets === "1" || parsedUrl.query?.facets === "1",
       });
       const results = data.items.map((item) => ({
         id: item.id,
@@ -8409,7 +8605,7 @@ async function requestHandler(req, res) {
         slug: item.publicSlug || item.slug || "",
         link: item.url || "",
       }));
-      return sendJson(res, 200, {
+      const responsePayload = {
         results,
         total: data.totalItems,
         limit,
@@ -8419,7 +8615,9 @@ async function requestHandler(req, res) {
         suggestions: [],
         facets: data.facets || {},
         debug: debug ? data.searchDebug : undefined,
-      });
+      };
+      setCacheEntry(publicSearchCache, cacheKey, responsePayload);
+      return sendJson(res, 200, responsePayload, buildCatalogCacheHeaders({ cacheHit: false }));
     } catch (error) {
       if (error?.code === "CATALOG_INITIALIZING") return sendCatalogError(res, error);
       return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });
@@ -14206,6 +14404,24 @@ async function requestHandler(req, res) {
     const emittedLimit = Math.max(1, Number(parsedUrl.query?.limit || process.env.MERCHANT_FEED_LIMIT || (isSample ? 100 : defaultLimit)) || defaultLimit);
     const emittedOffset = Math.max(0, Number(parsedUrl.query?.offset || process.env.MERCHANT_FEED_OFFSET || 0) || 0);
     const preorderDays = Math.max(1, Number(process.env.MERCHANT_PREORDER_DAYS || 30) || 30);
+    const feedCacheKey = buildPublicCacheKey(pathname, {
+      limit: emittedLimit,
+      offset: emittedOffset,
+      preorderDays,
+      baseUrl,
+    });
+    if (pathname !== "/merchant-feed-debug.json") {
+      const cachedFeed = getCacheEntry(merchantFeedRuntimeCache, feedCacheKey, MERCHANT_FEED_CACHE_MS);
+      if (cachedFeed) {
+        res.writeHead(200, {
+          "Content-Type": "text/tab-separated-values; charset=utf-8",
+          "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+          "X-Cache": "HIT",
+        });
+        res.end(cachedFeed);
+        return;
+      }
+    }
     const headers = ['id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type'];
     const rows = [headers.join('	')];
     const stats = { missingImage: 0, missingPrice: 0, missingSlug: 0, privateOrHidden: 0, nonSellable: 0, emitted: 0 };
@@ -14310,8 +14526,14 @@ async function requestHandler(req, res) {
       });
       return sendJson(res, 200, audit);
     }
-    res.writeHead(200, { 'Content-Type': 'text/tab-separated-values; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
-    res.end(`${rows.join('\n')}\n`);
+    const feedBody = `${rows.join('\n')}\n`;
+    if (pathname !== "/merchant-feed-debug.json") setCacheEntry(merchantFeedRuntimeCache, feedCacheKey, feedBody, 20);
+    res.writeHead(200, {
+      'Content-Type': 'text/tab-separated-values; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+      'X-Cache': 'MISS',
+    });
+    res.end(feedBody);
     return;
   }
 
@@ -14914,7 +15136,24 @@ async function requestHandler(req, res) {
 }
 
 function createServer() {
-  return http.createServer(requestHandler);
+  return http.createServer((req, res) => {
+    Promise.resolve(requestHandler(req, res)).catch((error) => {
+      const status = error?.code === "REQUEST_BODY_TOO_LARGE" ? 413 : 500;
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[request:error]", error?.stack || error?.message || error);
+      } else {
+        console.error("[request:error]", error?.code || error?.message || "internal_error");
+      }
+      if (!res.headersSent) {
+        sendJson(res, status, {
+          ok: false,
+          error: status === 413 ? "REQUEST_BODY_TOO_LARGE" : "INTERNAL_ERROR",
+        }, { "Cache-Control": "no-store" });
+      } else {
+        res.end();
+      }
+    });
+  });
 }
 
 module.exports = { createServer };

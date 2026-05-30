@@ -9,6 +9,7 @@ describe('SEO endpoints', () => {
   let createServer;
 
   beforeAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
     fs.mkdirSync(tmpDir, { recursive: true });
     const writeJson = (file, data) => {
       fs.writeFileSync(path.join(tmpDir, file), JSON.stringify(data, null, 2), 'utf8');
@@ -39,13 +40,23 @@ describe('SEO endpoints', () => {
     server = createServer();
   });
 
-  afterAll((done) => {
+  afterAll(async () => {
     process.env.DATA_DIR = originalDataDir;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
     if (server && server.listening) {
-      server.close(done);
-    } else {
-      done();
+      await new Promise((resolve) => server.close(resolve));
+    }
+    const productsSqliteRepo = require('../../backend/data/productsSqliteRepo');
+    if (typeof productsSqliteRepo.closeProductsDbForTests === 'function') {
+      await productsSqliteRepo.closeProductsDbForTests();
+    }
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        if (attempt === 4) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     }
   });
 
