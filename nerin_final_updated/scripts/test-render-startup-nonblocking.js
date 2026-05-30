@@ -93,7 +93,8 @@ async function main() {
 
   try {
     const healthMs = await waitForHealthy(port, 3000);
-    if (healthMs > 1500) {
+    const maxHealthMs = Math.max(1500, Number(process.env.RENDER_STARTUP_HEALTH_MAX_MS || 3000) || 3000);
+    if (healthMs > maxHealthMs) {
       throw new Error(`/health was too slow: ${healthMs}ms`);
     }
 

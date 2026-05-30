@@ -42,7 +42,7 @@ export function apiFetch(path, options = {}) {
   return fetch(buildApiUrl(path), {
     ...options,
     signal,
-    cache: options.cache || (isProductsEndpoint ? "no-store" : options.cache),
+    cache: options.cache || (isProductsEndpoint ? "default" : options.cache),
     headers,
   });
 }
@@ -56,7 +56,7 @@ export async function fetchProductsPage(params = {}, options = {}) {
   });
   const endpoint = `/api/products${query.toString() ? `?${query.toString()}` : ""}`;
   const res = await apiFetch(endpoint, {
-    cache: "no-store",
+    cache: options.cache || "default",
     ...(options || {}),
   });
   if (!res.ok) {

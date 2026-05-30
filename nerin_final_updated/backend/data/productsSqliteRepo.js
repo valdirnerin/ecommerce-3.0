@@ -3249,6 +3249,7 @@ async function querySearchIndex(params = {}) {
   const db = await openDb();
   const safePage = Math.max(1, Number(params.page) || 1);
   const safePageSize = Math.max(1, Number(params.pageSize) || 24);
+  const includeFacets = params.includeFacets === true || String(params.includeFacets || "") === "1";
   const offset = (safePage - 1) * safePageSize;
   const whereClause = buildSearchIndexWhere(params);
   const countStartedAt = Date.now();
@@ -3285,7 +3286,9 @@ async function querySearchIndex(params = {}) {
   const pageEntries = hasSearch ? ranked.slice(offset, offset + safePageSize) : ranked;
   const rows = pageEntries.map((entry) => entry.row);
   const items = rows.map((row) => buildProductSummary(row));
-  const facets = await buildSearchFacets(db, whereClause, { adminMode: Boolean(params.adminMode) });
+  const facets = includeFacets || params.adminMode
+    ? await buildSearchFacets(db, whereClause, { adminMode: Boolean(params.adminMode) })
+    : {};
   const selectMs = Date.now() - selectStartedAt;
   const searchDebug = params.debugSearch ? {
     engine: params.adminMode ? "product_search_index_admin" : "product_search_index",

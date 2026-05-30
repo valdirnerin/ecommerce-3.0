@@ -397,6 +397,7 @@ function populateSelectFromFacet(select, facetValues = [], fallbackLabel = "") {
 }
 
 function applyFacets(facets = {}) {
+  if (!facets || !Object.keys(facets).length) return;
   populateSelectFromFacet(categoryFilter, facets.part_type || [], "Todos los tipos");
   populateSelectFromFacet(brandFilter, facets.device_brand || [], "Todas las marcas");
   populateSelectFromFacet(modelFilter, facets.model_base || [], "Todos los modelos");
@@ -943,6 +944,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     has_frame: filters.hasFrame,
     price_max: filters.priceActive ? filters.price : "",
     sort: mapSortForBackend(filters.sort),
+    includeFacets: filtersInitialized ? "" : "1",
   };
   if (SEARCH_DEBUG) requestParams.debugSearch = "1";
   console.info("[shop-products] load", {
@@ -1021,8 +1023,6 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     .map(sanitizePublicProduct)
     .filter(Boolean);
   const filteredItems = normalizedItems;
-  console.log("[catalog:first-product]", normalizedItems?.[0]);
-  console.log("[catalog:first-product-keys]", normalizedItems?.[0] ? Object.keys(normalizedItems[0]) : null);
 
   if (!filtersInitialized) {
     populateFilters(normalizedItems);
