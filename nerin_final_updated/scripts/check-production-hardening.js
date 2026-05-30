@@ -27,6 +27,9 @@ assert(server.includes("PUBLIC_PRODUCTS_CACHE_MS"), "public product cache must b
 assert(server.includes("PUBLIC_SEARCH_CACHE_MS"), "public search cache must be configurable");
 assert(server.includes("/sitemap-stock.xml"), "server must expose /sitemap-stock.xml");
 assert(server.includes("MERCHANT_FEED_CACHE_MS"), "Merchant feed cache must be configurable");
+assert(!server.includes("req.destroy(error)"), "oversized body handling must preserve the response socket");
+assert(server.includes('"Cache-Control": "private, no-store"'), "wholesale catalog responses must not be publicly cacheable");
+assert(server.includes('"Vary": "Authorization, Cookie, X-Admin-Key"'), "private catalog responses must vary on auth headers");
 
 const repo = read("backend/data/productsSqliteRepo.js");
 assert(repo.includes("includeFacets"), "SQLite product queries must support includeFacets");

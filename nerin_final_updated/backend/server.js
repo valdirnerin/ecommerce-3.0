@@ -1721,6 +1721,20 @@ function buildPublicCacheKey(pathname, query = {}) {
   return serialized ? `${pathname}?${serialized}` : pathname;
 }
 
+function buildCatalogCacheHeaders({ privateResponse = false, cacheHit = false } = {}) {
+  if (privateResponse) {
+    return {
+      "Cache-Control": "private, no-store",
+      "Vary": "Authorization, Cookie, X-Admin-Key",
+      "X-Cache": "BYPASS",
+    };
+  }
+  return {
+    "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
+    "X-Cache": cacheHit ? "HIT" : "MISS",
+  };
+}
+
 function parseRawJsonObject(value) {
   try {
     const parsed = JSON.parse(value || "{}");
@@ -2835,7 +2849,8 @@ function parseBody(req) {
         rejected = true;
         const error = new Error("REQUEST_BODY_TOO_LARGE");
         error.code = "REQUEST_BODY_TOO_LARGE";
-        req.destroy(error);
+        chunks.length = 0;
+        req.resume();
         reject(error);
         return;
       }
@@ -8461,10 +8476,7 @@ async function requestHandler(req, res) {
       const cacheKey = buildPublicCacheKey(pathname, queryParams);
       const cachedPayload = !withWholesale ? getCacheEntry(publicProductsCache, cacheKey, PUBLIC_PRODUCTS_CACHE_MS) : null;
       if (cachedPayload) {
-        return sendJson(res, 200, cachedPayload, {
-          "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
-          "X-Cache": "HIT",
-        });
+        return sendJson(res, 200, cachedPayload, buildCatalogCacheHeaders({ cacheHit: true }));
       }
       console.info("[public-products:start]", {
         page,
@@ -8520,10 +8532,12 @@ async function requestHandler(req, res) {
         durationMs,
       });
       if (!withWholesale) setCacheEntry(publicProductsCache, cacheKey, responsePayload);
-      return sendJson(res, 200, responsePayload, {
-        "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
-        "X-Cache": "MISS",
-      });
+      return sendJson(
+        res,
+        200,
+        responsePayload,
+        buildCatalogCacheHeaders({ privateResponse: withWholesale, cacheHit: false }),
+      );
     } catch (err) {
       return sendCatalogError(res, err);
       const code = err?.code || "CATALOG_SQLITE_FAILED";
@@ -8558,10 +8572,7 @@ async function requestHandler(req, res) {
       const cacheKey = buildPublicCacheKey(pathname, parsedUrl.query || {});
       const cachedPayload = getCacheEntry(publicSearchCache, cacheKey, PUBLIC_SEARCH_CACHE_MS);
       if (cachedPayload) {
-        return sendJson(res, 200, cachedPayload, {
-          "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
-          "X-Cache": "HIT",
-        });
+        return sendJson(res, 200, cachedPayload, buildCatalogCacheHeaders({ cacheHit: true }));
       }
       const data = await productsSqliteRepo.queryProducts({
         page,
@@ -8606,10 +8617,7 @@ async function requestHandler(req, res) {
         debug: debug ? data.searchDebug : undefined,
       };
       setCacheEntry(publicSearchCache, cacheKey, responsePayload);
-      return sendJson(res, 200, responsePayload, {
-        "Cache-Control": "public, max-age=30, stale-while-revalidate=120",
-        "X-Cache": "MISS",
-      });
+      return sendJson(res, 200, responsePayload, buildCatalogCacheHeaders({ cacheHit: false }));
     } catch (error) {
       if (error?.code === "CATALOG_INITIALIZING") return sendCatalogError(res, error);
       return sendJson(res, 500, { ok: false, error: error?.message || "search_failed" });
