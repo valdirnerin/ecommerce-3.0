@@ -2322,6 +2322,181 @@ async function setProductVisibility(identifier, nextVisibility, options = {}) {
   };
 }
 
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let index = 0;
+  const workerCount = Math.min(Math.max(1, Number(limit) || 1), items.length || 1);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (index < items.length) {
+        const currentIndex = index;
+        index += 1;
+        results[currentIndex] = await worker(items[currentIndex], currentIndex);
+      }
+    }),
+  );
+  return results;
+}
+
+function getPublicationStateFromDebug(debug = {}) {
+  return debug?.computePublicationState || debug?.computed || debug?.publicationState || {};
+}
+
+function getStateVisibility(state = {}) {
+  return normalizeQueryText(state.visibility || state.status || state.admin_visibility_bucket || "");
+}
+
+function stateMatchesVisibility(state = {}, visibility = "") {
+  const target = normalizeQueryText(visibility || "");
+  if (target === "public") return state.is_public === true || state.isPublic === true;
+  const stateVisibility = getStateVisibility(state);
+  if (target === "private") return stateVisibility === "private" && state.is_public !== true;
+  if (target === "hidden") return stateVisibility === "hidden" && state.is_public !== true;
+  return false;
+}
+
+async function setProductsVisibilityBatch(identifiers = [], visibility, options = {}) {
+  const startedAt = Date.now();
+  const uniqueIdentifiers = Array.from(
+    new Set(
+      (Array.isArray(identifiers) ? identifiers : [])
+        .map((identifier) => String(identifier || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const nextVisibility = normalizeQueryText(visibility || "");
+  const allowedVisibility = new Set(["public", "private", "hidden"]);
+  if (!allowedVisibility.has(nextVisibility)) {
+    const error = new Error("visibility debe ser public, private o hidden");
+    error.code = "INVALID_VISIBILITY";
+    throw error;
+  }
+  const maxBatchSize = Number(options.maxBatchSize || 200);
+  if (uniqueIdentifiers.length > maxBatchSize) {
+    const error = new Error(`El lote supera el maximo de ${maxBatchSize} productos`);
+    error.code = "BULK_VISIBILITY_TOO_LARGE";
+    throw error;
+  }
+  console.info("[admin-bulk-visibility:start]", {
+    requestedCount: uniqueIdentifiers.length,
+    visibility: nextVisibility,
+    reindex: options.reindex !== false,
+  });
+  const sampleUpdated = [];
+  const sampleAlreadyInTargetState = [];
+  const sampleFailed = [];
+  let updatedCount = 0;
+  let alreadyInTargetStateCount = 0;
+  let failedCount = 0;
+  await runWithConcurrency(uniqueIdentifiers, options.concurrency || 5, async (identifier) => {
+    const itemStartedAt = Date.now();
+    try {
+      const beforeDebug = await debugPublicationByIdentifier(identifier);
+      if (!beforeDebug?.found) {
+        throw new Error("Producto no encontrado");
+      }
+      const beforeState = getPublicationStateFromDebug(beforeDebug);
+      const beforeMatchesTarget = stateMatchesVisibility(beforeState, nextVisibility);
+      const result = await setProductVisibility(identifier, nextVisibility, {
+        reason: options.reason || "admin_bulk_visibility",
+      });
+      if (!result?.ok) {
+        throw new Error("Producto no encontrado");
+      }
+      let reindexResult = null;
+      if (options.reindex !== false) {
+        reindexResult = await reindexProduct(identifier);
+      }
+      const afterDebug = await debugPublicationByIdentifier(identifier);
+      const afterState = getPublicationStateFromDebug(afterDebug);
+      const afterMatchesTarget = stateMatchesVisibility(afterState, nextVisibility);
+      const changed = !beforeMatchesTarget && afterMatchesTarget;
+      if (!afterMatchesTarget) {
+        const error = new Error("postVerificationFailed");
+        error.beforeState = beforeState;
+        error.afterState = afterState;
+        throw error;
+      }
+      const sample = {
+        identifier,
+        title: beforeDebug?.sqlite?.title || beforeDebug?.sqlite?.name || result?.debug?.sqlite?.title || result?.debug?.sqlite?.name || null,
+        before: {
+          visibility: beforeState.visibility || null,
+          status: beforeState.status || null,
+          is_public: beforeState.is_public === true,
+        },
+        after: {
+          visibility: afterState.visibility || null,
+          status: afterState.status || null,
+          is_public: afterState.is_public === true,
+        },
+        reindexed: Boolean(reindexResult?.indexUpdated || result.indexUpdated),
+      };
+      let itemResult = "updated";
+      if (beforeMatchesTarget) {
+        alreadyInTargetStateCount += 1;
+        itemResult = "already";
+        if (sampleAlreadyInTargetState.length < 20) sampleAlreadyInTargetState.push(sample);
+      } else {
+        updatedCount += 1;
+        if (sampleUpdated.length < 20) sampleUpdated.push(sample);
+      }
+      console.info("[admin-bulk-visibility:item]", {
+        identifier,
+        beforeIsPublic: beforeState.is_public === true,
+        afterIsPublic: afterState.is_public === true,
+        beforeVisibility: beforeState.visibility || null,
+        afterVisibility: afterState.visibility || null,
+        changed,
+        result: itemResult,
+        durationMs: Date.now() - itemStartedAt,
+      });
+      return result;
+    } catch (error) {
+      failedCount += 1;
+      if (sampleFailed.length < 20) {
+        sampleFailed.push({
+          identifier,
+          error: error?.message || "No se pudo actualizar el producto",
+        });
+      }
+      console.info("[admin-bulk-visibility:item]", {
+        identifier,
+        beforeIsPublic: error?.beforeState?.is_public === true,
+        afterIsPublic: error?.afterState?.is_public === true,
+        beforeVisibility: error?.beforeState?.visibility || null,
+        afterVisibility: error?.afterState?.visibility || null,
+        changed: false,
+        result: "failed",
+        error: error?.message || "bulk_visibility_item_failed",
+        durationMs: Date.now() - itemStartedAt,
+      });
+      return null;
+    }
+  });
+  const durationMs = Date.now() - startedAt;
+  console.info("[admin-bulk-visibility:end]", {
+    requestedCount: uniqueIdentifiers.length,
+    updatedCount,
+    alreadyInTargetStateCount,
+    failedCount,
+    visibility: nextVisibility,
+    durationMs,
+  });
+  return {
+    ok: true,
+    requestedCount: uniqueIdentifiers.length,
+    updatedCount,
+    alreadyInTargetStateCount,
+    failedCount,
+    visibility: nextVisibility,
+    sampleUpdated,
+    sampleAlreadyInTargetState,
+    sampleFailed,
+    durationMs,
+  };
+}
+
 async function loadProductOverrides() {
   try {
     return JSON.parse(await fsp.readFile(OVERRIDES_PATH, "utf8")) || {};
@@ -3497,6 +3672,79 @@ async function queryProducts(params = {}) {
   return result;
 }
 
+async function getPublicSitemapStats() {
+  const startedAt = Date.now();
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const countStartedAt = Date.now();
+    const row = await get(
+      db,
+      `SELECT
+        COUNT(*) AS totalPublicProducts,
+        SUM(CASE WHEN public_slug IS NOT NULL AND trim(public_slug) != '' THEN 1 ELSE 0 END) AS indexableProducts,
+        SUM(CASE WHEN public_slug IS NULL OR trim(public_slug) = '' THEN 1 ELSE 0 END) AS missingSlugProducts
+       FROM product_search_index
+       WHERE is_public = 1`,
+    );
+    const countMs = Date.now() - countStartedAt;
+    return {
+      totalPublicProducts: Number(row?.totalPublicProducts || 0),
+      indexableProducts: Number(row?.indexableProducts || 0),
+      missingSlugProducts: Number(row?.missingSlugProducts || 0),
+      countMs,
+      totalDurationMs: Date.now() - startedAt,
+      source: "sqlite_search_index",
+    };
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "sitemap_stats", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "sitemap_stats_corrupt" });
+    return getPublicSitemapStats();
+  }
+}
+
+async function listPublicSitemapProducts({ page = 1, pageSize = 2500 } = {}) {
+  const startedAt = Date.now();
+  try {
+    await ensureDbReadyForRequest();
+    const db = await openDb();
+    const safePage = Math.max(1, Number(page) || 1);
+    const safePageSize = Math.max(1, Math.min(5000, Number(pageSize) || 2500));
+    const offset = (safePage - 1) * safePageSize;
+    const selectStartedAt = Date.now();
+    const rows = await all(
+      db,
+      `SELECT product_rowid, product_id, public_slug, updated_at
+       FROM product_search_index
+       WHERE is_public = 1
+         AND public_slug IS NOT NULL
+         AND trim(public_slug) != ''
+       ORDER BY product_rowid ASC
+       LIMIT ? OFFSET ?`,
+      [safePageSize, offset],
+    );
+    const selectMs = Date.now() - selectStartedAt;
+    return {
+      rows,
+      page: safePage,
+      pageSize: safePageSize,
+      offset,
+      limit: safePageSize,
+      count: rows.length,
+      selectMs,
+      totalDurationMs: Date.now() - startedAt,
+      source: "sqlite_search_index",
+    };
+  } catch (error) {
+    if (!isSqliteCorruptionError(error)) throw error;
+    markSqliteCorruption(error, { phase: "sitemap_products", reason: "sqlite_corrupt" });
+    await repairCorruptSqlite({ reason: "sitemap_products_corrupt" });
+    return listPublicSitemapProducts({ page, pageSize });
+  }
+}
+
+
 async function queryAdminProducts(params = {}) {
   let result;
   try {
@@ -4450,11 +4698,14 @@ module.exports = {
   isRebuildInProgress,
   ensureProductsDbInBackground,
   repairCorruptSqlite,
+  closeProductsDbForTests: closeDbInstance,
   isSqliteCorruptionError,
   catalogStateSnapshot,
   setCatalogError,
   clearCatalogError,
   queryProducts,
+  getPublicSitemapStats,
+  listPublicSitemapProducts,
   queryAdminProducts,
   getProductBySlug,
   getProductById,
@@ -4480,6 +4731,7 @@ module.exports = {
   computePublicationState,
   computeProductPublicState,
   setProductVisibility,
+  setProductsVisibilityBatch,
   reindexProduct,
   updateProductByIdentifier,
   normalizeProductForPublic,

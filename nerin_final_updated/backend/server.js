@@ -254,6 +254,52 @@ const analyticsLiveCache = { at: 0, value: null };
 let analyticsDetailedRunning = false;
 let analyticsCatalogSnapshotCache = null;
 
+const SITEMAP_PRODUCTS_PAGE_SIZE = Math.max(1, Math.min(5000, Number(process.env.SITEMAP_PRODUCTS_PAGE_SIZE || 2500) || 2500));
+const SITEMAP_DIAGNOSTIC_TOKEN = String(process.env.SITEMAP_DIAGNOSTIC_TOKEN || "").trim();
+let processLifecycleHandlersRegistered = false;
+
+
+function logLifecycleEvent(eventType, error = null) {
+  const payload = {
+    event: eventType,
+    timestamp: new Date().toISOString(),
+    memory: getMemoryUsageSnapshot(),
+  };
+  if (error) {
+    payload.error = {
+      message: String(error?.message || error),
+      stack: error?.stack || null,
+      reason: error?.reason || null,
+      promise: eventType === "unhandledRejection" ? true : undefined,
+    };
+  }
+  console.error("[process:lifecycle]", payload);
+}
+
+function registerProcessLifecycleHandlers() {
+  if (processLifecycleHandlersRegistered) return;
+  processLifecycleHandlersRegistered = true;
+  process.on("uncaughtException", (error) => {
+    logLifecycleEvent("uncaughtException", error);
+  });
+  process.on("unhandledRejection", (reason) => {
+    logLifecycleEvent("unhandledRejection", reason);
+  });
+  process.on("SIGTERM", () => {
+    logLifecycleEvent("SIGTERM");
+    process.exit(0);
+  });
+  process.on("SIGINT", () => {
+    logLifecycleEvent("SIGINT");
+    process.exit(0);
+  });
+  process.on("exit", (code) => {
+    logLifecycleEvent("exit", { message: `process exit code=${code}` });
+  });
+}
+
+registerProcessLifecycleHandlers();
+
 function parseBooleanEnv(name, defaultValue = false) {
   const raw = process.env[name];
   if (raw === undefined || raw === null || String(raw).trim() === "") return defaultValue;
@@ -309,12 +355,9 @@ function getDetailedAnalyticsTtlMs(range = "7d") {
 
 function getMemoryUsageSnapshot() {
   const mem = process.memoryUsage();
-  return {
-    rss: mem.rss,
-    heapUsed: mem.heapUsed,
-    heapTotal: mem.heapTotal,
-    external: mem.external,
-  };
+  return Object.fromEntries(
+    Object.entries(mem).map(([key, value]) => [key, Number(value || 0)]),
+  );
 }
 
 function logAnalyticsMemory(stage) {
@@ -2914,7 +2957,7 @@ function requireAdminJson(req, res, options = {}) {
 }
 
 function screenPublisherDisabled(res) {
-  return sendApiError(res, 503, "SCREEN_PUBLISHER_DISABLED", "Publicador desactivado temporalmente para proteger produccion");
+  return sendApiError(res, 503, "DISABLED", "Publicador especifico desactivado. Usar accion masiva normal.");
 }
 
 function normalizeScreenPublisherType(value) {
@@ -7363,113 +7406,286 @@ function serveStatic(filePath, res, headers = {}) {
 }
 
 // Crear servidor HTTP
+function sitemapLog(stage, details = {}) {
+  console.log("[sitemap]", {
+    stage,
+    timestamp: new Date().toISOString(),
+    memory: getMemoryUsageSnapshot(),
+    ...details,
+  });
+}
+
+function buildStaticSitemapEntries(base, generatedAt) {
+  return ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((pathSegment) => ({
+    loc: absoluteUrl(pathSegment, base),
+    lastmod: generatedAt,
+    changefreq: pathSegment === "/" || pathSegment === "/shop.html" || pathSegment === "/shop" ? "daily" : "monthly",
+    priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" || pathSegment === "/shop" ? "0.9" : "0.5",
+  }));
+}
+
+async function getSitemapContext(req) {
+  const cfg = getConfig();
+  const siteBase = getPublicBaseUrl(cfg);
+  const base = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
+  const generatedAt = toIsoString(new Date());
+  const organicStartedAt = Date.now();
+  let organicEntries = [];
+  if (typeof buildOrganicSitemapEntries === "function") {
+    try {
+      organicEntries = await buildOrganicSitemapEntries(base, generatedAt);
+    } catch (organicError) {
+      console.warn("[sitemap:organic-skip]", organicError?.message || organicError);
+    }
+  }
+  const organicMs = Date.now() - organicStartedAt;
+  const staticEntries = [...buildStaticSitemapEntries(base, generatedAt), ...organicEntries];
+  return {
+    base,
+    generatedAt,
+    staticEntries,
+    organicCount: organicEntries.length,
+    organicMs,
+    requestId: `${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`,
+    pathname: url.parse(req.url, true).pathname,
+  };
+}
+
+function buildProductSitemapEntries(rows = [], base, generatedAt, requestId) {
+  const entries = [];
+  let skippedMissingSlug = 0;
+  let skippedInvalid = 0;
+  for (const row of rows) {
+    try {
+      const slug = String(row?.public_slug || "").trim();
+      if (!slug) {
+        skippedMissingSlug += 1;
+        console.warn("[sitemap:product-skip]", { requestId, reason: "missing_slug", productId: row?.product_id || null, rowid: row?.product_rowid || null });
+        continue;
+      }
+      entries.push({
+        loc: absoluteUrl("/p/" + encodeURIComponent(slug), base),
+        lastmod: toIsoString(row?.updated_at) || generatedAt,
+        changefreq: "weekly",
+        priority: "0.8",
+      });
+    } catch (entryError) {
+      skippedInvalid += 1;
+      console.warn("[sitemap:product-skip]", { requestId, reason: "invalid_product", error: entryError?.message || String(entryError) });
+    }
+  }
+  return { entries, skippedMissingSlug, skippedInvalid };
+}
+
+async function buildSitemapResponse(pathname, req) {
+  const startedAt = Date.now();
+  const memoryBefore = getMemoryUsageSnapshot();
+  const context = await getSitemapContext(req);
+  sitemapLog("request:start", {
+    requestId: context.requestId,
+    path: pathname,
+    pageSize: SITEMAP_PRODUCTS_PAGE_SIZE,
+    memoryBefore,
+  });
+
+  const statsStartedAt = Date.now();
+  const stats = await productsSqliteRepo.getPublicSitemapStats();
+  const statsMs = Date.now() - statsStartedAt;
+  const publicCount = Number(stats.indexableProducts || 0);
+  const totalPublicProducts = Number(stats.totalPublicProducts || 0);
+  const missingSlugProducts = Number(stats.missingSlugProducts || 0);
+  const totalProductPages = Math.max(1, Math.ceil(publicCount / SITEMAP_PRODUCTS_PAGE_SIZE));
+  sitemapLog("products:count", {
+    requestId: context.requestId,
+    publicCount,
+    totalPublicProducts,
+    missingSlugProducts,
+    generatedProductPages: totalProductPages,
+    countMs: stats.countMs,
+    queryMs: statsMs,
+    organicCount: context.organicCount,
+    organicMs: context.organicMs,
+  });
+  if (missingSlugProducts > 0) {
+    console.warn("[sitemap:missing-slug]", { requestId: context.requestId, missingSlugProducts, action: "omitted" });
+  }
+
+  if (pathname === "/sitemap-static.xml") {
+    const xml = buildSitemapPartXml(context.base, context.staticEntries);
+    sitemapLog("request:success", {
+      requestId: context.requestId,
+      path: pathname,
+      staticCount: context.staticEntries.length,
+      durationMs: Date.now() - startedAt,
+      memoryAfter: getMemoryUsageSnapshot(),
+    });
+    return { status: 200, contentType: "application/xml; charset=utf-8", body: xml };
+  }
+
+  if (pathname === "/sitemap.xml") {
+    const paths = ["/sitemap-static.xml", "/sitemap-stock.xml"];
+    for (let i = 1; i <= totalProductPages; i += 1) paths.push(`/sitemap-products-${i}.xml`);
+    const xml = buildSitemapIndexXml(context.base, paths);
+    sitemapLog("index:success", {
+      requestId: context.requestId,
+      indexCount: paths.length,
+      productPages: totalProductPages,
+      pageSize: SITEMAP_PRODUCTS_PAGE_SIZE,
+      durationMs: Date.now() - startedAt,
+      memoryAfter: getMemoryUsageSnapshot(),
+    });
+    return { status: 200, contentType: "application/xml; charset=utf-8", body: xml };
+  }
+
+  if (pathname === "/sitemap-stock.xml") {
+    const stock = await buildStockSitemapXml(context.base);
+    sitemapLog("stock:success", {
+      requestId: context.requestId,
+      urlCount: stock.count,
+      cacheHit: stock.cacheHit,
+      durationMs: Date.now() - startedAt,
+      memoryAfter: getMemoryUsageSnapshot(),
+    });
+    return {
+      status: 200,
+      contentType: "application/xml; charset=utf-8",
+      body: stock.xml,
+      cacheControl: "public, max-age=3600, stale-while-revalidate=86400",
+    };
+  }
+
+  const match = pathname.match(/^\/sitemap-products-(\d+)\.xml$/);
+  const page = Number(match?.[1] || 0);
+  if (!Number.isInteger(page) || page < 1 || page > totalProductPages) {
+    sitemapLog("products:not_found", { requestId: context.requestId, page, totalProductPages, durationMs: Date.now() - startedAt });
+    return { status: 404, contentType: "text/plain; charset=utf-8", body: "Not found" };
+  }
+
+  const offset = (page - 1) * SITEMAP_PRODUCTS_PAGE_SIZE;
+  sitemapLog("products:page:start", {
+    requestId: context.requestId,
+    page,
+    pageSize: SITEMAP_PRODUCTS_PAGE_SIZE,
+    offset,
+    limit: SITEMAP_PRODUCTS_PAGE_SIZE,
+  });
+  const pageQueryStartedAt = Date.now();
+  const productPage = await productsSqliteRepo.listPublicSitemapProducts({ page, pageSize: SITEMAP_PRODUCTS_PAGE_SIZE });
+  const pageQueryMs = Date.now() - pageQueryStartedAt;
+  sitemapLog("products:page:query_done", {
+    requestId: context.requestId,
+    page,
+    pageSize: productPage.pageSize,
+    offset: productPage.offset,
+    limit: productPage.limit,
+    rows: productPage.count,
+    selectMs: productPage.selectMs,
+    queryMs: pageQueryMs,
+  });
+  const built = buildProductSitemapEntries(productPage.rows, context.base, context.generatedAt, context.requestId);
+  const xml = buildSitemapPartXml(context.base, built.entries);
+  sitemapLog("request:success", {
+    requestId: context.requestId,
+    path: pathname,
+    page,
+    pageSize: productPage.pageSize,
+    offset: productPage.offset,
+    limit: productPage.limit,
+    urlCount: built.entries.length,
+    skippedMissingSlug: built.skippedMissingSlug,
+    skippedInvalid: built.skippedInvalid,
+    durationMs: Date.now() - startedAt,
+    memoryAfter: getMemoryUsageSnapshot(),
+  });
+  return { status: 200, contentType: "application/xml; charset=utf-8", body: xml };
+}
+
+async function sendSitemapResponse(req, res, pathname) {
+  try {
+    const response = await buildSitemapResponse(pathname, req);
+    res.writeHead(response.status, {
+      "Content-Type": response.contentType,
+      "Cache-Control": response.cacheControl || (response.status === 200 ? "public, max-age=3600" : "no-store"),
+    });
+    res.end(response.body);
+  } catch (error) {
+    console.error("[sitemap:error]", {
+      timestamp: new Date().toISOString(),
+      error: error?.stack || error?.message || error,
+      memory: getMemoryUsageSnapshot(),
+    });
+    res.writeHead(500, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store" });
+    res.end('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap temporarily unavailable</error>');
+  }
+}
+
+function isSitemapPath(pathname) {
+  return pathname === "/sitemap.xml" || pathname === "/sitemap-static.xml" || pathname === "/sitemap-stock.xml" || /^\/sitemap-products-\d+\.xml$/.test(pathname);
+}
+
+function isSitemapDiagnosticAllowed(req) {
+  if (!IS_PRODUCTION) return true;
+  if (!SITEMAP_DIAGNOSTIC_TOKEN) return false;
+  const provided = req.headers["x-sitemap-diagnostic-token"] || url.parse(req.url, true).query?.token;
+  return String(provided || "") === SITEMAP_DIAGNOSTIC_TOKEN;
+}
+
+async function sendSitemapDiagnostics(req, res) {
+  if (!isSitemapDiagnosticAllowed(req)) {
+    return sendJson(res, 404, { ok: false, error: "Not found" });
+  }
+  const startedAt = Date.now();
+  const before = getMemoryUsageSnapshot();
+  try {
+    const context = await getSitemapContext(req);
+    const stats = await productsSqliteRepo.getPublicSitemapStats();
+    const productPages = Math.max(1, Math.ceil(Number(stats.indexableProducts || 0) / SITEMAP_PRODUCTS_PAGE_SIZE));
+    const requestedPage = Math.max(1, Math.min(productPages, Number(url.parse(req.url, true).query?.page || 1) || 1));
+    const pageStartedAt = Date.now();
+    const productPage = await productsSqliteRepo.listPublicSitemapProducts({ page: requestedPage, pageSize: SITEMAP_PRODUCTS_PAGE_SIZE });
+    const productPageMs = Date.now() - pageStartedAt;
+    const sample = buildProductSitemapEntries(productPage.rows.slice(0, 5), context.base, context.generatedAt, context.requestId);
+    const after = getMemoryUsageSnapshot();
+    return sendJson(res, 200, {
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      sitemapIndex: "/sitemap.xml",
+      staticSitemap: "/sitemap-static.xml",
+      productSitemaps: Array.from({ length: productPages }, (_, idx) => `/sitemap-products-${idx + 1}.xml`),
+      pageSize: SITEMAP_PRODUCTS_PAGE_SIZE,
+      stats,
+      probePage: {
+        page: productPage.page,
+        offset: productPage.offset,
+        limit: productPage.limit,
+        rows: productPage.count,
+        queryMs: productPageMs,
+        selectMs: productPage.selectMs,
+        sampleUrls: sample.entries.map((entry) => entry.loc),
+      },
+      timings: {
+        organicMs: context.organicMs,
+        totalMs: Date.now() - startedAt,
+      },
+      memory: { before, after },
+    });
+  } catch (error) {
+    console.error("[sitemap:diagnostics:error]", error?.stack || error?.message || error);
+    return sendJson(res, 500, { ok: false, error: error?.message || "diagnostics_failed", memory: { before, after: getMemoryUsageSnapshot() } });
+  }
+}
+
+// Crear servidor HTTP
 async function requestHandler(req, res) {
-  // [sitemap-hotfix-large-catalog]
-  // Intercepta sitemaps antes del handler historico para evitar cargar products.json completo en memoria.
-  // Mantener este handler simple: no ejecutar SEO, no generar contenido, no evaluar cada producto con funciones pesadas.
   const __sitemapParsedUrl = url.parse(req.url, true);
   const __sitemapPathname = __sitemapParsedUrl.pathname;
-  if (
-    (__sitemapPathname === "/sitemap.xml" ||
-      __sitemapPathname === "/sitemap-static.xml" ||
-      __sitemapPathname === "/sitemap-stock.xml" ||
-      /^\/sitemap-products-\d+\.xml$/.test(__sitemapPathname)) &&
-    req.method === "GET"
-  ) {
-    try {
-      const cfg = getConfig();
-      const siteBase = getPublicBaseUrl(cfg);
-      const base = normalizeBaseUrl(siteBase) || FALLBACK_BASE_URL;
-      const generatedAt = toIsoString(new Date());
-      const pageSize = 45000;
-      const baseStaticEntries = ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((pathSegment) => ({
-        loc: absoluteUrl(pathSegment, base),
-        lastmod: generatedAt,
-        changefreq: pathSegment === "/" || pathSegment === "/shop.html" || pathSegment === "/shop" ? "daily" : "monthly",
-        priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" || pathSegment === "/shop" ? "0.9" : "0.5",
-      }));
-      let organicEntries = [];
-      if (typeof buildOrganicSitemapEntries === "function") {
-        try {
-          organicEntries = await buildOrganicSitemapEntries(base, generatedAt);
-        } catch (organicError) {
-          console.warn("[sitemap:organic-skip]", organicError?.message || organicError);
-        }
-      }
-      const staticEntries = [...baseStaticEntries, ...organicEntries];
-      const toProductEntry = (product) => {
-        try {
-          const slug = product?.publicSlug || product?.public_slug || product?.slug;
-          if (!slug) return null;
-          return {
-            loc: absoluteUrl("/p/" + encodeURIComponent(String(slug)), base),
-            lastmod: generatedAt,
-            changefreq: "weekly",
-            priority: "0.8",
-          };
-        } catch (entryError) {
-          console.warn("[sitemap:product-skip]", entryError?.message || entryError);
-          return null;
-        }
-      };
-      const firstPage = await productsSqliteRepo.queryProducts({ page: 1, pageSize: 1 });
-      const publicCount = Number(firstPage?.totalItems || firstPage?.total || firstPage?.count || firstPage?.items?.length || 0);
-      const totalParts = Math.max(1, Math.ceil(publicCount / pageSize));
-
-      if (__sitemapPathname === "/sitemap-static.xml") {
-        console.log("[sitemap] static count=" + staticEntries.length);
-        const xml = buildSitemapPartXml(base, staticEntries);
-        res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-        res.end(xml);
-        return;
-      }
-
-      if (__sitemapPathname === "/sitemap.xml") {
-        console.log("[sitemap] index count=" + publicCount);
-        if (publicCount > pageSize) {
-          const paths = ["/sitemap-static.xml", "/sitemap-stock.xml"];
-          for (let i = 1; i <= totalParts; i += 1) paths.push("/sitemap-products-" + i + ".xml");
-          const xml = buildSitemapIndexXml(base, paths);
-          res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-          res.end(xml);
-          return;
-        }
-        const page = await productsSqliteRepo.queryProducts({ page: 1, pageSize });
-        const productEntries = (page?.items || []).map(toProductEntry).filter(Boolean);
-        const xml = buildSitemapIndexXml(base, ["/sitemap-static.xml", "/sitemap-stock.xml", "/sitemap-products-1.xml"]);
-        res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-        res.end(xml);
-        return;
-      }
-
-      if (__sitemapPathname === "/sitemap-stock.xml") {
-        const { xml, count, cacheHit } = await buildStockSitemapXml(base);
-        console.log("[sitemap] stock count=" + count + " cacheHit=" + cacheHit);
-        res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400" });
-        res.end(xml);
-        return;
-      }
-
-      const match = __sitemapPathname.match(/^\/sitemap-products-(\d+)\.xml$/);
-      const part = Number(match?.[1] || 0);
-      if (!Number.isInteger(part) || part < 1 || part > totalParts) {
-        res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end("Not found");
-        return;
-      }
-      const page = await productsSqliteRepo.queryProducts({ page: part, pageSize });
-      const productEntries = (page?.items || []).map(toProductEntry).filter(Boolean);
-      console.log("[sitemap] products part=" + part + " limit=" + pageSize + " count=" + productEntries.length);
-      const xml = buildSitemapPartXml(base, productEntries);
-      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-      res.end(xml);
-      return;
-    } catch (error) {
-      console.error("[sitemap:error]", error?.stack || error?.message || error);
-      res.writeHead(500, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "no-store" });
-      res.end('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap temporarily unavailable</error>');
-      return;
-    }
+  if (isSitemapPath(__sitemapPathname) && req.method === "GET") {
+    await sendSitemapResponse(req, res, __sitemapPathname);
+    return;
+  }
+  if (__sitemapPathname === "/internal/sitemap-diagnostics" && req.method === "GET") {
+    await sendSitemapDiagnostics(req, res);
+    return;
   }
   const parsedUrl = url.parse(req.url, true);
   const pathname = parsedUrl.pathname;
@@ -7856,6 +8072,56 @@ async function requestHandler(req, res) {
       }
     });
     return;
+  }
+
+  if (pathname === "/api/admin/products/bulk-visibility/health" && req.method === "GET") {
+    if (!requireAdminJson(req, res)) return;
+    return sendApiJson(res, 200, {
+      ok: true,
+      routeReady: true,
+      hasBatchFunction: typeof productsSqliteRepo.setProductsVisibilityBatch === "function",
+      maxBatchSize: 200,
+      reindexMode: "per-product",
+      rebuildsFullCatalog: false,
+    });
+  }
+
+  if (pathname === "/api/admin/products/bulk-visibility" && req.method === "POST") {
+    if (!requireAdminJson(req, res)) return;
+    await parseBody(req);
+    try {
+      const payload = req.body && typeof req.body === "object" ? req.body : {};
+      const identifiers = Array.isArray(payload.identifiers) ? payload.identifiers : [];
+      const visibility = String(payload.visibility || "").trim().toLowerCase();
+      if (identifiers.length === 0) {
+        return sendApiError(res, 400, "BULK_VISIBILITY_EMPTY", "Selecciona al menos un producto.");
+      }
+      if (identifiers.length > 200) {
+        return sendApiError(res, 400, "BULK_VISIBILITY_TOO_LARGE", "La accion masiva permite hasta 200 productos por request.", {
+          requestedCount: identifiers.length,
+          maxBatchSize: 200,
+        });
+      }
+      if (!["public", "private", "hidden"].includes(visibility)) {
+        return sendApiError(res, 400, "INVALID_VISIBILITY", "visibility debe ser public, private o hidden.");
+      }
+      const result = await productsSqliteRepo.setProductsVisibilityBatch(identifiers, visibility, {
+        reindex: payload.reindex !== false,
+        maxBatchSize: 200,
+        concurrency: 5,
+        reason: "admin_bulk_visibility",
+      });
+      invalidateCatalogCaches("admin_bulk_visibility");
+      return sendApiJson(res, 200, result);
+    } catch (error) {
+      if (error?.code === "INVALID_VISIBILITY") {
+        return sendApiError(res, 400, "INVALID_VISIBILITY", error.message);
+      }
+      if (error?.code === "BULK_VISIBILITY_TOO_LARGE") {
+        return sendApiError(res, 400, "BULK_VISIBILITY_TOO_LARGE", error.message);
+      }
+      return sendApiError(res, 500, "BULK_VISIBILITY_FAILED", error?.message || "No se pudo actualizar la visibilidad en lote.");
+    }
   }
 
   const adminProductReindexMatch = pathname.match(/^\/api\/admin\/products\/([^/]+)\/reindex$/);
@@ -14377,44 +14643,8 @@ async function requestHandler(req, res) {
     }
   }
 
-  if ((pathname === "/sitemap.xml" || pathname === "/sitemap-static.xml" || /^\/sitemap-products-\d+\.xml$/.test(pathname)) && req.method === "GET") {
-    const cfg = getConfig();
-    const siteBase = getPublicBaseUrl(cfg);
-    const products = loadSmallCatalogProducts({ filePath: PRODUCTS_FILE_PATH });
-    const plan = buildSitemapPlan(siteBase, products);
-    const organicEntries = await buildOrganicSitemapEntries(plan.siteBase, toIsoString(new Date()));
-    plan.staticEntries = [...plan.staticEntries, ...organicEntries];
-    const productCount = plan.productEntries.length;
-    const needsIndex = productCount > 45000;
-    if (pathname === "/sitemap.xml") {
-      const xml = needsIndex
-        ? buildSitemapIndexXml(plan.siteBase, [
-            "/sitemap-static.xml",
-            ...plan.productSitemaps.map((_, idx) => `/sitemap-products-${idx + 1}.xml`),
-          ])
-        : buildSitemapPartXml(plan.siteBase, [...plan.staticEntries, ...plan.productEntries]);
-      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-      res.end(xml);
-      return;
-    }
-    if (pathname === "/sitemap-static.xml") {
-      const xml = buildSitemapPartXml(plan.siteBase, plan.staticEntries);
-      res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-      res.end(xml);
-      return;
-    }
-    const m = pathname.match(/^\/sitemap-products-(\d+)\.xml$/);
-    const idx = Number(m?.[1] || 0) - 1;
-    if (idx < 0 || idx >= plan.productSitemaps.length) {
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("Not found");
-      return;
-    }
-    const xml = buildSitemapPartXml(plan.siteBase, plan.productSitemaps[idx]);
-    res.writeHead(200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
-    res.end(xml);
-    return;
-  }
+  // Los sitemaps se atienden al inicio del requestHandler con buildSitemapResponse().
+  // Mantener este punto sin carga de products.json para evitar parseos completos del catálogo.
 
   const organicPageConfig = getOrganicSeoPageConfig(pathname);
   if (organicPageConfig && req.method === "GET") {

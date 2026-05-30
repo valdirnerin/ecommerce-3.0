@@ -1832,6 +1832,7 @@ let productsLoadErrorMessage = "";
 let adminProductsAbortController = null;
 let adminProductsRequestSeq = 0;
 let adminProductsFacets = {};
+const selectedProductMap = new Map();
 
 let isApplyingAutoSeo = false;
 let isApplyingAutoTags = false;
@@ -2116,14 +2117,78 @@ function updateProductSummary(filtered) {
     </div>`;
 }
 
+function isAdminProductPublic(product = {}) {
+  return product.is_public === true || product.isPublic === true || String(product.visibility || "").toLowerCase() === "public";
+}
+
+function getProductSelectionMeta(product = {}, rowIndex = 0) {
+  const identifier = resolveProductAdminIdentifier(product);
+  return {
+    identifier,
+    title: product.title || product.name || "",
+    visibility: product.visibility || "",
+    is_public: isAdminProductPublic(product),
+    status: product.status || "",
+    rowIndex,
+  };
+}
+
+function getRowSelectionMeta(row) {
+  if (!row) return null;
+  const identifier = String(row.dataset.adminIdentifier || row.dataset.id || "").trim();
+  if (!identifier) return null;
+  return {
+    identifier,
+    title: row.dataset.title || "",
+    visibility: row.dataset.visibility || "",
+    is_public: row.dataset.isPublic === "true",
+    status: row.dataset.status || "",
+    rowIndex: Number(row.dataset.rowIndex || 0) || 0,
+  };
+}
+
+function updateSelectedProductsCounter() {
+  if (applyBulkBtn) {
+    applyBulkBtn.dataset.selectedCount = String(selectedProductMap.size);
+  }
+}
+
+function clearProductSelection(reason = "reset") {
+  selectedProductMap.clear();
+  document.querySelectorAll(".select-product").forEach((cb) => {
+    cb.checked = false;
+  });
+  if (selectAllCheckbox) selectAllCheckbox.checked = false;
+  updateSelectedProductsCounter();
+  console.info("[admin-products-selection:clear]", { reason });
+}
+
+function syncProductSelectionFromCheckbox(checkbox) {
+  const meta = getRowSelectionMeta(checkbox?.closest?.("tr"));
+  if (!meta) return;
+  if (checkbox.checked) {
+    selectedProductMap.set(meta.identifier, meta);
+  } else {
+    selectedProductMap.delete(meta.identifier);
+  }
+  updateSelectedProductsCounter();
+}
+
 function buildProductRow(product) {
   const tr = document.createElement("tr");
   const productId = product && product.id != null ? String(product.id) : "";
   const adminIdentifier = resolveProductAdminIdentifier(product);
+  const rowIndex = productsCache.findIndex((item) => item === product);
+  const selectionMeta = getProductSelectionMeta(product, rowIndex);
   const safeIdAttr = escapeHtml(productId);
   tr.dataset.id = productId;
   tr.dataset.productId = productId;
   tr.dataset.adminIdentifier = adminIdentifier;
+  tr.dataset.title = selectionMeta.title;
+  tr.dataset.visibility = selectionMeta.visibility;
+  tr.dataset.isPublic = String(selectionMeta.is_public);
+  tr.dataset.status = selectionMeta.status;
+  tr.dataset.rowIndex = String(selectionMeta.rowIndex);
   let stockBadge = "";
   if (isOutOfStock(product)) {
     stockBadge = '<span class="badge">Sin stock</span>';
@@ -2278,6 +2343,7 @@ function highlightProductRow(targetId) {
 }
 
 function updateProductFilters(patch) {
+  clearProductSelection("filters_changed");
   productFilters = {
     ...productFilters,
     ...patch,
@@ -2312,6 +2378,7 @@ if (productFilterCategory) {
   });
 });
 productClearFilters?.addEventListener("click", () => {
+  clearProductSelection("filters_cleared");
   productFilters = {
     query: "",
     category: "",
@@ -2352,6 +2419,7 @@ if (productSortSelect) {
 }
 if (adminProductsPageSize) {
   adminProductsPageSize.addEventListener("change", () => {
+    clearProductSelection("page_size_changed");
     productsPageSize = Number(adminProductsPageSize.value || 100);
     productsPage = 1;
     void loadProducts().catch((error) => {
@@ -2366,6 +2434,7 @@ if (adminProductsPrevPage) {
       hasPrevPage: productsHasPrevPage,
     });
     if (!productsHasPrevPage || productsPage <= 1) return;
+    clearProductSelection("page_changed");
     productsPage -= 1;
     void loadProducts().catch((error) => {
       console.error("[admin-products] prev page failed", error);
@@ -2379,6 +2448,7 @@ if (adminProductsNextPage) {
       hasNextPage: productsHasNextPage,
     });
     if (!productsHasNextPage) return;
+    clearProductSelection("page_changed");
     productsPage += 1;
     void loadProducts().catch((error) => {
       console.error("[admin-products] next page failed", error);
@@ -3577,6 +3647,7 @@ function updateProductsPaginationControls() {
 
 async function loadProducts(options = {}) {
   if (!productsTableBody) return;
+  clearProductSelection("loadProducts");
   const { highlightId } = options;
   const requestSeq = ++adminProductsRequestSeq;
   if (adminProductsAbortController) {
@@ -3809,7 +3880,22 @@ if (selectAllCheckbox) {
     const checked = selectAllCheckbox.checked;
     document
       .querySelectorAll(".select-product")
-      .forEach((cb) => (cb.checked = checked));
+      .forEach((cb) => {
+        cb.checked = checked;
+        syncProductSelectionFromCheckbox(cb);
+      });
+  });
+}
+
+if (productsTableBody) {
+  productsTableBody.addEventListener("change", (event) => {
+    const checkbox = event.target;
+    if (!checkbox?.classList?.contains("select-product")) return;
+    syncProductSelectionFromCheckbox(checkbox);
+    if (selectAllCheckbox) {
+      const checkboxes = Array.from(document.querySelectorAll(".select-product"));
+      selectAllCheckbox.checked = checkboxes.length > 0 && checkboxes.every((cb) => cb.checked);
+    }
   });
 }
 
@@ -3821,78 +3907,175 @@ if (bulkSelect && bulkValueInput) {
   });
 }
 
+async function fetchAdminJson(url, options = {}) {
+  const response = await apiFetch(url, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.headers || {}),
+      ...getAdminHeaders(),
+    },
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  const preview = text.slice(0, 300).replace(/\s+/g, " ");
+  if (!contentType.includes("application/json")) {
+    throw new Error(`El endpoint ${url} devolvio ${response.status} ${contentType || "sin content-type"} en vez de JSON. Preview: ${preview}`);
+  }
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (error) {
+    throw new Error(`Respuesta JSON invalida de ${url}: ${error.message}`);
+  }
+  if (!response.ok) {
+    throw new Error(data.message || data.error || `Error HTTP ${response.status}`);
+  }
+  return data;
+}
+
+function getSelectedProductIdentifiers() {
+  const visibleSelection = Array.from(document.querySelectorAll(".select-product:checked"))
+    .map((cb) => {
+      const meta = getRowSelectionMeta(cb.closest("tr"));
+      if (meta) selectedProductMap.set(meta.identifier, meta);
+      return meta?.identifier || "";
+    })
+    .map((identifier) => String(identifier || "").trim())
+    .filter(Boolean);
+  const visibleSet = new Set(visibleSelection);
+  Array.from(selectedProductMap.keys()).forEach((identifier) => {
+    if (!visibleSet.has(identifier)) selectedProductMap.delete(identifier);
+  });
+  updateSelectedProductsCounter();
+  return visibleSelection;
+}
+
+function getSelectedProductEntries() {
+  getSelectedProductIdentifiers();
+  return Array.from(selectedProductMap.values());
+}
+
+function getCurrentProductViewState() {
+  return {
+    filters: { ...productFilters },
+    currentSearch: productFilters.query || "",
+    currentPage: productsPage,
+    pageSize: productsPageSize,
+  };
+}
+
+function setBulkActionBusy(isBusy) {
+  if (applyBulkBtn) {
+    applyBulkBtn.disabled = isBusy;
+    applyBulkBtn.textContent = isBusy ? "Aplicando..." : "Aplicar";
+  }
+}
+
+async function applyBulkVisibilityAction(visibility, identifiers) {
+  const label = visibility === "public" ? "Publicando" : visibility === "private" ? "Pasando a privado" : "Ocultando";
+  setBulkActionBusy(true);
+  if (window.showToast) showToast(`${label} ${identifiers.length} productos...`);
+  const chunks = [];
+  for (let index = 0; index < identifiers.length; index += 200) {
+    chunks.push(identifiers.slice(index, index + 200));
+  }
+  const aggregate = {
+    requestedCount: identifiers.length,
+    updatedCount: 0,
+    alreadyInTargetStateCount: 0,
+    failedCount: 0,
+    sampleFailed: [],
+  };
+  for (let index = 0; index < chunks.length; index += 1) {
+    if (window.showToast && chunks.length > 1) showToast(`${label} tanda ${index + 1}/${chunks.length}...`);
+    const data = await fetchAdminJson("/api/admin/products/bulk-visibility", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: chunks[index], visibility, reindex: true }),
+    });
+    aggregate.updatedCount += Number(data.updatedCount || 0);
+    aggregate.alreadyInTargetStateCount += Number(data.alreadyInTargetStateCount || 0);
+    aggregate.failedCount += Number(data.failedCount || 0);
+    aggregate.sampleFailed.push(...(Array.isArray(data.sampleFailed) ? data.sampleFailed : []));
+  }
+  const already = Number(aggregate.alreadyInTargetStateCount || 0);
+  const message = `${visibility === "public" ? "Publicados" : "Actualizados"} ${aggregate.updatedCount || 0} productos. ${already} ya estaban en ese estado. Fallaron ${aggregate.failedCount || 0}.`;
+  if (window.showToast) showToast(message);
+  if (aggregate.failedCount && Array.isArray(aggregate.sampleFailed)) {
+    console.warn("[admin-bulk-visibility:failed]", aggregate.sampleFailed);
+    alert(`${message}\n\nFallos:\n${aggregate.sampleFailed.slice(0, 20).map((item) => `${item.identifier}: ${item.error}`).join("\n")}`);
+  }
+  document.querySelectorAll(".select-product:checked").forEach((cb) => {
+    cb.checked = false;
+  });
+  if (selectAllCheckbox) selectAllCheckbox.checked = false;
+  await loadProducts();
+}
+
 if (applyBulkBtn && bulkSelect) {
   applyBulkBtn.addEventListener("click", async () => {
     const action = bulkSelect.value;
-  const selected = Array.from(
-    document.querySelectorAll(".select-product:checked"),
-  ).map((cb) => cb.closest("tr").dataset.id);
-  if (selected.length === 0) {
-    alert("Seleccione productos");
-    return;
-  }
-  if (action === "delete") {
-    if (!confirm("¿Eliminar productos seleccionados?")) return;
-    for (const id of selected) {
-      await apiFetch(`/api/products/${id}`, { method: "DELETE" });
-    }
-  } else if (action.startsWith("vis-")) {
-    const vis = action.split("-")[1];
-    for (const id of selected) {
-      const row = document.querySelector(`tr[data-id="${id}"]`);
-      const identifier = row?.dataset?.adminIdentifier || id;
-      const endpoint = `/api/products/${encodeURIComponent(String(identifier))}`;
-      const payload = { visibility: vis };
-      console.info("[admin-visibility-update]", {
-        identifier,
-        previousVisibility: row ? String((productsCache.find((item) => String(item.id) === String(id)) || {}).visibility || "") : "",
-        nextVisibility: vis,
-        endpoint,
-        payload,
-      });
-      const response = await apiFetch(endpoint, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json().catch(() => ({}));
-      console.info("[admin-visibility-update-result]", {
-        status: response.status,
-        enabled: data?.product?.enabled,
-        visibility: data?.product?.visibility,
-        is_public: data?.product?.is_public,
-        source: data?.source,
-      });
-      const computedIsPublic = data?.debugPublication?.computed?.isPublic;
-      const computedReason = data?.debugPublication?.computed?.reason;
-      if (!response.ok || (vis === "public" && (response.status === 409 || computedIsPublic === false))) {
-        throw new Error(data.error || `No se pudo publicar el producto (reason: ${computedReason || "unknown"}).`);
-      }
-    }
-  } else if (action.startsWith("price")) {
-    const pct = parseFloat(bulkValueInput.value);
-    if (isNaN(pct)) {
-      alert("Ingrese un porcentaje válido");
+    const selectedEntries = getSelectedProductEntries();
+    const selected = selectedEntries.map((entry) => entry.identifier);
+    console.info("[admin-bulk-action:selection]", {
+      action,
+      selectedCount: selected.length,
+      selectedSample: selectedEntries.slice(0, 10),
+      currentFilters: { ...productFilters },
+      currentSearch: productFilters.query || "",
+      currentPage: productsPage,
+    });
+    if (selected.length === 0) {
+      alert("Seleccione productos");
       return;
     }
-    for (const id of selected) {
-      const row = document.querySelector(`tr[data-id='${id}']`);
-      const minorInput = row.querySelector("input[data-field='price_minorista']");
-      const mayorInput = row.querySelector("input[data-field='price_mayorista']");
-      const factor = action === "price-inc" ? 1 + pct / 100 : 1 - pct / 100;
-      const newMinor = Math.round(parseFloat(minorInput.value) * factor);
-      const newMayor = Math.round(parseFloat(mayorInput.value) * factor);
-      await apiFetch(`/api/products/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          price_minorista: newMinor,
-          price_mayorista: newMayor,
-        }),
-      });
+    try {
+      setBulkActionBusy(true);
+      if (action === "delete") {
+        if (!confirm("Eliminar productos seleccionados?")) return;
+        for (const id of selected) {
+          await apiFetch(`/api/products/${encodeURIComponent(String(id))}`, { method: "DELETE" });
+        }
+        await loadProducts();
+      } else if (action.startsWith("vis-")) {
+        const vis = action.split("-")[1];
+        if (vis === "public" && selectedEntries.length > 0 && selectedEntries.every((entry) => entry.is_public === true || entry.visibility === "public")) {
+          alert("Los productos seleccionados ya figuran publicos. Recarga la tabla.");
+          return;
+        }
+        await applyBulkVisibilityAction(vis, selected);
+      } else if (action.startsWith("price")) {
+        const pct = parseFloat(bulkValueInput.value);
+        if (isNaN(pct)) {
+          alert("Ingrese un porcentaje valido");
+          return;
+        }
+        const selectedRows = Array.from(document.querySelectorAll(".select-product:checked")).map((cb) => cb.closest("tr"));
+        for (const id of selected) {
+          const row = selectedRows.find((candidate) => candidate?.dataset?.adminIdentifier === id || candidate?.dataset?.id === id);
+          const minorInput = row?.querySelector("input[data-field='price_minorista']");
+          const mayorInput = row?.querySelector("input[data-field='price_mayorista']");
+          const factor = action === "price-inc" ? 1 + pct / 100 : 1 - pct / 100;
+          const newMinor = Math.round(parseFloat(minorInput?.value || 0) * factor);
+          const newMayor = Math.round(parseFloat(mayorInput?.value || 0) * factor);
+          await apiFetch(`/api/products/${encodeURIComponent(String(id))}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              price_minorista: newMinor,
+              price_mayorista: newMayor,
+            }),
+          });
+        }
+        await loadProducts();
+      }
+    } catch (error) {
+      console.error("[admin-bulk-action:error]", error);
+      alert(error?.message || "No se pudo aplicar la accion masiva");
+    } finally {
+      setBulkActionBusy(false);
     }
-  }
-  loadProducts();
   });
 }
 
@@ -4061,132 +4244,7 @@ if (bulkPublishRunBtn) {
   });
 }
 
-const finalScreensPublisherStatus = document.getElementById("finalScreensPublisherStatus");
-const finalScreensPublisherSummary = document.getElementById("finalScreensPublisherSummary");
 
-function finalPublisherFilters(kind) {
-  const isScreen = kind === "screen";
-  return {
-    brand: document.getElementById(isScreen ? "screenPubBrand" : "adhPubBrand")?.value?.trim() || "",
-    model: document.getElementById(isScreen ? "screenPubModel" : "adhPubModel")?.value?.trim() || "",
-    qualityTier: isScreen ? document.getElementById("screenPubQuality")?.value?.trim() || "" : undefined,
-    adhesiveType: !isScreen ? document.getElementById("adhPubType")?.value?.trim() || "" : undefined,
-    stockMode: document.getElementById(isScreen ? "screenPubStock" : "adhPubStock")?.value || "all",
-    onlyWithImage: Boolean(document.getElementById(isScreen ? "screenPubOnlyImage" : "adhPubOnlyImage")?.checked),
-    onlyWithPrice: Boolean(document.getElementById(isScreen ? "screenPubOnlyPrice" : "adhPubOnlyPrice")?.checked),
-    includePrivate: Boolean(document.getElementById(isScreen ? "screenPubIncludePrivate" : "adhPubIncludePrivate")?.checked),
-    includeHidden: Boolean(document.getElementById(isScreen ? "screenPubIncludeHidden" : "adhPubIncludeHidden")?.checked),
-    includeRemoteOrderable: Boolean(document.getElementById(isScreen ? "screenPubIncludeRemote" : "adhPubIncludeRemote")?.checked),
-    limit: Number(document.getElementById(isScreen ? "screenPubLimit" : "adhPubLimit")?.value || 10000) || 10000,
-  };
-}
-
-function setFinalPublisherStatus(message) {
-  if (finalScreensPublisherStatus) finalScreensPublisherStatus.textContent = message || "";
-}
-
-function renderFinalPublisherSummary(data = {}, kind = "screen") {
-  if (!finalScreensPublisherSummary) return;
-  const isScreen = kind === "screen";
-  const rows = isScreen
-    ? [["Pantallas publicas actuales", data.publicScreensCurrent], ["Pantallas privadas elegibles", data.privateScreensEligible], ["Pantallas ocultas elegibles", data.hiddenScreensEligible], ["Pantallas stock real elegibles", data.stockRealScreensEligible], ["Pantallas a pedido elegibles", data.remoteScreensEligible]]
-    : [["Adhesivos publicos actuales", data.publicScreenAdhesivesCurrent], ["Adhesivos privados elegibles", data.privateScreenAdhesivesEligible], ["Adhesivos ocultos elegibles", data.hiddenScreenAdhesivesEligible], ["Adhesivos stock real elegibles", data.stockRealScreenAdhesivesEligible], ["Adhesivos a pedido elegibles", data.remoteScreenAdhesivesEligible]];
-  rows.push(["Bloqueados por imagen", data.blockersBreakdown?.missingImage || 0]);
-  rows.push(["Bloqueados por precio", data.blockersBreakdown?.missingPrice || 0]);
-  rows.push(["Bloqueados Merchant", Object.entries(data.blockersBreakdown || {}).filter(([k]) => k.startsWith("merchant")).reduce((s, [, v]) => s + Number(v || 0), 0)]);
-  rows.push([isScreen ? "Excluidos por accesorio" : "Excluidos por no ser de pantalla", isScreen ? (data.accessoryExcludedSamples || []).length : (data.excludedSamples || []).length]);
-  finalScreensPublisherSummary.innerHTML = `<div class="bulk-publish-summary-grid">${rows.map(([label, value]) => `<article><strong>${escapeHtml(String(value ?? 0))}</strong><span>${escapeHtml(label)}</span></article>`).join("")}</div><p><a href="/pantallas-en-stock" target="_blank">/pantallas-en-stock</a> · <a href="/adhesivos-de-pantalla" target="_blank">/adhesivos-de-pantalla</a> · <a href="/api/merchant/screens-feed.csv" target="_blank">feed pantallas</a> · <a href="/api/merchant/screen-adhesives-feed.csv" target="_blank">feed adhesivos</a></p>`;
-}
-
-async function fetchAdminJson(url, options = {}) {
-  const response = await apiFetch(url, {
-    ...options,
-    headers: {
-      Accept: "application/json",
-      ...(options.headers || {}),
-      ...getAdminHeaders(),
-    },
-  });
-  const contentType = response.headers.get("content-type") || "";
-  const text = await response.text();
-  const preview = text.slice(0, 300).replace(/\s+/g, " ");
-  console.info("[screen-admin-request]", {
-    url,
-    method: options.method || "GET",
-    status: response.status,
-    contentType,
-    preview,
-  });
-  if (!contentType.includes("application/json")) {
-    throw new Error(`El endpoint ${url} devolvio ${response.status} ${contentType || "sin content-type"} en vez de JSON. Preview: ${preview}`);
-  }
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch (error) {
-    throw new Error(`Respuesta JSON invalida de ${url}: ${error.message}`);
-  }
-  if (!response.ok) {
-    throw new Error(data.message || data.error || `Error HTTP ${response.status}`);
-  }
-  return data;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitScreenPublisherJob(base, jobId, kind) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const data = await fetchAdminJson(`${base}/jobs/${encodeURIComponent(jobId)}`);
-    const job = data.job || {};
-    setFinalPublisherStatus(`Job ${job.status || "running"}: escaneados ${job.scannedRows || 0}, elegibles ${job.eligibleCount || 0}, bloqueados ${job.blockedCount || 0}`);
-    if (job.status === "done") {
-      return data.result || job;
-    }
-    if (job.status === "failed") {
-      throw new Error(job.error || "El job del publicador fallo");
-    }
-    await sleep(2500);
-  }
-  throw new Error("El job sigue corriendo. Volve a consultar el estado en unos segundos.");
-}
-
-async function runFinalPublisher(kind, action) {
-  const isScreen = kind === "screen";
-  const base = isScreen ? "/api/admin/screens" : "/api/admin/screen-adhesives";
-  const filters = finalPublisherFilters(kind);
-  setFinalPublisherStatus("Procesando...");
-  try {
-    let data;
-    if (action === "audit" || action === "preview") {
-      const started = await fetchAdminJson(`${base}/audit-job`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(filters) });
-      data = await waitScreenPublisherJob(base, started.jobId, kind);
-    } else {
-      const body = { ...filters, [isScreen ? "confirmScreenBulkPublish" : "confirmScreenAdhesiveBulkPublish"]: true };
-      if (action === "publish") {
-        const ok = confirm(isScreen
-          ? "Vas a publicar pantallas reales elegibles. No se publicaran adhesivos, brackets, fundas, protectores ni productos sin precio/imagen."
-          : "Vas a publicar adhesivos de pantalla elegibles. No se publicaran adhesivos de bateria, tapas, camaras ni cintas genericas sin modelo.");
-        if (!ok) return;
-      }
-      const started = await fetchAdminJson(`${base}/publish-job`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      data = await waitScreenPublisherJob(base, started.jobId, kind);
-    }
-    if (!data.ok) throw new Error(data.error || "No se pudo completar");
-    setFinalPublisherStatus(action === "publish" ? `Actualizados ${data.updatedCount || 0}, verificados ${data.verifiedPublicCount || 0}, fallidos ${data.failedCount || 0}` : "Listo.");
-    renderFinalPublisherSummary(data, kind);
-  } catch (error) {
-    setFinalPublisherStatus(error?.message || "No se pudo completar la operacion");
-  }
-}
-
-document.getElementById("screenAuditBtn")?.addEventListener("click", () => runFinalPublisher("screen", "audit"));
-document.getElementById("screenPreviewBtn")?.addEventListener("click", () => runFinalPublisher("screen", "preview"));
-document.getElementById("screenPublishBtn")?.addEventListener("click", () => runFinalPublisher("screen", "publish"));
-document.getElementById("adhAuditBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "audit"));
-document.getElementById("adhPreviewBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "preview"));
-document.getElementById("adhPublishBtn")?.addEventListener("click", () => runFinalPublisher("adhesive", "publish"));
 
 async function deleteProduct(id) {
   if (!confirm("¿Estás seguro de eliminar este producto?")) return;

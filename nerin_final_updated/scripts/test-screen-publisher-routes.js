@@ -51,11 +51,11 @@ async function request(baseUrl, pathName, options = {}) {
 
     const screensAudit = await request(baseUrl, "/api/admin/screens/audit", { headers: auth });
     assert.strictEqual(screensAudit.response.status, 503, "screens audit disabled status");
-    assert.strictEqual(screensAudit.data.error, "SCREEN_PUBLISHER_DISABLED", "screens audit disabled code");
+    assert.strictEqual(screensAudit.data.error, "DISABLED", "screens audit disabled code");
 
     const adhesivesAudit = await request(baseUrl, "/api/admin/screen-adhesives/audit", { headers: auth });
     assert.strictEqual(adhesivesAudit.response.status, 503, "adhesives audit disabled status");
-    assert.strictEqual(adhesivesAudit.data.error, "SCREEN_PUBLISHER_DISABLED", "adhesives audit disabled code");
+    assert.strictEqual(adhesivesAudit.data.error, "DISABLED", "adhesives audit disabled code");
 
     const preview = await request(baseUrl, "/api/admin/screens/publish-preview", {
       method: "POST",
@@ -63,7 +63,7 @@ async function request(baseUrl, pathName, options = {}) {
       body: JSON.stringify({ onlyWithImage: true }),
     });
     assert.strictEqual(preview.response.status, 503, "preview disabled status");
-    assert.strictEqual(preview.data.error, "SCREEN_PUBLISHER_DISABLED", "preview disabled code");
+    assert.strictEqual(preview.data.error, "DISABLED", "preview disabled code");
   } finally {
     await close(server);
   }
