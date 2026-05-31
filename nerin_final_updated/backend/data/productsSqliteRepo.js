@@ -2598,9 +2598,11 @@ function createRebuildTimeoutError(reason = "rebuild_timeout") {
 function markExistingSqliteReady(context = {}) {
   dbReady = true;
   catalogState.ready = true;
+  catalogState.failed = false;
   catalogState.initializing = false;
   catalogState.lastReadyAt = catalogState.lastReadyAt || new Date().toISOString();
   if (context.reason) catalogState.freshnessReason = context.reason;
+  clearCatalogError();
   console.warn("[products-db] using existing sqlite while rebuild is pending/failed", {
     reason: context.reason || null,
     productCount: context.productCount || null,
@@ -2609,12 +2611,61 @@ function markExistingSqliteReady(context = {}) {
   });
 }
 
-async function inspectUsableSqlite() {
-  if (!fs.existsSync(SQLITE_PATH)) return { ok: false, reason: "sqlite_missing", productCount: 0, publicProductCount: 0 };
+async function listSqliteTables(db) {
+  const rows = await all(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+  return rows.map((row) => String(row?.name || "")).filter(Boolean);
+}
+
+async function tableExists(db, tableName) {
+  const row = await get(
+    db,
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = lower(?) LIMIT 1",
+    [tableName],
+  );
+  return Boolean(row?.name);
+}
+
+async function migrateExistingSqliteSchema(db) {
+  const productsExists = await tableExists(db, "products");
+  if (!productsExists) return { ok: false, reason: "products_table_missing", migrated: false };
+  const columns = await all(db, "PRAGMA table_info(products)");
+  const columnByName = new Map(
+    columns.map((col) => [String(col?.name || "").toLowerCase(), String(col?.type || "").trim()]),
+  );
+  const migrations = [];
   try {
-    const integrity = await inspectSqliteSchemaIntegrity();
-    if (!integrity.ok) return { ok: false, reason: integrity.reason, productCount: 0, publicProductCount: 0 };
+    if (!columnByName.has("availability")) {
+      await run(db, "ALTER TABLE products ADD COLUMN availability TEXT");
+      migrations.push("add_products_availability");
+    }
+    await run(db, "CREATE INDEX IF NOT EXISTS idx_products_availability ON products(availability)");
+    return { ok: true, migrated: migrations.length > 0, migrations };
+  } catch (error) {
+    console.warn("[products-db] legacy schema migration failed; keeping readable sqlite if possible", {
+      message: error?.message || String(error),
+      migrations,
+    });
+    return { ok: false, reason: "migration_failed", migrated: migrations.length > 0, migrations, error };
+  }
+}
+
+async function inspectUsableSqlite() {
+  if (!fs.existsSync(SQLITE_PATH)) {
+    return { ok: false, reason: "sqlite_missing", tables: [], productTable: null, productCount: 0, publicProductCount: 0 };
+  }
+  try {
     const db = await openDb();
+    const tables = await listSqliteTables(db);
+    const productTable = tables.find((name) => String(name).toLowerCase() === "products") || null;
+    if (!productTable) {
+      return { ok: false, reason: "products_table_missing", tables, productTable, productCount: 0, publicProductCount: 0 };
+    }
+    const migration = await migrateExistingSqliteSchema(db);
+    if (!migration.ok) {
+      console.warn("[products-db] legacy sqlite migration unavailable; probing catalog read mode", {
+        reason: migration.reason,
+      });
+    }
     await runIntegrityCheck(db);
     const productRow = await get(db, "SELECT COUNT(*) AS total FROM products");
     const publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
@@ -2623,15 +2674,19 @@ async function inspectUsableSqlite() {
     return {
       ok: productCount > 0,
       reason: productCount > 0 ? "usable" : "sqlite_empty",
+      tables,
+      productTable,
       productCount,
       publicProductCount,
+      migrated: Boolean(migration.migrated),
+      migrations: migration.migrations || [],
     };
   } catch (error) {
     if (isSqliteCorruptionError(error)) {
       markSqliteCorruption(error, { phase: "inspect_usable_sqlite", reason: "sqlite_corrupt" });
-      return { ok: false, reason: "sqlite_corrupt", productCount: 0, publicProductCount: 0, error };
+      return { ok: false, reason: "sqlite_corrupt", tables: [], productTable: null, productCount: 0, publicProductCount: 0, error };
     }
-    return { ok: false, reason: "sqlite_unusable", productCount: 0, publicProductCount: 0, error };
+    return { ok: false, reason: "sqlite_unusable", tables: [], productTable: null, productCount: 0, publicProductCount: 0, error };
   }
 }
 
@@ -2916,6 +2971,8 @@ async function inspectSqliteSchemaIntegrity() {
   }
   try {
     const db = await openDb();
+    const migration = await migrateExistingSqliteSchema(db);
+    if (!migration.ok) return { ok: false, reason: migration.reason || "schema_migration_failed" };
     const columns = await all(db, "PRAGMA table_info(products)");
     const columnByName = new Map(
       columns.map((col) => [String(col?.name || "").toLowerCase(), String(col?.type || "").trim()]),
@@ -3006,19 +3063,24 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
     const usableExisting = reason === "sqlite_corrupt" ? { ok: false } : await inspectUsableSqlite();
     if (usableExisting.ok) {
       markExistingSqliteReady({ ...usableExisting, reason });
+      return {
+        dbPath: SQLITE_PATH,
+        manifest: await getManifestFromDb(),
+        ftsEnabled,
+        source: "sqlite_legacy_usable",
+        ready: true,
+        freshnessReason: reason,
+        productsCount: usableExisting.productCount,
+        productCount: usableExisting.productCount,
+        publicProductCount: usableExisting.publicProductCount,
+        tables: usableExisting.tables || [],
+        productTable: usableExisting.productTable || null,
+        migrated: Boolean(usableExisting.migrated),
+        migrations: usableExisting.migrations || [],
+      };
     }
     if (!allowRebuild) {
-      if (usableExisting.ok) {
-        return {
-          dbPath: SQLITE_PATH,
-          manifest: await getManifestFromDb(),
-          ftsEnabled,
-          source: "sqlite_stale_usable",
-          ready: true,
-          freshnessReason: reason,
-        };
-      }
-      throw createInitializingError(reason);
+      throw createInitializingError(usableExisting.reason || reason);
     }
     if (reason === "sqlite_corrupt") {
       await repairCorruptSqlite({ reason });
@@ -4264,6 +4326,9 @@ async function getCatalogHealth() {
   const paths = buildCatalogPathsInfo();
   const productsJsonExists = fs.existsSync(PRODUCTS_JSON_PATH);
   const sqliteExists = fs.existsSync(SQLITE_PATH);
+  const manifestExists = fs.existsSync(MANIFEST_PATH);
+  let tables = [];
+  let productTable = null;
   let totalRow = { total: 0 };
   let publicRow = { total: 0 };
   let privateExplicitRow = { total: 0 };
@@ -4273,6 +4338,11 @@ async function getCatalogHealth() {
   if (sqliteExists) {
     try {
       const db = await openDb();
+      tables = await listSqliteTables(db);
+      productTable = tables.find((name) => String(name).toLowerCase() === "products") || null;
+      if (!productTable) {
+        throw new Error("products_table_missing");
+      }
       totalRow = await get(db, "SELECT COUNT(*) AS total FROM products");
       publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
       privateExplicitRow = await get(
@@ -4359,10 +4429,10 @@ async function getCatalogHealth() {
   return {
     source: "sqlite",
     ...paths,
-    ready: Boolean((dbReady || productCount > 0) && sqliteExists),
+    ready: Boolean((dbReady || productCount > 0) && sqliteExists && productTable && !catalogState.lastError),
     initializing: Boolean(catalogState.initializing),
     rebuilding: Boolean(catalogState.rebuilding),
-    failed: Boolean(catalogState.failed || catalogState.lastError),
+    failed: Boolean(catalogState.failed || catalogState.lastError || (sqliteExists && !productTable)),
     progress: Number(catalogState.progress || 0),
     total: Number(catalogState.total || manifest?.productCount || 0),
     processed: Number(catalogState.processed || 0),
@@ -4378,11 +4448,18 @@ async function getCatalogHealth() {
     finishedAt: catalogState.finishedAt,
     mappingVersion: CATALOG_MAPPING_VERSION,
     schemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
+    expectedSchemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
     productsJsonExists,
+    manifestExists,
+    dbPath: SQLITE_PATH,
+    dbExists: sqliteExists,
     sqlitePath: SQLITE_PATH,
     sqliteExists,
     productCount,
+    productsCount: productCount,
     publicProductCount,
+    tables,
+    productTable,
     privateExplicitCount: Number(privateExplicitRow?.total || 0),
     hiddenExplicitCount: Number(hiddenExplicitRow?.total || 0),
     missingVisibilityCount: Number(missingVisibilityRow?.total || 0),
