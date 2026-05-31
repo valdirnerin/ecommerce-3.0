@@ -344,6 +344,7 @@ const MAX_JSON_BODY_BYTES = Math.max(16 * 1024, Number(process.env.MAX_JSON_BODY
 const publicProductsCache = new Map();
 const publicSearchCache = new Map();
 const merchantFeedRuntimeCache = new Map();
+const DISK_CACHE_DIR = dataPath("cache");
 let sitemapStockCache = { t: 0, baseUrl: null, xml: null, count: 0 };
 
 function getDetailedAnalyticsTtlMs(range = "7d") {
@@ -1670,11 +1671,22 @@ function buildMetaFeedCsv(products, baseUrl) {
 }
 
 
-function openSqliteReadonly(dbPath) {
-  return new Promise((resolve, reject) => {
-    const dbConn = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (error) => {
+async function openSqliteReadonly(dbPath) {
+  const dbConn = await new Promise((resolve, reject) => {
+    const conn = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (error) => {
       if (error) reject(error);
-      else resolve(dbConn);
+      else resolve(conn);
+    });
+  });
+  await sqliteRun(dbConn, "PRAGMA busy_timeout = 5000");
+  return dbConn;
+}
+
+function sqliteRun(dbConn, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    dbConn.run(sql, params, (error) => {
+      if (error) reject(error);
+      else resolve();
     });
   });
 }
@@ -1705,6 +1717,30 @@ function setCacheEntry(cache, key, value, maxEntries = 120) {
   if (cache.size > maxEntries) {
     const firstKey = cache.keys().next().value;
     if (firstKey) cache.delete(firstKey);
+  }
+}
+
+async function readDiskCacheEntry(namespace, key, ttlMs) {
+  if (!ttlMs) return null;
+  try {
+    const digest = crypto.createHash("sha256").update(String(key || "")).digest("hex");
+    const filePath = path.join(DISK_CACHE_DIR, namespace, `${digest}.cache`);
+    const stat = await fs.promises.stat(filePath);
+    if (Date.now() - stat.mtimeMs > ttlMs) return null;
+    return await fs.promises.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+async function writeDiskCacheEntry(namespace, key, body) {
+  try {
+    const digest = crypto.createHash("sha256").update(String(key || "")).digest("hex");
+    const dir = path.join(DISK_CACHE_DIR, namespace);
+    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.writeFile(path.join(dir, `${digest}.cache`), String(body || ""), "utf8");
+  } catch (error) {
+    console.warn("[disk-cache:write-skip]", { namespace, error: error?.message || String(error) });
   }
 }
 
@@ -7617,7 +7653,19 @@ async function buildSitemapResponse(pathname, req) {
 
 async function sendSitemapResponse(req, res, pathname) {
   try {
+    const sitemapCacheKey = `${getPublicBaseUrl(getConfig()) || FALLBACK_BASE_URL}:${pathname}`;
+    const cachedXml = await readDiskCacheEntry("sitemap", sitemapCacheKey, SITEMAP_STOCK_CACHE_MS);
+    if (cachedXml) {
+      res.writeHead(200, {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+        "X-Cache": "DISK-HIT",
+      });
+      res.end(cachedXml);
+      return;
+    }
     const response = await buildSitemapResponse(pathname, req);
+    if (response.status === 200) await writeDiskCacheEntry("sitemap", sitemapCacheKey, response.body);
     res.writeHead(response.status, {
       "Content-Type": response.contentType,
       "Cache-Control": response.cacheControl || (response.status === 200 ? "public, max-age=3600" : "no-store"),
@@ -8636,7 +8684,7 @@ async function requestHandler(req, res) {
       const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
         page: 1,
         pageSize: 100,
-        maxPageSize: 250,
+        maxPageSize: 100,
       });
       const queryParams = parsedUrl.query || {};
       const startedAt = Date.now();
@@ -14412,13 +14460,14 @@ async function requestHandler(req, res) {
     });
     if (pathname !== "/merchant-feed-debug.json") {
       const cachedFeed = getCacheEntry(merchantFeedRuntimeCache, feedCacheKey, MERCHANT_FEED_CACHE_MS);
-      if (cachedFeed) {
+      const diskCachedFeed = cachedFeed || await readDiskCacheEntry("merchant-feed", feedCacheKey, MERCHANT_FEED_CACHE_MS);
+      if (diskCachedFeed) {
         res.writeHead(200, {
           "Content-Type": "text/tab-separated-values; charset=utf-8",
           "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-          "X-Cache": "HIT",
+          "X-Cache": cachedFeed ? "HIT" : "DISK-HIT",
         });
-        res.end(cachedFeed);
+        res.end(diskCachedFeed);
         return;
       }
     }
@@ -14527,7 +14576,10 @@ async function requestHandler(req, res) {
       return sendJson(res, 200, audit);
     }
     const feedBody = `${rows.join('\n')}\n`;
-    if (pathname !== "/merchant-feed-debug.json") setCacheEntry(merchantFeedRuntimeCache, feedCacheKey, feedBody, 20);
+    if (pathname !== "/merchant-feed-debug.json") {
+      setCacheEntry(merchantFeedRuntimeCache, feedCacheKey, feedBody, 20);
+      await writeDiskCacheEntry("merchant-feed", feedCacheKey, feedBody);
+    }
     res.writeHead(200, {
       'Content-Type': 'text/tab-separated-values; charset=utf-8',
       'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
