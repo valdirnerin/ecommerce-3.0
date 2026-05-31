@@ -23,7 +23,9 @@
     "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js",
     "backup:sqlite": "node scripts/backup-sqlite.js",
     "test:catalog-rebuild-timeout": "node scripts/test-products-rebuild-timeout-fallback.js",
-    "test:catalog-schema-legacy-ready": "node scripts/test-catalog-schema-version-legacy-ready.js"
+    "test:catalog-schema-legacy-ready": "node scripts/test-catalog-schema-version-legacy-ready.js",
+    "test:admin-products-sqlite-performance": "node scripts/test-admin-products-sqlite-performance.js",
+    "debug:admin-products-query-plan": "node scripts/explain-admin-products-query.js"
   },
   "dependencies": {
     "@react-email/components": "^0.5.4",

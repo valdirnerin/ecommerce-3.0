@@ -33,6 +33,8 @@ const PRODUCTS_SQLITE_SCHEMA_VERSION = 7;
 const CATALOG_MAPPING_VERSION = 5;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
+const ENABLE_SQLITE_QUERY_PLAN =
+  String(process.env.CATALOG_SQLITE_EXPLAIN || "").trim().toLowerCase() === "true";
 const DEBUG_PRICE_MAPPING =
   String(process.env.DEBUG_PRICE_MAPPING || "").trim().toLowerCase() === "true";
 const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production";
@@ -78,6 +80,8 @@ let ftsEnabled = false;
 let dbReadyPromise = null;
 let dbReady = false;
 let rebuildPromise = null;
+let sqliteOptimizePromise = null;
+let sqliteMaintenancePromise = null;
 const countCache = new Map();
 const SQLITE_CORRUPT_CODE = "CATALOG_SQLITE_CORRUPT";
 const catalogState = {
@@ -188,6 +192,9 @@ function markSqliteCorruption(error, context = {}) {
 }
 
 async function closeDbInstance() {
+  if (sqliteMaintenancePromise) {
+    await sqliteMaintenancePromise.catch(() => {});
+  }
   if (!dbInstance) return;
   await new Promise((resolve) => dbInstance.close(() => resolve()));
   dbInstance = null;
@@ -1045,6 +1052,16 @@ async function detectFtsAvailability(db) {
   }
 }
 
+async function ensureTableColumns(db, tableName, columnDefinitions = {}) {
+  const columns = await all(db, `PRAGMA table_info(${tableName})`);
+  const existing = new Set(columns.map((column) => String(column.name || "").toLowerCase()));
+  for (const [name, definition] of Object.entries(columnDefinitions)) {
+    if (existing.has(String(name).toLowerCase())) continue;
+    await run(db, `ALTER TABLE ${tableName} ADD COLUMN ${name} ${definition}`);
+    existing.add(String(name).toLowerCase());
+  }
+}
+
 async function createSchema(db) {
   await run(
     db,
@@ -1088,6 +1105,45 @@ async function createSchema(db) {
       raw_json TEXT
     )`,
   );
+  await ensureTableColumns(db, "products", {
+    id: "TEXT",
+    sku: "TEXT",
+    code: "TEXT",
+    slug: "TEXT",
+    public_slug: "TEXT",
+    image: "TEXT",
+    name: "TEXT",
+    title: "TEXT",
+    brand: "TEXT",
+    model: "TEXT",
+    category: "TEXT",
+    part_number: "TEXT",
+    mpn: "TEXT",
+    ean: "TEXT",
+    gtin: "TEXT",
+    supplier_code: "TEXT",
+    status: "TEXT",
+    visibility: "TEXT",
+    availability: "TEXT",
+    stock: "INTEGER",
+    price: "REAL",
+    price_minorista: "REAL",
+    price_mayorista: "REAL",
+    precio_minorista: "REAL",
+    precio_mayorista: "REAL",
+    precio_final: "REAL",
+    precio_sin_impuestos: "REAL",
+    cost: "REAL",
+    currency: "TEXT",
+    is_public: "INTEGER",
+    enabled: "INTEGER",
+    deleted: "INTEGER",
+    archived: "INTEGER",
+    vip_only: "INTEGER",
+    wholesale_only: "INTEGER",
+    search_text: "TEXT",
+    raw_json: "TEXT",
+  });
 
   const indexSql = [
     "CREATE INDEX IF NOT EXISTS idx_products_id ON products(id)",
@@ -1104,6 +1160,11 @@ async function createSchema(db) {
     "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
     "CREATE INDEX IF NOT EXISTS idx_products_model ON products(model)",
     "CREATE INDEX IF NOT EXISTS idx_products_availability ON products(availability)",
+    "CREATE INDEX IF NOT EXISTS idx_products_visibility_nocase ON products(visibility COLLATE NOCASE)",
+    "CREATE INDEX IF NOT EXISTS idx_products_status_nocase ON products(status COLLATE NOCASE)",
+    "CREATE INDEX IF NOT EXISTS idx_products_category_nocase ON products(category COLLATE NOCASE)",
+    "CREATE INDEX IF NOT EXISTS idx_products_brand_nocase ON products(brand COLLATE NOCASE)",
+    "CREATE INDEX IF NOT EXISTS idx_products_model_nocase ON products(model COLLATE NOCASE)",
     "CREATE INDEX IF NOT EXISTS idx_products_is_public ON products(is_public)",
     "CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock)",
     "CREATE INDEX IF NOT EXISTS idx_products_price ON products(price)",
@@ -1153,6 +1214,40 @@ async function createSchema(db) {
       updated_at TEXT
     )`,
   );
+  await ensureTableColumns(db, "product_search_index", {
+    product_id: "TEXT",
+    product_rowid: "INTEGER",
+    public_slug: "TEXT",
+    title: "TEXT",
+    normalized_title: "TEXT",
+    sku: "TEXT",
+    mpn: "TEXT",
+    part_number: "TEXT",
+    brand: "TEXT",
+    device_brand: "TEXT",
+    compatible_brand: "TEXT",
+    official_brand: "TEXT",
+    is_compatible_for_brand: "INTEGER",
+    part_type: "TEXT",
+    model_family: "TEXT",
+    model_base: "TEXT",
+    model_generation: "TEXT",
+    model_variant: "TEXT",
+    network_variant: "TEXT",
+    quality_tier: "TEXT",
+    has_frame: "INTEGER",
+    color: "TEXT",
+    stock: "INTEGER",
+    stock_status: "TEXT",
+    is_stock_real: "INTEGER",
+    price: "REAL",
+    has_image: "INTEGER",
+    is_public: "INTEGER",
+    classification_confidence: "REAL",
+    search_blob: "TEXT",
+    filters_blob: "TEXT",
+    updated_at: "TEXT",
+  });
 
   const searchIndexSql = [
     "CREATE INDEX IF NOT EXISTS idx_search_product_id ON product_search_index(product_id)",
@@ -1172,6 +1267,17 @@ async function createSchema(db) {
     "CREATE INDEX IF NOT EXISTS idx_search_is_stock_real ON product_search_index(is_stock_real)",
     "CREATE INDEX IF NOT EXISTS idx_search_price ON product_search_index(price)",
     "CREATE INDEX IF NOT EXISTS idx_search_is_public ON product_search_index(is_public)",
+    "CREATE INDEX IF NOT EXISTS idx_search_recent ON product_search_index(product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_public_recent ON product_search_index(is_public, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_part_recent ON product_search_index(part_type, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_brand_recent ON product_search_index(device_brand, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_compatible_brand_recent ON product_search_index(compatible_brand, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_model_recent ON product_search_index(model_base, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_stock_recent ON product_search_index(stock_status, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_stock_real_recent ON product_search_index(is_stock_real, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_quality_recent ON product_search_index(quality_tier, product_rowid DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_search_title_nocase ON product_search_index(title COLLATE NOCASE)",
+    "CREATE INDEX IF NOT EXISTS idx_search_normalized_title_nocase ON product_search_index(normalized_title COLLATE NOCASE)",
     "CREATE INDEX IF NOT EXISTS idx_search_public_model_variant ON product_search_index(is_public, model_base, model_variant, network_variant)",
     "CREATE INDEX IF NOT EXISTS idx_search_public_brand_part ON product_search_index(is_public, device_brand, compatible_brand, part_type)",
     "CREATE INDEX IF NOT EXISTS idx_search_public_stock_price ON product_search_index(is_public, stock_status, stock, price)",
@@ -1182,6 +1288,35 @@ async function createSchema(db) {
   }
 
   await detectFtsAvailability(db);
+}
+
+function optimizeSqlitePlannerOnce(db) {
+  if (sqliteOptimizePromise) return sqliteOptimizePromise;
+  sqliteOptimizePromise = (async () => {
+    try {
+      await run(db, "PRAGMA optimize");
+    } catch (error) {
+      console.warn("[products-db] pragma optimize skipped", error?.message || error);
+    }
+  })();
+  return sqliteOptimizePromise;
+}
+
+function ensureSqlitePerformanceMaintenanceInBackground(trigger = "unknown") {
+  if (sqliteMaintenancePromise) return sqliteMaintenancePromise;
+  sqliteMaintenancePromise = (async () => {
+    try {
+      const db = await openDb();
+      await createSchema(db);
+      await optimizeSqlitePlannerOnce(db);
+      console.log(`[products-db] performance maintenance completed trigger=${trigger}`);
+    } catch (error) {
+      console.warn(`[products-db] performance maintenance skipped trigger=${trigger}`, error?.message || error);
+    } finally {
+      sqliteMaintenancePromise = null;
+    }
+  })();
+  return sqliteMaintenancePromise;
 }
 
 function computePublicationState(product = {}) {
@@ -3063,6 +3198,7 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
     const usableExisting = reason === "sqlite_corrupt" ? { ok: false } : await inspectUsableSqlite();
     if (usableExisting.ok) {
       markExistingSqliteReady({ ...usableExisting, reason });
+      ensureSqlitePerformanceMaintenanceInBackground(`legacy-ready-${reason}`);
       return {
         dbPath: SQLITE_PATH,
         manifest: await getManifestFromDb(),
@@ -3093,6 +3229,7 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
 
   const db = await openDb();
   await createSchema(db);
+  await optimizeSqlitePlannerOnce(db);
   dbReady = true;
   catalogState.ready = true;
   catalogState.lastReadyAt = new Date().toISOString();
@@ -3322,6 +3459,60 @@ function buildProductSummary(row = {}) {
   };
 }
 
+function buildAdminProductListSummary(row = {}) {
+  const publicSlug = firstText([row.public_slug, row.slug]) || "";
+  const fallbackId = String(row.id || row.sku || row.code || row.product_id || "producto");
+  const price = toFiniteNumberOrNull(row.price_minorista) ?? toFiniteNumberOrNull(row.price);
+  return {
+    id: firstText([row.id, row.product_id]) || "",
+    sku: firstText([row.sku]) || "",
+    code: firstText([row.code]) || "",
+    name: firstText([row.name, row.title]) || "Producto",
+    title: firstText([row.title, row.name]) || "Producto",
+    brand: row.brand || row.device_brand || "",
+    model: row.model || row.model_base || "",
+    category: row.category || "",
+    part_type: row.part_type || "",
+    visibility: row.visibility || (Number(row.is_public || 0) === 1 ? "public" : ""),
+    status: row.status || "",
+    stock: Math.trunc(toNumber(row.stock, 0)),
+    price,
+    price_minorista: toFiniteNumberOrNull(row.price_minorista) ?? price,
+    price_mayorista: toFiniteNumberOrNull(row.price_mayorista),
+    image: row.image || "",
+    thumbnail: row.image || "",
+    publicSlug,
+    public_slug: publicSlug,
+    slug: firstText([row.slug, publicSlug]) || "",
+    url: `/p/${encodeURIComponent(publicSlug || fallbackId)}`,
+    source: "sqlite_admin_projection",
+    device_brand: row.device_brand || "",
+    model_base: row.model_base || row.model || "",
+    quality_tier: row.quality_tier || "",
+    stock_status: row.stock_status || "",
+    is_stock_real: Boolean(row.is_stock_real),
+    is_public: Number(row.is_public || 0) === 1,
+    classification_confidence: toFiniteNumberOrNull(row.classification_confidence),
+    classification_blockers: [],
+    classification_reasons: [],
+    updatedAt: row.updated_at || "",
+    updated_at: row.updated_at || "",
+  };
+}
+
+async function explainQueryPlan(db, sql, params = []) {
+  try {
+    const rows = await all(db, `EXPLAIN QUERY PLAN ${sql}`, params);
+    return rows.map((row) => ({
+      id: row.id,
+      parent: row.parent,
+      detail: row.detail || Object.values(row).join(" "),
+    }));
+  } catch (error) {
+    return [{ error: error?.message || String(error) }];
+  }
+}
+
 
 
 function shouldUseStreamingFallback(error) {
@@ -3439,6 +3630,22 @@ function adminVisibilityBucketSql() {
   END`;
 }
 
+function adminVisibilityBucketWhere(bucket) {
+  const normalized = normalizeFacetValue(bucket || "");
+  if (normalized === "public") return { sql: "si.is_public = 1", params: [] };
+  if (normalized === "not_public") return { sql: "si.is_public != 1", params: [] };
+  const bucketSql = "si.is_public != 1";
+  const pVisibility = "p.visibility COLLATE NOCASE";
+  const pStatus = "p.status COLLATE NOCASE";
+  if (normalized === "private") return { sql: `${bucketSql} AND (${pVisibility} = 'private' OR ${pStatus} = 'private')`, params: [] };
+  if (normalized === "hidden") return { sql: `${bucketSql} AND (${pVisibility} = 'hidden' OR ${pStatus} = 'hidden')`, params: [] };
+  if (normalized === "draft") return { sql: `${bucketSql} AND (${pVisibility} = 'draft' OR ${pStatus} = 'draft')`, params: [] };
+  if (normalized === "archived") return { sql: `${bucketSql} AND (${pVisibility} = 'archived' OR ${pStatus} = 'archived' OR COALESCE(p.archived, 0) = 1)`, params: [] };
+  if (normalized === "deleted") return { sql: `${bucketSql} AND (${pVisibility} = 'deleted' OR ${pStatus} = 'deleted' OR COALESCE(p.deleted, 0) = 1)`, params: [] };
+  if (normalized === "disabled") return { sql: `${bucketSql} AND (${pVisibility} = 'disabled' OR ${pStatus} = 'disabled' OR COALESCE(p.enabled, 1) = 0)`, params: [] };
+  return null;
+}
+
 function buildSearchIndexWhere({
   search = "",
   isPublicOnly = false,
@@ -3469,22 +3676,18 @@ function buildSearchIndexWhere({
   if (isPublicOnly) where.push("si.is_public = 1");
   const requestedVisibility = normalizeFacetValue(visibility || "");
   if (requestedVisibility) {
-    if (requestedVisibility === "public") where.push("si.is_public = 1");
-    else if (requestedVisibility === "private") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'private'`);
-    else if (requestedVisibility === "hidden") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'hidden'`);
-    else if (requestedVisibility === "draft") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'draft'`);
-    else if (requestedVisibility === "disabled") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'disabled'`);
-    else if (requestedVisibility === "archived") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'archived'`);
-    else if (requestedVisibility === "deleted") where.push(`si.is_public != 1 AND (${adminVisibilityBucketSql()}) = 'deleted'`);
-    else if (requestedVisibility === "not_public") where.push("si.is_public != 1");
-    else if (requestedVisibility !== "all") {
-      where.push("lower(p.visibility) = lower(?)");
+    const visibilityWhere = adminVisibilityBucketWhere(requestedVisibility);
+    if (visibilityWhere) {
+      where.push(visibilityWhere.sql);
+      params.push(...visibilityWhere.params);
+    } else if (requestedVisibility !== "all") {
+      where.push("p.visibility COLLATE NOCASE = ?");
       params.push(requestedVisibility);
     }
   }
   const requestedStatus = normalizeFacetValue(status || "");
   if (requestedStatus) {
-    where.push("lower(p.status) = lower(?)");
+    where.push("p.status COLLATE NOCASE = ?");
     params.push(requestedStatus);
   }
   if (String(missingImage) === "1" || String(missingImage) === "true") where.push("si.has_image = 0");
@@ -3504,18 +3707,18 @@ function buildSearchIndexWhere({
       where.push("si.part_type = ?");
       params.push(requestedCategory);
     } else {
-      where.push("lower(p.category) = lower(?)");
+      where.push("p.category COLLATE NOCASE = ?");
       params.push(category);
     }
   }
   const requestedBrand = normalizeFacetValue(deviceBrand || brand || "");
   if (requestedBrand) {
-    where.push("(lower(si.device_brand) = lower(?) OR lower(si.compatible_brand) = lower(?))");
+    where.push("(si.device_brand = ? OR si.compatible_brand = ?)");
     params.push(requestedBrand, requestedBrand);
   }
   const requestedModel = normalizeFacetValue(modelBase || model || "");
   if (requestedModel) {
-    where.push("lower(si.model_base) = lower(?)");
+    where.push("si.model_base = ?");
     params.push(requestedModel);
   }
   const requestedQuality = normalizeFacetValue(qualityTier || "");
@@ -3719,11 +3922,13 @@ async function buildSearchFacets(db, whereClause, options = {}) {
 }
 
 async function querySearchIndex(params = {}) {
+  const totalStartedAt = Date.now();
   await ensureDbReadyForRequest();
   const db = await openDb();
   const safePage = Math.max(1, Number(params.page) || 1);
   const safePageSize = Math.max(1, Math.min(100, Number(params.pageSize) || 24));
   const includeFacets = params.includeFacets === true || String(params.includeFacets || "") === "1";
+  const includeQueryPlan = ENABLE_SQLITE_QUERY_PLAN || params.debugSearch === true || params.debugQueryPlan === true || String(params.debugQueryPlan || "") === "1";
   const offset = (safePage - 1) * safePageSize;
   const whereClause = buildSearchIndexWhere(params);
   const countStartedAt = Date.now();
@@ -3743,27 +3948,96 @@ async function querySearchIndex(params = {}) {
     params.sort === "name_asc" ? "si.title ASC" :
     params.sort === "stock_real" ? "si.is_stock_real DESC, si.title ASC" :
     "si.is_stock_real DESC, si.classification_confidence DESC, si.title ASC";
-  const candidates = await all(
-    db,
-    `SELECT si.*, p.rowid, p.id, p.code, p.slug, p.image, p.name, p.category, p.status, p.visibility, p.price_minorista, p.price_mayorista, p.precio_minorista, p.precio_mayorista, p.precio_final, p.precio_sin_impuestos, p.cost, p.currency, p.raw_json
+  const selectColumns = [
+    "si.product_id",
+    "si.product_rowid",
+    "si.public_slug",
+    "si.title",
+    "si.normalized_title",
+    "si.sku",
+    "si.mpn",
+    "si.part_number",
+    "si.brand",
+    "si.device_brand",
+    "si.compatible_brand",
+    "si.official_brand",
+    "si.is_compatible_for_brand",
+    "si.part_type",
+    "si.model_family",
+    "si.model_base",
+    "si.model_generation",
+    "si.model_variant",
+    "si.network_variant",
+    "si.quality_tier",
+    "si.has_frame",
+    "si.color",
+    "si.stock",
+    "si.stock_status",
+    "si.is_stock_real",
+    "si.price",
+    "si.has_image",
+    "si.is_public",
+    "si.classification_confidence",
+    "si.updated_at",
+    "p.rowid",
+    "p.id",
+    "p.code",
+    "p.slug",
+    "p.image",
+    "p.name",
+    "p.category",
+    "p.status",
+    "p.visibility",
+    "p.price_minorista",
+    "p.price_mayorista",
+    "p.precio_minorista",
+    "p.precio_mayorista",
+    "p.precio_final",
+    "p.precio_sin_impuestos",
+    "p.cost",
+    "p.currency",
+  ];
+  if (hasSearch || params.debugSearch) selectColumns.push("si.search_blob");
+  if (!params.adminMode) selectColumns.push("si.filters_blob");
+  const selectSql = `SELECT ${selectColumns.join(", ")}
      FROM product_search_index si
      JOIN products p ON p.rowid = si.product_rowid
      ${whereClause.sql}
      ORDER BY ${orderBy}
-     LIMIT ? OFFSET ?`,
-    [...whereClause.params, candidateLimit, candidateOffset],
+     LIMIT ? OFFSET ?`;
+  const selectParams = [...whereClause.params, candidateLimit, candidateOffset];
+  const candidates = await all(
+    db,
+    selectSql,
+    selectParams,
   );
-  let ranked = candidates.map((row, index) => ({ row, index, ...scoreSearchIndexRow(row, whereClause.intent) }));
+  let ranked = hasSearch
+    ? candidates.map((row, index) => ({ row, index, ...scoreSearchIndexRow(row, whereClause.intent) }))
+    : candidates.map((row, index) => ({ row, index, score: 0, reasons: [] }));
   if (hasSearch && (!params.sort || String(params.sort) === "relevance")) {
     ranked.sort((a, b) => b.score - a.score || Number(b.row.is_stock_real || 0) - Number(a.row.is_stock_real || 0) || a.index - b.index);
   }
   const pageEntries = hasSearch ? ranked.slice(offset, offset + safePageSize) : ranked;
   const rows = pageEntries.map((entry) => entry.row);
-  const items = rows.map((row) => buildProductSummary(row));
-  const facets = includeFacets || params.adminMode
+  const selectMs = Date.now() - selectStartedAt;
+  const mapStartedAt = Date.now();
+  const items = rows.map((row) => params.adminMode ? buildAdminProductListSummary(row) : buildProductSummary(row));
+  const mapMs = Date.now() - mapStartedAt;
+  const facetStartedAt = Date.now();
+  const facets = includeFacets
     ? await buildSearchFacets(db, whereClause, { adminMode: Boolean(params.adminMode) })
     : {};
-  const selectMs = Date.now() - selectStartedAt;
+  const facetMs = Date.now() - facetStartedAt;
+  const queryPlan = includeQueryPlan
+    ? {
+        count: await explainQueryPlan(
+          db,
+          `SELECT COUNT(*) AS totalItems FROM product_search_index si JOIN products p ON p.rowid = si.product_rowid ${whereClause.sql}`,
+          whereClause.params,
+        ),
+        select: await explainQueryPlan(db, selectSql, selectParams),
+      }
+    : undefined;
   const searchDebug = params.debugSearch ? {
     engine: params.adminMode ? "product_search_index_admin" : "product_search_index",
     queryOriginal: params.search || "",
@@ -3804,6 +4078,7 @@ async function querySearchIndex(params = {}) {
         is_stock_real: Boolean(entry.row.is_stock_real),
       },
     })),
+    queryPlan,
   } : undefined;
   const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
   return {
@@ -3819,10 +4094,13 @@ async function querySearchIndex(params = {}) {
     search: params.search || undefined,
     facets,
     searchDebug,
+    queryPlan: params.debugSearch ? undefined : queryPlan,
     countMs,
     selectMs,
-    parseItemsMs: 0,
-    totalDurationMs: countMs + selectMs,
+    mapMs,
+    facetMs,
+    parseItemsMs: mapMs,
+    totalDurationMs: Date.now() - totalStartedAt,
   };
 }
 
@@ -3972,7 +4250,8 @@ async function queryProducts(params = {}) {
     rows: result.rows.length,
     countMs: result.countMs,
     selectMs: result.selectMs,
-    parseItemsMs: result.parseItemsMs,
+    mapMs: result.mapMs ?? result.parseItemsMs,
+    facetMs: result.facetMs,
     totalDurationMs: result.totalDurationMs,
   });
   return result;
@@ -4080,7 +4359,8 @@ async function queryAdminProducts(params = {}) {
     rows: result.rows.length,
     countMs: result.countMs,
     selectMs: result.selectMs,
-    parseItemsMs: result.parseItemsMs,
+    mapMs: result.mapMs ?? result.parseItemsMs,
+    facetMs: result.facetMs,
     totalDurationMs: result.totalDurationMs,
   });
   return result;
