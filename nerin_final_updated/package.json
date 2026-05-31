@@ -20,7 +20,8 @@
     "test:admin-bulk-selection-stale": "node scripts/test-admin-bulk-selection-stale.js",
     "audit:screens-final": "node scripts/audit-screens-and-adhesives-final.js",
     "check:production-hardening": "node scripts/check-production-hardening.js",
-    "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js"
+    "check:no-products-full-parse": "node scripts/check-no-products-full-parse.js",
+    "backup:sqlite": "node scripts/backup-sqlite.js"
   },
   "dependencies": {
     "@react-email/components": "^0.5.4",
