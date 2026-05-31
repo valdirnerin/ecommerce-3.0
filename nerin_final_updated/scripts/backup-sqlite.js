@@ -11,7 +11,7 @@ const KEEP = Math.max(1, Number(process.env.SQLITE_BACKUP_KEEP || 7) || 7);
 
 function openDb(dbPath) {
   return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(dbPath, (error) => (error ? reject(error) : resolve(db)));
+    const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, (error) => (error ? reject(error) : resolve(db)));
   });
 }
 
@@ -25,14 +25,15 @@ function close(db) {
   return new Promise((resolve, reject) => db.close((error) => (error ? reject(error) : resolve())));
 }
 
-async function copyIfExists(source, target) {
-  try {
-    await fsp.copyFile(source, target, fs.constants.COPYFILE_EXCL);
-    return true;
-  } catch (error) {
-    if (error && (error.code === 'ENOENT' || error.code === 'EEXIST')) return false;
-    throw error;
-  }
+function backupOnline(db, targetPath) {
+  return new Promise((resolve, reject) => {
+    const backup = db.backup(targetPath, (error) => {
+      backup.finish((finishError) => {
+        if (error || finishError) reject(error || finishError);
+        else resolve();
+      });
+    });
+  });
 }
 
 async function rotateBackups() {
@@ -47,7 +48,7 @@ async function rotateBackups() {
   manifests.sort((a, b) => b.mtimeMs - a.mtimeMs);
   for (const old of manifests.slice(KEEP)) {
     const prefix = old.name.replace(/\.manifest\.json$/, '');
-    for (const suffix of ['.sqlite', '.sqlite-wal', '.sqlite-shm', '.manifest.json']) {
+    for (const suffix of ['.sqlite', '.manifest.json']) {
       await fsp.unlink(path.join(BACKUP_DIR, `${prefix}${suffix}`)).catch(() => {});
     }
   }
@@ -60,29 +61,22 @@ async function main() {
   await fsp.mkdir(BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const prefix = `nerinparts-${stamp}`;
+  const backupPath = path.join(BACKUP_DIR, `${prefix}.sqlite`);
   const db = await openDb(DATABASE_PATH);
   try {
     await run(db, 'PRAGMA busy_timeout = 5000');
-    await run(db, 'PRAGMA wal_checkpoint(FULL)');
+    await backupOnline(db, backupPath);
   } finally {
     await close(db);
   }
 
-  const copied = [];
-  const files = [
-    { source: DATABASE_PATH, target: path.join(BACKUP_DIR, `${prefix}.sqlite`) },
-    { source: `${DATABASE_PATH}-wal`, target: path.join(BACKUP_DIR, `${prefix}.sqlite-wal`) },
-    { source: `${DATABASE_PATH}-shm`, target: path.join(BACKUP_DIR, `${prefix}.sqlite-shm`) },
-  ];
-  for (const file of files) {
-    if (await copyIfExists(file.source, file.target)) copied.push(file.target);
-  }
   const manifest = {
     createdAt: new Date().toISOString(),
     databasePath: DATABASE_PATH,
     backupDir: BACKUP_DIR,
-    files: copied.map((file) => path.basename(file)),
-    restore: 'Stop the Render service, copy the .sqlite file back to DATABASE_PATH and, if present, copy matching -wal/-shm files, then restart.',
+    method: 'sqlite_online_backup_api',
+    files: [path.basename(backupPath)],
+    restore: 'Stop the Render service, copy the .sqlite file back to DATABASE_PATH, then restart.',
   };
   await fsp.writeFile(path.join(BACKUP_DIR, `${prefix}.manifest.json`), JSON.stringify(manifest, null, 2), 'utf8');
   await rotateBackups();

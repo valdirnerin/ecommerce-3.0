@@ -15214,7 +15214,10 @@ if (require.main === module) {
   const server = createServer();
   server.listen(APP_PORT, () => {
     console.log(`Servidor de NERIN corriendo en http://localhost:${APP_PORT}`);
-    console.log(`[products-db] startup background ensure scheduled after listen port=${APP_PORT}`);
-    productsSqliteRepo.ensureProductsDbInBackground("startup-after-listen");
+    const allowStartupRebuild = typeof productsSqliteRepo.shouldAllowAutomaticRebuild === "function"
+      ? productsSqliteRepo.shouldAllowAutomaticRebuild()
+      : process.env.NODE_ENV !== "production";
+    console.log(`[products-db] startup background ensure scheduled after listen port=${APP_PORT} allowRebuild=${allowStartupRebuild}`);
+    productsSqliteRepo.ensureProductsDbInBackground("startup-after-listen", { allowRebuild: allowStartupRebuild });
   });
 }

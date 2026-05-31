@@ -35,6 +35,9 @@ const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
 const DEBUG_PRICE_MAPPING =
   String(process.env.DEBUG_PRICE_MAPPING || "").trim().toLowerCase() === "true";
+const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production";
+const CATALOG_AUTO_REBUILD =
+  String(process.env.CATALOG_AUTO_REBUILD || "").trim().toLowerCase() === "true";
 const TEST_REBUILD_DELAY_MS =
   process.env.NODE_ENV === "test"
     ? Math.max(0, Number(process.env.CATALOG_REBUILD_TEST_DELAY_MS || 0) || 0)
@@ -92,8 +95,12 @@ const catalogState = {
   schemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
 };
 
+function shouldAllowAutomaticRebuild() {
+  return !IS_PRODUCTION_RUNTIME || CATALOG_AUTO_REBUILD;
+}
+
 function catalogStateSnapshot() {
-  return { ...catalogState };
+  return { ...catalogState, automaticRebuildEnabled: shouldAllowAutomaticRebuild() };
 }
 
 function updateCatalogProgress(processed, total = catalogState.total) {
@@ -2936,11 +2943,12 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
   };
 }
 
-async function ensureProductsDbOnce() {
+async function ensureProductsDbOnce(options = {}) {
   if (dbReady) return { dbPath: SQLITE_PATH, source: "sqlite", ready: true };
   if (dbReadyPromise) return dbReadyPromise;
+  const allowRebuild = options.allowRebuild ?? shouldAllowAutomaticRebuild();
   catalogState.initializing = true;
-  dbReadyPromise = ensureProductsDb({ allowRebuild: true });
+  dbReadyPromise = ensureProductsDb({ allowRebuild });
   try {
     return await dbReadyPromise;
   } catch (error) {
@@ -2961,17 +2969,18 @@ async function ensureProductsDbOnce() {
   }
 }
 
-function ensureProductsDbInBackground(trigger = "request") {
+function ensureProductsDbInBackground(trigger = "request", options = {}) {
   if (dbReady || dbReadyPromise) return;
+  const allowRebuild = options.allowRebuild ?? shouldAllowAutomaticRebuild();
   catalogState.initializing = true;
   catalogState.startedAt = catalogState.startedAt || new Date().toISOString();
-  dbReadyPromise = ensureProductsDb({ allowRebuild: true });
+  dbReadyPromise = ensureProductsDb({ allowRebuild });
   dbReadyPromise
     .then(() => {
-      console.log(`[products-db] background ensure completed trigger=${trigger}`);
+      console.log(`[products-db] background ensure completed trigger=${trigger} allowRebuild=${allowRebuild}`);
     })
     .catch((error) => {
-      console.warn(`[products-db] background ensure failed trigger=${trigger} reason=${error?.message || error}`);
+      console.warn(`[products-db] background ensure failed trigger=${trigger} allowRebuild=${allowRebuild} reason=${error?.message || error}`);
     })
     .finally(() => {
       dbReadyPromise = null;
@@ -2996,7 +3005,9 @@ async function ensureDbReadyForRequest() {
     await ensureProductsDb({ allowRebuild: false });
   } catch (error) {
     if (error?.code === "CATALOG_INITIALIZING") {
-      ensureProductsDbInBackground("request-auto-bootstrap");
+      if (shouldAllowAutomaticRebuild()) {
+        ensureProductsDbInBackground("request-auto-bootstrap", { allowRebuild: true });
+      }
       throw error;
     }
     if (isSqliteCorruptionError(error)) {
@@ -4794,6 +4805,7 @@ module.exports = {
   rankRowsBySearchIntent,
   PRODUCTS_SQLITE_SCHEMA_VERSION,
   CATALOG_MAPPING_VERSION,
+  shouldAllowAutomaticRebuild,
   getField,
   isProductPublic,
   mapProductRow,

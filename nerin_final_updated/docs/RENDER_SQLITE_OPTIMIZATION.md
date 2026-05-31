@@ -20,6 +20,7 @@ Mantener NERINParts en Render usando SQLite con Persistent Disk, sin migrar a Po
   - Centraliza SQLite con `DATABASE_PATH`.
   - Mantiene fallback local seguro con `dataPath("products.sqlite")` para desarrollo.
   - Activa WAL, `synchronous=NORMAL`, `busy_timeout=5000` y serialización de operaciones en la conexión compartida.
+  - Evita reconstrucciones automáticas del catálogo en producción salvo que se habilite explícitamente `CATALOG_AUTO_REBUILD=true`.
   - Agrega columna `availability` e índices para SKU, slug, brand, model, category, availability, stock, price y combinaciones críticas.
   - Limita internamente `pageSize` a 100.
   - Registra cierre de conexión ante `SIGINT`/`SIGTERM`.
@@ -28,7 +29,7 @@ Mantener NERINParts en Render usando SQLite con Persistent Disk, sin migrar a Po
   - Agrega cache en disco para sitemap y Merchant feed usando el directorio persistente de datos.
   - Configura `busy_timeout` también para conexiones SQLite readonly auxiliares.
 - `scripts/backup-sqlite.js`
-  - Crea backups seguros con checkpoint WAL.
+  - Crea backups seguros con la Online Backup API de SQLite para no copiar archivos WAL/SHM a mano.
   - Guarda copias rotativas en `/var/data/backups` cuando `DATABASE_PATH=/var/data/nerinparts.sqlite`.
 - `package.json`
   - Agrega `npm run backup:sqlite`.
@@ -55,7 +56,7 @@ npm install
 npm start
 ```
 
-El script `start` ejecuta `node backend/server.js` y no debe correr reconstrucciones pesadas, importaciones ni hotfixes en cada arranque.
+El script `start` ejecuta `node backend/server.js` y no debe correr reconstrucciones pesadas, importaciones ni hotfixes en cada arranque. En producción la verificación de SQLite al iniciar se ejecuta con `allowRebuild=false`; si falta o está desactualizado, `/readyz` queda en `503` hasta que se restaure/reconstruya de forma operativa.
 
 ### Persistent Disk
 
@@ -74,7 +75,7 @@ DATABASE_PATH=/var/data/nerinparts.sqlite
 DATA_DIR=/var/data
 ```
 
-`DATABASE_PATH` es la fuente de verdad para SQLite. Si no existe, la app usa un fallback local solo para desarrollo; en producción no conviene depender de ese fallback porque puede quedar en disco efímero.
+`DATABASE_PATH` es la fuente de verdad para SQLite. Si no existe, la app usa un fallback local solo para desarrollo; en producción no conviene depender de ese fallback porque puede quedar en disco efímero. `DATA_DIR=/var/data` mantiene JSON operativos, uploads, manifiestos, overrides y caches en el Persistent Disk.
 
 ## Health checks recomendados
 
@@ -109,7 +110,7 @@ Por defecto guarda en:
 /var/data/backups
 ```
 
-Conserva 7 manifiestos/backups por defecto. Se puede cambiar con:
+El backup no corre automáticamente en `npm start`; se ejecuta solo manualmente o como Job programado externo. Conserva 7 manifiestos/backups por defecto. Se puede cambiar con:
 
 ```txt
 SQLITE_BACKUP_KEEP=14
@@ -131,15 +132,8 @@ nerinparts-2026-05-31T12-00-00-000Z.sqlite
 cp /var/data/backups/nerinparts-YYYY-MM-DDTHH-MM-SS-000Z.sqlite /var/data/nerinparts.sqlite
 ```
 
-4. Si el backup incluye archivos WAL/SHM asociados, copiarlos también con nombres compatibles:
-
-```bash
-cp /var/data/backups/nerinparts-YYYY-MM-DDTHH-MM-SS-000Z.sqlite-wal /var/data/nerinparts.sqlite-wal
-cp /var/data/backups/nerinparts-YYYY-MM-DDTHH-MM-SS-000Z.sqlite-shm /var/data/nerinparts.sqlite-shm
-```
-
-5. Reiniciar el servicio.
-6. Verificar:
+4. Reiniciar el servicio.
+5. Verificar:
 
 ```bash
 curl https://TU-DOMINIO/readyz
@@ -151,7 +145,7 @@ curl https://TU-DOMINIO/api/products?page=1&pageSize=24
 - `sitemap.xml` sigue funcionando como sitemap index.
 - Productos se dividen en `sitemap-products-N.xml`.
 - `sitemap-stock.xml` mantiene cache de stock real.
-- Las respuestas XML se cachean en disco bajo el directorio persistente de datos para evitar recomputar en caliente después de reinicios.
+- Las respuestas XML se cachean en disco bajo el directorio persistente de datos para evitar recomputar en caliente después de reinicios. Si `DATA_DIR` no apunta a un Persistent Disk, este cache es regenerable y no debe considerarse dato crítico.
 - Merchant feed mantiene campos críticos de Google Merchant Center: `availability`, `availability_date`, `preorder`, landing page y datos derivados usados por JSON-LD.
 - Merchant feed ahora tiene cache en memoria y disco; la cache en disco sobrevive reinicios si `DATA_DIR=/var/data`.
 
@@ -164,6 +158,7 @@ SQLite en Render con Persistent Disk es válido para una tienda chica/mediana co
 - Rebuilds grandes de catálogo pueden consumir CPU/IO; deben hacerse con cuidado y fuera de picos de tráfico.
 - El Persistent Disk debe estar correctamente montado; sin eso, datos críticos pueden perderse en deploys/restarts.
 - Backups son obligatorios. No depender únicamente del archivo principal.
+- No habilitar `CATALOG_AUTO_REBUILD=true` en producción salvo una operación controlada; un rebuild grande puede consumir CPU/IO.
 
 ## Cuándo convendría pasar a PostgreSQL en el futuro
 
