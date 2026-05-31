@@ -35,7 +35,7 @@ function runNodeEval(code) {
   }
 
   const page = await repo.queryProducts({ page: 1, pageSize: 5 });
-  if (!page || page.source !== 'sqlite' || !Array.isArray(page.items)) {
+  if (!page || !String(page.source || '').startsWith('sqlite') || !Array.isArray(page.items)) {
     throw new Error('[test-corrupt] expected sqlite query response');
   }
 

@@ -7830,6 +7830,7 @@ async function requestHandler(req, res) {
         ready: Boolean(health.ready),
         initializing: Boolean(health.initializing),
         rebuilding: Boolean(health.rebuilding),
+        failed: Boolean(health.failed || health.lastError),
         progress: Number(health.progress || 0),
         processed: Number(health.processed || 0),
         total: Number(health.total || health.productCount || 0),
@@ -7839,7 +7840,10 @@ async function requestHandler(req, res) {
         mappingVersion: Number(health.mappingVersion || health.catalogMappingVersion || 0),
         schemaVersion: Number(health.schemaVersion || health.sqliteSchemaVersion || 0),
         productCount: Number(health.productCount || 0),
+        productsCount: Number(health.productCount || 0),
         publicCount: Number(health.publicProductCount || 0),
+        dbPath: health.dbPath || health.sqlitePath || null,
+        dataDir: health.DATA_DIR || null,
         freshnessReason: health.freshnessReason || null,
       }, { "Cache-Control": "no-store" });
     } catch (error) {
@@ -8569,7 +8573,7 @@ async function requestHandler(req, res) {
         ...sqliteData,
         rows: undefined,
         items,
-        source: "sqlite",
+        source: sqliteData.source || "sqlite",
       };
       const durationMs = Date.now() - startedAt;
       console.info("[public-products:respond]", {
