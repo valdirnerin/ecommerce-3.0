@@ -42,6 +42,11 @@ const TEST_REBUILD_DELAY_MS =
   process.env.NODE_ENV === "test"
     ? Math.max(0, Number(process.env.CATALOG_REBUILD_TEST_DELAY_MS || 0) || 0)
     : 0;
+const DEFAULT_REBUILD_TIMEOUT_MS = IS_PRODUCTION_RUNTIME ? 8 * 60 * 1000 : 2 * 60 * 1000;
+const CATALOG_REBUILD_TIMEOUT_MS = Math.max(
+  1000,
+  Number(process.env.CATALOG_REBUILD_TIMEOUT_MS || DEFAULT_REBUILD_TIMEOUT_MS) || DEFAULT_REBUILD_TIMEOUT_MS,
+);
 const SEARCH_INDEX_INSERT_SQL = `INSERT INTO product_search_index (
   product_id, product_rowid, public_slug, title, normalized_title, sku, mpn, part_number, brand,
   device_brand, compatible_brand, official_brand, is_compatible_for_brand, part_type,
@@ -83,6 +88,7 @@ const catalogState = {
   total: 0,
   processed: 0,
   corruptDetected: false,
+  failed: false,
   lastError: null,
   lastErrorAt: null,
   lastReadyAt: null,
@@ -100,7 +106,7 @@ function shouldAllowAutomaticRebuild() {
 }
 
 function catalogStateSnapshot() {
-  return { ...catalogState, automaticRebuildEnabled: shouldAllowAutomaticRebuild() };
+  return { ...catalogState, automaticRebuildEnabled: shouldAllowAutomaticRebuild(), rebuildTimeoutMs: CATALOG_REBUILD_TIMEOUT_MS };
 }
 
 function updateCatalogProgress(processed, total = catalogState.total) {
@@ -159,13 +165,15 @@ function setCatalogError(error, context = {}) {
     stack: error?.stack || null,
   };
   catalogState.lastErrorAt = new Date().toISOString();
-  catalogState.ready = false;
+  catalogState.ready = Boolean(dbReady);
+  catalogState.failed = true;
   catalogState.corruptDetected = Boolean(isCorrupt);
 }
 
 function clearCatalogError() {
   catalogState.lastError = null;
   catalogState.lastErrorAt = null;
+  catalogState.failed = false;
   catalogState.corruptDetected = false;
 }
 
@@ -2578,6 +2586,55 @@ function createCatalogFailedError(reason = "sqlite_failed", originalError = null
   return error;
 }
 
+
+function createRebuildTimeoutError(reason = "rebuild_timeout") {
+  const error = new Error(`Catalog SQLite rebuild timed out after ${CATALOG_REBUILD_TIMEOUT_MS}ms`);
+  error.code = "CATALOG_REBUILD_TIMEOUT";
+  error.reason = reason;
+  error.catalogState = catalogStateSnapshot();
+  return error;
+}
+
+function markExistingSqliteReady(context = {}) {
+  dbReady = true;
+  catalogState.ready = true;
+  catalogState.initializing = false;
+  catalogState.lastReadyAt = catalogState.lastReadyAt || new Date().toISOString();
+  if (context.reason) catalogState.freshnessReason = context.reason;
+  console.warn("[products-db] using existing sqlite while rebuild is pending/failed", {
+    reason: context.reason || null,
+    productCount: context.productCount || null,
+    publicProductCount: context.publicProductCount || null,
+    dbPath: SQLITE_PATH,
+  });
+}
+
+async function inspectUsableSqlite() {
+  if (!fs.existsSync(SQLITE_PATH)) return { ok: false, reason: "sqlite_missing", productCount: 0, publicProductCount: 0 };
+  try {
+    const integrity = await inspectSqliteSchemaIntegrity();
+    if (!integrity.ok) return { ok: false, reason: integrity.reason, productCount: 0, publicProductCount: 0 };
+    const db = await openDb();
+    await runIntegrityCheck(db);
+    const productRow = await get(db, "SELECT COUNT(*) AS total FROM products");
+    const publicRow = await get(db, "SELECT COUNT(*) AS total FROM products WHERE is_public = 1");
+    const productCount = Number(productRow?.total || 0);
+    const publicProductCount = Number(publicRow?.total || 0);
+    return {
+      ok: productCount > 0,
+      reason: productCount > 0 ? "usable" : "sqlite_empty",
+      productCount,
+      publicProductCount,
+    };
+  } catch (error) {
+    if (isSqliteCorruptionError(error)) {
+      markSqliteCorruption(error, { phase: "inspect_usable_sqlite", reason: "sqlite_corrupt" });
+      return { ok: false, reason: "sqlite_corrupt", productCount: 0, publicProductCount: 0, error };
+    }
+    return { ok: false, reason: "sqlite_unusable", productCount: 0, publicProductCount: 0, error };
+  }
+}
+
 async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {}) {
   if (rebuildPromise) {
     console.log("[products-db] rebuild already in progress; waiting");
@@ -2587,11 +2644,32 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
     const startedAt = Date.now();
     const activeReason = reason || (force ? "forced" : "unknown");
     catalogState.rebuilding = true;
-    catalogState.initializing = true;
-    catalogState.ready = false;
+    catalogState.initializing = !dbReady;
+    catalogState.ready = Boolean(dbReady);
+    catalogState.failed = false;
     catalogState.startedAt = new Date(startedAt).toISOString();
     catalogState.finishedAt = null;
     catalogState.lastRebuildStartedAt = new Date(startedAt).toISOString();
+    let rebuildTimedOut = false;
+    const timeout = setTimeout(() => {
+      rebuildTimedOut = true;
+      const timeoutError = createRebuildTimeoutError(activeReason);
+      console.error("[products-db] rebuild timeout", {
+        reason: activeReason,
+        timeoutMs: CATALOG_REBUILD_TIMEOUT_MS,
+        dbPath: SQLITE_PATH,
+        dataDir: path.dirname(SQLITE_PATH),
+      });
+      setCatalogError(timeoutError, { phase: "rebuild", reason: activeReason, code: timeoutError.code });
+      catalogState.rebuilding = false;
+      catalogState.initializing = false;
+      catalogState.lastRebuildFinishedAt = new Date().toISOString();
+      catalogState.lastRebuildDurationMs = Date.now() - startedAt;
+      catalogState.finishedAt = catalogState.lastRebuildFinishedAt;
+    }, CATALOG_REBUILD_TIMEOUT_MS);
+    const throwIfTimedOut = () => {
+      if (rebuildTimedOut) throw createRebuildTimeoutError(activeReason);
+    };
     const productsStats = await fsp.stat(PRODUCTS_JSON_PATH);
     const previousManifest = await readManifest();
     updateCatalogProgress(0, Number(previousManifest?.productCount || 0));
@@ -2675,6 +2753,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
       await productsStreamRepo.streamProducts({
         filePath: PRODUCTS_JSON_PATH,
         onProduct: async (product) => {
+          throwIfTimedOut();
           const identifier = String(product?.id || product?.sku || product?.code || "").trim();
           const override = identifier ? overrides[identifier] : null;
           const mergedProduct = override ? { ...product, ...override } : product;
@@ -2698,7 +2777,9 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
         },
       });
 
+      throwIfTimedOut();
       await flush();
+      throwIfTimedOut();
 
       if (ftsEnabled) {
         await run(tmpDb, "DELETE FROM products_fts");
@@ -2709,6 +2790,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
         );
       }
       const searchIndexCount = await rebuildProductSearchIndex(tmpDb);
+      throwIfTimedOut();
 
       await new Promise((resolve, reject) => {
         tmpDb.close((error) => {
@@ -2762,9 +2844,11 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
       catalogState.lastRebuildDurationMs = durationMs;
       catalogState.finishedAt = catalogState.lastRebuildFinishedAt;
       updateCatalogProgress(count, count);
+      clearTimeout(timeout);
       clearCatalogError();
       return manifest;
     } catch (error) {
+      clearTimeout(timeout);
       console.error(`[products-db] rebuild failed reason=${activeReason}`, error);
       if (isSqliteCorruptionError(error)) {
         markSqliteCorruption(error, { phase: "rebuild", reason: activeReason });
@@ -2919,7 +3003,23 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
 
   if (reason) {
     console.log(`[products-db] rebuild required reason=${reason}`);
-    if (!allowRebuild) throw createInitializingError(reason);
+    const usableExisting = reason === "sqlite_corrupt" ? { ok: false } : await inspectUsableSqlite();
+    if (usableExisting.ok) {
+      markExistingSqliteReady({ ...usableExisting, reason });
+    }
+    if (!allowRebuild) {
+      if (usableExisting.ok) {
+        return {
+          dbPath: SQLITE_PATH,
+          manifest: await getManifestFromDb(),
+          ftsEnabled,
+          source: "sqlite_stale_usable",
+          ready: true,
+          freshnessReason: reason,
+        };
+      }
+      throw createInitializingError(reason);
+    }
     if (reason === "sqlite_corrupt") {
       await repairCorruptSqlite({ reason });
     } else {
@@ -3160,6 +3260,106 @@ function buildProductSummary(row = {}) {
   };
 }
 
+
+
+function shouldUseStreamingFallback(error) {
+  const code = String(error?.code || "");
+  return code === "CATALOG_INITIALIZING" || code === "CATALOG_SQLITE_FAILED" || code === "CATALOG_REBUILD_TIMEOUT";
+}
+
+function productMatchesFallbackFilters(product = {}, params = {}, { publicOnly = true } = {}) {
+  if (publicOnly && !computePublicationState(product).is_public) return false;
+  const normalizedSearch = normalizeQueryText(params.search || params.q || "");
+  if (normalizedSearch) {
+    const haystack = normalizeQueryText([
+      product.id,
+      product.sku,
+      product.code,
+      product.name,
+      product.title,
+      product.brand,
+      product.model,
+      product.category,
+      product.part_number,
+      product.mpn,
+      product.description,
+    ].filter(Boolean).join(" "));
+    if (!haystack.includes(normalizedSearch)) return false;
+  }
+  const exactFilters = ["category", "brand", "model", "visibility", "status"];
+  for (const key of exactFilters) {
+    const expected = normalizeQueryText(params[key] || "");
+    if (!expected) continue;
+    if (normalizeQueryText(product[key] || "") !== expected) return false;
+  }
+  const stock = normalizeQueryText(params.stock || params.stockStatus || "");
+  const stockValue = toNumber(product.stock ?? product.quantity ?? product.availableStock, 0);
+  if ((stock === "in-stock" || stock === "in") && stockValue <= 0) return false;
+  if ((stock === "out" || stock === "out-of-stock") && stockValue > 0) return false;
+  if (params.priceMax !== null && params.priceMax !== undefined && params.priceMax !== "") {
+    const price = toFiniteNumberOrNull(product.price_minorista ?? product.price ?? product.precio_minorista ?? product.precio_final);
+    if (price !== null && Number.isFinite(Number(params.priceMax)) && price > Number(params.priceMax)) return false;
+  }
+  return true;
+}
+
+async function queryProductsStreamingFallback(params = {}, { adminMode = false } = {}) {
+  const safePage = Math.max(1, Number(params.page) || 1);
+  const safePageSize = Math.max(1, Math.min(100, Number(params.pageSize) || 24));
+  const slugCounts = new Map();
+  let fallbackRow = 0;
+  const result = await productsStreamRepo.getProductsEmergencyPage({
+    page: safePage,
+    pageSize: safePageSize,
+    filePath: PRODUCTS_JSON_PATH,
+    matchItem: (product) => productMatchesFallbackFilters(product, params, { publicOnly: !adminMode }),
+    mapItem: (product) => {
+      fallbackRow += 1;
+      const mapped = mapProductRow(product, { rowNumber: fallbackRow, slugCounts });
+      return buildProductSummary({
+        ...mapped,
+        rowid: fallbackRow,
+        part_type: "",
+        device_brand: mapped.brand || "",
+        compatible_brand: "",
+        official_brand: mapped.brand || "",
+        is_compatible_for_brand: 0,
+        model_family: "",
+        model_base: mapped.model || "",
+        model_variant: "",
+        network_variant: "",
+        quality_tier: "",
+        has_frame: null,
+        color: "",
+        stock_status: Number(mapped.stock || 0) > 0 ? "in_stock" : "out_of_stock",
+        is_stock_real: 0,
+        classification_confidence: null,
+        filters_blob: "{}",
+      });
+    },
+  });
+  const totalItems = Number(result.matchedCount || result.items.length || 0);
+  return {
+    rows: [],
+    items: result.items,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalItems,
+    totalPages: result.hasNextPage ? result.page + 1 : Math.max(1, Math.ceil(totalItems / result.pageSize)),
+    hasNextPage: Boolean(result.hasNextPage),
+    hasPrevPage: Boolean(result.hasPrevPage),
+    source: adminMode ? "streaming_fallback_admin" : "streaming_fallback",
+    search: params.search || undefined,
+    facets: {},
+    searchDebug: undefined,
+    countMs: 0,
+    selectMs: 0,
+    parseItemsMs: 0,
+    totalDurationMs: 0,
+    fallback: true,
+    catalogState: catalogStateSnapshot(),
+  };
+}
 function normalizeFacetValue(value = "") {
   return normalizeCatalogText(value);
 }
@@ -3690,6 +3890,13 @@ async function queryProducts(params = {}) {
       markSqliteCorruption(error, { phase: "query_products", reason: "sqlite_corrupt" });
       await repairCorruptSqlite({ reason: "query_products_corrupt" });
       result = await querySearchIndex({ ...params, isPublicOnly: true });
+    } else if (shouldUseStreamingFallback(error)) {
+      console.warn("[products-sqlite:fallback] public catalog using streaming fallback", {
+        code: error?.code || null,
+        reason: error?.reason || null,
+        message: error?.message || String(error),
+      });
+      result = await queryProductsStreamingFallback(params, { adminMode: false });
     } else {
       throw error;
     }
@@ -3791,6 +3998,13 @@ async function queryAdminProducts(params = {}) {
       markSqliteCorruption(error, { phase: "query_admin_products", reason: "sqlite_corrupt" });
       await repairCorruptSqlite({ reason: "query_admin_products_corrupt" });
       result = await querySearchIndex({ ...params, isPublicOnly: false, adminMode: true });
+    } else if (shouldUseStreamingFallback(error)) {
+      console.warn("[products-sqlite:fallback] admin catalog using streaming fallback", {
+        code: error?.code || null,
+        reason: error?.reason || null,
+        message: error?.message || String(error),
+      });
+      result = await queryProductsStreamingFallback(params, { adminMode: true });
     } else {
       throw error;
     }
@@ -4145,9 +4359,10 @@ async function getCatalogHealth() {
   return {
     source: "sqlite",
     ...paths,
-    ready: Boolean(dbReady && sqliteExists && !catalogState.lastError),
+    ready: Boolean((dbReady || productCount > 0) && sqliteExists),
     initializing: Boolean(catalogState.initializing),
     rebuilding: Boolean(catalogState.rebuilding),
+    failed: Boolean(catalogState.failed || catalogState.lastError),
     progress: Number(catalogState.progress || 0),
     total: Number(catalogState.total || manifest?.productCount || 0),
     processed: Number(catalogState.processed || 0),
