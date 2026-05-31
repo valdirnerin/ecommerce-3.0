@@ -17,16 +17,27 @@ const {
 } = require("../utils/screenProductClassifier");
 
 const PRODUCTS_JSON_PATH = dataPath("products.json");
-const SQLITE_PATH = dataPath("products.sqlite");
+function resolveSqlitePath() {
+  const configured = String(process.env.DATABASE_PATH || "").trim();
+  if (configured) {
+    return path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured);
+  }
+  return dataPath("products.sqlite");
+}
+
+const SQLITE_PATH = resolveSqlitePath();
 const MANIFEST_PATH = dataPath("products.manifest.json");
 const OVERRIDES_PATH = dataPath("products.overrides.json");
 const COUNT_CACHE_TTL_MS = 60_000;
-const PRODUCTS_SQLITE_SCHEMA_VERSION = 6;
+const PRODUCTS_SQLITE_SCHEMA_VERSION = 7;
 const CATALOG_MAPPING_VERSION = 5;
 const BULK_PUBLISH_CHUNK_SIZE = 1000;
 const SEARCH_RANK_CANDIDATE_LIMIT = 1200;
 const DEBUG_PRICE_MAPPING =
   String(process.env.DEBUG_PRICE_MAPPING || "").trim().toLowerCase() === "true";
+const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production";
+const CATALOG_AUTO_REBUILD =
+  String(process.env.CATALOG_AUTO_REBUILD || "").trim().toLowerCase() === "true";
 const TEST_REBUILD_DELAY_MS =
   process.env.NODE_ENV === "test"
     ? Math.max(0, Number(process.env.CATALOG_REBUILD_TEST_DELAY_MS || 0) || 0)
@@ -84,8 +95,12 @@ const catalogState = {
   schemaVersion: PRODUCTS_SQLITE_SCHEMA_VERSION,
 };
 
+function shouldAllowAutomaticRebuild() {
+  return !IS_PRODUCTION_RUNTIME || CATALOG_AUTO_REBUILD;
+}
+
 function catalogStateSnapshot() {
-  return { ...catalogState };
+  return { ...catalogState, automaticRebuildEnabled: shouldAllowAutomaticRebuild() };
 }
 
 function updateCatalogProgress(processed, total = catalogState.total) {
@@ -988,7 +1003,10 @@ async function openDb() {
     dbInstance = await new Promise((resolve, reject) => {
       const db = new sqlite3.Database(SQLITE_PATH, (error) => {
         if (error) reject(error);
-        else resolve(db);
+        else {
+          db.serialize();
+          resolve(db);
+        }
       });
     });
     await run(dbInstance, "PRAGMA journal_mode = WAL");
@@ -1041,6 +1059,7 @@ async function createSchema(db) {
       supplier_code TEXT,
       status TEXT,
       visibility TEXT,
+      availability TEXT,
       stock INTEGER,
       price REAL,
       price_minorista REAL,
@@ -1075,9 +1094,13 @@ async function createSchema(db) {
     "CREATE INDEX IF NOT EXISTS idx_products_supplier_code ON products(supplier_code)",
     "CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand)",
     "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
+    "CREATE INDEX IF NOT EXISTS idx_products_model ON products(model)",
+    "CREATE INDEX IF NOT EXISTS idx_products_availability ON products(availability)",
     "CREATE INDEX IF NOT EXISTS idx_products_is_public ON products(is_public)",
     "CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock)",
     "CREATE INDEX IF NOT EXISTS idx_products_price ON products(price)",
+    "CREATE INDEX IF NOT EXISTS idx_products_public_category_brand ON products(is_public, category, brand)",
+    "CREATE INDEX IF NOT EXISTS idx_products_public_stock_price ON products(is_public, stock, price)",
     "CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)",
   ];
 
@@ -1141,6 +1164,9 @@ async function createSchema(db) {
     "CREATE INDEX IF NOT EXISTS idx_search_is_stock_real ON product_search_index(is_stock_real)",
     "CREATE INDEX IF NOT EXISTS idx_search_price ON product_search_index(price)",
     "CREATE INDEX IF NOT EXISTS idx_search_is_public ON product_search_index(is_public)",
+    "CREATE INDEX IF NOT EXISTS idx_search_public_model_variant ON product_search_index(is_public, model_base, model_variant, network_variant)",
+    "CREATE INDEX IF NOT EXISTS idx_search_public_brand_part ON product_search_index(is_public, device_brand, compatible_brand, part_type)",
+    "CREATE INDEX IF NOT EXISTS idx_search_public_stock_price ON product_search_index(is_public, stock_status, stock, price)",
   ];
 
   for (const sql of searchIndexSql) {
@@ -1811,6 +1837,7 @@ function mapProductRow(product = {}, options = {}) {
     supplier_code: toNullableText(getField(product, ["supplierCode", "supplier_code", "Supplier Part Number"])),
     status: normalizeQueryText(toNullableText(getField(product, ["status", "estado"]))),
     visibility: normalizeQueryText(toNullableText(getField(product, ["visibility", "visibilidad"]))),
+    availability: normalizeQueryText(toNullableText(getField(product, ["availability", "disponibilidad", "estado_stock", "stock_status"]))),
     stock,
     price: priceFields.price,
     price_minorista: priceFields.price_minorista,
@@ -2206,7 +2233,7 @@ async function updateProductByIdentifier(identifier, patch = {}) {
     db,
     `UPDATE products SET
       id = ?, sku = ?, code = ?, slug = ?, public_slug = ?, image = ?, name = ?, title = ?, brand = ?, model = ?, category = ?,
-      part_number = ?, mpn = ?, ean = ?, gtin = ?, supplier_code = ?, status = ?, visibility = ?,
+      part_number = ?, mpn = ?, ean = ?, gtin = ?, supplier_code = ?, status = ?, visibility = ?, availability = ?,
       stock = ?, price = ?, price_minorista = ?, price_mayorista = ?, precio_minorista = ?, precio_mayorista = ?, precio_final = ?, precio_sin_impuestos = ?, cost = ?, currency = ?, is_public = ?, enabled = ?, deleted = ?, archived = ?, vip_only = ?, wholesale_only = ?, search_text = ?, raw_json = ?
       WHERE rowid = ?`,
     [
@@ -2228,6 +2255,7 @@ async function updateProductByIdentifier(identifier, patch = {}) {
       mapped.supplier_code,
       mapped.status,
       mapped.visibility,
+      mapped.availability,
       mapped.stock,
       mapped.price,
       mapped.price_minorista,
@@ -2524,6 +2552,7 @@ function buildCatalogPathsInfo() {
   return {
     DATA_DIR: path.dirname(SQLITE_PATH),
     dbPath: SQLITE_PATH,
+    databasePathEnv: (process.env.DATABASE_PATH || "").trim() || null,
     productsFilePath: PRODUCTS_JSON_PATH,
     renderDiskMountPath,
     dbExists: fs.existsSync(SQLITE_PATH),
@@ -2583,10 +2612,10 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
       await createSchema(tmpDb);
       const insertSql = `INSERT INTO products (
         id, sku, code, slug, public_slug, image, name, title, brand, model, category,
-        part_number, mpn, ean, gtin, supplier_code, status, visibility,
+        part_number, mpn, ean, gtin, supplier_code, status, visibility, availability,
         stock, price, price_minorista, price_mayorista, precio_minorista, precio_mayorista, precio_final, precio_sin_impuestos, cost, currency, is_public, enabled, deleted, archived, vip_only, wholesale_only,
         search_text, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       let count = 0;
       let publicCount = 0;
@@ -2618,6 +2647,7 @@ async function rebuildProductsDbFromJson({ force = true, reason = "manual" } = {
               item.supplier_code,
               item.status,
               item.visibility,
+              item.availability,
               item.stock,
               item.price,
               item.price_minorista,
@@ -2809,6 +2839,9 @@ async function inspectSqliteSchemaIntegrity() {
     if (!columnByName.has("public_slug")) {
       return { ok: false, reason: "public_slug_missing" };
     }
+    if (!columnByName.has("availability")) {
+      return { ok: false, reason: "availability_column_missing" };
+    }
     const priceColumns = [
       "price",
       "price_minorista",
@@ -2910,11 +2943,12 @@ async function ensureProductsDb({ allowRebuild = true } = {}) {
   };
 }
 
-async function ensureProductsDbOnce() {
+async function ensureProductsDbOnce(options = {}) {
   if (dbReady) return { dbPath: SQLITE_PATH, source: "sqlite", ready: true };
   if (dbReadyPromise) return dbReadyPromise;
+  const allowRebuild = options.allowRebuild ?? shouldAllowAutomaticRebuild();
   catalogState.initializing = true;
-  dbReadyPromise = ensureProductsDb({ allowRebuild: true });
+  dbReadyPromise = ensureProductsDb({ allowRebuild });
   try {
     return await dbReadyPromise;
   } catch (error) {
@@ -2935,17 +2969,18 @@ async function ensureProductsDbOnce() {
   }
 }
 
-function ensureProductsDbInBackground(trigger = "request") {
+function ensureProductsDbInBackground(trigger = "request", options = {}) {
   if (dbReady || dbReadyPromise) return;
+  const allowRebuild = options.allowRebuild ?? shouldAllowAutomaticRebuild();
   catalogState.initializing = true;
   catalogState.startedAt = catalogState.startedAt || new Date().toISOString();
-  dbReadyPromise = ensureProductsDb({ allowRebuild: true });
+  dbReadyPromise = ensureProductsDb({ allowRebuild });
   dbReadyPromise
     .then(() => {
-      console.log(`[products-db] background ensure completed trigger=${trigger}`);
+      console.log(`[products-db] background ensure completed trigger=${trigger} allowRebuild=${allowRebuild}`);
     })
     .catch((error) => {
-      console.warn(`[products-db] background ensure failed trigger=${trigger} reason=${error?.message || error}`);
+      console.warn(`[products-db] background ensure failed trigger=${trigger} allowRebuild=${allowRebuild} reason=${error?.message || error}`);
     })
     .finally(() => {
       dbReadyPromise = null;
@@ -2970,7 +3005,9 @@ async function ensureDbReadyForRequest() {
     await ensureProductsDb({ allowRebuild: false });
   } catch (error) {
     if (error?.code === "CATALOG_INITIALIZING") {
-      ensureProductsDbInBackground("request-auto-bootstrap");
+      if (shouldAllowAutomaticRebuild()) {
+        ensureProductsDbInBackground("request-auto-bootstrap", { allowRebuild: true });
+      }
       throw error;
     }
     if (isSqliteCorruptionError(error)) {
@@ -3423,7 +3460,7 @@ async function querySearchIndex(params = {}) {
   await ensureDbReadyForRequest();
   const db = await openDb();
   const safePage = Math.max(1, Number(params.page) || 1);
-  const safePageSize = Math.max(1, Number(params.pageSize) || 24);
+  const safePageSize = Math.max(1, Math.min(100, Number(params.pageSize) || 24));
   const includeFacets = params.includeFacets === true || String(params.includeFacets || "") === "1";
   const offset = (safePage - 1) * safePageSize;
   const whereClause = buildSearchIndexWhere(params);
@@ -3545,7 +3582,7 @@ async function queryBase({
   await ensureDbReadyForRequest();
   const db = await openDb();
   const safePage = Math.max(1, Number(page) || 1);
-  const safePageSize = Math.max(1, Number(pageSize) || 24);
+  const safePageSize = Math.max(1, Math.min(100, Number(pageSize) || 24));
   const offset = (safePage - 1) * safePageSize;
   const normalizedSearch = normalizeQueryText(search);
   const whereClause = buildWhereClause({
@@ -3949,6 +3986,12 @@ async function adjustStockForInventory(identifier, delta, { reason = "inventory"
       [after, JSON.stringify(raw), resolved.row.rowid],
     );
     await run(db, "COMMIT");
+    try {
+      await reindexProduct(resolved.row.rowid, { db });
+      countCache.clear();
+    } catch (reindexError) {
+      console.warn("[products-inventory] reindex after stock adjustment failed", reindexError?.message || reindexError);
+    }
     return {
       source: "sqlite",
       foundBy: resolved.foundBy,
@@ -4687,6 +4730,22 @@ async function getCatalogPriceAudit({ limit = 20 } = {}) {
   };
 }
 
+function closeProductsDbOnShutdown(signal) {
+  closeDbInstance()
+    .then(() => {
+      if (signal) console.log(`[products-db] sqlite connection closed on ${signal}`);
+    })
+    .catch((error) => {
+      console.warn("[products-db] sqlite close failed", error?.message || error);
+    });
+}
+
+if (require.main !== module && !global.__NERIN_PRODUCTS_SQLITE_SHUTDOWN_HOOKS__) {
+  global.__NERIN_PRODUCTS_SQLITE_SHUTDOWN_HOOKS__ = true;
+  process.once("SIGINT", () => closeProductsDbOnShutdown("SIGINT"));
+  process.once("SIGTERM", () => closeProductsDbOnShutdown("SIGTERM"));
+}
+
 function isRebuildInProgress() {
   return Boolean(rebuildPromise);
 }
@@ -4746,6 +4805,7 @@ module.exports = {
   rankRowsBySearchIntent,
   PRODUCTS_SQLITE_SCHEMA_VERSION,
   CATALOG_MAPPING_VERSION,
+  shouldAllowAutomaticRebuild,
   getField,
   isProductPublic,
   mapProductRow,
