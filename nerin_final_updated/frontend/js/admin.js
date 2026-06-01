@@ -1823,7 +1823,7 @@ let productFilters = {
   sort: "recent",
 };
 let productsPage = 1;
-let productsPageSize = Number(adminProductsPageSize?.value || 100);
+let productsPageSize = Number(adminProductsPageSize?.value || 50);
 let productsHasNextPage = false;
 let productsHasPrevPage = false;
 let productsTotalItems = null;
@@ -2400,7 +2400,7 @@ productClearFilters?.addEventListener("click", () => {
   if (productStructuredSearch) productStructuredSearch.value = "1";
   if (productSortSelect) productSortSelect.value = "recent";
   productsPage = 1;
-  void loadProducts().catch((error) => console.error("[admin-products] clear filters failed", error));
+  void loadProducts({ refreshFacets: true }).catch((error) => console.error("[admin-products] clear filters failed", error));
 });
 if (productFilterVisibility) {
   productFilterVisibility.addEventListener("change", () => {
@@ -2420,7 +2420,7 @@ if (productSortSelect) {
 if (adminProductsPageSize) {
   adminProductsPageSize.addEventListener("change", () => {
     clearProductSelection("page_size_changed");
-    productsPageSize = Number(adminProductsPageSize.value || 100);
+    productsPageSize = Math.min(100, Number(adminProductsPageSize.value || 50));
     productsPage = 1;
     void loadProducts().catch((error) => {
       console.error("[admin-products] page size load failed", error);
@@ -3649,6 +3649,10 @@ async function loadProducts(options = {}) {
   if (!productsTableBody) return;
   clearProductSelection("loadProducts");
   const { highlightId } = options;
+  const shouldRefreshFacets =
+    options.refreshFacets === true ||
+    !adminProductsFacets ||
+    Object.keys(adminProductsFacets).length === 0;
   const requestSeq = ++adminProductsRequestSeq;
   if (adminProductsAbortController) {
     adminProductsAbortController.abort();
@@ -3689,6 +3693,7 @@ async function loadProducts(options = {}) {
       sort: productFilters.sort || "recent",
     });
     if (productFilters.issue) query.set(productFilters.issue, "1");
+    if (shouldRefreshFacets) query.set("includeFacets", "1");
     const res = await apiFetch(`/api/admin/products?${query.toString()}`, {
       headers: getAdminHeaders(),
       signal: adminProductsAbortController.signal,
@@ -3722,7 +3727,7 @@ async function loadProducts(options = {}) {
       }
     }
     productsPage = Number(data.page || productsPage);
-    productsPageSize = Number(data.pageSize || productsPageSize);
+    productsPageSize = Math.min(100, Number(data.pageSize || productsPageSize));
     productsHasNextPage = data.hasNextPage === true;
     productsHasPrevPage = data.hasPrevPage === true || productsPage > 1;
     productsTotalItems =
@@ -3739,7 +3744,9 @@ async function loadProducts(options = {}) {
       Number.isFinite(Number(data.totalPages))
         ? Number(data.totalPages)
         : null;
-    applyAdminFacets(data.facets || {});
+    if (data.facets && Object.keys(data.facets).length > 0) {
+      applyAdminFacets(data.facets);
+    }
     syncProductTaxonomies(productsCache);
     renderProductsTable();
     updateProductsPaginationControls();
@@ -3772,28 +3779,30 @@ async function loadProducts(options = {}) {
     if (err?.name === "AbortError") return;
     console.error(err);
     let details = "";
-    try {
-      const debugQuery = new URLSearchParams({
-        page: String(productsPage),
-        pageSize: String(productsPageSize),
-        search: productFilters.query || "",
-        category: productFilters.category || "",
-        visibility: productFilters.visibility || "",
-        stockStatus: productFilters.stock || "",
-        sort: productFilters.sort || "recent",
-      });
-      const debugRes = await apiFetch(`/api/admin/products?${debugQuery.toString()}`, {
-        headers: getAdminHeaders(),
-        signal: adminProductsAbortController?.signal,
-      });
-      const debugBody = await debugRes.text();
-      details = ` (status ${debugRes.status}${debugBody ? `, body: ${debugBody.slice(0, 300)}` : ""})`;
-      console.error("admin-products-debug", {
-        status: debugRes.status,
-        body: debugBody.slice(0, 1000),
-      });
-    } catch (debugErr) {
-      console.error("admin-products-debug-failed", debugErr);
+    if (window.__NERIN_ADMIN_DEBUG__ === true) {
+      try {
+        const debugQuery = new URLSearchParams({
+          page: String(productsPage),
+          pageSize: String(productsPageSize),
+          search: productFilters.query || "",
+          category: productFilters.category || "",
+          visibility: productFilters.visibility || "",
+          stockStatus: productFilters.stock || "",
+          sort: productFilters.sort || "recent",
+        });
+        const debugRes = await apiFetch(`/api/admin/products?${debugQuery.toString()}`, {
+          headers: getAdminHeaders(),
+          signal: adminProductsAbortController?.signal,
+        });
+        const debugBody = await debugRes.text();
+        details = ` (status ${debugRes.status}${debugBody ? `, body: ${debugBody.slice(0, 300)}` : ""})`;
+        console.error("admin-products-debug", {
+          status: debugRes.status,
+          body: debugBody.slice(0, 1000),
+        });
+      } catch (debugErr) {
+        console.error("admin-products-debug-failed", debugErr);
+      }
     }
     productsLoadErrorMessage = `Error cargando productos: ${err.message || "No se pudieron cargar los productos."}${details}`;
     productsTableBody.innerHTML =

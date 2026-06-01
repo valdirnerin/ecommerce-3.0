@@ -8692,7 +8692,7 @@ async function requestHandler(req, res) {
     try {
       const { page, pageSize } = parsePaginationParams(parsedUrl.query, {
         page: 1,
-        pageSize: 100,
+        pageSize: 50,
         maxPageSize: 100,
       });
       const queryParams = parsedUrl.query || {};
@@ -8739,6 +8739,8 @@ async function requestHandler(req, res) {
         missingBrand: queryParams.missing_brand || queryParams.missingBrand || "",
         missingPartType: queryParams.missing_part_type || queryParams.missingPartType || "",
         debugSearch: queryParams.debug === "1" || queryParams.debugSearch === "1",
+        debugQueryPlan: queryParams.queryPlan === "1" || queryParams.debugQueryPlan === "1",
+        includeFacets: queryParams.includeFacets === "1" || queryParams.facets === "1",
         sort: queryParams.sort || "",
       });
       const responsePayload = {
