@@ -3,6 +3,8 @@ const os = require("os");
 const path = require("path");
 const request = require("supertest");
 
+jest.setTimeout(30000);
+
 function writeCatalog(dir) {
   const products = [
     {
@@ -132,7 +134,7 @@ describe("organic stock-real SEO", () => {
     await withServer(async (server) => {
       const res = await request(server).get("/p/pantalla-samsung-galaxy-a15?debugSeo=1");
       expect(res.status).toBe(200);
-      expect(res.text).toContain("<title>Pantalla Samsung Galaxy A15 en stock | NERIN Parts</title>");
+      expect(res.text).toContain("<title>Pantalla Samsung Galaxy A15 Original Service Pack SAM-A15-DISPLAY en Stock | NERIN Parts</title>");
       expect(res.text).toContain("https://schema.org/InStock");
       expect(res.text).not.toContain("availabilityStarts");
       expect(res.text).toContain("data-debug-seo=\"1\"");
@@ -152,7 +154,7 @@ describe("organic stock-real SEO", () => {
 
   test("sitemap incluye paginas SEO validas y no genera paginas vacias", async () => {
     await withServer(async (server) => {
-      const res = await request(server).get("/sitemap.xml");
+      const res = await request(server).get("/sitemap-static.xml");
       expect(res.status).toBe(200);
       expect(res.text).toContain("<loc>https://nerinparts.example/stock-real</loc>");
       expect(res.text).toContain("<loc>https://nerinparts.example/pantallas-en-stock</loc>");

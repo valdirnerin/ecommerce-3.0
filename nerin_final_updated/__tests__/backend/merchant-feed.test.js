@@ -54,14 +54,62 @@ describe('merchant feed audit', () => {
     expect(audit.samplesEligible[0].availability_date).toBeNull();
   });
 
-  test('stock 0 vendible a pedido => preorder + availability_date', () => {
+  test('stock local > 0 entra al feed como in_stock', () => {
+    const { entries } = buildMerchantFeedEntries([baseRow({ id: 'local', sku: 'LOCAL', stock: 4, availability: 'in_stock' })]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ id: 'LOCAL', availability: 'in_stock', availability_date: '' });
+  });
+
+  test('stock 0 + remote_stock > 0 no entra', () => {
+    const audit = buildMerchantFeedAudit([baseRow({ id: 'remote', stock: 0, remote_stock: 8, raw_json: JSON.stringify({ remote_stock: 8 }) })]);
+    expect(audit.emittedCount).toBe(0);
+    expect(audit.skipped.remoteOrPreorderExcluded).toBe(1);
+  });
+
+  test('preorder backorder y out_of_stock no entran', () => {
+    const rows = [
+      baseRow({ id: 'preorder', stock: 0, availability: 'preorder' }),
+      baseRow({ id: 'backorder', stock: 0, availability: 'backorder' }),
+      baseRow({ id: 'out', stock: 0, availability: 'out_of_stock' }),
+    ];
+    const { entries, audit } = buildMerchantFeedEntries(rows);
+    expect(entries).toHaveLength(0);
+    expect(audit.skipped.remoteOrPreorderExcluded).toBe(2);
+    expect(audit.skipped.outOfStockExcluded).toBe(1);
+  });
+
+  test('producto publico sin imagen precio o slug no entra', () => {
+    const rows = [
+      baseRow({ id: 'no-image', image: null }),
+      baseRow({ id: 'no-price', price: null }),
+      baseRow({ id: 'no-slug', slug: '', public_slug: '' }),
+    ];
+    const audit = buildMerchantFeedAudit(rows);
+    expect(audit.emittedCount).toBe(0);
+    expect(audit.skipped.missingImage).toBe(1);
+    expect(audit.skipped.missingPrice).toBe(1);
+    expect(audit.skipped.missingLink).toBe(1);
+  });
+
+  test('auditoria marca error si cualquier entry no es in_stock', () => {
+    const entries = [
+      { id: 'ok', availability: 'in_stock' },
+      { id: 'bad-pre', availability: 'preorder' },
+      { id: 'bad-back', availability: 'backorder' },
+      { id: 'bad-out', availability: 'out_of_stock' },
+    ];
+    const invalid = entries.filter((entry) => entry.availability !== 'in_stock');
+    expect(invalid.map((entry) => entry.availability)).toEqual(['preorder', 'backorder', 'out_of_stock']);
+  });
+
+  test('stock 0 vendible a pedido no entra al feed Merchant', () => {
     const audit = buildMerchantFeedAudit([baseRow({ stock: 0 })]);
-    expect(audit.samplesEligible[0].availability).toBe('preorder');
-    expect(audit.samplesEligible[0].availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+    expect(audit.emittedCount).toBe(0);
+    expect(audit.skipped.outOfStockExcluded).toBe(1);
   });
 
   test('preorder comparte fecha entre feed, texto visible y JSON-LD', () => {
-    const availability = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2026-06-16' }), { now: new Date('2026-05-19T12:00:00Z') });
+    const availability = resolveProductAvailability(baseRow({ stock: 0, availability: 'preorder', availability_date: '2026-06-16' }), { now: new Date('2026-05-19T12:00:00Z') });
     expect(availability.merchantAvailability).toBe('preorder');
     expect(availability.availabilityDateFeed).toBe('2026-06-16T00:00-0300');
     expect(availability.availabilityStarts).toBe('2026-06-16T00:00:00-03:00');
@@ -70,8 +118,8 @@ describe('merchant feed audit', () => {
   });
 
   test('availability_date vencido o mayor a un anio se normaliza a ventana valida', () => {
-    const older = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2026-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
-    const tooFar = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2028-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
+    const older = resolveProductAvailability(baseRow({ stock: 0, availability: 'preorder', availability_date: '2026-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
+    const tooFar = resolveProductAvailability(baseRow({ stock: 0, availability: 'preorder', availability_date: '2028-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
     expect(older.availabilityDateFeed).toBe('2026-05-20T00:00-0300');
     expect(tooFar.availabilityDateFeed).toBe('2027-05-19T00:00-0300');
   });
@@ -90,8 +138,8 @@ describe('merchant feed audit', () => {
       baseRow({ id: 'pre-ext', stock: 0, image: 'https://images.2service.nl/v7/Images/Part/1/img.jpg' }),
     ]);
     expect(audit.skipped.missingAvailability).toBe(0);
-    expect(audit.emittedCount).toBe(1);
-    expect(audit.samplesEligible[0].availability).toBe('preorder');
+    expect(audit.emittedCount).toBe(0);
+    expect(audit.skipped.outOfStockExcluded).toBe(1);
   });
 
 
@@ -133,7 +181,7 @@ describe('merchant feed audit', () => {
     const audit = buildMerchantFeedAudit(rows);
     expect(audit.ok).toBeUndefined();
     expect(audit.eligibleCount).toBeGreaterThan(0);
-    expect(audit.emittedCount).toBeGreaterThan(0);
+    expect(audit.emittedCount).toBe(1);
   });
 
   test('buildMerchantFeedAudit tolera raw_json null, vacío e inválido', () => {
@@ -197,10 +245,8 @@ describe('merchant feed audit', () => {
     const audit = buildMerchantFeedAudit([
       baseRow({ id: 'ok-ext', image: 'https://images.2service.nl/v7/Images/Part/1/img.jpg', stock: 0, raw_json: JSON.stringify({ allow_backorder: true }) }),
     ]);
-    expect(audit.emittedCount).toBe(1);
-    expect(audit.samplesEligible[0].id).toBe('ok-ext');
-    expect(audit.samplesEligible[0].image_link).toBe('https://images.2service.nl/v7/Images/Part/1/img.jpg');
-    expect(['in_stock', 'preorder', 'backorder']).toContain(audit.samplesEligible[0].availability);
+    expect(audit.emittedCount).toBe(0);
+    expect(audit.samplesSkipped[0].reason).toBe('outOfStockExcluded');
   });
 });
 
@@ -231,16 +277,14 @@ describe('merchant feed tsv payload', () => {
     expect(entries[0].description).not.toContain('oaicite');
   });
 
-  test('preorder e in_stock availability_date correcto y headers esperados', () => {
+  test('solo in_stock entra al feed y headers esperados', () => {
     const rows = [baseRow({ id: 'stk', stock: 3 }), baseRow({ id: 'pre', stock: 0 }), baseRow({ id: 'back', stock: 0, raw_json: JSON.stringify({ availability: 'backorder' }) })];
     const { entries } = buildMerchantFeedEntries(rows);
     const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
     expect(byId.stk.availability).toBe('in_stock');
     expect(byId.stk.availability_date).toBe('');
-    expect(byId.pre.availability).toBe('preorder');
-    expect(byId.pre.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
-    expect(byId.back.availability).toBe('backorder');
-    expect(byId.back.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+    expect(byId.pre).toBeUndefined();
+    expect(byId.back).toBeUndefined();
     expect(Object.keys(entries[0])).toEqual(['id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type']);
   });
 

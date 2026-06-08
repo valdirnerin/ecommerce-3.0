@@ -6,7 +6,7 @@ const {
 } = require('./productAvailability');
 
 const GOOGLE_CATEGORY = 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles';
-const VALID_AVAILABILITY = new Set(['in_stock', 'preorder', 'backorder', 'out_of_stock']);
+const VALID_AVAILABILITY = new Set(['in_stock']);
 
 function safeMerchantText(value, max = 150) {
   const mojibakeFixes = [
@@ -66,6 +66,33 @@ function mergeProductData(row = {}, raw = {}) {
   return merged;
 }
 
+function getLocalStockValue(row = {}, raw = {}) {
+  const merged = mergeProductData(row, raw);
+  const stock = Number(merged.stock ?? merged.available_stock ?? merged.inventory ?? merged.stock_total ?? 0);
+  return Number.isFinite(stock) ? stock : 0;
+}
+
+function hasRemoteOrPreorderSignal(row = {}, raw = {}) {
+  const merged = mergeProductData(row, raw);
+  const textSignals = [
+    merged.name,
+    merged.title,
+    merged.description,
+    merged.category,
+    merged.subcategory,
+    merged.availability,
+    merged.disponibilidad,
+    merged.estado_stock,
+    merged.stock_mode,
+    merged.fulfillment_mode,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return (
+    /preorder|backorder|a[_\s-]?pedido|bajo\s+pedido|pedido|remote|remoto|stock\s+remoto|consultar\s+disponibilidad/.test(textSignals) ||
+    Number(merged.remote_stock || merged.stock_remote || merged.available_remote || 0) > 0 ||
+    Number(merged.remote_lead_days || merged.remote_lead_min_days || merged.remote_lead_max_days || 0) > 0
+  );
+}
+
 function computeAvailability(row, raw, preorderDays = 30) {
   const merged = mergeProductData(row, raw);
   const explicitAvailability = String(merged.availability || merged.disponibilidad || merged.estado_stock || '').toLowerCase();
@@ -82,6 +109,20 @@ function computeAvailability(row, raw, preorderDays = 30) {
     availabilityDate: resolved.availabilityDateFeed || '',
     visibleAvailabilityText: resolved.visibleAvailabilityText || '',
     availabilityStarts: resolved.availabilityStarts || '',
+  };
+}
+
+function resolvePhysicalStockEligibility(row = {}, raw = {}, preorderDays = 30) {
+  const availability = computeAvailability(row, raw, preorderDays);
+  const localStock = getLocalStockValue(row, raw);
+  const remoteOrPreorder = hasRemoteOrPreorderSignal(row, raw) || ['preorder', 'backorder'].includes(availability.availability);
+  const outOfStock = availability.availability === 'out_of_stock' || localStock <= 0;
+  return {
+    eligible: availability.availability === 'in_stock' && localStock > 0 && !remoteOrPreorder,
+    availability,
+    localStock,
+    remoteOrPreorder,
+    outOfStock,
   };
 }
 
@@ -128,6 +169,7 @@ function getSkipTemplate() {
     notPublic: 0, privateOrHidden: 0, disabled: 0, deleted: 0, archived: 0, draft: 0, vipOnly: 0, wholesaleOnly: 0,
     missingId: 0, missingTitle: 0, missingDescription: 0, missingLink: 0, missingImage: 0, invalidImageUrl: 0,
     missingPrice: 0, invalidPrice: 0, missingAvailability: 0, invalidAvailability: 0, preorderWithoutAvailabilityDate: 0, backorderWithoutAvailabilityDate: 0, invalidAvailabilityDate: 0, taxonomyBlocked: 0, soft404Risk: 0,
+    notInPhysicalStock: 0, remoteOrPreorderExcluded: 0, outOfStockExcluded: 0,
   };
 }
 
@@ -198,9 +240,10 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
     }
     const priceNum = getPublicPriceValue(mergeProductData(row, raw));
     if (!Number.isFinite(priceNum) || priceNum <= 0) continue;
-    const av = computeAvailability(row, raw, preorderDays);
+    const physical = resolvePhysicalStockEligibility(row, raw, preorderDays);
+    const av = physical.availability;
+    if (!physical.eligible) continue;
     if (!VALID_AVAILABILITY.has(av.availability)) continue;
-    if ((av.availability === 'preorder' || av.availability === 'backorder') && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}T00:00-0300$/)) continue;
     const productTypeDetected = detectMerchantProductType(row, raw, title);
     const product_type = safeMerchantText(mapProductTypeToFeed(productTypeDetected));
     if (!product_type) continue;
@@ -212,7 +255,7 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
     entries.push({
       id: identifier, title, description, link, image_link,
       additional_image_link: additional.join(','), availability: av.availability,
-      availability_date: (av.availability === 'preorder' || av.availability === 'backorder') ? av.availabilityDate : '',
+      availability_date: '',
       price: `${priceNum.toFixed(2)} ARS`, condition: 'new', brand, mpn, identifier_exists,
       google_product_category: GOOGLE_CATEGORY, product_type,
     });
@@ -294,7 +337,8 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     if (!priceNum) { skipped.missingPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'missingPrice' }); continue; }
     if (!Number.isFinite(priceNum) || priceNum <= 0) { skipped.invalidPrice += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidPrice' }); continue; }
 
-    const av = computeAvailability(row, raw, preorderDays);
+    const physical = resolvePhysicalStockEligibility(row, raw, preorderDays);
+    const av = physical.availability;
     if (!av.availability) { skipped.missingAvailability += 1; pushSample(samplesSkipped, {
       id: identifier,
       title,
@@ -312,13 +356,19 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
       },
       reason: 'missingAvailability',
     }); continue; }
-    if (!VALID_AVAILABILITY.has(av.availability)) { skipped.invalidAvailability += 1; pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailability' }); continue; }
-
-    if (av.availability === 'preorder' && !av.availabilityDate) { skipped.preorderWithoutAvailabilityDate += 1; pushSample(samplesSkipped, { id: identifier, reason: 'preorderWithoutAvailabilityDate' }); continue; }
-    if (av.availability === 'backorder' && !av.availabilityDate) { skipped.backorderWithoutAvailabilityDate += 1; pushSample(samplesSkipped, { id: identifier, reason: 'backorderWithoutAvailabilityDate' }); continue; }
-    if ((av.availability === 'preorder' || av.availability === 'backorder') && !/^\d{4}-\d{2}-\d{2}T00:00-0300$/.test(String(av.availabilityDate || ''))) {
-      skipped.invalidAvailabilityDate += 1;
-      pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailabilityDate', availability: av.availability, availability_date: av.availabilityDate || null });
+    if (physical.remoteOrPreorder) {
+      skipped.remoteOrPreorderExcluded += 1;
+      pushSample(samplesSkipped, { id: identifier, title, reason: 'remoteOrPreorderExcluded', availability: av.availability, localStock: physical.localStock });
+      continue;
+    }
+    if (physical.outOfStock) {
+      skipped.outOfStockExcluded += 1;
+      pushSample(samplesSkipped, { id: identifier, title, reason: 'outOfStockExcluded', availability: av.availability, localStock: physical.localStock });
+      continue;
+    }
+    if (!physical.eligible || !VALID_AVAILABILITY.has(av.availability)) {
+      skipped.notInPhysicalStock += 1;
+      pushSample(samplesSkipped, { id: identifier, title, reason: 'notInPhysicalStock', availability: av.availability, localStock: physical.localStock });
       continue;
     }
 
@@ -337,7 +387,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     const safeProductType = safeMerchantText(productType);
     productTypeBreakdown[safeProductType] = (productTypeBreakdown[safeProductType] || 0) + 1;
     availabilityBreakdown[av.availability] = (availabilityBreakdown[av.availability] || 0) + 1;
-    pushSample(samplesEligible, { id: identifier, title: safeMerchantText(title), productType: safeProductType, availability: av.availability, availability_date: av.availabilityDate || null, price: `${priceNum.toFixed(2)} ARS`, link, image_link: imageLink, stock: Number(row.stock ?? raw.stock ?? 0) });
+    pushSample(samplesEligible, { id: identifier, title: safeMerchantText(title), productType: safeProductType, availability: av.availability, availability_date: null, price: `${priceNum.toFixed(2)} ARS`, link, image_link: imageLink, stock: physical.localStock });
   }
 
   return {
@@ -361,4 +411,4 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   };
 }
 
-module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, formatMerchantAvailabilityDate, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl };
+module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, formatMerchantAvailabilityDate, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl, getLocalStockValue, hasRemoteOrPreorderSignal, resolvePhysicalStockEligibility };

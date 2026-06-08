@@ -53,6 +53,7 @@ function detectProductType(product = {}) {
   if (has(text, /\b(screen\s+protection|screen\s+protector|tempered\s+glass|vidrio\s+templado|protector(?:\s+de\s+pantalla)?)\b/i)) return "Protector de pantalla";
   if (has(text, /\b(pressing\s+jig|repair\s+tool|tool|herramienta|jig|molde|fixture)\b/i)) return "Herramienta / accesorio técnico";
   if (has(text, /\b(display|screen|pantalla)\s+(adhesive|tape|sticker|seal|sealant|gasket|bonding|glue|oca)\b/i)) return "Adhesivo para pantalla";
+  if (has(text, /\b(gh82[-\w]*|service\s*pack)\b/i) && has(text, /\b(display|screen|pantalla|lcd|oled|amoled|modulo|m[oÃ³]dulo|samsung\s+galaxy)\b/i)) return "Pantalla / display";
   if (has(text, /\b(back|rear|battery)\s+(cover\s+)?(adhesive|tape|sticker|seal|gasket)\b/i)) return "Adhesivo para tapa trasera";
   if (has(text, /\b(resin|adhesive|adhesive\s+tape|glue|tape|sticker|seal|sealant|gasket|bonding|oca|epoxy|pegamento|adhesivo)\b/i)) return "Adhesivo / pegamento";
   if (has(text, /\b(charging\s+board|charge\s+port|dock\s+connector|pin\s+de\s+carga|puerto\s+de\s+carga|placa\s+de\s+carga)\b/i)) return "Placa / pin de carga";

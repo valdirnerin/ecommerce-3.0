@@ -3946,8 +3946,8 @@ async function querySearchIndex(params = {}) {
     params.sort === "price_desc" ? "si.price DESC, si.title ASC" :
     params.sort === "name_desc" ? "si.title DESC" :
     params.sort === "name_asc" ? "si.title ASC" :
-    params.sort === "stock_real" ? "si.is_stock_real DESC, si.title ASC" :
-    "si.is_stock_real DESC, si.classification_confidence DESC, si.title ASC";
+    params.sort === "stock_real" ? "si.is_stock_real DESC, si.stock DESC, CASE WHEN si.part_type = 'screen' THEN 0 ELSE 1 END ASC, si.title ASC" :
+    "si.is_stock_real DESC, si.stock DESC, CASE WHEN si.part_type = 'screen' THEN 0 ELSE 1 END ASC, CASE WHEN si.stock_status = 'preorder' THEN 1 WHEN si.stock_status = 'out_of_stock' THEN 2 ELSE 0 END ASC, si.classification_confidence DESC, si.title ASC";
   const selectColumns = [
     "si.product_id",
     "si.product_rowid",

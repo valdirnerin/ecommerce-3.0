@@ -6,6 +6,7 @@ const {
   buildMerchantFeedEntries,
   isEligibleState,
   normalizeMerchantImageUrl,
+  resolvePhysicalStockEligibility,
 } = require("../backend/utils/merchantFeed");
 const {
   resolveProductAvailability,
@@ -112,10 +113,12 @@ async function main() {
     const summary = {
       totalProducts: rows.length,
       publicProducts: 0,
-      preorderProducts: 0,
-      preorderMissingAvailabilityDate: 0,
-      preorderMissingVisibleDate: 0,
-      preorderMissingJsonLdAvailabilityStarts: 0,
+      physicalStockProducts: 0,
+      feedProducts: feed.entries.length,
+      remoteOrPreorderExcluded: 0,
+      outOfStockExcluded: 0,
+      notInPhysicalStockExcluded: 0,
+      invalidFeedAvailabilityProducts: 0,
       productsWithAvailabilityDateOlderThanToday: 0,
       productsWithAvailabilityDateMoreThanOneYearAhead: 0,
       productsWithPriceMismatch: 0,
@@ -124,6 +127,11 @@ async function main() {
       criticalErrorCount: 0,
       sampleErrors: [],
     };
+    const invalidFeedEntries = feed.entries.filter((entry) => entry.availability !== "in_stock");
+    summary.invalidFeedAvailabilityProducts = invalidFeedEntries.length;
+    invalidFeedEntries.slice(0, 20).forEach((entry) => {
+      pushSample(summary.sampleErrors, { id: entry.id, title: entry.title, reason: "feedAvailabilityNotInStock", availability: entry.availability });
+    });
 
     for (const row of rows) {
       const raw = extractRaw(row);
@@ -144,20 +152,22 @@ async function main() {
       }
       if (!isEligibleState(row, raw)) continue;
       const availability = resolveProductAvailability(product);
+      const physical = resolvePhysicalStockEligibility(row, raw, PREORDER_DAYS);
+      if (physical.eligible) summary.physicalStockProducts += 1;
+      else if (physical.remoteOrPreorder) summary.remoteOrPreorderExcluded += 1;
+      else if (physical.outOfStock) summary.outOfStockExcluded += 1;
+      else summary.notInPhysicalStockExcluded += 1;
       const feedEntry = entriesById.get(String(id));
+      if (["preorder", "backorder", "out_of_stock"].includes(feedEntry?.availability)) {
+        summary.invalidFeedAvailabilityProducts += 1;
+        pushSample(summary.sampleErrors, { id, title, reason: "forbiddenFeedAvailability", availability: feedEntry.availability });
+      }
       if (["preorder", "backorder"].includes(availability.merchantAvailability)) {
-        summary.preorderProducts += 1;
         const feedDate = feedEntry?.availability_date || "";
-        if (!feedDate) {
-          summary.preorderMissingAvailabilityDate += 1;
-          pushSample(summary.sampleErrors, { id, title, reason: "preorderMissingAvailabilityDate" });
-        }
         if (!availability.availabilityDateDisplay || !availability.visibleAvailabilityText.includes(availability.availabilityDateDisplay)) {
-          summary.preorderMissingVisibleDate += 1;
           pushSample(summary.sampleErrors, { id, title, reason: "preorderMissingVisibleDate" });
         }
         if (!availability.availabilityStarts) {
-          summary.preorderMissingJsonLdAvailabilityStarts += 1;
           pushSample(summary.sampleErrors, { id, title, reason: "preorderMissingJsonLdAvailabilityStarts" });
         }
         if (isDateOlderThanToday(feedDate)) {
@@ -179,14 +189,13 @@ async function main() {
     }
 
     summary.criticalErrorCount =
-      summary.preorderMissingAvailabilityDate +
-      summary.preorderMissingVisibleDate +
-      summary.preorderMissingJsonLdAvailabilityStarts +
+      summary.invalidFeedAvailabilityProducts +
       summary.productsWithAvailabilityDateOlderThanToday +
       summary.productsWithAvailabilityDateMoreThanOneYearAhead +
       summary.productsWithPriceMismatch +
       summary.productsWithMissingLandingUrl;
 
+    console.log("[audit-google-merchant-feed] Produccion: Merchant solo stock fisico real");
     console.log(JSON.stringify(summary, null, 2));
     if (summary.criticalErrorCount > 0) process.exitCode = 1;
   } finally {
