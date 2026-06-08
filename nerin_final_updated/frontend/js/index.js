@@ -507,6 +507,33 @@ function getStockStatus(product) {
   return "in";
 }
 
+function isRemoteOrPreorderProduct(product = {}) {
+  const text = [
+    product.availability,
+    product.stock_status,
+    product.stock_mode,
+    product.fulfillment_mode,
+    product.name,
+    product.description,
+    product.category,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /preorder|backorder|a[_\s-]?pedido|bajo\s+pedido|pedido|remote|remoto|stock\s+remoto/.test(text) ||
+    Number(product.remote_stock || product.stock_remote || product.available_remote || 0) > 0 ||
+    Number(product.remote_lead_days || product.remote_lead_min_days || product.remote_lead_max_days || 0) > 0;
+}
+
+function isPhysicalStockProduct(product = {}) {
+  return Number(product.stock || 0) > 0 && !isRemoteOrPreorderProduct(product);
+}
+
+function isPriorityScreenProduct(product = {}) {
+  const text = [product.name, product.title, product.category, product.sku, product.part_number, product.mpn]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /pantalla|display|modulo|m[oó]dulo|service\s*pack|gh82|samsung/.test(text);
+}
+
 function createAvailabilityBadge(label, status) {
   const badge = document.createElement("span");
   badge.className = "availability-badge";
@@ -687,7 +714,7 @@ function createFeaturedCard(product) {
     availability.appendChild(createAvailabilityBadge("Poco stock", "low"));
   } else if (status === "in" && typeof product.stock === "number") {
     availability.appendChild(
-      createAvailabilityBadge(`Stock: ${product.stock} u.`, "in"),
+      createAvailabilityBadge(`Stock real en CABA (${product.stock} u.)`, "in"),
     );
   }
   if (product.vip_only) {
@@ -712,7 +739,7 @@ function createFeaturedCard(product) {
   const more = document.createElement("a");
   more.href = buildProductUrl(product);
   more.className = "button secondary";
-  more.textContent = "Ver detalle";
+  more.textContent = "Ver producto";
   actions.appendChild(more);
   card.appendChild(actions);
 
@@ -754,11 +781,25 @@ function resolveFeaturedProducts(products, ids) {
       selected.push(product);
     });
     if (selected.length) {
-      return selected.slice(0, 6);
+      const stockSelected = selected
+        .filter(isPhysicalStockProduct)
+        .sort((a, b) =>
+          Number(isPriorityScreenProduct(b)) - Number(isPriorityScreenProduct(a)) ||
+          Number(b.stock || 0) - Number(a.stock || 0),
+        )
+        .slice(0, 6);
+      if (stockSelected.length) return stockSelected;
     }
   }
 
-  return uniqueProducts.slice(0, 4);
+  return uniqueProducts
+    .filter(isPhysicalStockProduct)
+    .sort((a, b) =>
+      Number(isPriorityScreenProduct(b)) - Number(isPriorityScreenProduct(a)) ||
+      Number(b.stock || 0) - Number(a.stock || 0) ||
+      String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" }),
+    )
+    .slice(0, 6);
 }
 
 let featuredLoadVersion = 0;

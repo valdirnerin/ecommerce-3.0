@@ -247,6 +247,31 @@ function inferServicePack(product = {}) {
   return textFields.some((value) => typeof value === "string" && /service\s*pack/i.test(value)) || true;
 }
 
+function isStockRealProduct(product = {}) {
+  const text = [product.availability, product.stock_status, product.stock_mode, product.fulfillment_mode]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const remote = /preorder|backorder|a[_\s-]?pedido|bajo\s+pedido|pedido|remote|remoto/.test(text) ||
+    Number(product.remote_stock || product.stock_remote || product.available_remote || 0) > 0;
+  return Number(product.stock || 0) > 0 && !remote;
+}
+
+function buildCommercialModel(product = {}, label = "") {
+  return normalizeText(
+    product.model ||
+      product.modelo ||
+      product.model_base ||
+      label.match(/\b(?:Samsung\s+)?Galaxy\s+[A-Z]?\d{2,3}(?:\s*5G)?\b/i)?.[0] ||
+      label.match(/\bSM-[A-Z0-9]+(?:\/[A-Z0-9]+)?\b/i)?.[0] ||
+      "",
+  );
+}
+
+function buildPartCode(product = {}, label = "") {
+  return normalizeText(label.match(/\bGH82[-A-Z0-9]+\b/i)?.[0] || product.sku || product.mpn || product.part_number || "");
+}
+
 // Generador centralizado de metadatos SEO para un producto.
 // Mantiene el nombre comercial real y evita copy inventado.
 export function generateProductSeo(product = {}) {
@@ -255,6 +280,34 @@ export function generateProductSeo(product = {}) {
   );
   const brand = normalizeText(product?.brand || product?.catalog_brand);
   const sku = normalizeText(product?.sku);
+
+  if (isStockRealProduct(product)) {
+    const model = buildCommercialModel(product, label);
+    const partCode = buildPartCode(product, label || sku);
+    const isScreen = /pantalla|display|modulo|m[oó]dulo|gh82|service\s*pack/i.test([label, product.category].join(" "));
+    const brandCopy = /samsung/i.test(brand || label) ? "Samsung" : brand;
+    const titleSubject = [
+      isScreen ? "Pantalla" : label,
+      brandCopy && isScreen ? brandCopy : "",
+      model,
+      "Original Service Pack",
+      partCode,
+      "en Stock",
+    ].filter(Boolean).join(" ");
+    const descriptionSubject = [
+      isScreen ? "pantalla original" : label,
+      brandCopy,
+      model,
+      partCode,
+      "Service Pack",
+    ].filter(Boolean).join(" ");
+    return {
+      title: truncateText(`${titleSubject} | NERIN Parts`, 160),
+      description: truncateText(`Compra ${descriptionSubject} con stock real en CABA, factura A/B, garantia tecnica y envio a todo Argentina.`, 200),
+      ogTitle: titleSubject,
+      ogDescription: "Stock real en CABA, factura A/B, garantia tecnica y envio a Argentina.",
+    };
+  }
 
   const extras = [];
   if (brand) extras.push(`Marca: ${brand}.`);

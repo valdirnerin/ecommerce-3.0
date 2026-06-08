@@ -90,6 +90,9 @@ const {
   getPublicPriceValue,
 } = require("./utils/productAvailability");
 const {
+  resolvePhysicalStockEligibility,
+} = require("./utils/merchantFeed");
+const {
   computeOrganicSeoPriority,
   getPartLabel: getOrganicPartLabel,
   isBrandDoubtful,
@@ -1796,7 +1799,7 @@ async function buildStockSitemapXml(baseUrl) {
     dbConn = await openSqliteReadonly(productsSqliteRepo.SQLITE_PATH);
     const rows = await sqliteAll(
       dbConn,
-      `SELECT si.public_slug, si.title, si.price, si.has_image, si.stock, si.is_stock_real, si.is_public, p.slug, p.raw_json
+      `SELECT si.public_slug, si.title, si.price, si.has_image, si.stock, si.is_stock_real, si.is_public, p.slug, p.raw_json, p.availability, p.stock_mode, p.fulfillment_mode, p.remote_stock, p.stock_remote, p.available_remote, p.remote_lead_days, p.remote_lead_min_days, p.remote_lead_max_days
        FROM product_search_index si
        JOIN products p ON p.rowid = si.product_rowid
        WHERE si.is_public = 1
@@ -1811,6 +1814,8 @@ async function buildStockSitemapXml(baseUrl) {
     const entries = rows
       .map((row) => {
         const raw = parseRawJsonObject(row.raw_json);
+        const physical = resolvePhysicalStockEligibility(row, raw);
+        if (!physical.eligible) return null;
         const slug = String(row.public_slug || raw.publicSlug || raw.public_slug || row.slug || raw.slug || "").trim();
         if (!slug) return null;
         return {
@@ -14420,6 +14425,7 @@ async function requestHandler(req, res) {
       "Disallow: /login",
     ];
     if (siteBase) {
+      lines.push(`Sitemap: ${siteBase}/sitemap-stock.xml`);
       lines.push(`Sitemap: ${siteBase}/sitemap.xml`);
     }
     res.writeHead(200, {
@@ -14924,8 +14930,9 @@ async function requestHandler(req, res) {
       ? numericPrice.toFixed(2)
       : "0.00";
     const organicSeo = computeOrganicSeoPriority(product);
-    const seoTitle = organicSeo.seoTitle || productSeo.title || buildProductSeoTitle(product);
-    const description = organicSeo.seoDescription || productSeo.description || buildProductMetaDescription(product);
+    const isStockRealSeo = availabilityInfo.merchantAvailability === "in_stock" && Number(availabilityInfo.stockLocal || product.stock || 0) > 0;
+    const seoTitle = isStockRealSeo ? (productSeo.title || organicSeo.seoTitle || buildProductSeoTitle(product)) : (organicSeo.seoTitle || productSeo.title || buildProductSeoTitle(product));
+    const description = isStockRealSeo ? (productSeo.description || organicSeo.seoDescription || buildProductMetaDescription(product)) : (organicSeo.seoDescription || productSeo.description || buildProductMetaDescription(product));
     const h1 = buildProductHeading(product);
     const ld = {
       "@context": "https://schema.org",

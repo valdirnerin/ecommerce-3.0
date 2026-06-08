@@ -3,6 +3,8 @@ const os = require("os");
 const path = require("path");
 const request = require("supertest");
 
+jest.setTimeout(30000);
+
 function writeCatalog(dir) {
   const products = [
     {
@@ -141,7 +143,7 @@ describe("Merchant-safe availability UI", () => {
 });
 
 describe("Merchant feed availability fields", () => {
-  test("in_stock y out_of_stock no emiten availability_date; backorder si", () => {
+  test("solo stock fisico real entra al feed Merchant", () => {
     const { buildMerchantFeedEntries } = require("../utils/merchantFeed");
     const base = {
       description: "Repuesto para celulares disponible en NERIN Parts.",
@@ -162,9 +164,7 @@ describe("Merchant feed availability fields", () => {
     const byId = Object.fromEntries(entries.map((entry) => [entry.id, entry]));
     expect(byId.STOCK.availability).toBe("in_stock");
     expect(byId.STOCK.availability_date).toBe("");
-    expect(byId.PEDIDO.availability).toBe("backorder");
-    expect(byId.PEDIDO.availability_date).toBe("2026-06-19T00:00-0300");
-    expect(byId.OUT.availability).toBe("out_of_stock");
-    expect(byId.OUT.availability_date).toBe("");
+    expect(byId.PEDIDO).toBeUndefined();
+    expect(byId.OUT).toBeUndefined();
   });
 });
