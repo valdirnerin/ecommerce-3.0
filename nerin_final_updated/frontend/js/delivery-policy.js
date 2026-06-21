@@ -1,4 +1,4 @@
-const DELIVERY_POLICY_VERSION = "delivery-policy-20260503-v2";
+const DELIVERY_POLICY_VERSION = "seo-stock-real-20260621-v3";
 const REMOTE_MIN_DAYS = 20;
 const REMOTE_MAX_DAYS = 30;
 
@@ -108,7 +108,26 @@ function hasRemoteCopySignal(product = {}) {
 }
 
 export function resolveDeliveryProfile(product = {}) {
-  if (!product || typeof product !== "object") return { mode: "remote", minDays: REMOTE_MIN_DAYS, maxDays: REMOTE_MAX_DAYS };
+  if (!product || typeof product !== "object") return { mode: "unavailable", minDays: 0, maxDays: 0 };
+
+  const explicitAvailability = normalizeText(product.availability || product.stock_status || product.stockStatus);
+  const stock = toNumberOrNull(product.stock ?? product.available_stock ?? product.quantity);
+  if (["preorder", "backorder", "a pedido", "a_pedido"].includes(explicitAvailability)) {
+    const rawMin = toNumberOrNull(product.remote_lead_min_days ?? product.remote_lead_days);
+    const rawMax = toNumberOrNull(product.remote_lead_max_days ?? rawMin);
+    return {
+      mode: "remote",
+      minDays: Math.max(REMOTE_MIN_DAYS, Math.floor(rawMin || REMOTE_MIN_DAYS)),
+      maxDays: Math.max(REMOTE_MAX_DAYS, Math.floor(rawMax || REMOTE_MAX_DAYS)),
+      reason: "explicit_preorder",
+    };
+  }
+  if (["out of stock", "out_of_stock", "sin stock", "agotado"].includes(explicitAvailability)) {
+    return { mode: "unavailable", minDays: 0, maxDays: 0, reason: "explicit_out_of_stock" };
+  }
+  if (Number.isFinite(stock) && stock > 0) {
+    return { mode: "physical", minDays: 1, maxDays: 2, reason: "local_stock" };
+  }
 
   if (hasExplicitPhysicalSignal(product)) {
     return { mode: "physical", minDays: 1, maxDays: 2, reason: "explicit_physical" };
@@ -129,7 +148,7 @@ export function resolveDeliveryProfile(product = {}) {
     return { mode: "physical", minDays: 1, maxDays: 2, reason: "local_uploaded_asset" };
   }
 
-  return { mode: "remote", minDays: REMOTE_MIN_DAYS, maxDays: REMOTE_MAX_DAYS, reason: "default_remote" };
+  return { mode: "unavailable", minDays: 0, maxDays: 0, reason: "no_sellable_stock_signal" };
 }
 
 export function applyDeliveryPolicyToProduct(product = {}) {
@@ -147,7 +166,7 @@ export function applyDeliveryPolicyToProduct(product = {}) {
     normalized.remote_lead_max_days = profile.maxDays;
     normalized.deliveryPromise = `Entrega estimada: ${profile.minDays} a ${profile.maxDays} días.`;
     normalized.delivery_promise = normalized.deliveryPromise;
-  } else {
+  } else if (profile.mode === "physical") {
     normalized.stock_mode = "physical";
     normalized.fulfillment_mode = "physical";
     normalized.remote_stock = 0;
@@ -155,6 +174,15 @@ export function applyDeliveryPolicyToProduct(product = {}) {
     normalized.remote_lead_min_days = 0;
     normalized.remote_lead_max_days = 0;
     normalized.deliveryPromise = "Entrega estimada: 24 a 48 hs hábiles.";
+    normalized.delivery_promise = normalized.deliveryPromise;
+  } else {
+    normalized.stock_mode = "unavailable";
+    normalized.fulfillment_mode = "unavailable";
+    normalized.remote_stock = 0;
+    normalized.remote_lead_days = 0;
+    normalized.remote_lead_min_days = 0;
+    normalized.remote_lead_max_days = 0;
+    normalized.deliveryPromise = "Sin stock. Consultar disponibilidad.";
     normalized.delivery_promise = normalized.deliveryPromise;
   }
 

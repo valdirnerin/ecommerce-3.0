@@ -15,6 +15,7 @@ const {
   isRealScreenProduct,
   isScreenAdhesiveProduct,
 } = require("../utils/screenProductClassifier");
+const { deduplicateCatalogProducts } = require("../utils/catalogVisibility");
 
 const PRODUCTS_JSON_PATH = dataPath("products.json");
 function resolveSqlitePath() {
@@ -3942,12 +3943,13 @@ async function querySearchIndex(params = {}) {
   const orderBy =
     params.sort === "recent" ? "si.product_rowid DESC" :
     params.sort === "stock" || params.sort === "stock_desc" ? "si.stock DESC, si.title ASC" :
+    params.sort === "stock_asc" ? "si.stock ASC, si.title ASC" :
     params.sort === "price_asc" ? "si.price ASC, si.title ASC" :
     params.sort === "price_desc" ? "si.price DESC, si.title ASC" :
     params.sort === "name_desc" ? "si.title DESC" :
     params.sort === "name_asc" ? "si.title ASC" :
-    params.sort === "stock_real" ? "si.is_stock_real DESC, si.title ASC" :
-    "si.is_stock_real DESC, si.classification_confidence DESC, si.title ASC";
+    params.sort === "stock_real" ? "CASE si.stock_status WHEN 'in_stock' THEN 0 WHEN 'preorder' THEN 1 ELSE 2 END, si.is_stock_real DESC, si.has_image DESC, CASE WHEN si.price > 0 THEN 1 ELSE 0 END DESC, si.title ASC" :
+    "CASE si.stock_status WHEN 'in_stock' THEN 0 WHEN 'preorder' THEN 1 ELSE 2 END, si.is_stock_real DESC, si.has_image DESC, CASE WHEN si.price > 0 THEN 1 ELSE 0 END DESC, si.classification_confidence DESC, si.title ASC";
   const selectColumns = [
     "si.product_id",
     "si.product_rowid",
@@ -4021,7 +4023,8 @@ async function querySearchIndex(params = {}) {
   const rows = pageEntries.map((entry) => entry.row);
   const selectMs = Date.now() - selectStartedAt;
   const mapStartedAt = Date.now();
-  const items = rows.map((row) => params.adminMode ? buildAdminProductListSummary(row) : buildProductSummary(row));
+  const mappedItems = rows.map((row) => params.adminMode ? buildAdminProductListSummary(row) : buildProductSummary(row));
+  const items = params.adminMode ? mappedItems : deduplicateCatalogProducts(mappedItems);
   const mapMs = Date.now() - mapStartedAt;
   const facetStartedAt = Date.now();
   const facets = includeFacets
@@ -4267,7 +4270,7 @@ async function getPublicSitemapStats() {
       db,
       `SELECT
         COUNT(*) AS totalPublicProducts,
-        SUM(CASE WHEN public_slug IS NOT NULL AND trim(public_slug) != '' THEN 1 ELSE 0 END) AS indexableProducts,
+        COUNT(DISTINCT CASE WHEN public_slug IS NOT NULL AND trim(public_slug) != '' THEN lower(trim(public_slug)) END) AS indexableProducts,
         SUM(CASE WHEN public_slug IS NULL OR trim(public_slug) = '' THEN 1 ELSE 0 END) AS missingSlugProducts
        FROM product_search_index
        WHERE is_public = 1`,
@@ -4300,12 +4303,13 @@ async function listPublicSitemapProducts({ page = 1, pageSize = 2500 } = {}) {
     const selectStartedAt = Date.now();
     const rows = await all(
       db,
-      `SELECT product_rowid, product_id, public_slug, updated_at
+      `SELECT MIN(product_rowid) AS product_rowid, MIN(product_id) AS product_id, MIN(public_slug) AS public_slug, MAX(updated_at) AS updated_at
        FROM product_search_index
        WHERE is_public = 1
          AND public_slug IS NOT NULL
          AND trim(public_slug) != ''
-       ORDER BY product_rowid ASC
+       GROUP BY lower(trim(public_slug))
+       ORDER BY MIN(product_rowid) ASC
        LIMIT ? OFFSET ?`,
       [safePageSize, offset],
     );

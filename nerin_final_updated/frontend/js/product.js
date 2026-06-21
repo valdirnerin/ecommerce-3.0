@@ -8,7 +8,7 @@ import {
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { buildCartItemFromProduct, readCart, writeCart, getProductIdentifier } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
-import { buildAvailabilityPresentation, resolveProductAvailability } from "./availability.js";
+import { buildAvailabilityPresentation, resolveProductAvailability } from "./availability.js?v=seo-stock-real-20260621-v3";
 import { trackAddToCart, trackStockRealAddToCart, trackStockRealProductView, trackViewItem } from "./analytics.js";
 
 const detailSection = document.getElementById("productDetail");
@@ -118,6 +118,10 @@ function resolveFulfillmentProfile(product) {
     .trim()
     .toLowerCase();
   const stock = toNumberOrNull(product?.stock);
+  const explicitAvailability = String(product?.availability || product?.stock_status || "").trim().toLowerCase();
+  if (explicitMode === "unavailable" || ["out_of_stock", "outofstock", "sin_stock"].includes(explicitAvailability)) {
+    return { mode: "unavailable", isConfigured: true, minDays: 0, maxDays: 0 };
+  }
   const textSignals = [product?.name, product?.description, product?.category, product?.subcategory]
     .filter(Boolean)
     .join(" ")
@@ -371,6 +375,35 @@ function getVisibleProductName(product) {
   return normalizeText(String(raw)) || "Producto";
 }
 
+function isCompatibleProduct(product = {}) {
+  const text = [product.name, product.title, product.description, product.quality]
+    .filter(Boolean)
+    .join(" ");
+  return /\b(compatible|aftermarket|generic|generico|gen[eé]rico|soft\s+oled|hard\s+oled|in[\s-]?cell)\b/i.test(text);
+}
+
+function getCommercialBrandName(product = {}) {
+  if (isCompatibleProduct(product)) {
+    return product.manufacturer_brand || product.actual_brand || "Compatible";
+  }
+  return product.brand || product.manufacturer || "Genérico";
+}
+
+function getCompatibleWith(product = {}) {
+  if (!isCompatibleProduct(product)) return "";
+  return [product.compatible_brand || product.device_brand || product.brand, product.compatible_model || product.model]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+function getProductMpn(product = {}) {
+  const explicit = product.mpn || product.part_number || product.partNumber || product.supplierPartNumber;
+  if (explicit) return String(explicit).trim();
+  const match = [product.name, product.description, product.sku].filter(Boolean).join(" ").match(/\bGH82-\d{4,6}[A-Z]?\b/i);
+  return match ? match[0].toUpperCase() : getProductSku(product);
+}
+
 function resolveSeo(product) {
   const { product: enriched, generated } = applySeoDefaults(product || {});
   return {
@@ -584,11 +617,10 @@ function updateJsonLd(product, images, productUrl) {
   const formattedPrice = Number.isFinite(numericPrice)
     ? numericPrice.toFixed(2)
     : "0.00";
-  const brandName =
-    typeof product.brand === "string" && product.brand.trim()
-      ? product.brand.trim()
-      : "";
+  const brandName = getCommercialBrandName(product);
   const skuValue = getProductSku(product);
+  const mpnValue = getProductMpn(product);
+  const compatibleWith = getCompatibleWith(product);
   const description = getProductDescription(product, { preferMeta: true });
   const schema = {
     "@context": "https://schema.org",
@@ -598,8 +630,10 @@ function updateJsonLd(product, images, productUrl) {
     name: heading,
     ...(absoluteImages.length ? { image: absoluteImages } : {}),
     ...(description ? { description } : {}),
-    ...(skuValue ? { sku: skuValue, mpn: skuValue } : {}),
+    ...(skuValue ? { sku: skuValue } : {}),
+    ...(mpnValue ? { mpn: mpnValue } : {}),
     ...(brandName ? { brand: { "@type": "Brand", name: brandName } } : {}),
+    ...(compatibleWith ? { additionalProperty: [{ "@type": "PropertyValue", name: "Compatible con", value: compatibleWith }] } : {}),
     offers: {
       "@type": "Offer",
       url: productUrl,
@@ -992,7 +1026,9 @@ function buildGallery(root, urls, alts = []) {
 function buildAttributes(product) {
   const attrs = [
     { label: "SKU", value: product.sku },
-    { label: "Marca", value: product.brand },
+    { label: "MPN", value: getProductMpn(product) },
+    { label: "Marca", value: getCommercialBrandName(product) },
+    { label: "Compatible con", value: getCompatibleWith(product) },
     { label: "Modelo", value: product.model },
     { label: "Categoría", value: product.category },
     {
@@ -1344,11 +1380,20 @@ function renderProduct(product) {
   const meta = document.createElement("div");
   meta.className = "product-meta";
 
-  if (product.brand) {
+  const commercialBrand = getCommercialBrandName(product);
+  if (commercialBrand) {
     const brand = document.createElement("span");
     brand.className = "product-meta__item";
-    brand.innerHTML = `<strong>Marca:</strong> ${product.brand}`;
+    brand.innerHTML = `<strong>Marca:</strong> ${commercialBrand}`;
     meta.appendChild(brand);
+  }
+
+  const compatibleWith = getCompatibleWith(product);
+  if (compatibleWith) {
+    const compatibility = document.createElement("span");
+    compatibility.className = "product-meta__item";
+    compatibility.innerHTML = `<strong>Compatible con:</strong> ${compatibleWith}`;
+    meta.appendChild(compatibility);
   }
 
   if (skuValue) {
@@ -1374,7 +1419,10 @@ function renderProduct(product) {
 
   const availability = resolveProductAvailability(product);
   const availabilityPresentation = buildAvailabilityPresentation(product);
-  const stockCopy = availabilityPresentation.primaryLabel || availability.availabilityLabel;
+  let stockCopy = availabilityPresentation.primaryLabel || availability.availabilityLabel;
+  if (availabilityPresentation.isStockReal && Number(availability.stockLocal) > 0) {
+    stockCopy = `En stock real · ${availability.stockLocal} unidad${availability.stockLocal === 1 ? "" : "es"} disponible${availability.stockLocal === 1 ? "" : "s"}`;
+  }
 
   summary.appendChild(meta);
 
@@ -1427,10 +1475,12 @@ function renderProduct(product) {
   shippingBanner.innerHTML = `
     <div class="shipping-banner__badge" aria-hidden="true">🚚</div>
     <div class="shipping-banner__copy">
-      <span class="shipping-banner__title">Envío a todo el país</span>
+      <span class="shipping-banner__title">${fulfillment.mode === "unavailable" ? "Disponibilidad" : "Envío a todo el país"}</span>
       <span class="shipping-banner__meta">
         ${
-          fulfillment.mode === "remote"
+          fulfillment.mode === "unavailable"
+            ? "Sin stock actual. Consultanos por WhatsApp para conocer alternativas o una fecha de reposición."
+            : fulfillment.mode === "remote"
             ? `Producto disponible bajo pedido. Fecha estimada de despacho: ${leadCopy}. Sujeto a disponibilidad del proveedor.`
             : fulfillment.isConfigured
               ? "Stock físico: despacho prioritario en 24 h hábiles con seguimiento en vivo."
@@ -1514,6 +1564,13 @@ function renderProduct(product) {
   addBtn.className = "button primary product-buy-main-cta";
   addBtn.disabled = !availability.checkoutAllowed;
 
+  const compatibilityLink = document.createElement("a");
+  compatibilityLink.className = "button secondary product-whatsapp-compatibility";
+  compatibilityLink.target = "_blank";
+  compatibilityLink.rel = "noopener";
+  compatibilityLink.href = `https://wa.me/5491130341550?text=${encodeURIComponent(`Hola NERIN, quiero consultar compatibilidad de ${product.name || "este repuesto"}${skuValue ? ` (${skuValue})` : ""}.`)}`;
+  compatibilityLink.textContent = "Consultar compatibilidad por WhatsApp";
+
   const priceLabel = document.createElement("p");
   priceLabel.className = "product-detail-unit-price";
 
@@ -1583,6 +1640,7 @@ function renderProduct(product) {
 
   purchaseCard.append(
     addBtn,
+    compatibilityLink,
     priceLabel,
     taxFreeNote,
     billingNote,

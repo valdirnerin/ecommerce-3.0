@@ -1,5 +1,5 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
-const ARG_FEED_OFFSET = "-0300";
+const ARG_FEED_OFFSET = "-03:00";
 const ARG_SCHEMA_OFFSET = "-03:00";
 const MAX_AVAILABILITY_DAYS = 365;
 
@@ -76,7 +76,7 @@ function formatMerchantAvailabilityDate(value) {
   const parsed = value instanceof Date ? value : parseAvailabilityDate(value);
   if (!parsed) return "";
   const p = dateParts(parsed);
-  return `${p.y}-${p.m}-${p.d}T00:00${ARG_FEED_OFFSET}`;
+  return `${p.y}-${p.m}-${p.d}T00:00:00${ARG_FEED_OFFSET}`;
 }
 
 function formatSchemaAvailabilityStarts(value) {
@@ -120,15 +120,19 @@ function resolveProductAvailability(product = {}, options = {}) {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
-  const explicitAvailability = normalizeAvailability(product.availability || product.disponibilidad || product.estado_stock);
+  const explicitAvailability = normalizeAvailability(product.availability || product.disponibilidad || product.estado_stock || product.stock_status || product.stockStatus);
   const explicitMode = String(product.stock_mode || product.fulfillment_mode || product.stockMode || product.fulfillmentMode || "").trim().toLowerCase();
   const remoteStock = toFiniteNumber(product.remote_stock ?? product.stock_remote ?? product.available_remote, 0);
   const minLead = toFiniteNumber(product.remote_lead_min_days || product.remote_lead_days || product.lead_min_days, 0);
   const maxLead = toFiniteNumber(product.remote_lead_max_days || product.remote_lead_days || product.lead_max_days, 0);
   const hasRemoteSignal = /stock remoto|a pedido|bajo pedido|encargo|preorder|backorder/.test(textSignals);
   const forcedRemote = ["preorder", "backorder"].includes(explicitAvailability);
-  const isRemote = forcedRemote || explicitMode === "remote" || explicitMode === "remoto" || remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal;
-  const hasRemoteStock = isRemote && (remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal || forcedRemote);
+  const hasAvailabilityDate = Boolean(
+    product.availability_date || product.availabilityDate || product.preorder_date || product.preorderDate || product.available_at || product.availableAt,
+  );
+  const allowsRemoteOrder = Boolean(product.allow_backorder || product.allowBackorder || product.sellable_on_demand || product.canBeOrdered);
+  const isRemote = forcedRemote || explicitMode === "remote" || explicitMode === "remoto" || remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal || hasAvailabilityDate || allowsRemoteOrder;
+  const hasRemoteStock = isRemote && (remoteStock > 0 || minLead > 0 || maxLead > 0 || hasRemoteSignal || forcedRemote || hasAvailabilityDate || allowsRemoteOrder);
 
   if (hasLocalStock && !forcedRemote) {
     return {
@@ -161,6 +165,9 @@ function resolveProductAvailability(product = {}, options = {}) {
     const availabilityDate = resolveAvailabilityDate(product, leadEnd, now);
     const availabilityDateDisplay = formatDisplayAvailabilityDate(availabilityDate);
     const merchantAvailability = explicitAvailability === "backorder" ? "backorder" : "preorder";
+    const schemaAvailability = merchantAvailability === "backorder"
+      ? "https://schema.org/BackOrder"
+      : "https://schema.org/PreOrder";
     return {
       stockLocal,
       hasLocalStock: false,
@@ -174,8 +181,8 @@ function resolveProductAvailability(product = {}, options = {}) {
       feedAvailability: merchantAvailability,
       deliveryLabel: `Fecha estimada de despacho: ${availabilityDateDisplay}`,
       checkoutAllowed: true,
-      seoAvailability: "https://schema.org/PreOrder",
-      schemaAvailability: "https://schema.org/PreOrder",
+      seoAvailability: schemaAvailability,
+      schemaAvailability,
       availabilityDate,
       availabilityDateFeed: formatMerchantAvailabilityDate(availabilityDate),
       availabilityStarts: formatSchemaAvailabilityStarts(availabilityDate),

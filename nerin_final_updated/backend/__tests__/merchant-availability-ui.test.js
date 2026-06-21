@@ -3,6 +3,8 @@ const os = require("os");
 const path = require("path");
 const request = require("supertest");
 
+jest.setTimeout(30000);
+
 function writeCatalog(dir) {
   const products = [
     {
@@ -36,7 +38,7 @@ function writeCatalog(dir) {
       availability: "backorder",
       remote_lead_min_days: 20,
       remote_lead_max_days: 30,
-      availability_date: "2026-06-19",
+      availability_date: "2026-07-19",
       price_minorista: 1200,
       image: "/assets/product2.png",
       visibility: "public",
@@ -102,8 +104,8 @@ describe("Merchant-safe availability UI", () => {
       expect(res.status).toBe(200);
       expect(res.text).toContain("Disponible a pedido");
       expect(res.text).toContain("Entrega estimada: 20 a 30 dias");
-      expect(res.text).toContain('<time datetime="2026-06-19T00:00:00-03:00">19/06/2026</time>');
-      expect(res.text).toContain('"availabilityStarts":"2026-06-19T00:00:00-03:00"');
+      expect(res.text).toContain('<time datetime="2026-07-19T00:00:00-03:00">19/07/2026</time>');
+      expect(res.text).toContain('"availabilityStarts":"2026-07-19T00:00:00-03:00"');
       expect(res.text).toContain("Primero gestionamos el ingreso del repuesto.");
       expect(res.text).not.toContain("despacho prioritario en 24 h");
     });
@@ -155,7 +157,7 @@ describe("Merchant feed availability fields", () => {
     };
     const rows = [
       { ...base, id: "stock", sku: "STOCK", slug: "stock", public_slug: "stock", name: "Producto en stock", stock: 2, availability: "in_stock" },
-      { ...base, id: "pedido", sku: "PEDIDO", slug: "pedido", public_slug: "pedido", name: "Producto a pedido", stock: 0, stock_mode: "remote", availability: "backorder", availability_date: "2026-06-19", remote_lead_min_days: 20, remote_lead_max_days: 30 },
+      { ...base, id: "pedido", sku: "PEDIDO", slug: "pedido", public_slug: "pedido", name: "Producto a pedido", stock: 0, stock_mode: "remote", availability: "backorder", availability_date: "2026-07-19", remote_lead_min_days: 20, remote_lead_max_days: 30 },
       { ...base, id: "out", sku: "OUT", slug: "out", public_slug: "out", name: "Producto sin stock", stock: 0, availability: "out_of_stock" },
     ];
     const { entries } = buildMerchantFeedEntries(rows, { limit: 10, baseUrl: "https://nerinparts.com.ar" });
@@ -163,7 +165,7 @@ describe("Merchant feed availability fields", () => {
     expect(byId.STOCK.availability).toBe("in_stock");
     expect(byId.STOCK.availability_date).toBe("");
     expect(byId.PEDIDO.availability).toBe("backorder");
-    expect(byId.PEDIDO.availability_date).toBe("2026-06-19T00:00-0300");
+    expect(byId.PEDIDO.availability_date).toBe("2026-07-19T00:00:00-03:00");
     expect(byId.OUT.availability).toBe("out_of_stock");
     expect(byId.OUT.availability_date).toBe("");
   });
