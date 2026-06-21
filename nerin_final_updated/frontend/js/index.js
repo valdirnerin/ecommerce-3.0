@@ -2,6 +2,7 @@ import { fetchProducts, isWholesale, getUserRole } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
+import { resolveProductAvailability } from "./availability.js?v=seo-stock-real-20260621-v3";
 
 const CONFIG_CACHE_KEY = "nerin:config-cache";
 
@@ -124,7 +125,7 @@ const DEFAULT_HOME_CONTENT = {
     ],
   },
   featured: {
-    title: "Productos destacados",
+    title: "Productos con stock real listos para enviar",
     description:
       "Seleccionamos los módulos con mejor rendimiento y disponibilidad inmediata.",
     productIds: [],
@@ -733,14 +734,33 @@ function createFeaturedCard(product) {
 function resolveFeaturedProducts(products, ids) {
   if (!Array.isArray(products) || !products.length) return [];
   const byId = new Map();
+  const seenIdentity = new Set();
   const uniqueProducts = [];
   products.forEach((product) => {
     if (!product || product.id == null) return;
+    const availability = resolveProductAvailability(product);
+    const price = resolveDisplayPrice(product);
+    const image = getPrimaryImage(product);
+    const slug = product.publicSlug || product.public_slug || product.slug;
+    if (availability.merchantAvailability !== "in_stock" || !(price > 0) || !image || !slug) return;
+    const identityKeys = [
+      ["mpn", product.mpn || product.part_number],
+      ["sku", product.sku],
+      ["slug", slug],
+      ["title", product.name || product.title],
+    ].map(([type, value]) => {
+      const normalized = String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      return normalized ? `${type}:${normalized}` : "";
+    }).filter(Boolean);
+    if (identityKeys.some((key) => seenIdentity.has(key))) return;
+    identityKeys.forEach((key) => seenIdentity.add(key));
     const key = String(product.id);
     if (byId.has(key)) return;
     byId.set(key, product);
     uniqueProducts.push(product);
   });
+
+  uniqueProducts.sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0));
 
   if (Array.isArray(ids) && ids.length) {
     const seen = new Set();

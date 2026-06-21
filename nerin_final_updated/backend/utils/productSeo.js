@@ -1,4 +1,5 @@
 const { detectProductType } = require("./productTaxonomy");
+const { buildCommercialProductTitle } = require("./productCommercial");
 
 const GENERIC_SEO_TITLES = new Set([
   "repuesto original service pack | nerin parts",
@@ -77,7 +78,7 @@ function buildSafeProductDescription(product = {}, label = "") {
 
 function generateProductSeo(product = {}) {
   const productType = detectProductType(product);
-  const label = buildSafeProductLabel(product);
+  const label = buildCommercialProductTitle(product) || buildSafeProductLabel(product);
   const brand = normalizeText(pickField(product, ["brand", "catalog_brand", "Brand"]));
   const sku = normalizeText(pickField(product, ["sku", "SKU", "part_number", "partNumber", "PartNumber", "Part Number"]));
 

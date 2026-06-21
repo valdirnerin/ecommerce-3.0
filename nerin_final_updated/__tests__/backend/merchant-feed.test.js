@@ -54,16 +54,16 @@ describe('merchant feed audit', () => {
     expect(audit.samplesEligible[0].availability_date).toBeNull();
   });
 
-  test('stock 0 vendible a pedido => preorder + availability_date', () => {
+  test('stock 0 sin señal remota => out_of_stock sin availability_date', () => {
     const audit = buildMerchantFeedAudit([baseRow({ stock: 0 })]);
-    expect(audit.samplesEligible[0].availability).toBe('preorder');
-    expect(audit.samplesEligible[0].availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+    expect(audit.samplesEligible[0].availability).toBe('out_of_stock');
+    expect(audit.samplesEligible[0].availability_date).toBeNull();
   });
 
   test('preorder comparte fecha entre feed, texto visible y JSON-LD', () => {
     const availability = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2026-06-16' }), { now: new Date('2026-05-19T12:00:00Z') });
     expect(availability.merchantAvailability).toBe('preorder');
-    expect(availability.availabilityDateFeed).toBe('2026-06-16T00:00-0300');
+    expect(availability.availabilityDateFeed).toBe('2026-06-16T00:00:00-03:00');
     expect(availability.availabilityStarts).toBe('2026-06-16T00:00:00-03:00');
     expect(availability.visibleAvailabilityText).toContain('16/06/2026');
     expect(availability.seoAvailability).toBe('https://schema.org/PreOrder');
@@ -72,8 +72,8 @@ describe('merchant feed audit', () => {
   test('availability_date vencido o mayor a un anio se normaliza a ventana valida', () => {
     const older = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2026-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
     const tooFar = resolveProductAvailability(baseRow({ stock: 0, availability_date: '2028-01-01' }), { now: new Date('2026-05-19T12:00:00Z') });
-    expect(older.availabilityDateFeed).toBe('2026-05-20T00:00-0300');
-    expect(tooFar.availabilityDateFeed).toBe('2027-05-19T00:00-0300');
+    expect(older.availabilityDateFeed).toBe('2026-05-20T00:00:00-03:00');
+    expect(tooFar.availabilityDateFeed).toBe('2027-05-19T00:00:00-03:00');
   });
   test('contadores reales pueden ser mayores al lote escaneado', () => {
     const rows = [baseRow({ id: 'a' }), baseRow({ id: 'b', is_public: 0 })];
@@ -87,7 +87,7 @@ describe('merchant feed audit', () => {
 
   test('producto público stock 0 con imagen externa válida no cae en missingAvailability', () => {
     const audit = buildMerchantFeedAudit([
-      baseRow({ id: 'pre-ext', stock: 0, image: 'https://images.2service.nl/v7/Images/Part/1/img.jpg' }),
+      baseRow({ id: 'pre-ext', stock: 0, stock_mode: 'remote', image: 'https://images.2service.nl/v7/Images/Part/1/img.jpg' }),
     ]);
     expect(audit.skipped.missingAvailability).toBe(0);
     expect(audit.emittedCount).toBe(1);
@@ -232,15 +232,15 @@ describe('merchant feed tsv payload', () => {
   });
 
   test('preorder e in_stock availability_date correcto y headers esperados', () => {
-    const rows = [baseRow({ id: 'stk', stock: 3 }), baseRow({ id: 'pre', stock: 0 }), baseRow({ id: 'back', stock: 0, raw_json: JSON.stringify({ availability: 'backorder' }) })];
+    const rows = [baseRow({ id: 'stk', stock: 3 }), baseRow({ id: 'pre', stock: 0, stock_mode: 'remote' }), baseRow({ id: 'back', stock: 0, raw_json: JSON.stringify({ availability: 'backorder' }) })];
     const { entries } = buildMerchantFeedEntries(rows);
     const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
     expect(byId.stk.availability).toBe('in_stock');
     expect(byId.stk.availability_date).toBe('');
     expect(byId.pre.availability).toBe('preorder');
-    expect(byId.pre.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+    expect(byId.pre.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00-03:00$/);
     expect(byId.back.availability).toBe('backorder');
-    expect(byId.back.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00-0300$/);
+    expect(byId.back.availability_date).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00-03:00$/);
     expect(Object.keys(entries[0])).toEqual(['id','title','description','link','image_link','additional_image_link','availability','availability_date','price','condition','brand','mpn','identifier_exists','google_product_category','product_type']);
   });
 
@@ -252,8 +252,8 @@ describe('merchant feed tsv payload', () => {
     ];
     const { entries } = buildMerchantFeedEntries(rows);
     const byId = Object.fromEntries(entries.map((e) => [e.id, e]));
-    expect(byId.moji.title).toContain('Módulo');
-    expect(byId.moji.title).toContain('Cámaras');
+    expect(byId.moji.title).toContain('Pantalla');
+    expect(byId.moji.title).not.toMatch(/MÃ|CÃ/);
     expect(byId.moji.additional_image_link).toBe('https://a.com/y.jpg');
     expect(byId.comp.product_type).toBe('Componentes electrónicos');
     expect(byId.cam.product_type).toBe('Cámaras y lentes');
@@ -297,6 +297,35 @@ describe('merchant feed tsv payload', () => {
     const byId = Object.fromEntries(entries.map((e) => [e.id, e.product_type]));
     expect(byId['disp-batt']).toBe('Pantallas');
     expect(byId['batt-main']).toBe('Baterias');
+  });
+
+  test('feed principal stock real excluye preorder, backorder y out_of_stock', () => {
+    const rows = [
+      baseRow({ id: 'real', sku: 'REAL', stock: 2 }),
+      baseRow({ id: 'pre', sku: 'PRE', stock: 0, stock_mode: 'remote' }),
+      baseRow({ id: 'back', sku: 'BACK', stock: 0, availability: 'backorder' }),
+      baseRow({ id: 'out', sku: 'OUT', stock: 0, availability: 'out_of_stock' }),
+    ];
+    const main = buildMerchantFeedEntries(rows, { feedScope: 'in_stock' }).entries;
+    expect(main.map((entry) => entry.id)).toEqual(['REAL']);
+    expect(main.every((entry) => entry.availability === 'in_stock' && entry.availability_date === '')).toBe(true);
+
+    const preorder = buildMerchantFeedEntries(rows, { feedScope: 'preorder' }).entries;
+    expect(preorder.map((entry) => entry.id).sort()).toEqual(['BACK', 'PRE']);
+    expect(preorder.every((entry) => /T00:00:00-03:00$/.test(entry.availability_date))).toBe(true);
+  });
+
+  test('feed separa marca comercial de compatibilidad', () => {
+    const compatible = baseRow({
+      id: 'compatible',
+      sku: 'COMP-1',
+      name: 'Display incl. frame Compatible soft For Samsung Galaxy S22 Plus - Black',
+      brand: 'Samsung',
+    }, { quality: 'Compatible soft', model: 'Galaxy S22 Plus' });
+    const [entry] = buildMerchantFeedEntries([compatible], { feedScope: 'in_stock' }).entries;
+    expect(entry.title).toContain('Pantalla compatible');
+    expect(entry.brand).toBe('Compatible');
+    expect(entry.identifier_exists).toBe('no');
   });
 
 });

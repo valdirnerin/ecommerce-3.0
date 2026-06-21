@@ -84,6 +84,7 @@ describe('SEO endpoints', () => {
     expect(staticRes.status).toBe(200);
     expect(staticRes.text).toContain('<loc>https://nerinparts.example/</loc>');
     expect(staticRes.text).toContain('<loc>https://nerinparts.example/shop.html</loc>');
+    expect(staticRes.text).not.toContain('<loc>https://nerinparts.example/shop</loc>');
 
     const productsRes = await request(server).get('/sitemap-products-1.xml');
     expect(productsRes.status).toBe(200);

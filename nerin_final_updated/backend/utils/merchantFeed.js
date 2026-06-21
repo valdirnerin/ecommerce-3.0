@@ -4,6 +4,12 @@ const {
   formatMerchantAvailabilityDate,
   getPublicPriceValue,
 } = require('./productAvailability');
+const {
+  buildCommercialProductTitle,
+  hasRealBrandAndMpn,
+  resolveCommercialBrand,
+  resolveCommercialMpn,
+} = require('./productCommercial');
 
 const GOOGLE_CATEGORY = 'Electrónica > Comunicaciones > Telefonía > Accesorios para móviles';
 const VALID_AVAILABILITY = new Set(['in_stock', 'preorder', 'backorder', 'out_of_stock']);
@@ -55,7 +61,8 @@ function mapProductTypeToFeed(label) {
 }
 
 function buildMerchantTitle(row, raw) {
-  return safeMerchantText(row.name || row.title || raw.name || raw.title || raw.description || '');
+  const merged = mergeProductData(row, raw);
+  return safeMerchantText(buildCommercialProductTitle(merged) || row.name || row.title || raw.name || raw.title || raw.description || '');
 }
 
 function mergeProductData(row = {}, raw = {}) {
@@ -127,8 +134,22 @@ function getSkipTemplate() {
   return {
     notPublic: 0, privateOrHidden: 0, disabled: 0, deleted: 0, archived: 0, draft: 0, vipOnly: 0, wholesaleOnly: 0,
     missingId: 0, missingTitle: 0, missingDescription: 0, missingLink: 0, missingImage: 0, invalidImageUrl: 0,
-    missingPrice: 0, invalidPrice: 0, missingAvailability: 0, invalidAvailability: 0, preorderWithoutAvailabilityDate: 0, backorderWithoutAvailabilityDate: 0, invalidAvailabilityDate: 0, taxonomyBlocked: 0, soft404Risk: 0,
+    missingPrice: 0, invalidPrice: 0, missingAvailability: 0, invalidAvailability: 0, preorderWithoutAvailabilityDate: 0, backorderWithoutAvailabilityDate: 0, invalidAvailabilityDate: 0, outsideFeedScope: 0, taxonomyBlocked: 0, soft404Risk: 0,
   };
+}
+
+function normalizeFeedScope(value = 'all') {
+  const scope = String(value || 'all').trim().toLowerCase();
+  if (['in_stock', 'stock_real', 'stock-real', 'physical'].includes(scope)) return 'in_stock';
+  if (['preorder', 'backorder', 'remote', 'a_pedido'].includes(scope)) return 'preorder';
+  return 'all';
+}
+
+function matchesFeedScope(availability, scope) {
+  const normalizedScope = normalizeFeedScope(scope);
+  if (normalizedScope === 'in_stock') return availability === 'in_stock';
+  if (normalizedScope === 'preorder') return availability === 'preorder' || availability === 'backorder';
+  return true;
 }
 
 function pushSample(bucket, entry, max = 10) {
@@ -147,8 +168,9 @@ function normalizeComparableUrl(url) {
 }
 
 function detectMerchantProductType(row, raw, title) {
-  const lowerTitle = String(title || '').toLowerCase();
-  let productTypeDetected = detectProductType({ ...raw, ...row, title, name: title, category: row.category || raw.category || '' });
+  const sourceTitle = safeMerchantText(row.name || row.title || raw.name || raw.title || title || '');
+  const lowerTitle = String(sourceTitle).toLowerCase();
+  let productTypeDetected = detectProductType({ ...raw, ...row, description: sourceTitle, title: sourceTitle, name: sourceTitle, category: row.category || raw.category || '' });
   if (/display\s*(incl\.?|with|\+)\s*battery/.test(lowerTitle)) productTypeDetected = 'Pantalla / display';
   if (/adhesive\s*tape\s*display/.test(lowerTitle)) productTypeDetected = 'Adhesivo para pantalla';
   if (/charging\s*board|charge\s*port|dock\s*connector/.test(lowerTitle)) productTypeDetected = 'Placa / pin de carga';
@@ -162,8 +184,9 @@ function extractRaw(row) {
   return raw;
 }
 
-function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar' } = {}) {
-  const audit = buildMerchantFeedAudit(rows, { limit, offset, preorderDays, baseUrl });
+function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar', feedScope = 'all' } = {}) {
+  const normalizedFeedScope = normalizeFeedScope(feedScope);
+  const audit = buildMerchantFeedAudit(rows, { limit, offset, preorderDays, baseUrl, feedScope: normalizedFeedScope });
   const entries = [];
   const sanitizedLimit = Math.max(1, Number(limit) || 500);
   const sanitizedOffset = Math.max(0, Number(offset) || 0);
@@ -200,15 +223,17 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
     if (!Number.isFinite(priceNum) || priceNum <= 0) continue;
     const av = computeAvailability(row, raw, preorderDays);
     if (!VALID_AVAILABILITY.has(av.availability)) continue;
-    if ((av.availability === 'preorder' || av.availability === 'backorder') && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}T00:00-0300$/)) continue;
+    if ((av.availability === 'preorder' || av.availability === 'backorder') && !String(av.availabilityDate || '').match(/^\d{4}-\d{2}-\d{2}T00:00:00-03:00$/)) continue;
+    if (!matchesFeedScope(av.availability, normalizedFeedScope)) continue;
     const productTypeDetected = detectMerchantProductType(row, raw, title);
     const product_type = safeMerchantText(mapProductTypeToFeed(productTypeDetected));
     if (!product_type) continue;
     eligibleCount += 1;
     if (eligibleCount <= sanitizedOffset || entries.length >= sanitizedLimit) continue;
-    const brand = safeMerchantText(String(row.brand || raw.brand || '').trim(), 70);
-    const mpn = safeMerchantText(String(row.mpn || row.part_number || row.sku || raw.mpn || raw.part_number || raw.sku || '').trim(), 70);
-    const identifier_exists = (brand && mpn) ? 'yes' : 'no';
+    const mergedProduct = mergeProductData(row, raw);
+    const brand = safeMerchantText(resolveCommercialBrand(mergedProduct), 70);
+    const mpn = safeMerchantText(resolveCommercialMpn(mergedProduct), 70);
+    const identifier_exists = hasRealBrandAndMpn(mergedProduct) ? 'yes' : 'no';
     entries.push({
       id: identifier, title, description, link, image_link,
       additional_image_link: additional.join(','), availability: av.availability,
@@ -220,7 +245,7 @@ function buildMerchantFeedEntries(rows, { limit = 500, offset = 0, preorderDays 
   return { entries, audit };
 }
 
-function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar', totalCatalogProducts = null, publicProductsCount = null } = {}) {
+function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 30, baseUrl = 'https://nerinparts.com.ar', totalCatalogProducts = null, publicProductsCount = null, feedScope = 'all' } = {}) {
   const skipped = getSkipTemplate();
   const samplesEligible = [];
   const samplesSkipped = [];
@@ -228,6 +253,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   const availabilityBreakdown = {};
   const sanitizedLimit = Math.max(1, Number(limit) || 500);
   const sanitizedOffset = Math.max(0, Number(offset) || 0);
+  const normalizedFeedScope = normalizeFeedScope(feedScope);
 
   let publicProductsInScan = 0;
   let eligibleCount = 0;
@@ -316,9 +342,14 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
 
     if (av.availability === 'preorder' && !av.availabilityDate) { skipped.preorderWithoutAvailabilityDate += 1; pushSample(samplesSkipped, { id: identifier, reason: 'preorderWithoutAvailabilityDate' }); continue; }
     if (av.availability === 'backorder' && !av.availabilityDate) { skipped.backorderWithoutAvailabilityDate += 1; pushSample(samplesSkipped, { id: identifier, reason: 'backorderWithoutAvailabilityDate' }); continue; }
-    if ((av.availability === 'preorder' || av.availability === 'backorder') && !/^\d{4}-\d{2}-\d{2}T00:00-0300$/.test(String(av.availabilityDate || ''))) {
+    if ((av.availability === 'preorder' || av.availability === 'backorder') && !/^\d{4}-\d{2}-\d{2}T00:00:00-03:00$/.test(String(av.availabilityDate || ''))) {
       skipped.invalidAvailabilityDate += 1;
       pushSample(samplesSkipped, { id: identifier, reason: 'invalidAvailabilityDate', availability: av.availability, availability_date: av.availabilityDate || null });
+      continue;
+    }
+    if (!matchesFeedScope(av.availability, normalizedFeedScope)) {
+      skipped.outsideFeedScope += 1;
+      pushSample(samplesSkipped, { id: identifier, reason: 'outsideFeedScope', availability: av.availability });
       continue;
     }
 
@@ -348,6 +379,7 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
     emittedCount,
     limit: sanitizedLimit,
     offset: sanitizedOffset,
+    feedScope: normalizedFeedScope,
     skipped,
     productTypeBreakdown,
     availabilityBreakdown,
@@ -361,4 +393,4 @@ function buildMerchantFeedAudit(rows, { limit = 500, offset = 0, preorderDays = 
   };
 }
 
-module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, formatMerchantAvailabilityDate, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl };
+module.exports = { GOOGLE_CATEGORY, mapProductTypeToFeed, buildMerchantTitle, computeAvailability, formatMerchantAvailabilityDate, isEligibleState, cleanText, safeMerchantText, detectProductType, buildMerchantFeedAudit, buildMerchantFeedEntries, normalizeMerchantImageUrl, isValidFeedUrl, matchesFeedScope, normalizeFeedScope };

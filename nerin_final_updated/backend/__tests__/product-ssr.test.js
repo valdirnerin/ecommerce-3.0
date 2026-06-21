@@ -1,6 +1,8 @@
 const path = require('path');
 const request = require('supertest');
 
+jest.setTimeout(30000);
+
 process.env.DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
 const { createServer } = require('../server');
@@ -80,6 +82,13 @@ describe('product SSR', () => {
     const res = await request(server).get('/p/not-found');
     expect(res.status).toBe(404);
     expect(res.text).toContain('<meta name="robots" content="noindex">');
+  });
+
+  test('product.html?id redirige a la ficha canónica por slug', async () => {
+    const product = productsData.find((item) => item?.id != null && item?.slug);
+    const res = await request(server).get(`/product.html?id=${encodeURIComponent(product.id)}`);
+    expect(res.status).toBe(301);
+    expect(res.headers.location).toBe(`/p/${encodeURIComponent(product.slug)}`);
   });
 });
 

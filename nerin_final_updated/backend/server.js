@@ -99,6 +99,15 @@ const {
   getOrganicSeoPageConfig,
   listOrganicSeoPages,
 } = require("./utils/organicSeoPages");
+const {
+  deduplicateCatalogProducts,
+  sortCatalogProducts,
+} = require("./utils/catalogVisibility");
+const {
+  resolveCommercialBrand,
+  resolveCommercialMpn,
+  resolveCompatibleWith,
+} = require("./utils/productCommercial");
 const { readJsonFile } = require("./utils/jsonFile");
 const {
   appendEvent,
@@ -346,6 +355,7 @@ const publicSearchCache = new Map();
 const merchantFeedRuntimeCache = new Map();
 const DISK_CACHE_DIR = dataPath("cache");
 let sitemapStockCache = { t: 0, baseUrl: null, xml: null, count: 0 };
+let organicNavigationCache = { t: 0, pages: [] };
 
 function getDetailedAnalyticsTtlMs(range = "7d") {
   if (range === "today") return 60_000;
@@ -395,6 +405,7 @@ function invalidateCatalogCaches(reason = "unknown") {
   publicSearchCache.clear();
   merchantFeedRuntimeCache.clear();
   sitemapStockCache = { t: 0, baseUrl: null, xml: null, count: 0 };
+  organicNavigationCache = { t: 0, pages: [] };
   console.log(`[catalog-cache] invalidated reason=${reason}`);
 }
 const importJobs = new Map();
@@ -1530,8 +1541,9 @@ function calculateNetNoNationalTaxes(value, taxRate = 0.21) {
 }
 
 function buildProductUrl(product) {
-  if (product && typeof product.slug === "string" && product.slug.trim()) {
-    return `/p/${encodeURIComponent(product.slug.trim())}`;
+  const slug = product?.publicSlug || product?.public_slug || product?.slug;
+  if (typeof slug === "string" && slug.trim()) {
+    return `/p/${encodeURIComponent(slug.trim())}`;
   }
   const id = product?.id != null ? String(product.id) : "";
   return `/product.html?id=${encodeURIComponent(id)}`;
@@ -1927,15 +1939,20 @@ function renderProductInfoSsr(product, siteBase) {
   const description = buildFeaturePhrase(product);
   const availabilityInfo = resolveProductAvailability(product);
   const availabilityPresentation = buildAvailabilityPresentation(product);
-  const brand = normalizeTextInput(product?.brand);
+  const brand = normalizeTextInput(resolveCommercialBrand(product));
+  const compatibleWith = normalizeTextInput(resolveCompatibleWith(product)) || [normalizeTextInput(product?.brand), normalizeTextInput(product?.model)].filter(Boolean).join(" ");
   const model = normalizeTextInput(product?.model);
   const sku = normalizeTextInput(product?.sku);
+  const mpn = normalizeTextInput(resolveCommercialMpn(product));
   const category = normalizeTextInput(product?.category);
   const stockValue = typeof product?.stock === "number" ? product.stock : null;
   const technology = inferDisplayTechnology(product);
   const frame = inferHasFrame(product);
   const color = inferColor(product);
   let stockCopy = availabilityPresentation.primaryLabel || availabilityInfo.availabilityLabel || "";
+  if (availabilityPresentation.isStockReal && stockValue != null && stockValue > 0) {
+    stockCopy = `En stock real · ${stockValue} unidad${stockValue === 1 ? "" : "es"} disponible${stockValue === 1 ? "" : "s"}`;
+  }
   if (!stockCopy && stockValue != null) {
     if (stockValue <= 0) stockCopy = "Sin stock disponible";
     else if (product?.min_stock != null && stockValue < product.min_stock) {
@@ -1949,13 +1966,14 @@ function renderProductInfoSsr(product, siteBase) {
     model ? `<li><strong>Modelo:</strong> ${esc(model)}</li>` : "",
     category ? `<li><strong>Categoría:</strong> ${esc(category)}</li>` : "",
     sku ? `<li><strong>SKU:</strong> ${esc(sku)}</li>` : "",
+    mpn && mpn !== sku ? `<li><strong>MPN:</strong> ${esc(mpn)}</li>` : "",
     technology ? `<li><strong>Tecnología:</strong> ${esc(technology)}</li>` : "",
     frame ? `<li><strong>Montaje:</strong> ${esc(frame)}</li>` : "",
     color ? `<li><strong>Color:</strong> ${esc(color)}</li>` : "",
   ]
     .filter(Boolean)
     .join("");
-  const compatibility = [brand, model, sku].filter(Boolean).join(" ");
+  const compatibility = [compatibleWith || model, mpn || sku].filter(Boolean).join(" ");
   const compatibilityHtml = compatibility
     ? `<p class=\"product-compatibility\">Compatible con ${esc(compatibility)}.</p>`
     : "";
@@ -1979,13 +1997,18 @@ function renderProductInfoSsr(product, siteBase) {
   }</div>`;
   void wholesalePrice; // El precio mayorista no se renderiza en storefront público SSR.
   const trustList = [
-    "Asesoría especializada en repuestos originales y OEM.",
-    "Logística a todo el país con despachos en 24h.",
+    "Factura A/B disponible.",
+    availabilityPresentation.isStockReal ? "Despacho desde CABA y envíos a todo el país." : "Envíos a todo el país cuando el repuesto esté disponible.",
     "Garantía técnica NERIN con soporte real.",
   ]
     .map((item) => `<li>${esc(item)}</li>`)
     .join("");
   const backLink = `<p class=\"product-backlink\"><a href=\"/shop.html\">Volver al catálogo</a></p>`;
+  const whatsappText = encodeURIComponent(`Hola NERIN, quiero consultar compatibilidad de ${heading}${mpn ? ` (${mpn})` : ""}.`);
+  const purchaseActions = `<div class="product-buy-actions product-buy-actions--ssr">
+    <button type="button" class="button primary product-buy-main-cta" data-ssr-product-cta="1"${availabilityInfo.checkoutAllowed ? "" : " disabled"}>${availabilityInfo.checkoutAllowed ? "Agregar al carrito / Comprar ahora" : "Sin stock — compra desactivada"}</button>
+    <a class="button secondary" href="https://wa.me/5491130341550?text=${whatsappText}" target="_blank" rel="noopener">Consultar compatibilidad por WhatsApp</a>
+  </div>`;
   return `
     <header class=\"product-summary\">
       <h1>${esc(heading)}</h1>
@@ -2013,6 +2036,7 @@ function renderProductInfoSsr(product, siteBase) {
         ${renderAndreaniShippingSsr(availabilityPresentation)}
         <div class=\"quiet-trust-banner\">Seguimos operando normalmente. Estamos mejorando la experiencia de compra. Ante cualquier duda de compatibilidad o stock, escribinos por WhatsApp.</div>
         ${priceBlock}
+        ${purchaseActions}
         <p class=\"product-promo\">Consultá por instalación y descuentos para servicios técnicos.</p>
         ${backLink}
       </aside>
@@ -2187,18 +2211,63 @@ async function fetchOrganicProducts({ limit = 300, stockRealOnly = false } = {})
 }
 
 function sortOrganicProducts(products = []) {
-  return [...products].sort((a, b) => {
+  const sorted = [...products].sort((a, b) => {
     const seoA = computeOrganicSeoPriority(a);
     const seoB = computeOrganicSeoPriority(b);
     const stockA = Number(a.stock || 0);
     const stockB = Number(b.stock || 0);
     return seoB.priorityScore - seoA.priorityScore || stockB - stockA || String(a.name || "").localeCompare(String(b.name || ""), "es", { sensitivity: "base" });
   });
+  return deduplicateCatalogProducts(sortCatalogProducts(sorted));
 }
 
 async function getOrganicProductsForPage(pageKey, limit = 48) {
   const candidates = await fetchOrganicProducts({ limit: 800, stockRealOnly: true });
   return sortOrganicProducts(candidates.filter((product) => matchesOrganicPage(product, pageKey))).slice(0, limit);
+}
+
+async function getAvailableOrganicNavigationPages() {
+  const now = Date.now();
+  if (organicNavigationCache.t && now - organicNavigationCache.t < 5 * 60 * 1000) {
+    return organicNavigationCache.pages;
+  }
+  const pages = [];
+  try {
+    for (const config of listOrganicSeoPages()) {
+      if (!config?.key || !config?.canonicalPath) continue;
+      const products = await getOrganicProductsForPage(config.key, 1);
+      if (products.length) pages.push(config);
+    }
+  } catch (error) {
+    console.warn("[organic-navigation:unavailable]", error?.message || error);
+    return organicNavigationCache.pages || [];
+  }
+  organicNavigationCache = { t: now, pages };
+  return pages;
+}
+
+function renderOrganicNavigation(pages = []) {
+  const labels = {
+    "stock-real": "Stock real",
+    "pantallas-en-stock": "Pantallas",
+    "baterias-en-stock": "Baterías",
+    "repuestos-samsung": "Samsung",
+    "repuestos-iphone": "iPhone",
+  };
+  return pages
+    .map((page) => `<a href="${esc(page.canonicalPath)}">${esc(labels[page.key] || page.h1 || page.key)}</a>`)
+    .join("\n      ");
+}
+
+function stripUnavailableOrganicLinks(html = "", availablePages = []) {
+  const allowed = new Set(availablePages.map((page) => page.canonicalPath));
+  let next = String(html || "");
+  for (const page of listOrganicSeoPages()) {
+    if (!page?.canonicalPath || allowed.has(page.canonicalPath)) continue;
+    const escapedPath = page.canonicalPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    next = next.replace(new RegExp(`<a\\b[^>]*href=["']${escapedPath}["'][^>]*>[\\s\\S]*?<\\/a>`, "gi"), "");
+  }
+  return next;
 }
 
 function buildOrganicProductCard(product, siteBase) {
@@ -2256,7 +2325,7 @@ function renderSeoDebugBlock(payload = {}) {
   return `<section class="seo-debug" data-debug-seo="1"><h2>SEO debug</h2><pre>${esc(JSON.stringify(payload, null, 2))}</pre></section>`;
 }
 
-function renderOrganicSeoPage(config, products, siteBase, { debugSeo = false, includedInSitemap = true } = {}) {
+function renderOrganicSeoPage(config, products, siteBase, { debugSeo = false, includedInSitemap = true, navigationPages = [] } = {}) {
   const canonical = absoluteUrl(config.canonicalPath, siteBase);
   const cards = products.map((product) => buildOrganicProductCard(product, siteBase)).join("");
   const itemList = buildOrganicItemListSchema(products, siteBase, canonical);
@@ -2296,11 +2365,7 @@ function renderOrganicSeoPage(config, products, siteBase, { debugSeo = false, in
   <header class="organic-header">
     <a class="organic-header__brand" href="/">NERIN Parts</a>
     <nav aria-label="Categorias organicas">
-      <a href="/stock-real">Stock real</a>
-      <a href="/pantallas-en-stock">Pantallas</a>
-      <a href="/baterias-en-stock">Baterias</a>
-      <a href="/repuestos-samsung">Samsung</a>
-      <a href="/repuestos-iphone">iPhone</a>
+      ${renderOrganicNavigation(navigationPages)}
     </nav>
   </header>
   <main class="organic-page">
@@ -2564,11 +2629,11 @@ function buildSitemapPlan(baseUrl, products = []) {
   const siteBase = normalizeBaseUrl(baseUrl) || FALLBACK_BASE_URL;
   const generatedAt = toIsoString(new Date());
   const toAbsolute = (pathSegment) => absoluteUrl(pathSegment, siteBase);
-  const staticEntries = ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((path) => ({
+  const staticEntries = ["/", "/shop.html", "/contact.html", "/garantia.html"].map((path) => ({
     loc: toAbsolute(path), lastmod: generatedAt, changefreq: "daily", priority: path === "/" ? "1.0" : "0.8",
   }));
   const productEntries = products.filter((p)=>isProductPublic(p)).map((product)=>{
-    const slug = typeof product.slug === "string" && product.slug.trim() ? product.slug.trim() : null;
+    const slug = String(product.publicSlug || product.public_slug || product.slug || "").trim() || null;
     if (!slug) return null;
     return { loc: toAbsolute(`/p/${encodeURIComponent(slug)}`), lastmod: toIsoString(getProductLastModifiedDate(product)) || generatedAt, changefreq: "weekly", priority: "0.8" };
   }).filter(Boolean);
@@ -2584,7 +2649,6 @@ function buildSitemapXml(baseUrl, products = []) {
   const staticPages = [
     { path: "/", changefreq: "daily", priority: "1.0" },
     { path: "/shop.html", changefreq: "daily", priority: "0.9" },
-    { path: "/shop", changefreq: "daily", priority: "0.9" },
     { path: "/contact.html", changefreq: "monthly", priority: "0.5" },
     { path: "/garantia.html", changefreq: "monthly", priority: "0.4" },
   ];
@@ -2601,10 +2665,7 @@ function buildSitemapXml(baseUrl, products = []) {
   const productUrls = products
     .filter((product) => isProductPublic(product))
     .map((product) => {
-      const slug =
-        typeof product.slug === "string" && product.slug.trim()
-          ? product.slug.trim()
-          : null;
+      const slug = String(product.publicSlug || product.public_slug || product.slug || "").trim() || null;
       if (!slug) return null;
       const pathSegment = `/p/${encodeURIComponent(slug)}`;
       const lastModifiedDate = getProductLastModifiedDate(product);
@@ -7467,11 +7528,11 @@ function sitemapLog(stage, details = {}) {
 }
 
 function buildStaticSitemapEntries(base, generatedAt) {
-  return ["/", "/shop.html", "/shop", "/contact.html", "/garantia.html"].map((pathSegment) => ({
+  return ["/", "/shop.html", "/contact.html", "/garantia.html"].map((pathSegment) => ({
     loc: absoluteUrl(pathSegment, base),
     lastmod: generatedAt,
-    changefreq: pathSegment === "/" || pathSegment === "/shop.html" || pathSegment === "/shop" ? "daily" : "monthly",
-    priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" || pathSegment === "/shop" ? "0.9" : "0.5",
+    changefreq: pathSegment === "/" || pathSegment === "/shop.html" ? "daily" : "monthly",
+    priority: pathSegment === "/" ? "1.0" : pathSegment === "/shop.html" ? "0.9" : "0.5",
   }));
 }
 
@@ -14451,7 +14512,7 @@ async function requestHandler(req, res) {
   }
 
 
-  if ((pathname === "/merchant-feed.tsv" || pathname === "/merchant-feed-sample.tsv" || pathname === "/merchant-feed-debug.json") && req.method === "GET") {
+  if ((pathname === "/merchant-feed.tsv" || pathname === "/merchant-feed-stock-real.tsv" || pathname === "/merchant-feed-preorder.tsv" || pathname === "/merchant-feed-sample.tsv" || pathname === "/merchant-feed-debug.json") && req.method === "GET") {
     const startedAt = Date.now();
     const cfg = getConfig();
     const feedEnabled = String(process.env.MERCHANT_FEED_ENABLED || 'true').toLowerCase() !== 'false';
@@ -14460,6 +14521,9 @@ async function requestHandler(req, res) {
     const baseUrl = 'https://nerinparts.com.ar';
     const defaultLimit = 500;
     const isSample = pathname === "/merchant-feed-sample.tsv";
+    const feedScope = pathname === "/merchant-feed-preorder.tsv" || (pathname === "/merchant-feed-debug.json" && String(parsedUrl.query?.scope || "").toLowerCase() === "preorder")
+      ? "preorder"
+      : "in_stock";
     const emittedLimit = Math.max(1, Number(parsedUrl.query?.limit || process.env.MERCHANT_FEED_LIMIT || (isSample ? 100 : defaultLimit)) || defaultLimit);
     const emittedOffset = Math.max(0, Number(parsedUrl.query?.offset || process.env.MERCHANT_FEED_OFFSET || 0) || 0);
     const preorderDays = Math.max(1, Number(process.env.MERCHANT_PREORDER_DAYS || 30) || 30);
@@ -14468,6 +14532,7 @@ async function requestHandler(req, res) {
       offset: emittedOffset,
       preorderDays,
       baseUrl,
+      feedScope,
     });
     if (pathname !== "/merchant-feed-debug.json") {
       const cachedFeed = getCacheEntry(merchantFeedRuntimeCache, feedCacheKey, MERCHANT_FEED_CACHE_MS);
@@ -14523,12 +14588,14 @@ async function requestHandler(req, res) {
         }
       }
       const selectSql = `SELECT ${selectedColumns.join(',')} FROM products ORDER BY rowid ASC LIMIT ? OFFSET ?`;
-      allRows = await sqliteAll(dbConn, selectSql, [emittedLimit + emittedOffset + 2000, 0]);
+      const scanLimit = Math.max(emittedLimit + emittedOffset + 2000, Math.min(100000, Number(process.env.MERCHANT_FEED_SCAN_LIMIT || 50000) || 50000));
+      allRows = await sqliteAll(dbConn, selectSql, [scanLimit, 0]);
       const feedPayload = buildMerchantFeedEntries(allRows, {
         limit: emittedLimit,
         offset: emittedOffset,
         preorderDays,
         baseUrl,
+        feedScope,
       });
       const entries = feedPayload.entries;
       eligibleCount = feedPayload.audit.eligibleCount;
@@ -14583,6 +14650,7 @@ async function requestHandler(req, res) {
         baseUrl,
         totalCatalogProducts,
         publicProductsCount,
+        feedScope,
       });
       return sendJson(res, 200, audit);
     }
@@ -14729,15 +14797,18 @@ async function requestHandler(req, res) {
       return;
     }
     const products = await getOrganicProductsForPage(config.key, 48);
+    const navigationPages = await getAvailableOrganicNavigationPages();
     if (!products.length) {
-      const html = `<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="robots" content="noindex,follow"><title>${esc(config.h1)} | Sin productos disponibles</title></head><body><main><h1>${esc(config.h1)}</h1><p>No hay productos en stock real para esta pagina en este momento.</p></main></body></html>`;
-      res.writeHead(404, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      const canonical = absoluteUrl(config.canonicalPath, siteBase);
+      const html = `<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,follow"><link rel="canonical" href="${esc(canonical)}"><title>${esc(config.h1)} | Sin productos disponibles</title><link rel="stylesheet" href="/style.css?v=organic-seo"></head><body><header class="organic-header"><a class="organic-header__brand" href="/">NERIN Parts</a><nav aria-label="Categorias organicas">${renderOrganicNavigation(navigationPages)}</nav></header><main class="organic-page"><h1>${esc(config.h1)}</h1><p>No hay productos con stock real en esta categoría en este momento.</p><p><a class="button primary" href="/stock-real">Ver todos los productos con stock real</a> <a class="button secondary" href="https://wa.me/5491130341550?text=Hola%20NERIN%2C%20quiero%20consultar%20disponibilidad">Consultar disponibilidad por WhatsApp</a></p></main></body></html>`;
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=300" });
       res.end(html);
       return;
     }
     const html = renderOrganicSeoPage(config, products, siteBase, {
       debugSeo: parsedUrl.query?.debugSeo === "1",
       includedInSitemap: true,
+      navigationPages,
     });
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=600" });
     res.end(html);
@@ -14836,6 +14907,34 @@ async function requestHandler(req, res) {
     return;
   }
 
+  // La URL histórica no compite con la ficha canónica.
+  if (pathname === "/product.html" && req.method === "GET" && parsedUrl.query?.id) {
+    const identifier = String(parsedUrl.query.id).trim();
+    let legacyProduct = null;
+    try {
+      const found = await productsSqliteRepo.getProductByPublicSlugOrAnyIdentifier(identifier);
+      legacyProduct = found?.product || null;
+    } catch (error) {
+      console.warn("[product-legacy-redirect:sqlite-error]", error?.message || error);
+    }
+    if (!legacyProduct) {
+      legacyProduct = await productsStreamRepo.getProductById(identifier, { filePath: PRODUCTS_FILE_PATH });
+    }
+    const canonicalSlug = legacyProduct?.publicSlug || legacyProduct?.public_slug || legacyProduct?.slug;
+    if (canonicalSlug) {
+      res.writeHead(301, {
+        Location: `/p/${encodeURIComponent(String(canonicalSlug).trim())}`,
+        "Cache-Control": "public, max-age=86400",
+      });
+      res.end();
+      return;
+    }
+    const html = '<!doctype html><html lang="es-AR"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>Producto no encontrado</title></head><body><main><h1>Producto no encontrado</h1></main></body></html>';
+    res.writeHead(404, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(html);
+    return;
+  }
+
   // SSR de productos
   if (pathname.startsWith("/p/") && req.method === "GET") {
     // Decodificar slug con guardas para evitar URIError (e.g. /p/%E0)
@@ -14907,10 +15006,9 @@ async function requestHandler(req, res) {
     const primaryAlt = normalizedAlts[0] || defaultAlt;
     const availabilityInfo = resolveProductAvailability(product);
     const availability = availabilityInfo.seoAvailability;
-    const brandName =
-      typeof product.brand === "string" && product.brand.trim()
-        ? product.brand.trim()
-        : "NERIN Parts";
+    const brandName = resolveCommercialBrand(product);
+    const mpnValue = resolveCommercialMpn(product);
+    const compatibleWith = resolveCompatibleWith(product);
     const skuValue =
       typeof product.sku === "string" && product.sku.trim()
         ? product.sku.trim()
@@ -14924,7 +15022,7 @@ async function requestHandler(req, res) {
       ? numericPrice.toFixed(2)
       : "0.00";
     const organicSeo = computeOrganicSeoPriority(product);
-    const seoTitle = organicSeo.seoTitle || productSeo.title || buildProductSeoTitle(product);
+    const seoTitle = productSeo.title || organicSeo.seoTitle || buildProductSeoTitle(product);
     const description = organicSeo.seoDescription || productSeo.description || buildProductMetaDescription(product);
     const h1 = buildProductHeading(product);
     const ld = {
@@ -14933,9 +15031,13 @@ async function requestHandler(req, res) {
       name: h1,
       ...(imageList.length ? { image: imageList } : {}),
       ...(description ? { description } : descriptionValue ? { description: descriptionValue } : {}),
-      ...(skuValue ? { sku: skuValue, mpn: skuValue } : {}),
+      ...(skuValue ? { sku: skuValue } : {}),
+      ...(mpnValue ? { mpn: mpnValue } : {}),
       ...(brandName
         ? { brand: { "@type": "Brand", name: brandName } }
+        : {}),
+      ...(compatibleWith
+        ? { additionalProperty: [{ "@type": "PropertyValue", name: "Compatible con", value: compatibleWith }] }
         : {}),
       offers: {
         "@type": "Offer",
@@ -15057,6 +15159,20 @@ async function requestHandler(req, res) {
     return;
   }
 
+  // Home SEO-aware: no enlaza landings vacías, pero las vuelve a mostrar
+  // automáticamente cuando aparece stock real elegible.
+  if ((pathname === "/" || pathname === "/index.html") && req.method === "GET") {
+    const availablePages = await getAvailableOrganicNavigationPages();
+    const template = await fsp.readFile(path.join(__dirname, "../frontend/index.html"), "utf8");
+    const html = stripUnavailableOrganicLinks(template, availablePages);
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+    });
+    res.end(html);
+    return;
+  }
+
   // SSR del catalogo
   if (
     (pathname === "/shop.html" || pathname === "/shop" || pathname === "/shop/") &&
@@ -15104,6 +15220,7 @@ async function requestHandler(req, res) {
     });
     const hydratedHead = applyShopSeoHead(replaceBasePlaceholders(templateHead, siteBase), seo);
     let hydratedBody = replaceBasePlaceholders(templateBody, siteBase);
+    hydratedBody = stripUnavailableOrganicLinks(hydratedBody, await getAvailableOrganicNavigationPages());
     hydratedBody = hydratedBody.replace(
       /<div\s+id=\"productGrid\"[^>]*>\s*<\/div>/i,
       '<div id="productGrid" class="product-grid premium-grid" role="list">' + listing + '</div>',

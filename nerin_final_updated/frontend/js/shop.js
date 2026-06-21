@@ -1,7 +1,7 @@
 import { fetchProductsPage, getUserRole, isWholesale } from "./api.js";
 import { createPriceLegalBlock } from "./components/PriceLegalBlock.js";
 import { calculateNetNoNationalTaxes } from "./utils/pricing.js";
-import { buildAvailabilityPresentation } from "./availability.js";
+import { buildAvailabilityPresentation } from "./availability.js?v=seo-stock-real-20260621-v3";
 import { buildCartItemFromProduct, readCart, writeCart } from "./cart-utils.js";
 import { trackAddToCart, trackSearch, trackSelectItem, trackStockRealAddToCart, trackViewItemList } from "./analytics.js";
 
@@ -109,6 +109,33 @@ let totalFilteredItems = 0;
 let hasRealCatalogResponse = false;
 let latestRequestId = 0;
 let filtersInitialized = false;
+
+function normalizeProductIdentity(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function deduplicateVisibleProducts(products = []) {
+  const seen = new Set();
+  return products.filter((product) => {
+    const keys = [
+      ["mpn", product.mpn || product.part_number],
+      ["sku", product.sku || product.code],
+      ["slug", product.publicSlug || product.public_slug || product.slug],
+      ["title", product.name || product.title],
+    ].map(([type, value]) => {
+      const normalized = normalizeProductIdentity(value);
+      return normalized ? `${type}:${normalized}` : "";
+    }).filter(Boolean);
+    if (keys.some((key) => seen.has(key))) return false;
+    keys.forEach((key) => seen.add(key));
+    return true;
+  });
+}
 let productsAbortController = null;
 let searchDebounceTimer = null;
 let priceDebounceTimer = null;
@@ -220,9 +247,14 @@ function getFulfillmentMode(product) {
   if (explicitMode === "remote" || explicitMode === "remoto") return "remote";
   if (explicitMode === "physical" || explicitMode === "fisico" || explicitMode === "físico") return "physical";
 
+  const stockStatus = cleanLabel(product.stock_status || product.stockStatus || product.availability || "").toLowerCase();
+  if (stockStatus === "preorder" || stockStatus === "backorder") return "remote";
+  if (stockStatus === "in_stock" || stockStatus === "out_of_stock") return "physical";
+
   if (Number(product.remote_stock) > 0 || Number(product.remote_lead_days) > 0) return "remote";
 
   const stock = resolveStockQuantity(product);
+  if (Number.isFinite(stock) && stock > 0) return "physical";
   const textSignals = [product.name, product.description, product.category, product.subcategory]
     .filter(Boolean)
     .join(" ")
@@ -1022,7 +1054,7 @@ async function renderProducts({ page = currentProductsPage, scrollToTop = false 
     .map(normalizeStorefrontProduct)
     .map(sanitizePublicProduct)
     .filter(Boolean);
-  const filteredItems = normalizedItems;
+  const filteredItems = deduplicateVisibleProducts(normalizedItems);
 
   if (!filtersInitialized) {
     populateFilters(normalizedItems);

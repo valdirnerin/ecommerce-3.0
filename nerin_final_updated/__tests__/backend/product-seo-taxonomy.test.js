@@ -50,7 +50,34 @@ describe("product SEO taxonomy", () => {
   });
 
   test("pressing jig display is repair tool", () => {
-    expect(detectProductType({ name: "Pressing jig display" })).toBe("Herramienta / accesorio tecnico");
+    expect(detectProductType({ name: "Pressing jig display" })).toBe("Herramienta / accesorio técnico");
+  });
+
+  test("genera titulo comercial para Service Pack Samsung", () => {
+    const product = {
+      name: "Display (Original) - Grey, Samsung Galaxy S23; SM-S911B",
+      description: "Display (Original) - Grey, Samsung Galaxy S23; SM-S911B",
+      brand: "Samsung",
+      model: "Galaxy S23 SM-S911B",
+      quality: "Original",
+      mpn: "GH82-30480E",
+    };
+    expect(generateProductSeo(product).title).toBe("Pantalla original Samsung Galaxy S23 SM-S911B Gris Service Pack GH82-30480E | NERIN Parts");
+  });
+
+  test("un compatible no se presenta como original Samsung", () => {
+    const product = {
+      name: "Display incl. frame Compatible soft For Samsung Galaxy S22 Plus - Black",
+      description: "Display incl. frame Compatible soft For Samsung Galaxy S22 Plus - Black",
+      brand: "Samsung",
+      model: "Galaxy S22 Plus",
+      quality: "Compatible soft",
+      color: "Black",
+    };
+    const title = generateProductSeo(product).title;
+    expect(title).toContain("Pantalla compatible");
+    expect(title).toContain("Samsung Galaxy S22 Plus");
+    expect(title).not.toMatch(/original Samsung/i);
   });
 
   test("battery is battery", () => {
